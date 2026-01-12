@@ -79,5 +79,41 @@ export default {
     aiModeConfig: 'AI Mode Configuration',
     scheduledTaskConfig: 'Scheduled Task Configuration',
     difyConfig: 'Dify Configuration'
+  },
+  report: {
+    // Filters
+    selectProject: 'Select Project',
+    recentDays: 'Last 7 Days',
+    recent30Days: 'Last 30 Days',
+    recent90Days: 'Last 90 Days',
+    customRange: 'Custom Range',
+    exportReport: 'Export Report',
+
+    // Stats Cards
+    testPlan: 'Test Plan',
+    progress: 'Progress',
+    totalCases: 'Total Cases',
+    passRate: 'Pass Rate',
+    failedCases: 'Failed Cases',
+
+    // Chart Titles
+    executionStatusDistribution: 'Execution Status Distribution',
+    dailyExecutionTrend: 'Daily Execution Trend',
+    failureDistribution: 'Failed Cases Priority Distribution (Defect Distribution)',
+    failureTop10: 'Failed Cases TOP 10',
+    aiEffectivenessAnalysis: 'AI Generation Effectiveness Analysis',
+    teamWorkload: 'Team Workload Statistics',
+
+    // Status
+    passed: 'Passed',
+    failed: 'Failed',
+    blocked: 'Blocked',
+    retest: 'Retest',
+    untested: 'Untested',
+
+    // Others
+    noData: 'No Data',
+    caseTitle: 'Case Title',
+    failureCount: 'Failure Count'
   }
 }

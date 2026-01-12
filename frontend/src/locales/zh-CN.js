@@ -79,5 +79,41 @@ export default {
     aiModeConfig: 'AI智能模式配置',
     scheduledTaskConfig: '定时任务配置',
     difyConfig: 'AI评测师配置'
+  },
+  report: {
+    // 筛选
+    selectProject: '选择项目',
+    recentDays: '最近7天',
+    recent30Days: '最近30天',
+    recent90Days: '最近90天',
+    customRange: '自定义范围',
+    exportReport: '导出报告',
+
+    // 统计卡片
+    testPlan: '测试计划',
+    progress: '进度',
+    totalCases: '用例总数',
+    passRate: '通过率',
+    failedCases: '失败用例',
+
+    // 图表标题
+    executionStatusDistribution: '执行状态分布',
+    dailyExecutionTrend: '每日执行趋势',
+    failureDistribution: '失败用例优先级分布（缺陷分布）',
+    failureTop10: '失败用例 TOP 10',
+    aiEffectivenessAnalysis: 'AI生成效能分析',
+    teamWorkload: '团队工作量统计',
+
+    // 状态
+    passed: '通过',
+    failed: '失败',
+    blocked: '阻塞',
+    retest: '重测',
+    untested: '未测',
+
+    // 其他
+    noData: 'No Data',
+    caseTitle: '用例标题',
+    failureCount: '失败次数'
   }
 }
