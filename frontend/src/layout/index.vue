@@ -202,14 +202,18 @@
               <!-- 语言切换 -->
               <el-dropdown @command="handleLanguageChange" class="language-dropdown">
                 <span class="language-selector">
-                  <el-icon><Notification /></el-icon>
+                  <span class="language-flag">{{ locale === 'zh-CN' ? '🇨🇳' : '🇺🇸' }}</span>
                   <span>{{ currentLanguage }}</span>
                   <el-icon class="el-icon--right"><ArrowDown /></el-icon>
                 </span>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item command="zh-CN">简体中文</el-dropdown-item>
-                    <el-dropdown-item command="en-US">English</el-dropdown-item>
+                    <el-dropdown-item command="zh-CN" :disabled="locale === 'zh-CN'">
+                      <span class="dropdown-flag">🇨🇳</span> 简体中文
+                    </el-dropdown-item>
+                    <el-dropdown-item command="en-US" :disabled="locale === 'en-US'">
+                      <span class="dropdown-flag">🇺🇸</span> English
+                    </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -250,7 +254,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, Notification
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -442,6 +446,17 @@ const handleCommand = (command) => {
       cursor: pointer;
       color: #303133;
       font-size: 14px;
+      outline: none;
+
+      &:focus {
+        outline: none;
+      }
+
+      .language-flag {
+        font-size: 18px;
+        margin-right: 5px;
+        line-height: 1;
+      }
 
       span {
         margin: 0 4px;
@@ -451,6 +466,11 @@ const handleCommand = (command) => {
         color: #1890ff;
       }
     }
+  }
+
+  .dropdown-flag {
+    font-size: 16px;
+    margin-right: 5px;
   }
 
   .user-dropdown {
