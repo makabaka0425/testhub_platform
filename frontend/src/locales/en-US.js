@@ -115,5 +115,155 @@ export default {
     noData: 'No Data',
     caseTitle: 'Case Title',
     failureCount: 'Failure Count'
+  },
+  auth: {
+    // Login page
+    welcomeBack: 'Welcome Back',
+    loginSubtitle: 'Sign in to continue with the all-in-one intelligent testing platform',
+    usernamePlaceholder: 'Enter username',
+    passwordPlaceholder: 'Enter password',
+    login: 'Login',
+    loggingIn: 'Logging in...',
+    noAccount: "Don't have an account? ",
+    signUpNow: 'Sign up now',
+    loginSuccess: 'Login successful',
+    loginFailed: 'Login failed',
+
+    // Register page
+    registerTitle: 'Register TestHub',
+    registerSubtitle: 'Create your test management account',
+    username: 'Username',
+    email: 'Email',
+    firstName: 'First Name',
+    lastName: 'Last Name',
+    password: 'Password',
+    confirmPassword: 'Confirm Password',
+    department: 'Department',
+    position: 'Position',
+    register: 'Register',
+    hasAccount: 'Already have an account? Login now',
+    registerSuccess: 'Registration successful, please login',
+    registerFailed: 'Registration failed',
+
+    // Features
+    aiCaseGeneration: 'AI Case Generation',
+    aiCaseGenerationDesc: 'Auto-generate test cases from natural language',
+    aiIntelligentTesting: 'AI Intelligent Testing',
+    aiIntelligentTestingDesc: 'Intelligently analyze requirements and automate testing',
+    multiTypeTesting: 'Multi-Type Testing',
+    multiTypeTestingDesc: 'Support API and UI automation testing',
+    dataAnalysis: 'Data Analysis',
+    dataAnalysisDesc: 'Real-time monitoring of test coverage and quality metrics',
+    automatedExecution: 'Automated Execution',
+    scheduledTasks: 'Scheduled Tasks',
+
+    // Validation messages
+    usernameRequired: 'Please enter username',
+    usernameLength: 'Username length must be between 3 and 20 characters',
+    emailRequired: 'Please enter email',
+    emailFormat: 'Please enter a valid email',
+    passwordRequired: 'Please enter password',
+    passwordLength: 'Password must be at least 6 characters',
+    confirmPasswordRequired: 'Please confirm password',
+    passwordMismatch: 'Passwords do not match',
+
+    // Copyright
+    copyright: '© 2024 TestHub. All rights reserved.'
+  },
+  project: {
+    // List page
+    projectManagement: 'Project Management',
+    newProject: 'New Project',
+    searchPlaceholder: 'Search project name',
+    statusFilter: 'Status Filter',
+    projectName: 'Project Name',
+    description: 'Description',
+    status: 'Status',
+    owner: 'Owner',
+    createdAt: 'Created At',
+    actions: 'Actions',
+
+    // Status
+    active: 'Active',
+    paused: 'Paused',
+    completed: 'Completed',
+    archived: 'Archived',
+
+    // Dialog
+    editProject: 'Edit Project',
+    createProject: 'New Project',
+    projectNamePlaceholder: 'Enter project name',
+    projectDescription: 'Project Description',
+    projectDescriptionPlaceholder: 'Enter project description',
+    selectStatus: 'Select status',
+    update: 'Update',
+    create: 'Create',
+
+    // Validation
+    projectNameRequired: 'Please enter project name',
+    projectNameLength: 'Project name length must be between 2 and 200 characters',
+    projectStatusRequired: 'Please select project status',
+
+    // Messages
+    fetchListFailed: 'Failed to fetch project list',
+    updateSuccess: 'Project updated successfully',
+    createSuccess: 'Project created successfully',
+    updateFailed: 'Failed to update project',
+    createFailed: 'Failed to create project',
+    deleteConfirm: 'Are you sure to delete this project?',
+    deleteSuccess: 'Project deleted successfully',
+    deleteFailed: 'Failed to delete project',
+
+    // Detail page
+    projectDetail: 'Project Details',
+    projectInfo: 'Project Info',
+    noDescription: 'No description',
+    projectMembers: 'Project Members',
+    addMember: 'Add Member',
+    username: 'Username',
+    email: 'Email',
+    role: 'Role',
+    joinedAt: 'Joined At',
+    removeMember: 'Remove',
+    environments: 'Environments',
+    addEnvironment: 'Add Environment',
+    environmentName: 'Environment Name',
+    baseUrl: 'Base URL',
+    defaultEnvironment: 'Default Environment',
+    yes: 'Yes',
+    no: 'No',
+    fetchDetailFailed: 'Failed to fetch project details',
+    memberDeleteSuccess: 'Member deleted successfully',
+    memberDeleteFailed: 'Failed to delete member'
+  },
+  home: {
+    // Header
+    user: 'User',
+    logout: 'Logout',
+    logoutConfirm: 'Are you sure to logout?',
+    logoutSuccess: 'Logged out successfully',
+
+    // Title
+    title: 'TestHub Testing Platform',
+    subtitle: 'All-in-One Intelligent Testing Solution',
+
+    // Cards
+    aiCaseGeneration: 'AI Case Generation',
+    aiCaseGenerationDesc: 'Intelligently analyze requirements, auto-generate test cases',
+    apiTesting: 'API Testing',
+    apiTestingDesc: 'Efficient API automation testing and management',
+    uiAutomation: 'UI Automation Testing',
+    uiAutomationDesc: 'Visual Web/App UI automation testing',
+    dataFactory: 'Data Factory',
+    dataFactoryDesc: 'Flexible test data construction and management',
+    aiIntelligentMode: 'AI Intelligent Mode',
+    aiIntelligentModeDesc: 'Natural language-based intelligent test execution',
+    aiEvaluator: 'AI Evaluator',
+    aiEvaluatorDesc: 'Professional software testing Q&A based on evaluator knowledge base',
+    configCenter: 'Configuration Center',
+    configCenterDesc: 'System environment, AI model and notification configuration',
+
+    // Messages
+    featureInDevelopment: 'Feature is under development......'
   }
 }

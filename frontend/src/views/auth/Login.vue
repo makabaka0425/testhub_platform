@@ -37,14 +37,14 @@
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            <span>AI用例生成</span>
+            <span>{{ $t('auth.aiCaseGeneration') }}</span>
           </div>
           <div class="capability-badge">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
               <path d="M12 6V12L16 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
-            <span>AI智能测试</span>
+            <span>{{ $t('auth.aiIntelligentTesting') }}</span>
           </div>
           <div class="capability-badge">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -52,7 +52,7 @@
               <path d="M3 9H21" stroke="currentColor" stroke-width="2"/>
               <path d="M9 21V9" stroke="currentColor" stroke-width="2"/>
             </svg>
-            <span>自动化执行</span>
+            <span>{{ $t('auth.automatedExecution') }}</span>
           </div>
           <div class="capability-badge">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -63,7 +63,7 @@
               <path d="M12 12L16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
               <path d="M12 12L8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
-            <span>定时任务</span>
+            <span>{{ $t('auth.scheduledTasks') }}</span>
           </div>
         </div>
       </div>
@@ -81,8 +81,8 @@
     <div class="login-section">
       <div class="login-form-wrapper">
         <div class="form-header">
-          <h2>欢迎回来</h2>
-          <p>登录以继续使用一站式智能化测试平台</p>
+          <h2>{{ $t('auth.welcomeBack') }}</h2>
+          <p>{{ $t('auth.loginSubtitle') }}</p>
         </div>
 
         <el-form
@@ -95,7 +95,7 @@
           <el-form-item prop="username">
             <el-input
               v-model="form.username"
-              placeholder="请输入用户名"
+              :placeholder="$t('auth.usernamePlaceholder')"
               size="large"
               :prefix-icon="User"
             />
@@ -105,7 +105,7 @@
             <el-input
               v-model="form.password"
               type="password"
-              placeholder="请输入密码"
+              :placeholder="$t('auth.passwordPlaceholder')"
               size="large"
               :prefix-icon="Lock"
               show-password
@@ -121,21 +121,21 @@
               @click="handleLogin"
               class="login-button"
             >
-              <span v-if="!loading">登录</span>
-              <span v-else>登录中...</span>
+              <span v-if="!loading">{{ $t('auth.login') }}</span>
+              <span v-else>{{ $t('auth.loggingIn') }}</span>
             </el-button>
           </el-form-item>
 
           <div class="form-footer">
             <router-link to="/register" class="register-link">
-              还没有账号？<span>立即注册</span>
+              {{ $t('auth.noAccount') }}<span>{{ $t('auth.signUpNow') }}</span>
             </router-link>
           </div>
         </el-form>
 
         <!-- 底部信息 -->
         <div class="bottom-info">
-          <p>© 2024 TestHub. All rights reserved.</p>
+          <p>{{ $t('auth.copyright') }}</p>
         </div>
       </div>
     </div>
@@ -143,14 +143,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, h } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Document, MagicStick, Connection, TrendCharts } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const userStore = useUserStore()
+const { t } = useI18n()
 const formRef = ref()
 const loading = ref(false)
 
@@ -161,41 +163,41 @@ const form = reactive({
 
 const rules = {
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' }
+    { required: true, message: computed(() => t('auth.usernameRequired')), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码长度不能少于6位', trigger: 'blur' }
+    { required: true, message: computed(() => t('auth.passwordRequired')), trigger: 'blur' },
+    { min: 6, message: computed(() => t('auth.passwordLength')), trigger: 'blur' }
   ]
 }
 
 // 特性数据
-const features = [
+const features = computed(() => [
   {
     icon: Document,
-    title: 'AI用例生成',
-    description: '基于自然语言自动生成测试用例',
+    title: t('auth.aiCaseGeneration'),
+    description: t('auth.aiCaseGenerationDesc'),
     color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
   },
   {
     icon: MagicStick,
-    title: 'AI智能测试',
-    description: '智能分析需求，自动化执行测试',
+    title: t('auth.aiIntelligentTesting'),
+    description: t('auth.aiIntelligentTestingDesc'),
     color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
   },
   {
     icon: Connection,
-    title: '多类型测试',
-    description: '支持接口、UI自动化测试',
+    title: t('auth.multiTypeTesting'),
+    description: t('auth.multiTypeTestingDesc'),
     color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
   },
   {
     icon: TrendCharts,
-    title: '数据分析',
-    description: '实时监控测试覆盖率与质量指标',
+    title: t('auth.dataAnalysis'),
+    description: t('auth.dataAnalysisDesc'),
     color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
   }
-]
+])
 
 const handleLogin = async () => {
   if (!formRef.value) return
@@ -213,7 +215,7 @@ const handleLogin = async () => {
           isAuthenticated: userStore.isAuthenticated
         })
 
-        ElMessage.success('登录成功')
+        ElMessage.success(t('auth.loginSuccess'))
         console.log('准备跳转到 /home')
 
         // 使用replace而不是push，避免返回登录页
@@ -222,7 +224,7 @@ const handleLogin = async () => {
 
       } catch (error) {
         console.error('登录失败:', error)
-        ElMessage.error(error.response?.data?.error || '登录失败')
+        ElMessage.error(error.response?.data?.error || t('auth.loginFailed'))
       } finally {
         loading.value = false
       }
