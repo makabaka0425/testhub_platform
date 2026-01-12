@@ -2,6 +2,24 @@
   <div class="home-container">
     <div class="content-wrapper">
       <div class="header-actions">
+        <el-dropdown @command="handleLanguageChange" class="language-dropdown">
+          <span class="el-dropdown-link">
+            <span class="language-icon">{{ currentLanguage === 'zh-CN' ? '🇨🇳' : '🇺🇸' }}</span>
+            <span class="language-text">{{ currentLanguage === 'zh-CN' ? '中文' : 'English' }}</span>
+            <el-icon class="el-icon--right"><arrow-down /></el-icon>
+          </span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="zh-CN" :disabled="currentLanguage === 'zh-CN'">
+                <span class="dropdown-flag">🇨🇳</span> 简体中文
+              </el-dropdown-item>
+              <el-dropdown-item command="en-US" :disabled="currentLanguage === 'en-US'">
+                <span class="dropdown-flag">🇺🇸</span> English
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+
         <el-dropdown @command="handleCommand">
           <span class="el-dropdown-link">
             <el-avatar :size="32" :icon="UserFilled" />
@@ -84,6 +102,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/stores/user'
@@ -91,8 +110,20 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Link, Monitor, DataLine, Cpu, Setting, ChatDotRound, UserFilled, ArrowDown } from '@element-plus/icons-vue'
 
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const userStore = useUserStore()
+
+// 当前语言
+const currentLanguage = computed(() => locale.value)
+
+// 语言切换
+const handleLanguageChange = (lang) => {
+  locale.value = lang
+  localStorage.setItem('language', lang)
+
+  // 刷新页面以更新 Element Plus 的语言
+  window.location.reload()
+}
 
 const handleCommand = (command) => {
   if (command === 'logout') {
@@ -156,22 +187,66 @@ const handleNavigate = (type) => {
   top: 0;
   right: 0;
   padding: 10px;
-  
+  display: flex;
+  align-items: center;
+  gap: 20px;
+
+  .language-dropdown {
+    .el-dropdown-link {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      color: #5e6d82;
+      transition: color 0.3s;
+      outline: none;
+
+      &:focus {
+        outline: none;
+      }
+
+      .language-icon {
+        font-size: 18px;
+        margin-right: 5px;
+        line-height: 1;
+      }
+
+      .language-text {
+        margin: 0 5px;
+        font-size: 14px;
+      }
+
+      &:hover {
+        color: #409eff;
+      }
+    }
+  }
+
   .el-dropdown-link {
     display: flex;
     align-items: center;
     cursor: pointer;
     color: #5e6d82;
-    
+    transition: color 0.3s;
+    outline: none;
+
+    &:focus {
+      outline: none;
+    }
+
     .username {
       margin: 0 8px;
       font-size: 14px;
     }
-    
+
     &:hover {
       color: #409eff;
     }
   }
+}
+
+.dropdown-flag {
+  font-size: 16px;
+  margin-right: 5px;
 }
 
 .main-title {
