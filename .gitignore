@@ -6,6 +6,7 @@
 __pycache__/
 .DS_Store
 .pytest_cache
+备注笔记.txt
 
 # 忽略log文件
 logs/*
