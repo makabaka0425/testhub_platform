@@ -801,7 +801,7 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
 class AICaseSerializer(serializers.ModelSerializer):
     project = UiProjectSerializer(read_only=True)
     created_by = UserSerializer(read_only=True)
-    project_id = serializers.IntegerField(write_only=True)
+    project_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = AICase
