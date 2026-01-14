@@ -353,6 +353,7 @@ const handleCommand = (command) => {
   h2 {
     margin: 0;
     font-weight: 600;
+    font-size: 20px;
   }
 }
 
@@ -362,6 +363,8 @@ const handleCommand = (command) => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 0.3s ease;
+  width: 240px !important;
 
   .el-menu {
     flex: 1;
@@ -370,12 +373,32 @@ const handleCommand = (command) => {
     border-right: none;
     
     &::-webkit-scrollbar {
-      width: 0; /* 隐藏侧边栏滚动条但保留功能 */
+      width: 0;
     }
   }
 }
 
-/* 内部容器 (Header + Main) */
+.el-menu {
+  :deep(.el-sub-menu__title),
+  :deep(.el-menu-item) {
+    font-size: 14px;
+  }
+}
+
+.el-menu--collapse {
+  width: 64px !important;
+  
+  :deep(.el-sub-menu__title),
+  :deep(.el-menu-item) {
+    padding-left: 20px !important;
+  }
+  
+  :deep(.el-sub-menu__title span),
+  :deep(.el-menu-item span) {
+    display: none;
+  }
+}
+
 .el-container .el-container {
   height: 100%;
   overflow: hidden;
@@ -388,6 +411,7 @@ const handleCommand = (command) => {
   border-bottom: 1px solid #e8e8e8;
   padding: 0;
   flex-shrink: 0;
+  height: 60px !important;
 
   .header-content {
     height: 100%;
@@ -397,14 +421,25 @@ const handleCommand = (command) => {
     padding: 0 20px;
   }
 
+  .header-left {
+    flex: 1;
+    overflow: hidden;
+    
+    :deep(.el-breadcrumb) {
+      font-size: 14px;
+    }
+  }
+
   .user-info {
     display: flex;
     align-items: center;
     cursor: pointer;
+    white-space: nowrap;
 
     .username {
       margin: 0 8px;
       color: #303133;
+      font-size: 14px;
     }
   }
 }
@@ -413,7 +448,221 @@ const handleCommand = (command) => {
   background-color: #f5f5f5;
   padding: 20px;
   flex: 1;
-  overflow-y: auto; /* 内容区域独立滚动 */
+  overflow-y: auto;
   overflow-x: hidden;
+}
+
+@media screen and (max-width: 1920px) {
+  .el-aside {
+    width: 220px !important;
+  }
+  
+  .el-main {
+    padding: 18px;
+  }
+  
+  .logo h2 {
+    font-size: 19px;
+  }
+}
+
+@media screen and (max-width: 1600px) {
+  .el-aside {
+    width: 200px !important;
+  }
+  
+  .el-main {
+    padding: 16px;
+  }
+  
+  .logo h2 {
+    font-size: 18px;
+  }
+  
+  .el-menu {
+    :deep(.el-sub-menu__title),
+    :deep(.el-menu-item) {
+      font-size: 13px;
+    }
+  }
+}
+
+@media screen and (max-width: 1440px) {
+  .el-aside {
+    width: 180px !important;
+  }
+  
+  .el-main {
+    padding: 14px;
+  }
+  
+  .logo h2 {
+    font-size: 17px;
+  }
+  
+  .el-menu {
+    :deep(.el-sub-menu__title),
+    :deep(.el-menu-item) {
+      font-size: 13px;
+    }
+  }
+}
+
+@media screen and (max-width: 1366px) {
+  .el-aside {
+    width: 180px !important;
+  }
+  
+  .el-main {
+    padding: 12px;
+  }
+  
+  .logo h2 {
+    font-size: 16px;
+  }
+  
+  .el-header {
+    height: 56px !important;
+  }
+  
+  .el-menu {
+    :deep(.el-sub-menu__title),
+    :deep(.el-menu-item) {
+      font-size: 12px;
+    }
+  }
+}
+
+@media screen and (max-width: 1280px) {
+  .el-aside {
+    width: 160px !important;
+  }
+  
+  .el-main {
+    padding: 12px;
+  }
+  
+  .logo h2 {
+    font-size: 15px;
+  }
+  
+  .el-header {
+    height: 56px !important;
+    
+    .header-content {
+      padding: 0 15px;
+    }
+  }
+  
+  .el-menu {
+    :deep(.el-sub-menu__title),
+    :deep(.el-menu-item) {
+      font-size: 12px;
+      padding-left: 15px !important;
+    }
+  }
+}
+
+@media screen and (max-width: 1024px) {
+  .el-aside {
+    width: 140px !important;
+  }
+  
+  .el-main {
+    padding: 10px;
+  }
+  
+  .logo h2 {
+    font-size: 14px;
+  }
+  
+  .el-header {
+    height: 52px !important;
+    
+    .header-content {
+      padding: 0 12px;
+    }
+  }
+  
+  .el-menu {
+    :deep(.el-sub-menu__title),
+    :deep(.el-menu-item) {
+      font-size: 12px;
+      padding-left: 12px !important;
+    }
+  }
+  
+  .user-info .username {
+    display: none;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .el-aside {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 1000;
+    width: 240px !important;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    
+    &.mobile-open {
+      transform: translateX(0);
+    }
+  }
+  
+  .el-main {
+    padding: 8px;
+  }
+  
+  .logo h2 {
+    font-size: 16px;
+  }
+  
+  .el-header {
+    height: 50px !important;
+    
+    .header-content {
+      padding: 0 10px;
+    }
+    
+    .header-left {
+      :deep(.el-breadcrumb__item) {
+        &:not(:last-child) {
+          display: none;
+        }
+      }
+    }
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .el-aside {
+    width: 220px !important;
+  }
+  
+  .el-main {
+    padding: 6px;
+  }
+  
+  .logo h2 {
+    font-size: 15px;
+  }
+  
+  .el-header {
+    height: 48px !important;
+    
+    .header-content {
+      padding: 0 8px;
+    }
+  }
+  
+  .user-info {
+    .el-avatar {
+      width: 28px !important;
+      height: 28px !important;
+    }
+  }
 }
 </style>
