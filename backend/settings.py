@@ -117,10 +117,14 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-LANGUAGE_CODE = 'zh-hans'
-TIME_ZONE = 'Asia/Shanghai'
+# Internationalization
+# https://docs.djangoproject.com/en/4.2/topics/i18n/
+# Supported language codes: 'en-us' (English), 'zh-hans' (Simplified Chinese), 'ja' (Japanese), 'ko' (Korean), etc.
+# See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones for timezone list
+LANGUAGE_CODE = config('LANGUAGE_CODE', default='zh-hans')
+TIME_ZONE = config('TIME_ZONE', default='Asia/Shanghai')
 USE_I18N = True
-USE_TZ = True  # 移除重复定义
+USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')

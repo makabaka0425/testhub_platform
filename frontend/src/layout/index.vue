@@ -199,7 +199,23 @@
               </el-breadcrumb>
             </div>
             <div class="header-right">
-              <el-dropdown @command="handleCommand">
+              <!-- 语言切换 -->
+              <el-dropdown @command="handleLanguageChange" class="language-dropdown">
+                <span class="language-selector">
+                  <el-icon><Notification /></el-icon>
+                  <span>{{ currentLanguage }}</span>
+                  <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </span>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="zh-CN">简体中文</el-dropdown-item>
+                    <el-dropdown-item command="en-US">English</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+
+              <!-- 用户信息 -->
+              <el-dropdown @command="handleCommand" class="user-dropdown">
                 <span class="user-info">
                   <el-avatar :size="32" :src="userStore.user?.avatar" />
                   <span class="username">{{ userStore.user?.username }}</span>
@@ -207,8 +223,8 @@
                 </span>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item command="profile">个人设置</el-dropdown-item>
-                    <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
+                    <el-dropdown-item command="profile">{{ $t('nav.profile') }}</el-dropdown-item>
+                    <el-dropdown-item divided command="logout">{{ $t('nav.logout') }}</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -230,15 +246,31 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
-import { 
-  Monitor, Folder, Document, Flag, Check, Collection, VideoPlay, 
+import { useI18n } from 'vue-i18n'
+import {
+  Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, Notification
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const { t, locale } = useI18n()
+
+// 当前语言显示
+const currentLanguage = computed(() => {
+  return locale.value === 'zh-CN' ? '中文' : 'EN'
+})
+
+// 切换语言
+const handleLanguageChange = (lang) => {
+  locale.value = lang
+  localStorage.setItem('language', lang)
+  ElMessage.success(lang === 'zh-CN' ? '语言已切换为中文' : 'Language switched to English')
+  // 刷新页面以应用 Element Plus 语言
+  window.location.reload()
+}
 
 const currentModule = computed(() => {
   if (route.path.startsWith('/ai-generation')) return 'ai-generation'
@@ -397,14 +429,40 @@ const handleCommand = (command) => {
     padding: 0 20px;
   }
 
-  .user-info {
+  .header-right {
     display: flex;
     align-items: center;
-    cursor: pointer;
+    gap: 20px;
+  }
 
-    .username {
-      margin: 0 8px;
+  .language-dropdown {
+    .language-selector {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
       color: #303133;
+      font-size: 14px;
+
+      span {
+        margin: 0 4px;
+      }
+
+      &:hover {
+        color: #1890ff;
+      }
+    }
+  }
+
+  .user-dropdown {
+    .user-info {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+
+      .username {
+        margin: 0 8px;
+        color: #303133;
+      }
     }
   }
 }
