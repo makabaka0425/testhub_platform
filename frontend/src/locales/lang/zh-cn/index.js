@@ -11,6 +11,7 @@ import version from './version.js'
 import requirementModule from './requirement.js'
 import apiTestingModule from './api-testing.js'
 import uiAutomationModule from './ui-automation.js'
+import configurationModule from './configuration.js'
 
 export default {
   // 模块化导出
@@ -48,6 +49,9 @@ export default {
 
   // UI自动化测试模块
   uiAutomation: uiAutomationModule,
+
+  // 配置中心模块
+  configuration: configurationModule,
 
   // Element Plus 语言包
   ...elementZhCn
