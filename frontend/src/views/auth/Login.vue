@@ -70,6 +70,26 @@
 
       <!-- 装饰元素 -->
       <div class="floating-shapes">
+        <!-- 语言切换 -->
+        <div class="language-switcher">
+          <el-dropdown @command="handleLanguageChange" class="language-dropdown">
+            <span class="el-dropdown-link">
+              <span class="language-icon">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
+              <span class="language-text">{{ currentLanguage === 'zh-cn' ? '中文' : 'English' }}</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">
+                  <span class="dropdown-flag">🇨🇳</span> 简体中文
+                </el-dropdown-item>
+                <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">
+                  <span class="dropdown-flag">🇺🇸</span> English
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
         <div class="shape shape-1"></div>
         <div class="shape shape-2"></div>
         <div class="shape shape-3"></div>
@@ -147,12 +167,22 @@ import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { User, Lock, Document, MagicStick, Connection, TrendCharts } from '@element-plus/icons-vue'
+import { User, Lock, Document, MagicStick, Connection, TrendCharts, ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 
 const router = useRouter()
 const userStore = useUserStore()
+const appStore = useAppStore()
 const { t } = useI18n()
+
+// 当前语言
+const currentLanguage = computed(() => appStore.language)
+
+// 语言切换（无刷新）
+const handleLanguageChange = (lang) => {
+  appStore.setLanguage(lang)
+}
 const formRef = ref()
 const loading = ref(false)
 
@@ -239,6 +269,11 @@ const handleLogin = async () => {
   display: flex;
   background: #f5f7fa;
   overflow: hidden;
+}
+
+.dropdown-flag {
+  font-size: 16px;
+  margin-right: 6px;
 }
 
 /* 左侧展示区域 */
@@ -393,6 +428,48 @@ const handleLogin = async () => {
     top: 0;
     left: 0;
     z-index: 1;
+
+    .language-switcher {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      z-index: 10;
+
+      .language-dropdown {
+        .el-dropdown-link {
+          display: flex;
+          align-items: center;
+          cursor: pointer;
+          color: white;
+          background: rgba(255, 255, 255, 0.15);
+          backdrop-filter: blur(10px);
+          padding: 8px 16px;
+          border-radius: 20px;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          transition: all 0.3s ease;
+          outline: none;
+
+          &:focus {
+            outline: none;
+          }
+
+          .language-icon {
+            font-size: 16px;
+            margin-right: 6px;
+            line-height: 1;
+          }
+
+          .language-text {
+            font-size: 14px;
+            margin-right: 4px;
+          }
+
+          &:hover {
+            background: rgba(255, 255, 255, 0.25);
+          }
+        }
+      }
+    }
 
     .shape {
       position: absolute;
