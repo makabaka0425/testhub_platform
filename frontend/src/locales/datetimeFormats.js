@@ -1,4 +1,4 @@
-export const datetimeFormats = {
+export const datetimeFormats = /** @type {const} */ ({
   'zh-cn': {
     short: {
       year: 'numeric',
@@ -59,4 +59,4 @@ export const datetimeFormats = {
       hour12: true
     }
   }
-}
+})

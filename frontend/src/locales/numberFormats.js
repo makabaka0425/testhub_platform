@@ -1,4 +1,4 @@
-export const numberFormats = {
+export const numberFormats = /** @type {const} */ ({
   'zh-cn': {
     currency: {
       style: 'currency',
@@ -43,4 +43,4 @@ export const numberFormats = {
       maximumFractionDigits: 0
     }
   }
-}
+})
