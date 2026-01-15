@@ -12,6 +12,7 @@ import requirementModule from './requirement.js'
 import apiTestingModule from './api-testing.js'
 import uiAutomationModule from './ui-automation.js'
 import configurationModule from './configuration.js'
+import assistantModule from './assistant.js'
 
 export default {
   // 模块化导出
@@ -52,6 +53,9 @@ export default {
 
   // Configuration Center Module
   configuration: configurationModule,
+
+  // AI Assistant Module
+  assistant: assistantModule,
 
   // Element Plus 语言包
   ...elementEn
