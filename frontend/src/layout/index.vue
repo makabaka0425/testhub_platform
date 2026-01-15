@@ -202,16 +202,16 @@
               <!-- 语言切换 -->
               <el-dropdown @command="handleLanguageChange" class="language-dropdown">
                 <span class="language-selector">
-                  <span class="language-flag">{{ locale === 'zh-CN' ? '🇨🇳' : '🇺🇸' }}</span>
+                  <span class="language-flag">{{ appStore.language === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
                   <span>{{ currentLanguage }}</span>
                   <el-icon class="el-icon--right"><ArrowDown /></el-icon>
                 </span>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item command="zh-CN" :disabled="locale === 'zh-CN'">
+                    <el-dropdown-item command="zh-cn" :disabled="appStore.language === 'zh-cn'">
                       <span class="dropdown-flag">🇨🇳</span> 简体中文
                     </el-dropdown-item>
-                    <el-dropdown-item command="en-US" :disabled="locale === 'en-US'">
+                    <el-dropdown-item command="en" :disabled="appStore.language === 'en'">
                       <span class="dropdown-flag">🇺🇸</span> English
                     </el-dropdown-item>
                   </el-dropdown-menu>
@@ -249,6 +249,7 @@
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import {
@@ -260,20 +261,18 @@ import {
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
-const { t, locale } = useI18n()
+const appStore = useAppStore()
+const { t } = useI18n()
 
 // 当前语言显示
 const currentLanguage = computed(() => {
-  return locale.value === 'zh-CN' ? '中文' : 'EN'
+  return appStore.language === 'zh-cn' ? '中文' : 'EN'
 })
 
-// 切换语言
+// 切换语言（无需刷新页面）
 const handleLanguageChange = (lang) => {
-  locale.value = lang
-  localStorage.setItem('language', lang)
-  ElMessage.success(lang === 'zh-CN' ? '语言已切换为中文' : 'Language switched to English')
-  // 刷新页面以应用 Element Plus 语言
-  window.location.reload()
+  appStore.setLanguage(lang)
+  ElMessage.success(lang === 'zh-cn' ? '语言已切换为中文' : 'Language switched to English')
 }
 
 const currentModule = computed(() => {

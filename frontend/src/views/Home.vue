@@ -4,16 +4,16 @@
       <div class="header-actions">
         <el-dropdown @command="handleLanguageChange" class="language-dropdown">
           <span class="el-dropdown-link">
-            <span class="language-icon">{{ currentLanguage === 'zh-CN' ? '🇨🇳' : '🇺🇸' }}</span>
-            <span class="language-text">{{ currentLanguage === 'zh-CN' ? '中文' : 'English' }}</span>
+            <span class="language-icon">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
+            <span class="language-text">{{ currentLanguage === 'zh-cn' ? '中文' : 'English' }}</span>
             <el-icon class="el-icon--right"><arrow-down /></el-icon>
           </span>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="zh-CN" :disabled="currentLanguage === 'zh-CN'">
+              <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">
                 <span class="dropdown-flag">🇨🇳</span> 简体中文
               </el-dropdown-item>
-              <el-dropdown-item command="en-US" :disabled="currentLanguage === 'en-US'">
+              <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">
                 <span class="dropdown-flag">🇺🇸</span> English
               </el-dropdown-item>
             </el-dropdown-menu>
@@ -106,23 +106,21 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Link, Monitor, DataLine, Cpu, Setting, ChatDotRound, UserFilled, ArrowDown } from '@element-plus/icons-vue'
 
 const router = useRouter()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const userStore = useUserStore()
+const appStore = useAppStore()
 
 // 当前语言
-const currentLanguage = computed(() => locale.value)
+const currentLanguage = computed(() => appStore.language)
 
-// 语言切换
+// 语言切换（无刷新）
 const handleLanguageChange = (lang) => {
-  locale.value = lang
-  localStorage.setItem('language', lang)
-
-  // 刷新页面以更新 Element Plus 的语言
-  window.location.reload()
+  appStore.setLanguage(lang)
 }
 
 const handleCommand = (command) => {
