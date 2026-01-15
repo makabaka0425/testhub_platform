@@ -342,7 +342,7 @@ const handleDelete = (row) => {
       ElMessage.success(t('apiTesting.messages.success.delete'))
       loadHistory()
     } catch (error) {
-      console.error('删除失败:', error)
+      console.error('Delete failed:', error)
       ElMessage.error(t('apiTesting.messages.error.deleteFailed'))
     }
   })
@@ -362,7 +362,7 @@ const handleBatchDelete = () => {
       selectedIds.value = []
       loadHistory()
     } catch (error) {
-      console.error('批量删除失败:', error)
+      console.error('Batch delete failed:', error)
       ElMessage.error(t('apiTesting.messages.error.batchDeleteFailed'))
     }
   })
