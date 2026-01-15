@@ -10,6 +10,7 @@ import reviewModule from './review.js'
 import version from './version.js'
 import requirementModule from './requirement.js'
 import apiTestingModule from './api-testing.js'
+import uiAutomationModule from './ui-automation.js'
 
 export default {
   // 模块化导出
@@ -44,6 +45,9 @@ export default {
 
   // API测试模块
   apiTesting: apiTestingModule,
+
+  // UI自动化测试模块
+  uiAutomation: uiAutomationModule,
 
   // Element Plus 语言包
   ...elementZhCn
