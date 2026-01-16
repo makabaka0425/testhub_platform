@@ -266,7 +266,7 @@ const { t } = useI18n()
 
 // 当前语言显示
 const currentLanguage = computed(() => {
-  return appStore.language === 'zh-cn' ? '中文' : 'EN'
+  return appStore.language === 'zh-cn' ? '简体中文' : 'English'
 })
 
 // 切换语言（无需刷新页面）

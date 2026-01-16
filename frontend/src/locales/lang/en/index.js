@@ -9,6 +9,10 @@ import report from './report.js'
 import reviewModule from './review.js'
 import version from './version.js'
 import requirementModule from './requirement.js'
+import apiTestingModule from './api-testing.js'
+import uiAutomationModule from './ui-automation.js'
+import configurationModule from './configuration.js'
+import assistantModule from './assistant.js'
 
 export default {
   // 模块化导出
@@ -40,6 +44,18 @@ export default {
   requirementAnalysis: requirementModule.requirementAnalysis,
   generatedTestCases: requirementModule.generatedTestCases,
   promptConfig: requirementModule.promptConfig,
+
+  // API Testing Module
+  apiTesting: apiTestingModule,
+
+  // UI Automation Module
+  uiAutomation: uiAutomationModule,
+
+  // Configuration Center Module
+  configuration: configurationModule,
+
+  // AI Assistant Module
+  assistant: assistantModule,
 
   // Element Plus 语言包
   ...elementEn
