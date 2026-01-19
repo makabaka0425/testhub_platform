@@ -99,7 +99,20 @@
           </el-select>
         </el-form-item>
         <el-form-item label="基础URL" prop="base_url">
-          <el-input v-model="createForm.base_url" placeholder="请输入基础URL" />
+          <el-input 
+            v-model="createForm.base_url" 
+            placeholder="请输入基础URL（如：https://www.example.com）"
+          >
+            <template #prepend>
+              <el-select v-model="urlProtocol" placeholder="协议" style="width: 100px">
+                <el-option label="https://" value="https://" />
+                <el-option label="http://" value="http://" />
+              </el-select>
+            </template>
+          </el-input>
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            提示：请输入完整的URL地址，包含协议（http:// 或 https://）
+          </div>
         </el-form-item>
         <el-form-item label="开始日期" prop="start_date">
           <el-date-picker v-model="createForm.start_date" type="date" placeholder="选择日期" />
@@ -133,7 +146,20 @@
           </el-select>
         </el-form-item>
         <el-form-item label="基础URL" prop="base_url">
-          <el-input v-model="editForm.base_url" placeholder="请输入基础URL" />
+          <el-input 
+            v-model="editForm.base_url" 
+            placeholder="请输入基础URL（如：https://www.example.com）"
+          >
+            <template #prepend>
+              <el-select v-model="editUrlProtocol" placeholder="协议" style="width: 100px">
+                <el-option label="https://" value="https://" />
+                <el-option label="http://" value="http://" />
+              </el-select>
+            </template>
+          </el-input>
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            提示：请输入完整的URL地址，包含协议（http:// 或 https://）
+          </div>
         </el-form-item>
         <el-form-item label="开始日期" prop="start_date">
           <el-date-picker v-model="editForm.start_date" type="date" placeholder="选择日期" />
@@ -200,6 +226,10 @@ const pagination = reactive({
 const searchText = ref('')
 const statusFilter = ref('')
 
+// URL 协议选择
+const urlProtocol = ref('https://')
+const editUrlProtocol = ref('https://')
+
 // 表单相关
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
@@ -234,7 +264,24 @@ const formRules = {
   ],
   base_url: [
     { required: true, message: '请输入基础URL', trigger: 'blur' },
-    { type: 'url', message: '请输入有效的URL', trigger: 'blur' }
+    { 
+      validator: (rule, value, callback) => {
+        if (!value) {
+          callback(new Error('请输入基础URL'))
+        } else if (!value.startsWith('http://') && !value.startsWith('https://')) {
+          callback(new Error('URL必须以 http:// 或 https:// 开头'))
+        } else {
+          // 简单的URL格式验证
+          try {
+            new URL(value)
+            callback()
+          } catch (e) {
+            callback(new Error('请输入有效的URL格式'))
+          }
+        }
+      }, 
+      trigger: 'blur' 
+    }
   ]
 }
 
@@ -398,9 +445,16 @@ const handleCreate = async () => {
       await userStore.fetchProfile()
     }
     
+    // 确保 base_url 包含协议
+    let baseUrl = createForm.base_url.trim()
+    if (baseUrl && !baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = urlProtocol.value + baseUrl
+    }
+    
     // 创建包含owner字段的项目数据，并格式化日期字段
     const projectData = {
       ...createForm,
+      base_url: baseUrl,
       owner: userStore.user.id,  // 添加owner字段，值为当前登录用户ID
       // 格式化日期为YYYY-MM-DD格式
       start_date: formatDateToISO(createForm.start_date),
@@ -416,10 +470,11 @@ const handleCreate = async () => {
       createForm[key] = ''
     })
     createForm.status = 'IN_PROGRESS'
+    urlProtocol.value = 'https://'
     
     loadProjects()
   } catch (error) {
-    ElMessage.error('项目创建失败')
+    ElMessage.error(error.response?.data?.base_url?.[0] || error.response?.data?.detail || '项目创建失败')
     console.error('创建项目失败:', error)
   }
 }
@@ -430,9 +485,16 @@ const handleEdit = async () => {
   if (!validate) return
   
   try {
+    // 确保 base_url 包含协议
+    let baseUrl = editForm.base_url.trim()
+    if (baseUrl && !baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = editUrlProtocol.value + baseUrl
+    }
+    
     // 创建包含格式化日期字段的项目数据
     const projectData = {
       ...editForm,
+      base_url: baseUrl,
       // 格式化日期为YYYY-MM-DD格式
       start_date: formatDateToISO(editForm.start_date),
       end_date: formatDateToISO(editForm.end_date)
@@ -443,7 +505,7 @@ const handleEdit = async () => {
     showEditDialog.value = false
     loadProjects()
   } catch (error) {
-    ElMessage.error('项目更新失败')
+    ElMessage.error(error.response?.data?.base_url?.[0] || error.response?.data?.detail || '项目更新失败')
     console.error('更新项目失败:', error)
   }
 }
