@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h1 class="page-title">测试用例</h1>
+      <h1 class="page-title">{{ $t('testcase.title') }}</h1>
       <div class="header-actions">
         <el-button 
           v-if="selectedTestCases.length > 0" 
@@ -9,15 +9,15 @@
           @click="batchDeleteTestCases"
           :disabled="isDeleting">
           <el-icon><Delete /></el-icon>
-          批量删除 ({{ selectedTestCases.length }})
+          {{ $t('testcase.batchDelete') }} ({{ selectedTestCases.length }})
         </el-button>
         <el-button type="success" @click="exportToExcel">
           <el-icon><Download /></el-icon>
-          导出Excel
+          {{ $t('testcase.exportExcel') }}
         </el-button>
         <el-button type="primary" @click="$router.push('/ai-generation/testcases/create')">
           <el-icon><Plus /></el-icon>
-          新建用例
+          {{ $t('testcase.newCase') }}
         </el-button>
       </div>
     </div>
@@ -28,7 +28,7 @@
           <el-col :span="5">
             <el-input
               v-model="searchText"
-              placeholder="搜索用例标题"
+              :placeholder="$t('testcase.searchPlaceholder')"
               clearable
               @input="handleSearch"
             >
@@ -38,7 +38,7 @@
             </el-input>
           </el-col>
           <el-col :span="4">
-            <el-select v-model="projectFilter" placeholder="关联项目" clearable @change="handleFilter">
+            <el-select v-model="projectFilter" :placeholder="$t('testcase.relatedProject')" clearable @change="handleFilter">
               <el-option
                 v-for="project in projects"
                 :key="project.id"
@@ -48,18 +48,18 @@
             </el-select>
           </el-col>
           <el-col :span="3">
-            <el-select v-model="priorityFilter" placeholder="优先级筛选" clearable @change="handleFilter">
-              <el-option label="低" value="low" />
-              <el-option label="中" value="medium" />
-              <el-option label="高" value="high" />
-              <el-option label="紧急" value="critical" />
+            <el-select v-model="priorityFilter" :placeholder="$t('testcase.priorityFilter')" clearable @change="handleFilter">
+              <el-option :label="$t('testcase.low')" value="low" />
+              <el-option :label="$t('testcase.medium')" value="medium" />
+              <el-option :label="$t('testcase.high')" value="high" />
+              <el-option :label="$t('testcase.critical')" value="critical" />
             </el-select>
           </el-col>
           <el-col :span="3">
-            <el-select v-model="statusFilter" placeholder="状态筛选" clearable @change="handleFilter">
-              <el-option label="草稿" value="draft" />
-              <el-option label="激活" value="active" />
-              <el-option label="废弃" value="deprecated" />
+            <el-select v-model="statusFilter" :placeholder="$t('testcase.statusFilter')" clearable @change="handleFilter">
+              <el-option :label="$t('testcase.draft')" value="draft" />
+              <el-option :label="$t('testcase.active')" value="active" />
+              <el-option :label="$t('testcase.deprecated')" value="deprecated" />
             </el-select>
           </el-col>
         </el-row>
@@ -71,20 +71,20 @@
         style="width: 100%"
         @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="55" />
-        <el-table-column type="index" label="序号" width="80" :index="getSerialNumber" />
-        <el-table-column prop="title" label="用例标题" min-width="250">
+        <el-table-column type="index" :label="$t('testcase.serialNumber')" width="80" :index="getSerialNumber" />
+        <el-table-column prop="title" :label="$t('testcase.caseTitle')" min-width="250">
           <template #default="{ row }">
             <el-link @click="goToTestCase(row.id)" type="primary">
               {{ row.title }}
             </el-link>
           </template>
         </el-table-column>
-        <el-table-column prop="project.name" label="关联项目" width="150">
+        <el-table-column prop="project.name" :label="$t('testcase.relatedProject')" width="150">
           <template #default="{ row }">
             {{ row.project?.name || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="versions" label="关联版本" width="200">
+        <el-table-column prop="versions" :label="$t('testcase.relatedVersions')" width="200">
           <template #default="{ row }">
             <div v-if="row.versions && row.versions.length > 0" class="version-tags">
               <el-tag 
@@ -102,34 +102,34 @@
                 </el-tag>
               </el-tooltip>
             </div>
-            <span v-else class="no-version">未关联版本</span>
+            <span v-else class="no-version">{{ $t('testcase.noVersion') }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="priority" label="优先级" width="100">
+        <el-table-column prop="priority" :label="$t('testcase.priority')" width="100">
           <template #default="{ row }">
             <el-tag :class="`priority-tag ${row.priority}`">{{ getPriorityText(row.priority) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="status" :label="$t('testcase.status')" width="100">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="test_type" label="测试类型" width="120">
+        <el-table-column prop="test_type" :label="$t('testcase.testType')" width="120">
           <template #default="{ row }">
             {{ getTypeText(row.test_type) }}
           </template>
         </el-table-column>
-        <el-table-column prop="author.username" label="作者" width="120" />
-        <el-table-column prop="created_at" label="创建时间" width="180">
+        <el-table-column prop="author.username" :label="$t('testcase.author')" width="120" />
+        <el-table-column prop="created_at" :label="$t('testcase.createdAt')" width="180">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column :label="$t('project.actions')" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="editTestCase(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="deleteTestCase(row)">删除</el-button>
+            <el-button size="small" @click="editTestCase(row)">{{ $t('common.edit') }}</el-button>
+            <el-button size="small" type="danger" @click="deleteTestCase(row)">{{ $t('common.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -150,12 +150,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Download, Delete } from '@element-plus/icons-vue'
 import api from '@/utils/api'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
 
+const { t } = useI18n()
 const router = useRouter()
 const loading = ref(false)
 const testcases = ref([])
@@ -184,7 +186,7 @@ const fetchTestCases = async () => {
     testcases.value = response.data.results || []
     total.value = response.data.count || 0
   } catch (error) {
-    ElMessage.error('获取测试用例列表失败')
+    ElMessage.error(t('testcase.fetchListFailed'))
   } finally {
     loading.value = false
   }
@@ -214,18 +216,18 @@ const editTestCase = (testcase) => {
 
 const deleteTestCase = async (testcase) => {
   try {
-    await ElMessageBox.confirm('确定要删除这个测试用例吗？', '警告', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
+    await ElMessageBox.confirm(t('testcase.deleteConfirm'), t('common.warning'), {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
       type: 'warning'
     })
     
     await api.delete(`/testcases/${testcase.id}/`)
-    ElMessage.success('测试用例删除成功')
+    ElMessage.success(t('testcase.deleteSuccess'))
     fetchTestCases()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('测试用例删除失败')
+      ElMessage.error(t('testcase.deleteFailed'))
     }
   }
 }
@@ -243,17 +245,17 @@ const getSerialNumber = (index) => {
 // 批量删除
 const batchDeleteTestCases = async () => {
   if (selectedTestCases.value.length === 0) {
-    ElMessage.warning('请先选择要删除的测试用例')
+    ElMessage.warning(t('testcase.selectFirst'))
     return
   }
 
   try {
     await ElMessageBox.confirm(
-      `确定要删除选中的 ${selectedTestCases.value.length} 个测试用例吗？此操作不可恢复。`,
-      '警告',
+      t('testcase.batchDeleteConfirm', { count: selectedTestCases.value.length }),
+      t('common.warning'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
@@ -268,16 +270,20 @@ const batchDeleteTestCases = async () => {
         await api.delete(`/testcases/${testcase.id}/`)
         successCount++
       } catch (error) {
-        console.error(`删除测试用例 ${testcase.id} 失败:`, error)
+        console.error(`Delete test case ${testcase.id} failed:`, error)
         failCount++
       }
     }
 
     // 显示删除结果
     if (successCount > 0) {
-      ElMessage.success(`成功删除 ${successCount} 个测试用例${failCount > 0 ? `，${failCount} 个失败` : ''}`)
+      if (failCount > 0) {
+        ElMessage.success(t('testcase.batchDeletePartialSuccess', { successCount, failCount }))
+      } else {
+        ElMessage.success(t('testcase.batchDeleteSuccess', { successCount }))
+      }
     } else {
-      ElMessage.error('删除失败')
+      ElMessage.error(t('testcase.batchDeleteFailed'))
     }
 
     // 清空选择并重新加载列表
@@ -286,8 +292,8 @@ const batchDeleteTestCases = async () => {
 
   } catch (error) {
     if (error !== 'cancel') {
-      console.error('批量删除失败:', error)
-      ElMessage.error('批量删除失败: ' + (error.message || '未知错误'))
+      console.error('Batch delete failed:', error)
+      ElMessage.error(t('testcase.batchDeleteError') + ': ' + (error.message || t('common.error')))
     }
   } finally {
     isDeleting.value = false
@@ -296,10 +302,10 @@ const batchDeleteTestCases = async () => {
 
 const getPriorityText = (priority) => {
   const textMap = {
-    low: '低',
-    medium: '中',
-    high: '高',
-    critical: '紧急'
+    low: t('testcase.low'),
+    medium: t('testcase.medium'),
+    high: t('testcase.high'),
+    critical: t('testcase.critical')
   }
   return textMap[priority] || priority
 }
@@ -315,21 +321,21 @@ const getStatusType = (status) => {
 
 const getStatusText = (status) => {
   const textMap = {
-    draft: '草稿',
-    active: '激活',
-    deprecated: '废弃'
+    draft: t('testcase.draft'),
+    active: t('testcase.active'),
+    deprecated: t('testcase.deprecated')
   }
   return textMap[status] || status
 }
 
 const getTypeText = (type) => {
   const textMap = {
-    functional: '功能测试',
-    integration: '集成测试',
-    api: 'API测试',
-    ui: 'UI测试',
-    performance: '性能测试',
-    security: '安全测试'
+    functional: t('testcase.functional'),
+    integration: t('testcase.integration'),
+    api: t('testcase.api'),
+    ui: t('testcase.ui'),
+    performance: t('testcase.performance'),
+    security: t('testcase.security')
   }
   return textMap[type] || '-'
 }
@@ -339,7 +345,7 @@ const formatDate = (dateString) => {
 }
 
 const getVersionsTooltip = (versions) => {
-  return versions.map(v => v.name + (v.is_baseline ? ' (基线)' : '')).join('、')
+  return versions.map(v => v.name + (v.is_baseline ? ' (' + t('testcase.baseline') + ')' : '')).join('、')
 }
 
 // 将HTML的<br>标签转换为换行符（用于Excel导出）
@@ -366,7 +372,7 @@ const exportToExcel = async () => {
     const allTestCases = response.data.results || []
     
     if (allTestCases.length === 0) {
-      ElMessage.warning('没有测试用例数据可导出')
+      ElMessage.warning(t('testcase.noDataToExport'))
       return
     }
     
@@ -375,14 +381,14 @@ const exportToExcel = async () => {
     
     // 准备Excel数据
     const worksheetData = [
-      ['测试用例编号', '用例标题', '关联项目', '关联版本', '前置条件', '操作步骤', '预期结果', '优先级', '状态', '测试类型', '作者', '创建时间']
+      [t('testcase.excelNumber'), t('testcase.excelTitle'), t('testcase.excelProject'), t('testcase.excelVersions'), t('testcase.excelPreconditions'), t('testcase.excelSteps'), t('testcase.excelExpectedResult'), t('testcase.excelPriority'), t('testcase.excelStatus'), t('testcase.excelTestType'), t('testcase.excelAuthor'), t('testcase.excelCreatedAt')]
     ]
     
     allTestCases.forEach((testcase, index) => {
-      const versions = testcase.versions && testcase.versions.length > 0 
-        ? testcase.versions.map(v => v.name + (v.is_baseline ? '(基线)' : '')).join('、')
-        : '未关联版本'
-      
+      const versions = testcase.versions && testcase.versions.length > 0
+        ? testcase.versions.map(v => v.name + (v.is_baseline ? '(' + t('testcase.baseline') + ')' : '')).join('、')
+        : t('testcase.noVersion')
+
       worksheetData.push([
         `TC${String(index + 1).padStart(3, '0')}`,
         testcase.title || '',
@@ -404,18 +410,18 @@ const exportToExcel = async () => {
     
     // 设置列宽
     const colWidths = [
-      { wch: 15 }, // 测试用例编号
-      { wch: 30 }, // 用例标题
-      { wch: 20 }, // 关联项目
-      { wch: 25 }, // 关联版本
-      { wch: 30 }, // 前置条件
-      { wch: 40 }, // 操作步骤
-      { wch: 30 }, // 预期结果
-      { wch: 10 }, // 优先级
-      { wch: 10 }, // 状态
-      { wch: 15 }, // 测试类型
-      { wch: 15 }, // 作者
-      { wch: 20 }  // 创建时间
+      { wch: 15 }, // Test case number
+      { wch: 30 }, // Case title
+      { wch: 20 }, // Related project
+      { wch: 25 }, // Related versions
+      { wch: 30 }, // Preconditions
+      { wch: 40 }, // Steps
+      { wch: 30 }, // Expected result
+      { wch: 10 }, // Priority
+      { wch: 10 }, // Status
+      { wch: 15 }, // Test type
+      { wch: 15 }, // Author
+      { wch: 20 }  // Created at
     ]
     worksheet['!cols'] = colWidths
     
@@ -440,20 +446,20 @@ const exportToExcel = async () => {
         }
       }
     }
-    
-    // 添加工作表到工作簿
-    XLSX.utils.book_append_sheet(workbook, worksheet, '测试用例')
-    
-    // 生成文件名
-    const fileName = `测试用例_${new Date().toISOString().slice(0, 10)}.xlsx`
-    
-    // 导出文件
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, t('testcase.excelSheetName'))
+
+    // Generate filename
+    const fileName = t('testcase.excelFileName', { date: new Date().toISOString().slice(0, 10) })
+
+    // Export file
     XLSX.writeFile(workbook, fileName)
-    
-    ElMessage.success('测试用例导出成功')
+
+    ElMessage.success(t('testcase.exportSuccess'))
   } catch (error) {
-    console.error('导出测试用例失败:', error)
-    ElMessage.error('导出测试用例失败: ' + (error.message || '未知错误'))
+    console.error('Export test cases failed:', error)
+    ElMessage.error(t('testcase.exportFailed') + ': ' + (error.message || t('common.error')))
   } finally {
     loading.value = false
   }
@@ -464,7 +470,7 @@ const fetchProjects = async () => {
     const response = await api.get('/projects/')
     projects.value = response.data.results || response.data || []
   } catch (error) {
-    ElMessage.error('获取项目列表失败')
+    ElMessage.error(t('testcase.fetchProjectsFailed'))
   }
 }
 

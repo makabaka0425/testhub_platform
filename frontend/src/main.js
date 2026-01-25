@@ -6,14 +6,16 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import axios from 'axios'
 import { useUserStore } from '@/stores/user'
+import i18n from './locales'
 
 import App from './App.vue'
 import router from './router'
 import './assets/css/global.scss'
 
+// Axios aÃ¥ÂÂºÃ§Â½Â®
 axios.defaults.xsrfCookieName = 'csrftoken';
 axios.defaults.xsrfHeaderName = 'X-CSRFToken';
-axios.defaults.withCredentials = true;
+axios.defaults.withCredentials = true; // Ã¥ÂÂÃ¨Â®Â¸Ã¨Â·Â¨Ã¨Â¯Â·Ã¥Â¸Â¦ Cookie
 
 const app = createApp(App)
 
@@ -34,10 +36,14 @@ async function init() {
   }
 
   app.use(router)
-  app.use(ElementPlus, {
-    locale: zhCn,
-  })
+  app.use(i18n)
 
+  // Element Plus 语言由 App.vue 的 el-config-provider 动态配置
+  app.use(ElementPlus)
+  //app.use(ElementPlus, {
+  //  locale: zhCn,
+  //})
+  
   app.mount('#app')
 }
 
