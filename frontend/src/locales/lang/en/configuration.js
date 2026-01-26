@@ -18,7 +18,8 @@ export default {
     updatedAt: 'Updated At',
     status: 'Status',
     notSet: 'Not Set',
-    unnamed: 'Unnamed Config'
+    unnamed: 'Unnamed Config',
+    locale: 'en-US'
   },
 
   // Dify Configuration

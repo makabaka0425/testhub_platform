@@ -4,24 +4,30 @@ export default {
     title: '智能测试用例生成',
     subtitle: '基于需求描述或文档，AI将直接为您生成高质量的测试用例',
 
+    // Output Mode
+    outputModeTitle: '📤 输出模式设置',
+    outputModeDesc: '选择测试用例生成的输出方式（适用于手动输入和文档上传两种方式）',
+    realtimeStream: '⚡ 实时流式输出',
+    realtimeStreamDesc: '内容逐字显示，体验流畅，适合大需求文档',
+    completeOutput: '📄 完整输出',
+    completeOutputDesc: '完成后一次性展示，适合简单需求',
+
     // Manual Input
     manualInputTitle: '✍️ 手动输入需求描述',
     requirementTitle: '需求标题',
     requirementDescription: '需求描述',
     relatedProject: '关联项目（可选）',
-    associatedProject: '关联项目（可选）',
     titlePlaceholder: '请输入需求标题，如：用户登录功能需求',
     descriptionPlaceholder: '请详细描述您的需求，包括功能描述、使用场景、业务流程等',
     selectProject: '请选择项目',
     charCount: '{count}/2000',
     generating: '🔄 生成中...',
     generateBtn: '🚀 生成测试用例',
-    generateButton: '🚀 生成测试用例',
 
     // Document Upload
     uploadTitle: '📄 上传需求文档',
     dragDropText: '拖拽文件到此处或点击选择文件',
-    supportedFormats: '支持 PDF、Word、TXT 格式',
+    supportedFormats: '支持 PDF、Word、TXT、Markdown 格式',
     selectFileBtn: '选择文件',
     selectFile: '选择文件',
     removeFile: '❌',
@@ -57,6 +63,7 @@ export default {
     fillRequiredInfo: '请填写必填信息',
     selectFileAndTitle: '请选择文件并填写文档标题',
     invalidFileFormat: '不支持的文件格式',
+    invalidFileFormatDetail: '请选择 PDF、Word、TXT 或 Markdown 格式的文件',
     extractingContent: '正在提取文档内容...',
     extractionFailed: '文档内容提取失败',
     documentProcessingFailed: '文档处理失败',
@@ -396,5 +403,218 @@ export default {
     loadConfigsFailed: '加载配置失败',
     loadFailed: '加载失败',
     pleaseLogin: '请先登录'
+  },
+  generationConfig: {
+    // Page
+    title: '⚙️ 生成行为配置',
+    subtitle: '配置测试用例生成的默认行为和自动化流程',
+    description: '配置测试用例生成的默认行为和自动化流程',
+
+    // Config List
+    configList: '配置列表',
+    addConfig: '➕ 添加配置',
+    addFirstConfig: '➕ 添加第一个配置',
+    emptyTitle: '暂无生成配置',
+    emptyDescription: '请添加生成行为配置以控制测试用例生成的默认行为',
+
+    // Config Card
+    enabled: '✅ 启用中',
+    disabled: '❌ 未启用',
+    streamMode: '⚡ 流式输出',
+    completeMode: '📄 完整输出',
+    enable: '✅ 启用',
+    edit: '✏️ 编辑',
+    delete: '🗑️ 删除',
+
+    // Sections
+    outputMode: '📤 输出模式',
+    automationProcess: '🤖 自动化流程',
+    timeoutSettings: '⏱️ 超时设置',
+
+    // Fields
+    defaultMode: '默认模式:',
+    aiReview: 'AI评审和改进:',
+    reviewTimeout: '评审和改进超时:',
+    seconds: '秒',
+    createdAt: '创建时间:',
+    updatedAt: '更新时间:',
+
+    // Form
+    editTitle: '编辑',
+    addTitle: '添加',
+    formTitle: '生成行为配置',
+    basicInfo: '📋 基本信息',
+    configName: '配置名称',
+    configNamePlaceholder: '例如：默认生成配置',
+    enableThisConfig: '启用此配置',
+    enableHint: '注意：只能有一个启用的配置，启用此配置将自动禁用其他配置',
+
+    // Output Mode
+    outputModeSettings: '📤 输出模式设置',
+    defaultOutputMode: '默认输出模式',
+    realtimeStream: '⚡ 实时流式输出',
+    completeOutput: '📄 完整输出',
+    outputModeHint: '实时流式输出：内容逐字显示，体验流畅；完整输出：完成后一次性展示',
+
+    // Automation
+    automationSettings: '🤖 自动化流程配置',
+    enableAutoReview: '启用AI评审和改进',
+    autoReviewHint: '生成完成后自动进行AI评审，并根据评审意见改进测试用例',
+
+    // Timeout
+    timeoutSettingsLabel: '⏱️ 超时设置',
+    reviewTimeoutLabel: '评审和改进超时时间（秒）',
+    timeoutHint: 'AI评审和改进的总超时时间（建议：小文档120秒，大文档600-1800秒，超大文档可设置到3600秒）',
+
+    // Buttons
+    cancel: '取消',
+    saving: '🔄 保存中...',
+    saveConfig: '💾 保存配置',
+
+    // Messages
+    loadFailed: '加载配置失败',
+    pleaseLogin: '请先登录',
+    saveSuccess: '配置添加成功',
+    updateSuccess: '配置更新成功',
+    saveFailed: '保存失败',
+    enableSuccess: '配置已启用',
+    enableFailed: '启用失败',
+    deleteSuccess: '配置删除成功',
+    deleteFailed: '删除失败',
+    deleteConfirm: '确定要删除此配置吗？'
+  },
+
+  // 任务详情页面
+  taskDetail: {
+    // 页面头部
+    title: '任务详情',
+    taskId: '任务ID',
+    exportBtn: '💾 导出Excel',
+    exporting: '💾 导出中...',
+
+    // 需求描述折叠卡片
+    requirementTitle: '📋 需求描述',
+    requirementHint: '（点击展开查看完整内容）',
+    copyRequirement: '复制需求描述',
+
+    // 状态
+    statusPending: '需求分析中',
+    statusGenerating: '用例编写中',
+    statusReviewing: '用例评审中',
+    statusCompleted: '已完成',
+    statusFailed: '失败',
+
+    // 批量操作
+    selectAll: '全选',
+    selectedCount: '已选择 {count} 条用例',
+    batchAdopt: '✅ 一键采纳 ({count})',
+    batchDiscard: '❌ 一键弃用 ({count})',
+
+    // 表格头部
+    tableSelect: '选择',
+    tableCaseId: '测试用例编号',
+    tableScenario: '测试场景',
+    tablePrecondition: '前置条件',
+    tableSteps: '操作步骤',
+    tableExpected: '预期结果',
+    tablePriority: '优先级',
+    tableActions: '操作',
+
+    // 表格操作按钮
+    viewDetail: '📖 查看详情',
+    adopt: '✅ 采纳',
+    discard: '❌ 弃用',
+
+    // 空状态
+    emptyTitle: '暂无测试用例数据',
+    emptyHint: '该任务还没有生成测试用例或用例已被清空',
+
+    // 分页
+    paginationInfo: '显示 {start}-{end} 条，共 {total} 条',
+    pageSizeLabel: '每页显示：',
+    pageSizeOption: '{size} 条',
+    previousPage: '上一页',
+    nextPage: '下一页',
+    currentPageInfo: '第 {current} 页，共 {total} 页',
+
+    // 弹窗
+    modalEditTitle: '编辑测试用例',
+    modalViewTitle: '测试用例详情',
+    labelCaseId: '用例编号:',
+    labelScenario: '测试场景:',
+    labelPrecondition: '前置条件:',
+    labelSteps: '操作步骤:',
+    labelExpected: '预期结果:',
+    labelPriority: '优先级:',
+    labelNone: '无',
+    btnEdit: '✏️ 编辑',
+    btnClose: '关闭',
+    btnSave: '💾 保存',
+    btnSaveing: '💾 保存中...',
+    btnCancel: '取消',
+
+    // 占位符
+    placeholderScenario: '请输入测试场景',
+    placeholderPrecondition: '请输入前置条件',
+    placeholderSteps: '请输入操作步骤',
+    placeholderExpected: '请输入预期结果',
+    placeholderPriority: '请选择优先级',
+
+    // 消息提示
+    loading: '🔄 正在加载任务详情...',
+    taskNotExist: '任务不存在或已被删除',
+    backToList: '返回任务列表',
+    copySuccess: '需求描述已复制到剪贴板',
+    copyFailed: '复制失败，请手动复制',
+    loadFailed: '加载任务详情失败',
+    pleaseSelectFirst: '请先选择要{action}的测试用例',
+    confirmAdopt: '确定要采纳选中的 {count} 条测试用例吗？',
+    confirmDiscard: '确定要弃用选中的 {count} 条测试用例吗？此操作不可恢复。',
+    confirmAdoptTitle: '确认采纳',
+    confirmDiscardTitle: '确认弃用',
+    confirmAdoptSingle: '确定要采纳测试用例"{scenario}"吗？',
+    confirmDiscardSingle: '确定要弃用测试用例"{scenario}"吗？此操作不可恢复。',
+    adoptSuccess: '成功采纳 {count} 条测试用例！',
+    discardSuccess: '成功弃用 {count} 条测试用例',
+    allDiscardedSuccess: '所有测试用例已弃用，任务已删除',
+    caseDiscardedSuccess: '测试用例已弃用',
+    batchAdoptFailed: '批量采纳失败',
+    batchDiscardFailed: '批量弃用失败',
+    adoptFailed: '采纳用例失败',
+    discardFailed: '弃用用例失败',
+    enterScenario: '请输入测试场景',
+    updateSuccess: '测试用例更新成功',
+    updateFailed: '更新失败',
+    noCasesToExport: '没有测试用例可以导出',
+    exportSuccess: '测试用例导出成功',
+    exportFailed: '导出Excel失败',
+
+    // 确认按钮
+    btnConfirm: '确定',
+    btnCancelOperation: '取消',
+
+    // Excel 导出
+    excelSheetName: '测试用例',
+    excelFileName: '测试用例_{taskId}_{date}.xlsx'
+  },
+
+  // 配置引导弹框
+  configGuide: {
+    title: '开始使用AI用例生成功能',
+    subtitle: '在使用前，请先完成以下配置：',
+    // 配置分组
+    modelConfig: '模型配置',
+    promptConfig: '提示词配置',
+    generationConfig: '生成行为配置',
+    // 配置项标签
+    caseWriter: '用例编写',
+    caseReviewer: '用例评审',
+    generationSettings: '生成配置',
+    // 状态文本
+    unconfigured: '未配置',
+    disabled: '已禁用',
+    // 按钮
+    goToConfig: '去配置',
+    configureLater: '稍后配置'
   }
 }

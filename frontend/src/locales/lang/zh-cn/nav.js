@@ -50,7 +50,10 @@ export default {
     aiExecutionRecords: 'AI 执行记录',
 
     // 配置中心
-    aiModelConfig: 'AI模型配置',
+    aiCaseGenerationConfig: 'AI用例生成配置',
+    aiModelConfig: '用例模型配置',
+    promptConfig: '提示词配置',
+    generationConfig: '生成行为配置',
     uiEnvConfig: 'UI环境配置',
     aiModeConfig: 'AI智能模式配置',
     scheduledTaskConfig: '定时任务配置',

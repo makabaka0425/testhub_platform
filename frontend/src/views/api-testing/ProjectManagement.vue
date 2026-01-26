@@ -303,20 +303,6 @@ const loadUsers = async () => {
   }
 }
 
-const createSampleProject = async () => {
-  try {
-    await api.post('/api-testing/projects/create-sample/')
-    ElMessage.success(t('apiTesting.messages.success.sampleProjectCreated'))
-    await loadProjects()
-  } catch (error) {
-    if (error.response?.data?.message) {
-      ElMessage.warning(error.response.data.message)
-    } else {
-      ElMessage.error(t('apiTesting.messages.error.createFailed'))
-    }
-  }
-}
-
 const handleSizeChange = (size) => {
   pageSize.value = size
   loadProjects()
@@ -420,24 +406,6 @@ const resetForm = () => {
 
 onMounted(async () => {
   await Promise.all([loadProjects(), loadUsers()])
-  
-  // 如果没有项目，询问是否创建示例项目
-  if (projects.value.length === 0) {
-    try {
-      await ElMessageBox.confirm(
-        t('apiTesting.project.noProjectTip'),
-        t('apiTesting.common.tip'),
-        {
-          confirmButtonText: t('apiTesting.project.createSampleProject'),
-          cancelButtonText: t('apiTesting.project.laterTip'),
-          type: 'info'
-        }
-      )
-      await createSampleProject()
-    } catch (error) {
-      // 用户取消，不处理
-    }
-  }
 })
 </script>
 

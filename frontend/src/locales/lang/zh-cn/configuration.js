@@ -18,7 +18,8 @@ export default {
     updatedAt: '更新时间',
     status: '状态',
     notSet: '未设置',
-    unnamed: '未命名配置'
+    unnamed: '未命名配置',
+    locale: 'zh-CN'
   },
 
   // Dify 配置

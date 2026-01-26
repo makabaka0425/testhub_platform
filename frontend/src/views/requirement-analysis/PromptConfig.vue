@@ -12,10 +12,10 @@
           <h2>{{ $t('promptConfig.configListTitle') }}</h2>
           <div class="header-actions">
             <button class="load-defaults-btn" @click="loadDefaultPrompts">
-              📂 {{ $t('promptConfig.loadDefaults') }}
+              {{ $t('promptConfig.loadDefaults') }}
             </button>
             <button class="add-config-btn" @click="openAddModal">
-              ➕ {{ $t('promptConfig.addConfig') }}
+              {{ $t('promptConfig.addConfig') }}
             </button>
           </div>
         </div>
@@ -27,7 +27,7 @@
                 <h3>{{ config.name }}</h3>
                 <div class="config-badges">
                   <span class="type-badge" :class="config.prompt_type">
-                    {{ config.prompt_type_display }}
+                    {{ config.prompt_type === 'writer' ? $t('promptConfig.writerPrompt') : $t('promptConfig.reviewerPrompt') }}
                   </span>
                   <span class="status-badge" :class="{ active: config.is_active }">
                     {{ config.is_active ? $t('promptConfig.enabled') : $t('promptConfig.disabled') }}
@@ -146,7 +146,7 @@
             </div>
 
             <div class="modal-actions">
-              <button type="button" class="cancel-btn" @click="closeModals">取消</button>
+              <button type="button" class="cancel-btn" @click="closeModals">{{ $t('promptConfig.cancel') }}</button>
               <button 
                 type="submit" 
                 class="confirm-btn"
@@ -173,7 +173,7 @@
               <div class="meta-item">
                 <label>{{ $t('promptConfig.type') }}</label>
                 <span class="type-badge" :class="previewConfig.prompt_type">
-                  {{ previewConfig.prompt_type_display }}
+                  {{ previewConfig.prompt_type === 'writer' ? $t('promptConfig.writerPrompt') : $t('promptConfig.reviewerPrompt') }}
                 </span>
               </div>
               <div class="meta-item">

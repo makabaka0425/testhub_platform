@@ -14,65 +14,65 @@
           <path d="M464 336a48 48 0 1 0 96 0 48 48 0 1 0-96 0zm72 112h-48c-4.4 0-8 3.6-8 8v272c0 4.4 3.6 8 8 8h48c4.4 0 8-3.6 8-8V456c0-4.4-3.6-8-8-8z" fill="#f59e0b"/>
         </svg>
         <div class="guide-title">
-          <h2>开始使用AI用例生成功能</h2>
-          <p>在使用前，请先完成以下配置：</p>
+          <h2>{{ $t('configGuide.title') }}</h2>
+          <p>{{ $t('configGuide.subtitle') }}</p>
         </div>
       </div>
 
       <div class="config-groups">
         <!-- 模型配置行 -->
         <div class="config-group">
-          <div class="group-label">模型配置</div>
+          <div class="group-label">{{ $t('configGuide.modelConfig') }}</div>
           <div class="config-items-row">
             <div class="config-item-inline" :class="getConfigItemClass('writer_model')">
               <span class="status-symbol" v-html="getStatusSymbol('writer_model')"></span>
-              <span class="config-label">用例编写</span>
+              <span class="config-label">{{ $t('configGuide.caseWriter') }}</span>
               <span class="config-name" v-if="configStatus.writer_model.name">{{ configStatus.writer_model.name }}</span>
-              <span class="status-text" v-if="!configStatus.writer_model.configured">未配置</span>
-              <span class="status-text warning" v-else-if="!configStatus.writer_model.enabled">已禁用</span>
+              <span class="status-text" v-if="!configStatus.writer_model.configured">{{ $t('configGuide.unconfigured') }}</span>
+              <span class="status-text warning" v-else-if="!configStatus.writer_model.enabled">{{ $t('configGuide.disabled') }}</span>
             </div>
 
             <div class="config-item-inline" :class="getConfigItemClass('reviewer_model')">
               <span class="status-symbol" v-html="getStatusSymbol('reviewer_model')"></span>
-              <span class="config-label">用例评审</span>
+              <span class="config-label">{{ $t('configGuide.caseReviewer') }}</span>
               <span class="config-name" v-if="configStatus.reviewer_model.name">{{ configStatus.reviewer_model.name }}</span>
-              <span class="status-text" v-if="!configStatus.reviewer_model.configured">未配置</span>
-              <span class="status-text warning" v-else-if="!configStatus.reviewer_model.enabled">已禁用</span>
+              <span class="status-text" v-if="!configStatus.reviewer_model.configured">{{ $t('configGuide.unconfigured') }}</span>
+              <span class="status-text warning" v-else-if="!configStatus.reviewer_model.enabled">{{ $t('configGuide.disabled') }}</span>
             </div>
           </div>
         </div>
 
         <!-- 提示词配置行 -->
         <div class="config-group">
-          <div class="group-label">提示词配置</div>
+          <div class="group-label">{{ $t('configGuide.promptConfig') }}</div>
           <div class="config-items-row">
             <div class="config-item-inline" :class="getConfigItemClass('writer_prompt')">
               <span class="status-symbol" v-html="getStatusSymbol('writer_prompt')"></span>
-              <span class="config-label">用例编写</span>
+              <span class="config-label">{{ $t('configGuide.caseWriter') }}</span>
               <span class="config-name" v-if="configStatus.writer_prompt.name">{{ configStatus.writer_prompt.name }}</span>
-              <span class="status-text" v-if="!configStatus.writer_prompt.configured">未配置</span>
-              <span class="status-text warning" v-else-if="!configStatus.writer_prompt.enabled">已禁用</span>
+              <span class="status-text" v-if="!configStatus.writer_prompt.configured">{{ $t('configGuide.unconfigured') }}</span>
+              <span class="status-text warning" v-else-if="!configStatus.writer_prompt.enabled">{{ $t('configGuide.disabled') }}</span>
             </div>
 
             <div class="config-item-inline" :class="getConfigItemClass('reviewer_prompt')">
               <span class="status-symbol" v-html="getStatusSymbol('reviewer_prompt')"></span>
-              <span class="config-label">用例评审</span>
+              <span class="config-label">{{ $t('configGuide.caseReviewer') }}</span>
               <span class="config-name" v-if="configStatus.reviewer_prompt.name">{{ configStatus.reviewer_prompt.name }}</span>
-              <span class="status-text" v-if="!configStatus.reviewer_prompt.configured">未配置</span>
-              <span class="status-text warning" v-else-if="!configStatus.reviewer_prompt.enabled">已禁用</span>
+              <span class="status-text" v-if="!configStatus.reviewer_prompt.configured">{{ $t('configGuide.unconfigured') }}</span>
+              <span class="status-text warning" v-else-if="!configStatus.reviewer_prompt.enabled">{{ $t('configGuide.disabled') }}</span>
             </div>
           </div>
         </div>
 
         <!-- 生成行为配置行 -->
         <div class="config-group">
-          <div class="group-label">生成行为配置</div>
+          <div class="group-label">{{ $t('configGuide.generationConfig') }}</div>
           <div class="config-items-row">
             <div class="config-item-inline" :class="getConfigItemClass('generation_config')">
               <span class="status-symbol" v-html="getStatusSymbol('generation_config')"></span>
-              <span class="config-label">生成配置</span>
+              <span class="config-label">{{ $t('configGuide.generationSettings') }}</span>
               <span class="config-name" v-if="configStatus.generation_config && configStatus.generation_config.name">{{ configStatus.generation_config.name }}</span>
-              <span class="status-text" v-if="!configStatus.generation_config || !configStatus.generation_config.configured">未配置</span>
+              <span class="status-text" v-if="!configStatus.generation_config || !configStatus.generation_config.configured">{{ $t('configGuide.unconfigured') }}</span>
             </div>
           </div>
         </div>
@@ -80,10 +80,10 @@
 
         <div class="guide-actions">
           <button class="generate-manual-btn" @click="goToConfig">
-            去配置
+            {{ $t('configGuide.goToConfig') }}
           </button>
           <div class="skip-action" @click="showConfigGuide = false">
-            稍后配置
+            {{ $t('configGuide.configureLater') }}
           </div>
         </div>
       </div>
@@ -92,21 +92,21 @@
     <!-- 输出模式选择器 - 全局设置 -->
     <div class="output-mode-section" v-if="!isGenerating && !showResults">
       <div class="output-mode-card">
-        <h3>📤 输出模式设置</h3>
-        <p class="mode-section-desc">选择测试用例生成的输出方式（适用于手动输入和文档上传两种方式）</p>
+        <h3>{{ $t('requirementAnalysis.outputModeTitle') }}</h3>
+        <p class="mode-section-desc">{{ $t('requirementAnalysis.outputModeDesc') }}</p>
         <div class="output-mode-selector">
           <label class="mode-option" :class="{ active: globalOutputMode === 'stream' }">
             <input type="radio" v-model="globalOutputMode" value="stream">
             <div class="mode-content">
-              <div class="mode-title">⚡ 实时流式输出</div>
-              <div class="mode-desc">内容逐字显示，体验流畅，适合大需求文档</div>
+              <div class="mode-title">{{ $t('requirementAnalysis.realtimeStream') }}</div>
+              <div class="mode-desc">{{ $t('requirementAnalysis.realtimeStreamDesc') }}</div>
             </div>
           </label>
           <label class="mode-option" :class="{ active: globalOutputMode === 'complete' }">
             <input type="radio" v-model="globalOutputMode" value="complete">
             <div class="mode-content">
-              <div class="mode-title">📄 完整输出</div>
-              <div class="mode-desc">完成后一次性展示，适合简单需求</div>
+              <div class="mode-title">{{ $t('requirementAnalysis.completeOutput') }}</div>
+              <div class="mode-desc">{{ $t('requirementAnalysis.completeOutputDesc') }}</div>
             </div>
           </label>
         </div>
@@ -177,7 +177,7 @@
             <div v-if="!selectedFile" class="upload-placeholder">
               <i class="upload-icon">📁</i>
               <p>{{ $t('requirementAnalysis.dragDropText') }}</p>
-              <p class="upload-hint">支持 PDF、Word、TXT、Markdown 格式</p>
+              <p class="upload-hint">{{ $t('requirementAnalysis.supportedFormats') }}</p>
               <input 
                 type="file" 
                 ref="fileInput" 
@@ -632,12 +632,12 @@ export default {
           'text/x-markdown'
         ]
         
-        if (allowedTypes.includes(file.type) || 
+        if (allowedTypes.includes(file.type) ||
             file.name.match(/\.(pdf|doc|docx|txt|md)$/i)) {
           this.selectedFile = file
           this.documentTitle = file.name.replace(/\.[^/.]+$/, "")
         } else {
-          ElMessage.error('请选择 PDF、Word、TXT 或 Markdown 格式的文件')
+          ElMessage.error(this.$t('requirementAnalysis.invalidFileFormatDetail'))
         }
       }
     },
@@ -1795,11 +1795,13 @@ export default {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  align-items: stretch;
 }
 
 .mode-option {
   position: relative;
   cursor: pointer;
+  display: flex;
 }
 
 .mode-option input[type="radio"] {
@@ -1815,6 +1817,11 @@ export default {
   padding: 16px;
   transition: all 0.3s ease;
   background: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .mode-option:hover .mode-content {

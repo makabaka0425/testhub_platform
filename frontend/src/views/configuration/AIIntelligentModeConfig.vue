@@ -236,16 +236,7 @@ const modelBaseUrlMap = {
 const shouldShowModal = computed(() => showAddModal.value || showEditModal.value)
 
 const getProviderLabel = (modelType) => {
-  const labels = {
-    openai: 'OpenAI',
-    azure_openai: 'Azure OpenAI',
-    anthropic: 'Anthropic',
-    google_gemini: 'Google Gemini',
-    deepseek: 'DeepSeek',
-    siliconflow: '硅基流动',
-    other: '其他'
-  }
-  return labels[modelType] || modelType
+  return t('configuration.aiMode.providers.' + modelType) || modelType
 }
 
 const loadConfigs = async () => {
@@ -555,7 +546,8 @@ const closeTestResult = () => {
 const formatDateTime = (dateString) => {
   if (!dateString) return ''
   const date = new Date(dateString)
-  return date.toLocaleString('zh-CN', {
+  const locale = t('configuration.common.locale') || 'zh-CN'
+  return date.toLocaleString(locale, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

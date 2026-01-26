@@ -37,7 +37,7 @@
               </div>
               <div class="stat-info">
                 <div class="stat-value">{{ suiteCount }}</div>
-                <div class="stat-label">测试套件</div>
+                <div class="stat-label">{{ $t('apiTesting.dashboard.testSuites') }}</div>
               </div>
             </div>
           </el-card>

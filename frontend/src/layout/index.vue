@@ -165,7 +165,7 @@
             <el-sub-menu index="ai-case-generation">
               <template #title>
                 <el-icon><MagicStick /></el-icon>
-                <span>AI用例生成配置</span>
+                <span>{{ $t('menu.aiCaseGenerationConfig') }}</span>
               </template>
               <el-menu-item index="/configuration/ai-model">
                 <el-icon><Cpu /></el-icon>
@@ -173,11 +173,11 @@
               </el-menu-item>
               <el-menu-item index="/configuration/prompt-config">
                 <el-icon><Edit /></el-icon>
-                <span>提示词配置</span>
+                <span>{{ $t('menu.promptConfig') }}</span>
               </el-menu-item>
               <el-menu-item index="/configuration/generation-config">
                 <el-icon><Setting /></el-icon>
-                <span>生成行为配置</span>
+                <span>{{ $t('menu.generationConfig') }}</span>
               </el-menu-item>
             </el-sub-menu>
             <el-menu-item index="/configuration/ui-env">
@@ -356,8 +356,8 @@ const breadcrumbTitle = computed(() => {
 
     // 配置中心
     '/configuration/ai-model': t('menu.aiModelConfig'),
-    '/configuration/prompt-config': '提示词配置',
-    '/configuration/generation-config': '生成行为配置',
+    '/configuration/prompt-config': t('menu.promptConfig'),
+    '/configuration/generation-config': t('menu.generationConfig'),
     '/configuration/ui-env': t('menu.uiEnvConfig'),
     '/configuration/ai-mode': t('menu.aiModeConfig'),
     '/configuration/scheduled-task': t('menu.scheduledTaskConfig'),
