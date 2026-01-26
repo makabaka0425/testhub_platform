@@ -22,7 +22,6 @@
               </template>
               <el-menu-item index="/ai-generation/requirement-analysis">{{ $t('menu.aiCaseGeneration') }}</el-menu-item>
               <el-menu-item index="/ai-generation/generated-testcases">{{ $t('menu.aiGeneratedTestcases') }}</el-menu-item>
-              <el-menu-item index="/ai-generation/prompt-config">{{ $t('menu.promptConfig') }}</el-menu-item>
             </el-sub-menu>
             <el-menu-item index="/ai-generation/projects">
               <el-icon><Folder /></el-icon>
@@ -314,7 +313,6 @@ const breadcrumbTitle = computed(() => {
     // AI用例生成
     '/ai-generation/requirement-analysis': t('menu.aiCaseGeneration'),
     '/ai-generation/generated-testcases': t('menu.aiGeneratedTestcases'),
-    '/ai-generation/prompt-config': t('menu.promptConfig'),
     '/ai-generation/projects': t('menu.projectManagement'),
     '/ai-generation/testcases': t('menu.testCases'),
     '/ai-generation/versions': t('menu.versionManagement'),

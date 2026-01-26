@@ -130,12 +130,6 @@ const routes = [
         name: 'AiTestReport',
         component: () => import('@/views/reports/AiTestReport.vue')
       },
-
-      {
-        path: 'prompt-config',
-        name: 'PromptConfig',
-        component: () => import('@/views/requirement-analysis/PromptConfig.vue')
-      },
       {
         path: 'generated-testcases',
         name: 'GeneratedTestCases',
