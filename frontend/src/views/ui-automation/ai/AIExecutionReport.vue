@@ -4,6 +4,9 @@
     :title="`${$t('uiAutomation.ai.executionReport.title')} - ${reportTypeDisplay}`"
     width="1000px"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    :modal="true"
+    :destroy-on-close="false"
     @close="handleClose"
   >
     <div v-if="loading" class="report-loading">

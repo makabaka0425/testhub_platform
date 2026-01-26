@@ -77,6 +77,10 @@
     <el-dialog
       :title="isEdit ? $t('project.editProject') : $t('project.createProject')"
       v-model="showCreateDialog"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :modal="true"
+      :destroy-on-close="false"
       width="600px"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
