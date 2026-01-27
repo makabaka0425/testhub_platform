@@ -148,12 +148,8 @@ const handleNavigate = (type) => {
     'ui': '/ui-automation/dashboard',
     'ai-intelligent': '/ai-intelligent-mode/testing',
     'assistant': '/ai-generation/assistant',
-    'config': '/configuration/ai-model'
-  }
-
-  if (type === 'data') {
-    ElMessage.info(t('home.featureInDevelopment'))
-    return
+    'config': '/configuration/ai-model',
+    'data': '/data-factory'
   }
 
   if (routes[type]) {
@@ -325,8 +321,8 @@ const handleNavigate = (type) => {
   }
 
   &.data-icon {
-    background: #f4f4f5;
-    color: #909399;
+    background: #e8f4ff;
+    color: #409eff;
   }
 
   &.ai-intelligent-icon {

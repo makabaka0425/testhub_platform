@@ -12,19 +12,19 @@ import App from './App.vue'
 import router from './router'
 import './assets/css/global.scss'
 
-// Axios aÃ¥ÂÂºÃ§Â½Â®
+// Axios 基础配置
 axios.defaults.xsrfCookieName = 'csrftoken';
 axios.defaults.xsrfHeaderName = 'X-CSRFToken';
-axios.defaults.withCredentials = true; // Ã¥ÂÂÃ¨Â®Â¸Ã¨Â·Â¨Ã¨Â¯Â·Ã¥Â¸Â¦ Cookie
+axios.defaults.withCredentials = true; // 允许跨域带 Cookie
 
 const app = createApp(App)
 
-app.use(createPinia())
-
-const userStore = useUserStore()
+const pinia = createPinia()
+app.use(pinia)
 
 async function init() {
   try {
+    const userStore = useUserStore()
     await userStore.initAuth()
   } catch (error) {
     // 获取用户信息失败，说明未登录，无需处理

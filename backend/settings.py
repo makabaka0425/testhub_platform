@@ -51,6 +51,7 @@ LOCAL_APPS = [
     'apps.api_testing',
     'apps.ui_automation.apps.UiAutomationConfig',
     'apps.core',
+    'apps.data_factory',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -287,12 +288,22 @@ LOGGING = {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
         },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
     },
     'handlers': {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
+            'filename': os.path.join(BASE_DIR, 'logs', 'app.log'),
+            'formatter': 'verbose',
+        },
+        'error_file': {
+            'level': 'ERROR',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'error.log'),
             'formatter': 'verbose',
         },
         'console': {
@@ -303,14 +314,19 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file', 'error_file', 'console'],
             'level': 'INFO',
             'propagate': True,
         },
         'apps.api_testing.views': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file', 'error_file', 'console'],
             'level': 'INFO',
             'propagate': True,
+        },
+        'apps.data_factory.tools.json_tools': {
+            'handlers': ['file', 'error_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
         },
     },
 }
@@ -386,3 +402,6 @@ SIMPLEUI_ICON = {
     '生成的测试用例': 'el-icon-document',
     '需求文档': 'el-icon-document',
 }
+
+# 开发环境，暂时禁用迁移历史检查
+# SILENCED_SYSTEM_CHECKS = ['django.db.migrations.InconsistentMigrationHistory']
