@@ -574,6 +574,7 @@ export default {
       reportGenerated: 'Report generated successfully',
       batchDeleteSuccess: 'Batch delete successful',
       collectionNameUpdated: 'Collection name updated successfully',
+      collectionUpdated: 'Collection updated successfully',
       collectionCreated: 'Created successfully',
       collectionDeleted: 'Collection deleted successfully',
       interfaceDeleted: 'Interface deleted successfully',

@@ -574,6 +574,7 @@ export default {
       reportGenerated: '报告生成成功',
       batchDeleteSuccess: '批量删除成功',
       collectionNameUpdated: '集合名称更新成功',
+      collectionUpdated: '集合更新成功',
       collectionCreated: '创建成功',
       collectionDeleted: '集合删除成功',
       interfaceDeleted: '接口删除成功',

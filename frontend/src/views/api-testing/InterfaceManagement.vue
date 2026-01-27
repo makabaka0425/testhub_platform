@@ -1095,8 +1095,13 @@ const editNode = () => {
     
     response.value = null
   } else if (rightClickedNode.value.type === 'collection') {
-    // 启动集合内联编辑
-    startEditCollection(rightClickedNode.value)
+    // 打开集合编辑对话框
+    const collection = rightClickedNode.value
+    editCollectionForm.id = collection.id
+    editCollectionForm.name = collection.name
+    editCollectionForm.description = collection.description
+    editCollectionForm.parent = collection.parent
+    showEditCollectionDialog.value = true
   }
   hideContextMenu()
 }
@@ -1278,6 +1283,53 @@ const createCollection = async () => {
     
   } catch (error) {
     ElMessage.error(t('apiTesting.messages.error.createFailed'))
+  }
+}
+
+const updateCollection = async () => {
+  try {
+    const data = {
+      name: editCollectionForm.name,
+      description: editCollectionForm.description,
+      parent: editCollectionForm.parent,
+      project: selectedProject.value
+    }
+    await api.put(`/api-testing/collections/${editCollectionForm.id}/`, data)
+    
+    ElMessage.success(t('apiTesting.messages.success.collectionUpdated'))
+    showEditCollectionDialog.value = false
+    
+    // 更新本地树数据
+    const updateCollectionInTree = (collections, id, newData) => {
+      for (const collection of collections) {
+        if (collection.id === id) {
+          collection.name = newData.name
+          collection.description = newData.description
+          collection.parent = newData.parent
+          return true
+        }
+        if (collection.children && updateCollectionInTree(collection.children, id, newData)) {
+          return true
+        }
+      }
+      return false
+    }
+    
+    updateCollectionInTree(collections.value, editCollectionForm.id, data)
+    
+    // 更新平集合列表
+    const flatCollection = flatCollections.value.find(c => c.id === editCollectionForm.id)
+    if (flatCollection) {
+      flatCollection.name = editCollectionForm.name
+      flatCollection.description = editCollectionForm.description
+      flatCollection.parent = editCollectionForm.parent
+    }
+    
+    // 重置表单
+    Object.assign(editCollectionForm, { id: null, name: '', description: '', parent: null })
+    
+  } catch (error) {
+    ElMessage.error(t('apiTesting.messages.error.updateFailed'))
   }
 }
 
