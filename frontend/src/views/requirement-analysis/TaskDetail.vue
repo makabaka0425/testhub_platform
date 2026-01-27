@@ -723,7 +723,14 @@ export default {
       if (this.testCases.length === 0) return ''
 
       // 表头
-      const headers = ['测试用例编号', '测试场景', '前置条件', '操作步骤', '预期结果', '优先级']
+      const headers = [
+        this.$t('taskDetail.tableCaseId'),
+        this.$t('taskDetail.tableScenario'),
+        this.$t('taskDetail.tablePrecondition'),
+        this.$t('taskDetail.tableSteps'),
+        this.$t('taskDetail.tableExpected'),
+        this.$t('taskDetail.tablePriority')
+      ]
       let result = headers.join(' | ') + '\n'
       result += '|'.repeat(headers.length) + '\n'
 
@@ -857,15 +864,15 @@ export default {
       return priorityMap[priority] || 'medium'
     },
 
-    // 将英文优先级转换为中文显示
+    // 将英文优先级转换为本地化显示
     priorityToChinese(priority) {
       const priorityMap = {
-        'critical': '紧急',
-        'high': '高',
-        'medium': '中',
-        'low': '低'
+        'critical': this.$t('generatedTestCases.priorityCritical'),
+        'high': this.$t('generatedTestCases.priorityHigh'),
+        'medium': this.$t('generatedTestCases.priorityMedium'),
+        'low': this.$t('generatedTestCases.priorityLow')
       }
-      return priorityMap[priority] || '中'
+      return priorityMap[priority] || this.$t('generatedTestCases.priorityMedium')
     },
 
     // 导出到Excel

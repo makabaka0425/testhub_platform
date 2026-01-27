@@ -203,7 +203,7 @@ export default {
       isSaving: false,
       editingConfigId: null,
       configForm: {
-        name: '默认生成配置',
+        name: '',
         default_output_mode: 'stream',
         enable_auto_review: true,
         review_timeout: 1500,
@@ -213,6 +213,7 @@ export default {
   },
 
   mounted() {
+    this.configForm.name = this.t('generationConfig.defaultConfigName')
     this.loadConfigs()
   },
 
@@ -254,7 +255,7 @@ export default {
 
     resetForm() {
       this.configForm = {
-        name: '默认生成配置',
+        name: this.t('generationConfig.defaultConfigName'),
         default_output_mode: 'stream',
         enable_auto_review: true,
         review_timeout: 1500,

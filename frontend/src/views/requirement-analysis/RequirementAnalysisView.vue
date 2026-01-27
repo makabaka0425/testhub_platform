@@ -236,9 +236,9 @@
       <div v-if="isGenerating || showResults" class="generation-progress">
         <div class="progress-card">
           <h3>
-            🤖 AI正在为您生成测试用例
+            {{ $t('requirementAnalysis.aiGeneratingTitle') }}
             <span class="current-mode-badge">
-              (当前模式: {{ globalOutputMode === 'stream' ? '⚡实时流式输出' : '📄完整输出' }})
+              ({{ globalOutputMode === 'stream' ? $t('requirementAnalysis.realtimeStream') : $t('requirementAnalysis.completeOutput') }})
             </span>
           </h3>
           <div class="progress-info">
@@ -248,15 +248,15 @@
             </div>
             <div class="progress-item">
               <span class="label">{{ $t('requirementAnalysis.currentStatus') }}</span>
-              <span class="value">{{ showResults ? '生成完成' : progressText }}</span>
+              <span class="value">{{ showResults ? $t('requirementAnalysis.generationComplete') : progressText }}</span>
             </div>
           </div>
 
           <!-- 流式内容实时显示区域 -->
           <div v-if="streamedContent" class="stream-content-display">
             <div class="stream-header">
-              <span class="stream-title">✍️ 实时生成内容</span>
-              <span class="stream-status">{{ streamedContent.length }} 字符</span>
+              <span class="stream-title">{{ $t('requirementAnalysis.realtimeGeneratedContent') }}</span>
+              <span class="stream-status">{{ $t('requirementAnalysis.characters', { count: streamedContent.length }) }}</span>
             </div>
             <div class="stream-content" v-html="formatMarkdown(streamedContent)"></div>
           </div>
@@ -264,8 +264,8 @@
           <!-- 评审内容显示区域 -->
           <div v-if="streamedReviewContent" class="stream-content-display" style="margin-top: 15px;">
             <div class="stream-header">
-              <span class="stream-title">📝 AI评审意见</span>
-              <span class="stream-status">{{ streamedReviewContent.length }} 字符</span>
+              <span class="stream-title">{{ $t('requirementAnalysis.aiReviewComments') }}</span>
+              <span class="stream-status">{{ $t('requirementAnalysis.characters', { count: streamedReviewContent.length }) }}</span>
             </div>
             <div class="stream-content" v-html="formatMarkdown(streamedReviewContent)"></div>
           </div>
@@ -274,10 +274,10 @@
           <div v-if="finalTestCases" class="stream-content-display" style="margin-top: 15px;">
             <div class="stream-header">
               <span class="stream-title">
-                🎯 最终版用例
-                <span v-if="isGenerating" class="streaming-indicator">🔄 正在生成...</span>
+                {{ $t('requirementAnalysis.finalVersionTestCases') }}
+                <span v-if="isGenerating" class="streaming-indicator">{{ $t('requirementAnalysis.generating') }}</span>
               </span>
-              <span class="stream-status">{{ finalTestCases.length }} 字符</span>
+              <span class="stream-status">{{ $t('requirementAnalysis.characters', { count: finalTestCases.length }) }}</span>
             </div>
             <div class="stream-content final-testcases" v-html="formatMarkdown(finalTestCases)"></div>
           </div>
@@ -368,7 +368,7 @@ export default {
       // 生成状态
       isGenerating: false,
       currentTaskId: null,
-      progressText: '准备开始生成...',
+      progressText: '',
       currentStep: 0,
       pollInterval: null,
       eventSource: null,  // SSE连接
@@ -439,6 +439,7 @@ export default {
   },
   
   mounted() {
+    this.progressText = this.$t('requirementAnalysis.preparing')
     this.loadProjects()
     this.checkConfigStatus()
   },
