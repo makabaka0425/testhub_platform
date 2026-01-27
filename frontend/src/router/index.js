@@ -203,6 +203,11 @@ const routes = [
         component: () => import('@/views/api-testing/ScheduledTasks.vue')
       },
       {
+        path: 'ai-service-config',
+        name: 'ApiAIServiceConfig',
+        component: () => import('@/views/api-testing/AIServiceConfig.vue')
+      },
+      {
         path: 'notification-logs',
         name: 'ApiNotificationLogs',
         component: () => import('@/views/notification/NotificationLogs.vue')
@@ -300,6 +305,12 @@ const routes = [
         component: () => import('@/views/ui-automation/ai/AIExecutionRecords.vue')
       }
     ]
+  },
+  {
+    path: '/data-factory',
+    name: 'DataFactory',
+    component: () => import('@/views/data-factory/DataFactory.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/configuration',

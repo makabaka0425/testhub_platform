@@ -17,7 +17,7 @@ import en from 'element-plus/es/locale/lang/en'
 const userStore = useUserStore()
 const appStore = useAppStore()
 
-// 映射 Element Plus 需要的 locale 对象
+// 根据 Element Plus 需要的 locale 配置
 const elementLocale = computed(() => {
   return appStore.language === 'zh-cn' ? zhCn : en
 })

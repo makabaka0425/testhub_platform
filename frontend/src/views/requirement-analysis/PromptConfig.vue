@@ -27,7 +27,7 @@
                 <h3>{{ config.name }}</h3>
                 <div class="config-badges">
                   <span class="type-badge" :class="config.prompt_type">
-                    {{ config.prompt_type_display }}
+                    {{ config.prompt_type === 'writer' ? $t('promptConfig.writerPrompt') : $t('promptConfig.reviewerPrompt') }}
                   </span>
                   <span class="status-badge" :class="{ active: config.is_active }">
                     {{ config.is_active ? $t('promptConfig.enabled') : $t('promptConfig.disabled') }}
@@ -173,7 +173,7 @@
               <div class="meta-item">
                 <label>{{ $t('promptConfig.type') }}</label>
                 <span class="type-badge" :class="previewConfig.prompt_type">
-                  {{ previewConfig.prompt_type_display }}
+                  {{ previewConfig.prompt_type === 'writer' ? $t('promptConfig.writerPrompt') : $t('promptConfig.reviewerPrompt') }}
                 </span>
               </div>
               <div class="meta-item">

@@ -123,9 +123,6 @@ export default {
       completed: 'Completed'
     },
     confirmDelete: 'Are you sure to delete project "{name}"?',
-    createSampleProject: 'Create Sample Project',
-    noProjectTip: 'No projects found. Would you like to create a sample pet store project?',
-    laterTip: 'Maybe Later',
     none: 'None',
     notSet: 'Not Set'
   },
@@ -588,7 +585,6 @@ export default {
       environmentUpdated: 'Environment updated successfully',
       projectCreated: 'Project created successfully',
       projectUpdated: 'Project updated successfully',
-      sampleProjectCreated: 'Sample project created successfully',
       taskCreated: 'Task created successfully',
       taskUpdated: 'Task updated successfully',
       taskDeleted: 'Task deleted successfully',

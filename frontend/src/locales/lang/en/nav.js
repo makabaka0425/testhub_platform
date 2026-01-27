@@ -50,7 +50,10 @@ export default {
     aiExecutionRecords: 'AI Execution Records',
 
     // Configuration Center
-    aiModelConfig: 'AI Model Configuration',
+    aiCaseGenerationConfig: 'AI Test Case Config',
+    aiModelConfig: 'Model Config',
+    promptConfig: 'Prompt Configuration',
+    generationConfig: 'Generation Behavior Config',
     uiEnvConfig: 'UI Environment Configuration',
     aiModeConfig: 'AI Mode Configuration',
     scheduledTaskConfig: 'Scheduled Task Configuration',

@@ -123,9 +123,6 @@ export default {
       completed: '已结束'
     },
     confirmDelete: '确定要删除项目 "{name}" 吗？',
-    createSampleProject: '创建示例项目',
-    noProjectTip: '当前没有任何项目，是否创建宠物店示例项目？',
-    laterTip: '稍后再说',
     none: '无',
     notSet: '未设置'
   },
@@ -588,7 +585,6 @@ export default {
       environmentUpdated: '环境更新成功',
       projectCreated: '项目创建成功',
       projectUpdated: '项目更新成功',
-      sampleProjectCreated: '示例项目创建成功',
       taskCreated: '创建任务成功',
       taskUpdated: '更新任务成功',
       taskDeleted: '删除任务成功',

@@ -65,10 +65,14 @@
                 <label>{{ $t('configuration.aiModel.temperature') }}:</label>
                 <span>{{ config.temperature }}</span>
               </div>
-                <div class="detail-item">
-                  <label>{{ $t('configuration.common.createdAt') }}:</label>
-                  <span>{{ formatDateTime(config.created_at) }}</span>
-                </div>
+              <div class="detail-item">
+                <label>{{ $t('configuration.aiModel.topP') }}:</label>
+                <span>{{ config.top_p }}</span>
+              </div>
+              <div class="detail-item">
+                <label>{{ $t('configuration.common.createdAt') }}:</label>
+                <span>{{ formatDateTime(config.created_at) }}</span>
+              </div>
               </div>
             </div>
           </template>
@@ -252,7 +256,7 @@
         <div class="modal-body">
           <div class="test-result" :class="{ success: testResult.success, error: !testResult.success }">
             <div class="result-icon">
-              {{ testResult.success ? '[OK]' : '[X]' }}
+              {{ testResult.success ? '✅' : '❌' }}
             </div>
             <div class="result-content">
               <h4>{{ testResult.success ? $t('configuration.aiModel.connectionSuccess') : $t('configuration.aiModel.connectionFailed') }}</h4>

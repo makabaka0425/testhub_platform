@@ -556,7 +556,8 @@ const closeTestResult = () => {
 const formatDateTime = (dateString) => {
   if (!dateString) return ''
   const date = new Date(dateString)
-  return date.toLocaleString('zh-CN', {
+  const locale = t('configuration.common.locale') || 'zh-CN'
+  return date.toLocaleString(locale, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

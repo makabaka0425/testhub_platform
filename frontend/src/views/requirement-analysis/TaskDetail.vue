@@ -2,20 +2,20 @@
   <div class="task-detail">
     <div class="page-header">
       <div class="header-left">
-        <h2>任务详情 - {{ task.title }}</h2>
+        <h2>{{ $t('taskDetail.title') }} <span v-if="task.title">- {{ task.title }}</span></h2>
         <div class="task-info">
-          <span class="task-id">任务ID: {{ taskId }}</span>
+          <span class="task-id">{{ $t('taskDetail.taskId') }}: {{ taskId }}</span>
           <span class="task-status" :class="task.status">{{ getStatusText(task.status) }}</span>
         </div>
       </div>
       <div class="header-actions">
-        <button 
-          v-if="testCases.length > 0" 
-          class="export-btn" 
+        <button
+          v-if="testCases.length > 0"
+          class="export-btn"
           @click="exportToExcel"
           :disabled="isExporting">
-          <span v-if="isExporting">💾 导出中...</span>
-          <span v-else>💾 导出Excel</span>
+          <span v-if="isExporting">{{ $t('taskDetail.exporting') }}</span>
+          <span v-else>{{ $t('taskDetail.exportBtn') }}</span>
         </button>
       </div>
     </div>
@@ -27,8 +27,8 @@
           <template #title>
             <div class="collapse-title">
               <span class="title-icon">📋</span>
-              <span class="title-text">需求描述</span>
-              <span class="title-hint">（点击展开查看完整内容）</span>
+              <span class="title-text">{{ $t('taskDetail.requirementTitle') }}</span>
+              <span class="title-hint">{{ $t('taskDetail.requirementHint') }}</span>
             </div>
           </template>
           <div class="requirement-content">
@@ -38,7 +38,7 @@
             <div class="requirement-actions">
               <el-button size="small" @click="copyRequirementText">
                 <el-icon><DocumentCopy /></el-icon>
-                复制需求描述
+                {{ $t('taskDetail.copyRequirement') }}
               </el-button>
             </div>
           </div>
@@ -47,12 +47,12 @@
     </div>
 
     <div v-if="isLoading" class="loading-state">
-      <p>🔄 正在加载任务详情...</p>
+      <p>{{ $t('taskDetail.loading') }}</p>
     </div>
 
     <div v-else-if="!task.task_id" class="error-state">
-      <h3>任务不存在或已被删除</h3>
-      <router-link to="/generated-testcases">返回任务列表</router-link>
+      <h3>{{ $t('taskDetail.taskNotExist') }}</h3>
+      <router-link to="/generated-testcases">{{ $t('taskDetail.backToList') }}</router-link>
     </div>
 
     <div v-else class="task-content">
@@ -60,28 +60,28 @@
       <div class="batch-actions" v-if="testCases.length > 0">
         <div class="selection-info">
           <label class="select-all">
-            <input 
-              type="checkbox" 
-              :checked="isAllSelected" 
+            <input
+              type="checkbox"
+              :checked="isAllSelected"
               @change="toggleSelectAll">
-            全选
+            {{ $t('taskDetail.selectAll') }}
           </label>
           <span class="selected-count" v-if="selectedCases.length > 0">
-            已选择 {{ selectedCases.length }} 条用例
+            {{ $t('taskDetail.selectedCount', { count: selectedCases.length }) }}
           </span>
         </div>
         <div class="batch-buttons">
-          <button 
-            class="batch-adopt-btn" 
+          <button
+            class="batch-adopt-btn"
             :disabled="selectedCases.length === 0"
             @click="batchAdopt">
-            ✅ 一键采纳 ({{ selectedCases.length }})
+            {{ $t('taskDetail.batchAdopt', { count: selectedCases.length }) }}
           </button>
-          <button 
-            class="batch-discard-btn" 
+          <button
+            class="batch-discard-btn"
             :disabled="selectedCases.length === 0"
             @click="batchDiscard">
-            ❌ 一键弃用 ({{ selectedCases.length }})
+            {{ $t('taskDetail.batchDiscard', { count: selectedCases.length }) }}
           </button>
         </div>
       </div>
@@ -89,14 +89,14 @@
       <!-- 测试用例列表 -->
       <div class="testcases-table" v-if="testCases.length > 0">
         <div class="table-header">
-          <div class="header-cell checkbox-cell">选择</div>
-          <div class="header-cell">测试用例编号</div>
-          <div class="header-cell">测试场景</div>
-          <div class="header-cell">前置条件</div>
-          <div class="header-cell">操作步骤</div>
-          <div class="header-cell">预期结果</div>
-          <div class="header-cell">优先级</div>
-          <div class="header-cell">操作</div>
+          <div class="header-cell checkbox-cell">{{ $t('taskDetail.tableSelect') }}</div>
+          <div class="header-cell">{{ $t('taskDetail.tableCaseId') }}</div>
+          <div class="header-cell">{{ $t('taskDetail.tableScenario') }}</div>
+          <div class="header-cell">{{ $t('taskDetail.tablePrecondition') }}</div>
+          <div class="header-cell">{{ $t('taskDetail.tableSteps') }}</div>
+          <div class="header-cell">{{ $t('taskDetail.tableExpected') }}</div>
+          <div class="header-cell">{{ $t('taskDetail.tablePriority') }}</div>
+          <div class="header-cell">{{ $t('taskDetail.tableActions') }}</div>
         </div>
         
         <div class="table-body">
@@ -121,9 +121,9 @@
             </div>
             <div class="body-cell">
               <div class="action-buttons">
-                <button class="view-btn" @click="viewCaseDetail(testCase, index)">📖 查看详情</button>
-                <button class="adopt-btn" @click="adoptSingleCase(testCase, index)">✅ 采纳</button>
-                <button class="discard-btn" @click="discardSingleCase(testCase, index)">❌ 弃用</button>
+                <button class="view-btn" @click="viewCaseDetail(testCase, index)">{{ $t('taskDetail.viewDetail') }}</button>
+                <button class="adopt-btn" @click="adoptSingleCase(testCase, index)">{{ $t('taskDetail.adopt') }}</button>
+                <button class="discard-btn" @click="discardSingleCase(testCase, index)">{{ $t('taskDetail.discard') }}</button>
               </div>
             </div>
           </div>
@@ -131,28 +131,28 @@
       </div>
 
       <div v-else class="empty-state">
-        <h3>暂无测试用例数据</h3>
-        <p>该任务还没有生成测试用例或用例已被清空</p>
+        <h3>{{ $t('taskDetail.emptyTitle') }}</h3>
+        <p>{{ $t('taskDetail.emptyHint') }}</p>
       </div>
 
       <!-- 分页 -->
       <div v-if="testCases.length > 0" class="pagination-section">
         <div class="pagination-info">
-          显示 {{ paginationStart }}-{{ paginationEnd }} 条，共 {{ testCases.length }} 条
+          {{ $t('taskDetail.paginationInfo', { start: paginationStart, end: paginationEnd, total: testCases.length }) }}
         </div>
         <div class="pagination-controls">
           <div class="page-size-selector">
-            <label>每页显示：</label>
+            <label>{{ $t('taskDetail.pageSizeLabel') }}</label>
             <select v-model="pageSize" @change="currentPage = 1">
-              <option value="10">10 条</option>
-              <option value="20">20 条</option>
-              <option value="50">50 条</option>
+              <option value="10">{{ $t('taskDetail.pageSizeOption', { size: 10 }) }}</option>
+              <option value="20">{{ $t('taskDetail.pageSizeOption', { size: 20 }) }}</option>
+              <option value="50">{{ $t('taskDetail.pageSizeOption', { size: 50 }) }}</option>
             </select>
           </div>
           <div class="pagination-buttons">
-            <button :disabled="currentPage <= 1" @click="currentPage--">上一页</button>
-            <span class="current-page">第 {{ currentPage }} 页，共 {{ totalPages }} 页</span>
-            <button :disabled="currentPage >= totalPages" @click="currentPage++">下一页</button>
+            <button :disabled="currentPage <= 1" @click="currentPage--">{{ $t('taskDetail.previousPage') }}</button>
+            <span class="current-page">{{ $t('taskDetail.currentPageInfo', { current: currentPage, total: totalPages }) }}</span>
+            <button :disabled="currentPage >= totalPages" @click="currentPage++">{{ $t('taskDetail.nextPage') }}</button>
           </div>
         </div>
       </div>
@@ -162,34 +162,34 @@
     <div v-if="showCaseDetail" class="case-detail-modal" @click="closeCaseDetail">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h3>{{ isEditing ? '编辑测试用例' : '测试用例详情' }}</h3>
+          <h3>{{ isEditing ? $t('taskDetail.modalEditTitle') : $t('taskDetail.modalViewTitle') }}</h3>
           <button class="close-btn" @click="closeCaseDetail">×</button>
         </div>
 
         <!-- 查看模式 -->
         <div v-if="!isEditing" class="modal-body">
           <div class="detail-item">
-            <label>用例编号:</label>
+            <label>{{ $t('taskDetail.labelCaseId') }}</label>
             <span>{{ selectedCase.caseId || `TC${String(selectedCaseIndex + 1).padStart(3, '0')}` }}</span>
           </div>
           <div class="detail-item">
-            <label>测试场景:</label>
+            <label>{{ $t('taskDetail.labelScenario') }}</label>
             <p v-html="formatMarkdown(selectedCase.scenario)"></p>
           </div>
           <div class="detail-item">
-            <label>前置条件:</label>
-            <p v-html="formatMarkdown(selectedCase.precondition || '无')"></p>
+            <label>{{ $t('taskDetail.labelPrecondition') }}</label>
+            <p v-html="formatMarkdown(selectedCase.precondition || $t('taskDetail.labelNone'))"></p>
           </div>
           <div class="detail-item">
-            <label>操作步骤:</label>
+            <label>{{ $t('taskDetail.labelSteps') }}</label>
             <p class="test-steps" v-html="formatMarkdown(selectedCase.steps)"></p>
           </div>
           <div class="detail-item">
-            <label>预期结果:</label>
+            <label>{{ $t('taskDetail.labelExpected') }}</label>
             <p v-html="formatMarkdown(selectedCase.expected)"></p>
           </div>
           <div class="detail-item">
-            <label>优先级:</label>
+            <label>{{ $t('taskDetail.labelPriority') }}</label>
             <span class="priority-tag" :class="selectedCase.priority?.toLowerCase()">{{ selectedCase.priority || 'P2' }}</span>
           </div>
         </div>
@@ -197,28 +197,28 @@
         <!-- 编辑模式 -->
         <div v-else class="modal-body edit-mode">
           <div class="form-item">
-            <label>用例编号:</label>
+            <label>{{ $t('taskDetail.labelCaseId') }}</label>
             <span class="readonly-field">{{ editForm.caseId || `TC${String(selectedCaseIndex + 1).padStart(3, '0')}` }}</span>
           </div>
           <div class="form-item">
-            <label>测试场景:</label>
-            <el-input v-model="editForm.scenario" type="textarea" :rows="2" placeholder="请输入测试场景" />
+            <label>{{ $t('taskDetail.labelScenario') }}</label>
+            <el-input v-model="editForm.scenario" type="textarea" :rows="2" :placeholder="$t('taskDetail.placeholderScenario')" />
           </div>
           <div class="form-item">
-            <label>前置条件:</label>
-            <el-input v-model="editForm.precondition" type="textarea" :rows="3" placeholder="请输入前置条件" />
+            <label>{{ $t('taskDetail.labelPrecondition') }}</label>
+            <el-input v-model="editForm.precondition" type="textarea" :rows="3" :placeholder="$t('taskDetail.placeholderPrecondition')" />
           </div>
           <div class="form-item">
-            <label>操作步骤:</label>
-            <el-input v-model="editForm.steps" type="textarea" :rows="6" placeholder="请输入操作步骤" />
+            <label>{{ $t('taskDetail.labelSteps') }}</label>
+            <el-input v-model="editForm.steps" type="textarea" :rows="6" :placeholder="$t('taskDetail.placeholderSteps')" />
           </div>
           <div class="form-item">
-            <label>预期结果:</label>
-            <el-input v-model="editForm.expected" type="textarea" :rows="4" placeholder="请输入预期结果" />
+            <label>{{ $t('taskDetail.labelExpected') }}</label>
+            <el-input v-model="editForm.expected" type="textarea" :rows="4" :placeholder="$t('taskDetail.placeholderExpected')" />
           </div>
           <div class="form-item">
-            <label>优先级:</label>
-            <el-select v-model="editForm.priority" placeholder="请选择优先级">
+            <label>{{ $t('taskDetail.labelPriority') }}</label>
+            <el-select v-model="editForm.priority" :placeholder="$t('taskDetail.placeholderPriority')">
               <el-option label="P0" value="P0"></el-option>
               <el-option label="P1" value="P1"></el-option>
               <el-option label="P2" value="P2"></el-option>
@@ -231,16 +231,16 @@
         <div class="modal-footer">
           <template v-if="!isEditing">
             <button class="action-btn edit-btn" @click="startEdit">
-              <span>✏️ 编辑</span>
+              <span>{{ $t('taskDetail.btnEdit') }}</span>
             </button>
-            <button class="action-btn close-btn-footer" @click="closeCaseDetail">关闭</button>
+            <button class="action-btn close-btn-footer" @click="closeCaseDetail">{{ $t('taskDetail.btnClose') }}</button>
           </template>
           <template v-else>
             <button class="action-btn save-btn" @click="saveEdit" :disabled="isSaving">
-              <span v-if="isSaving">💾 保存中...</span>
-              <span v-else>💾 保存</span>
+              <span v-if="isSaving">{{ $t('taskDetail.btnSaveing') }}</span>
+              <span v-else>{{ $t('taskDetail.btnSave') }}</span>
             </button>
-            <button class="action-btn cancel-btn" @click="cancelEdit" :disabled="isSaving">取消</button>
+            <button class="action-btn cancel-btn" @click="cancelEdit" :disabled="isSaving">{{ $t('taskDetail.btnCancel') }}</button>
           </template>
         </div>
       </div>
@@ -317,7 +317,7 @@ export default {
     async copyRequirementText() {
       try {
         await navigator.clipboard.writeText(this.task.requirement_text)
-        ElMessage.success('需求描述已复制到剪贴板')
+        ElMessage.success(this.$t('taskDetail.copySuccess'))
       } catch (error) {
         // 如果 navigator.clipboard 不可用，使用备用方法
         const textArea = document.createElement('textarea')
@@ -328,9 +328,9 @@ export default {
         textArea.select()
         try {
           document.execCommand('copy')
-          ElMessage.success('需求描述已复制到剪贴板')
+          ElMessage.success(this.$t('taskDetail.copySuccess'))
         } catch (err) {
-          ElMessage.error('复制失败，请手动复制')
+          ElMessage.error(this.$t('taskDetail.copyFailed'))
         }
         document.body.removeChild(textArea)
       }
@@ -348,7 +348,7 @@ export default {
         }
       } catch (error) {
         console.error('加载任务详情失败:', error)
-        ElMessage.error('加载任务详情失败')
+        ElMessage.error(this.$t('taskDetail.loadFailed'))
       } finally {
         this.isLoading = false
       }
@@ -471,14 +471,9 @@ export default {
     },
 
     getStatusText(status) {
-      const statusMap = {
-        'pending': '需求分析中',
-        'generating': '用例编写中',
-        'reviewing': '用例评审中',
-        'completed': '已完成',
-        'failed': '失败'
-      }
-      return statusMap[status] || status
+      if (!status) return ''
+      const statusKey = 'status' + status.charAt(0).toUpperCase() + status.slice(1)
+      return this.$t('taskDetail.' + statusKey) || status
     },
 
     // 格式化列表中的文本，将<br>转换为换行
@@ -521,17 +516,17 @@ export default {
 
     async batchAdopt() {
       if (this.selectedCases.length === 0) {
-        ElMessage.warning('请先选择要采纳的测试用例')
+        ElMessage.warning(this.$t('taskDetail.pleaseSelectFirst', { action: this.$t('taskDetail.adopt') }))
         return
       }
 
       try {
         await ElMessageBox.confirm(
-          `确定要采纳选中的 ${this.selectedCases.length} 条测试用例吗？`,
-          '确认采纳',
+          this.$t('taskDetail.confirmAdopt', { count: this.selectedCases.length }),
+          this.$t('taskDetail.confirmAdoptTitle'),
           {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
+            confirmButtonText: this.$t('taskDetail.btnConfirm'),
+            cancelButtonText: this.$t('taskDetail.btnCancelOperation'),
             type: 'success'
           }
         )
@@ -555,7 +550,7 @@ export default {
           test_cases: casesData
         })
 
-        ElMessage.success(`成功采纳 ${this.selectedCases.length} 条测试用例！`)
+        ElMessage.success(this.$t('taskDetail.adoptSuccess', { count: this.selectedCases.length }))
         this.selectedCases = []
 
         // 不再移除已采纳的用例，保留在列表中供多次采纳
@@ -563,23 +558,23 @@ export default {
 
       } catch (error) {
         console.error('批量采纳失败:', error)
-        ElMessage.error('批量采纳失败: ' + (error.response?.data?.message || error.message))
+        ElMessage.error(this.$t('taskDetail.batchAdoptFailed') + ': ' + (error.response?.data?.message || error.message))
       }
     },
 
     async batchDiscard() {
       if (this.selectedCases.length === 0) {
-        ElMessage.warning('请先选择要弃用的测试用例')
+        ElMessage.warning(this.$t('taskDetail.pleaseSelectFirst', { action: this.$t('taskDetail.discard') }))
         return
       }
 
       try {
         await ElMessageBox.confirm(
-          `确定要弃用选中的 ${this.selectedCases.length} 条测试用例吗？此操作不可恢复。`,
-          '确认弃用',
+          this.$t('taskDetail.confirmDiscard', { count: this.selectedCases.length }),
+          this.$t('taskDetail.confirmDiscardTitle'),
           {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
+            confirmButtonText: this.$t('taskDetail.btnConfirm'),
+            cancelButtonText: this.$t('taskDetail.btnCancelOperation'),
             type: 'warning',
             confirmButtonClass: 'el-button--danger'
           }
@@ -605,11 +600,11 @@ export default {
         })
 
         if (response.data.task_deleted) {
-          ElMessage.success('所有测试用例已弃用，任务已删除')
+          ElMessage.success(this.$t('taskDetail.allDiscardedSuccess'))
           // 返回到AI生成用例记录列表
           this.$router.push('/generated-testcases')
         } else {
-          ElMessage.success(`成功弃用 ${response.data.discarded_count} 条测试用例`)
+          ElMessage.success(this.$t('taskDetail.discardSuccess', { count: response.data.discarded_count }))
 
           // 重新解析更新后的测试用例
           if (response.data.updated_test_cases) {
@@ -621,7 +616,7 @@ export default {
 
       } catch (error) {
         console.error('批量弃用失败:', error)
-        ElMessage.error('批量弃用失败: ' + (error.response?.data?.error || error.message))
+        ElMessage.error(this.$t('taskDetail.batchDiscardFailed') + ': ' + (error.response?.data?.error || error.message))
       }
     },
 
@@ -678,7 +673,7 @@ export default {
     async saveEdit() {
       // 简单验证
       if (!this.editForm.scenario?.trim()) {
-        ElMessage.warning('请输入测试场景')
+        ElMessage.warning(this.$t('taskDetail.enterScenario'))
         return
       }
 
@@ -713,11 +708,11 @@ export default {
         // 更新内存中的task数据
         this.task.final_test_cases = updatedTestCases
 
-        ElMessage.success('测试用例更新成功')
+        ElMessage.success(this.$t('taskDetail.updateSuccess'))
         this.isEditing = false
       } catch (error) {
         console.error('更新失败:', error)
-        ElMessage.error('更新失败: ' + (error.response?.data?.error || error.message))
+        ElMessage.error(this.$t('taskDetail.updateFailed') + ': ' + (error.response?.data?.error || error.message))
       } finally {
         this.isSaving = false
       }
@@ -763,11 +758,11 @@ export default {
     async adoptSingleCase(testCase, index) {
       try {
         await ElMessageBox.confirm(
-          `确定要采纳测试用例"${testCase.scenario}"吗？`,
-          '确认采纳',
+          this.$t('taskDetail.confirmAdoptSingle', { scenario: testCase.scenario }),
+          this.$t('taskDetail.confirmAdoptTitle'),
           {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
+            confirmButtonText: this.$t('taskDetail.btnConfirm'),
+            cancelButtonText: this.$t('taskDetail.btnCancelOperation'),
             type: 'success'
           }
         )
@@ -788,25 +783,25 @@ export default {
         }
 
         await api.post('/testcases/', caseData)
-        ElMessage.success('测试用例采纳成功！')
+        ElMessage.success(this.$t('taskDetail.adoptSuccess', { count: 1 }))
 
         // 不再移除已采纳的用例，保留在列表中供多次采纳
         // this.testCases.splice(this.testCases.indexOf(testCase), 1)
 
       } catch (error) {
         console.error('采纳用例失败:', error)
-        ElMessage.error('采纳用例失败: ' + (error.response?.data?.message || error.message))
+        ElMessage.error(this.$t('taskDetail.adoptFailed') + ': ' + (error.response?.data?.message || error.message))
       }
     },
 
     async discardSingleCase(testCase, index) {
       try {
         await ElMessageBox.confirm(
-          `确定要弃用测试用例"${testCase.scenario}"吗？此操作不可恢复。`,
-          '确认弃用',
+          this.$t('taskDetail.confirmDiscardSingle', { scenario: testCase.scenario }),
+          this.$t('taskDetail.confirmDiscardTitle'),
           {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
+            confirmButtonText: this.$t('taskDetail.btnConfirm'),
+            cancelButtonText: this.$t('taskDetail.btnCancelOperation'),
             type: 'warning',
             confirmButtonClass: 'el-button--danger'
           }
@@ -825,11 +820,11 @@ export default {
         })
 
         if (response.data.task_deleted) {
-          ElMessage.success('所有测试用例已弃用，任务已删除')
+          ElMessage.success(this.$t('taskDetail.allDiscardedSuccess'))
           // 返回到AI生成用例记录列表
           this.$router.push('/generated-testcases')
         } else {
-          ElMessage.success('测试用例已弃用')
+          ElMessage.success(this.$t('taskDetail.caseDiscardedSuccess'))
 
           // 重新解析更新后的测试用例
           if (response.data.updated_test_cases) {
@@ -844,7 +839,7 @@ export default {
 
       } catch (error) {
         console.error('弃用用例失败:', error)
-        ElMessage.error('弃用用例失败: ' + (error.response?.data?.error || error.message))
+        ElMessage.error(this.$t('taskDetail.discardFailed') + ': ' + (error.response?.data?.error || error.message))
       }
     },
 
@@ -876,7 +871,7 @@ export default {
     // 导出到Excel
     exportToExcel() {
       if (this.testCases.length === 0) {
-        ElMessage.warning('没有测试用例可以导出')
+        ElMessage.warning(this.$t('taskDetail.noCasesToExport'))
         return
       }
 
@@ -888,9 +883,16 @@ export default {
 
         // 准备数据
         const worksheetData = []
-        
+
         // 添加表头
-        worksheetData.push(['测试用例编号', '测试场景', '前置条件', '操作步骤', '预期结果', '优先级'])
+        worksheetData.push([
+          this.$t('taskDetail.tableCaseId'),
+          this.$t('taskDetail.tableScenario'),
+          this.$t('taskDetail.tablePrecondition'),
+          this.$t('taskDetail.tableSteps'),
+          this.$t('taskDetail.tableExpected'),
+          this.$t('taskDetail.tablePriority')
+        ])
 
         // 添加数据行
         this.testCases.forEach((testCase, index) => {
@@ -900,7 +902,7 @@ export default {
             this.formatTextForList(testCase.precondition || ''),
             this.formatTextForList(testCase.steps || ''),
             this.formatTextForList(testCase.expected || ''),
-            testCase.priority || '中'
+            testCase.priority || 'P2'
           ])
         })
 
@@ -934,18 +936,19 @@ export default {
         }
 
         // 将工作表添加到工作簿
-        XLSX.utils.book_append_sheet(workbook, worksheet, '测试用例')
+        XLSX.utils.book_append_sheet(workbook, worksheet, this.$t('taskDetail.excelSheetName'))
 
         // 生成文件名
-        const fileName = `测试用例_${this.taskId}_${new Date().toISOString().slice(0, 10)}.xlsx`
+        const dateStr = new Date().toISOString().slice(0, 10)
+        const fileName = this.$t('taskDetail.excelFileName', { taskId: this.taskId, date: dateStr })
 
         // 导出文件
         XLSX.writeFile(workbook, fileName)
 
-        ElMessage.success('测试用例导出成功')
+        ElMessage.success(this.$t('taskDetail.exportSuccess'))
       } catch (error) {
         console.error('导出Excel失败:', error)
-        ElMessage.error('导出Excel失败: ' + (error.message || '未知错误'))
+        ElMessage.error(this.$t('taskDetail.exportFailed') + ': ' + (error.message || ''))
       } finally {
         this.isExporting = false
       }
