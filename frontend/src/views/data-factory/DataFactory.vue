@@ -4,9 +4,9 @@
       <div class="header-content">
         <h1 class="page-title" @click="goToHome">
           <el-icon class="title-icon"><DataLine /></el-icon>
-          数据工厂
+          {{ $t('dataFactory.title') }}
         </h1>
-        <p class="page-subtitle">智能数据生成工具箱 - 为测试提供高质量测试数据</p>
+        <p class="page-subtitle">{{ $t('dataFactory.subtitle') }}</p>
         <div class="header-actions">
           <el-button-group>
             <el-button
@@ -14,19 +14,19 @@
               @click="viewMode = 'category'"
             >
               <el-icon><Menu /></el-icon>
-              按工具分类
+              {{ $t('dataFactory.viewMode.category') }}
             </el-button>
             <el-button
               :type="viewMode === 'scenario' ? 'primary' : ''"
               @click="viewMode = 'scenario'"
             >
               <el-icon><Grid /></el-icon>
-              按使用场景
+              {{ $t('dataFactory.viewMode.scenario') }}
             </el-button>
           </el-button-group>
           <el-button type="info" @click="showHistory = true">
             <el-icon><Clock /></el-icon>
-            使用历史
+            {{ $t('dataFactory.actions.history') }}
           </el-button>
         </div>
       </div>
@@ -45,15 +45,15 @@
               <el-icon :class="`category-icon ${category.icon}`">
                 <component :is="getIcon(category.icon)" />
               </el-icon>
-              <span class="category-title">{{ category.name }}</span>
-              <el-tag size="small">{{ category.tools.length }}个工具</el-tag>
+              <span class="category-title">{{ getCategoryName(category.category) }}</span>
+              <el-tag size="small">{{ $t('dataFactory.toolCount', { count: category.tools.length }) }}</el-tag>
               <el-button
                 v-if="currentScenario"
                 size="small"
                 @click.stop="clearScenario"
                 style="margin-left: auto;"
               >
-                清除筛选
+                {{ $t('dataFactory.actions.clearFilter') }}
               </el-button>
             </div>
           </template>
@@ -68,8 +68,8 @@
                 <el-icon><component :is="getIcon(tool.icon || 'operation')" /></el-icon>
               </div>
               <div class="tool-info">
-                <h4 class="tool-name">{{ tool.display_name }}</h4>
-                <p class="tool-desc">{{ tool.description }}</p>
+                <h4 class="tool-name">{{ getToolDisplayName(tool.name) || tool.display_name }}</h4>
+                <p class="tool-desc">{{ getToolDescription(tool.name) || tool.description }}</p>
               </div>
               <el-icon class="tool-arrow"><ArrowRight /></el-icon>
             </div>
@@ -87,10 +87,10 @@
               <el-icon class="scenario-icon">
                 <component :is="getScenarioIcon(scenario.scenario)" />
               </el-icon>
-              <h3 class="scenario-title">{{ scenario.name }}</h3>
-              <p class="scenario-desc">{{ scenario.description }}</p>
+              <h3 class="scenario-title">{{ getScenarioName(scenario.scenario) }}</h3>
+              <p class="scenario-desc">{{ getScenarioDesc(scenario.scenario) }}</p>
               <div class="scenario-stats">
-                <el-tag size="small">{{ scenario.tool_count }}个工具</el-tag>
+                <el-tag size="small">{{ $t('dataFactory.toolCount', { count: scenario.tool_count }) }}</el-tag>
               </div>
             </div>
           </el-card>
@@ -101,14 +101,14 @@
     <!-- 工具执行对话框 -->
     <el-dialog
       v-model="toolDialogVisible"
-      :title="currentTool?.display_name"
+      :title="getToolDisplayName(currentTool?.name) || currentTool?.display_name"
       width="1200px"
       :close-on-click-modal="false"
       @close="resetToolForm"
     >
       <div v-if="currentTool" class="tool-execution">
         <el-alert
-          :title="currentTool.description"
+          :title="getToolDescription(currentTool?.name) || currentTool.description"
           type="info"
           :closable="false"
           show-icon
@@ -118,29 +118,29 @@
         <!-- 测试数据工具 - 无需输入参数 -->
         <div v-if="currentCategory === 'test_data'" class="tool-form">
           <el-form label-width="120px">
-            <el-form-item label="生成数量">
+            <el-form-item :label="$t('dataFactory.form.count')">
               <el-input-number v-model="toolForm.count" :min="1" :max="100" />
-              <span class="form-tip">生成数据的数量</span>
+              <span class="form-tip">{{ $t('dataFactory.form.countTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_chinese_phone'" label="运营商">
-              <el-select v-model="toolForm.region" placeholder="请选择运营商">
-                <el-option label="全部" value="all" />
-                <el-option label="移动" value="mobile" />
-                <el-option label="联通" value="unicom" />
-                <el-option label="电信" value="telecom" />
+            <el-form-item v-if="currentTool.name === 'generate_chinese_phone'" :label="$t('dataFactory.form.carrier')">
+              <el-select v-model="toolForm.region" :placeholder="$t('dataFactory.form.carrier')">
+                <el-option :label="$t('dataFactory.form.carrierOptions.all')" value="all" />
+                <el-option :label="$t('dataFactory.form.carrierOptions.mobile')" value="mobile" />
+                <el-option :label="$t('dataFactory.form.carrierOptions.unicom')" value="unicom" />
+                <el-option :label="$t('dataFactory.form.carrierOptions.telecom')" value="telecom" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_chinese_email'" label="邮箱域名">
-              <el-select v-model="toolForm.domain" placeholder="请选择邮箱域名">
-                <el-option label="随机" value="random" />
-                <el-option label="QQ邮箱" value="qq.com" />
-                <el-option label="163邮箱" value="163.com" />
-                <el-option label="126邮箱" value="126.com" />
-                <el-option label="Gmail" value="gmail.com" />
+            <el-form-item v-if="currentTool.name === 'generate_chinese_email'" :label="$t('dataFactory.form.emailDomain')">
+              <el-select v-model="toolForm.domain" :placeholder="$t('dataFactory.form.emailDomain')">
+                <el-option :label="$t('dataFactory.form.emailDomainOptions.random')" value="random" />
+                <el-option :label="$t('dataFactory.form.emailDomainOptions.qq')" value="qq.com" />
+                <el-option :label="$t('dataFactory.form.emailDomainOptions.netease163')" value="163.com" />
+                <el-option :label="$t('dataFactory.form.emailDomainOptions.netease126')" value="126.com" />
+                <el-option :label="$t('dataFactory.form.emailDomainOptions.gmail')" value="gmail.com" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_chinese_address'" label="地址类型">
-              <el-switch v-model="toolForm.full_address" active-text="完整地址" inactive-text="简短地址" />
+            <el-form-item v-if="currentTool.name === 'generate_chinese_address'" :label="$t('dataFactory.form.addressType')">
+              <el-switch v-model="toolForm.full_address" :active-text="$t('dataFactory.form.fullAddress')" :inactive-text="$t('dataFactory.form.shortAddress')" />
             </el-form-item>
           </el-form>
         </div>
@@ -148,80 +148,80 @@
         <!-- 字符工具 -->
         <div v-else-if="currentCategory === 'string'" class="tool-form">
           <el-form label-width="120px">
-            <el-form-item v-if="currentTool.name !== 'text_diff'" label="输入文本">
+            <el-form-item v-if="currentTool.name !== 'text_diff'" :label="$t('dataFactory.form.inputText')">
               <el-input
                 v-model="toolForm.text"
                 type="textarea"
                 :rows="4"
-                placeholder="请输入文本..."
+                :placeholder="$t('dataFactory.form.inputText') + '...'"
               />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'replace_string'" label="查找内容">
-              <el-input v-model="toolForm.old_str" placeholder="要替换的内容" />
+            <el-form-item v-if="currentTool.name === 'replace_string'" :label="$t('dataFactory.form.findContent')">
+              <el-input v-model="toolForm.old_str" :placeholder="$t('dataFactory.form.findContentPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'replace_string'" label="替换内容">
-              <el-input v-model="toolForm.new_str" placeholder="替换后的内容" />
+            <el-form-item v-if="currentTool.name === 'replace_string'" :label="$t('dataFactory.form.replaceContent')">
+              <el-input v-model="toolForm.new_str" :placeholder="$t('dataFactory.form.replaceContentPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'replace_string'" label="正则表达式">
+            <el-form-item v-if="currentTool.name === 'replace_string'" :label="$t('dataFactory.form.regex')">
               <el-switch v-model="toolForm.is_regex" />
-              <span class="form-tip">使用正则表达式替换</span>
+              <span class="form-tip">{{ $t('dataFactory.form.regexTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'escape_string'" label="转义类型">
-              <el-select v-model="toolForm.escape_type" placeholder="请选择转义类型">
+            <el-form-item v-if="currentTool.name === 'escape_string'" :label="$t('dataFactory.form.escapeType')">
+              <el-select v-model="toolForm.escape_type" :placeholder="$t('dataFactory.form.escapeType')">
                 <el-option label="JSON" value="json" />
                 <el-option label="HTML" value="html" />
                 <el-option label="URL" value="url" />
                 <el-option label="XML" value="xml" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'unescape_string'" label="反转义类型">
-              <el-select v-model="toolForm.unescape_type" placeholder="请选择反转义类型">
+            <el-form-item v-if="currentTool.name === 'unescape_string'" :label="$t('dataFactory.form.unescapeType')">
+              <el-select v-model="toolForm.unescape_type" :placeholder="$t('dataFactory.form.unescapeType')">
                 <el-option label="JSON" value="json" />
                 <el-option label="HTML" value="html" />
                 <el-option label="URL" value="url" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'regex_test'" label="正则表达式">
-              <el-input v-model="toolForm.pattern" placeholder="请输入正则表达式" />
+            <el-form-item v-if="currentTool.name === 'regex_test'" :label="$t('dataFactory.form.regex')">
+              <el-input v-model="toolForm.pattern" :placeholder="$t('dataFactory.form.regexPatternPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'regex_test'" label="标志">
+            <el-form-item v-if="currentTool.name === 'regex_test'" :label="$t('dataFactory.form.flags')">
               <el-checkbox-group v-model="toolForm.flags">
-                <el-checkbox label="i">忽略大小写</el-checkbox>
-                <el-checkbox label="m">多行模式</el-checkbox>
-                <el-checkbox label="s">单行模式</el-checkbox>
+                <el-checkbox label="i">{{ $t('dataFactory.form.flagIgnoreCase') }}</el-checkbox>
+                <el-checkbox label="m">{{ $t('dataFactory.form.flagMultiline') }}</el-checkbox>
+                <el-checkbox label="s">{{ $t('dataFactory.form.flagSingleline') }}</el-checkbox>
               </el-checkbox-group>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'case_convert'" label="转换类型">
-              <el-select v-model="toolForm.convert_type" placeholder="请选择转换类型">
-                <el-option label="大写" value="upper" />
-                <el-option label="小写" value="lower" />
-                <el-option label="首字母大写" value="capitalize" />
-                <el-option label="标题格式" value="title" />
-                <el-option label="大小写互换" value="swapcase" />
+            <el-form-item v-if="currentTool.name === 'case_convert'" :label="$t('dataFactory.form.convertType')">
+              <el-select v-model="toolForm.convert_type" :placeholder="$t('dataFactory.form.convertType')">
+                <el-option :label="$t('dataFactory.form.convertTypeOptions.upper')" value="upper" />
+                <el-option :label="$t('dataFactory.form.convertTypeOptions.lower')" value="lower" />
+                <el-option :label="$t('dataFactory.form.convertTypeOptions.capitalize')" value="capitalize" />
+                <el-option :label="$t('dataFactory.form.convertTypeOptions.title')" value="title" />
+                <el-option :label="$t('dataFactory.form.convertTypeOptions.swapcase')" value="swapcase" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'string_format'" label="格式化类型">
-              <el-select v-model="toolForm.format_type" placeholder="请选择格式化类型">
-                <el-option label="去除首尾空格" value="trim" />
-                <el-option label="反转字符串" value="reverse" />
-                <el-option label="分割字符串" value="split" />
-                <el-option label="合并字符串" value="join" />
+            <el-form-item v-if="currentTool.name === 'string_format'" :label="$t('dataFactory.form.formatType')">
+              <el-select v-model="toolForm.format_type" :placeholder="$t('dataFactory.form.formatType')">
+                <el-option :label="$t('dataFactory.form.formatTypeOptions.trim')" value="trim" />
+                <el-option :label="$t('dataFactory.form.formatTypeOptions.reverse')" value="reverse" />
+                <el-option :label="$t('dataFactory.form.formatTypeOptions.split')" value="split" />
+                <el-option :label="$t('dataFactory.form.formatTypeOptions.join')" value="join" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'text_diff'" label="文本1">
+            <el-form-item v-if="currentTool.name === 'text_diff'" :label="$t('dataFactory.form.text1')">
               <el-input
                 v-model="toolForm.text1"
                 type="textarea"
                 :rows="6"
-                placeholder="请输入第一个文本..."
+                :placeholder="$t('dataFactory.form.text1Placeholder')"
               />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'text_diff'" label="文本2">
+            <el-form-item v-if="currentTool.name === 'text_diff'" :label="$t('dataFactory.form.text2')">
               <el-input
                 v-model="toolForm.text2"
                 type="textarea"
                 :rows="6"
-                placeholder="请输入第二个文本..."
+                :placeholder="$t('dataFactory.form.text2Placeholder')"
               />
             </el-form-item>
           </el-form>
@@ -230,92 +230,92 @@
         <!-- 随机工具 -->
         <div v-else-if="currentCategory === 'random'" class="tool-form">
           <el-form label-width="120px">
-            <el-form-item v-if="currentTool.name === 'random_int'" label="最小值">
+            <el-form-item v-if="currentTool.name === 'random_int'" :label="$t('dataFactory.form.minValue')">
               <el-input-number v-model="toolForm.min_val" :min="-999999" :max="999999" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_int'" label="最大值">
+            <el-form-item v-if="currentTool.name === 'random_int'" :label="$t('dataFactory.form.maxValue')">
               <el-input-number v-model="toolForm.max_val" :min="-999999" :max="999999" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_float'" label="最小值">
+            <el-form-item v-if="currentTool.name === 'random_float'" :label="$t('dataFactory.form.minValue')">
               <el-input-number v-model="toolForm.min_val" :step="0.1" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_float'" label="最大值">
+            <el-form-item v-if="currentTool.name === 'random_float'" :label="$t('dataFactory.form.maxValue')">
               <el-input-number v-model="toolForm.max_val" :step="0.1" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_float'" label="精度">
+            <el-form-item v-if="currentTool.name === 'random_float'" :label="$t('dataFactory.form.precision')">
               <el-input-number v-model="toolForm.precision" :min="0" :max="10" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_string'" label="长度">
+            <el-form-item v-if="currentTool.name === 'random_string'" :label="$t('dataFactory.form.length')">
               <el-input-number v-model="toolForm.length" :min="1" :max="1000" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_string'" label="字符类型">
-              <el-select v-model="toolForm.char_type" placeholder="请选择字符类型">
-                <el-option label="全部" value="all" />
-                <el-option label="字母" value="letters" />
-                <el-option label="小写字母" value="lowercase" />
-                <el-option label="大写字母" value="uppercase" />
-                <el-option label="数字" value="digits" />
-                <el-option label="字母数字" value="alphanumeric" />
-                <el-option label="十六进制" value="hex" />
-                <el-option label="中文" value="chinese" />
-                <el-option label="特殊字符" value="special" />
+            <el-form-item v-if="currentTool.name === 'random_string'" :label="$t('dataFactory.form.charType')">
+              <el-select v-model="toolForm.char_type" :placeholder="$t('dataFactory.form.charType')">
+                <el-option :label="$t('dataFactory.form.charTypeOptions.all')" value="all" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.letters')" value="letters" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.lowercase')" value="lowercase" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.uppercase')" value="uppercase" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.digits')" value="digits" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.alphanumeric')" value="alphanumeric" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.hex')" value="hex" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.chinese')" value="chinese" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.special')" value="special" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_uuid'" label="UUID版本">
-              <el-select v-model="toolForm.version" placeholder="请选择UUID版本">
+            <el-form-item v-if="currentTool.name === 'random_uuid'" :label="$t('dataFactory.form.uuidVersion')">
+              <el-select v-model="toolForm.version" :placeholder="$t('dataFactory.form.uuidVersion')">
                 <el-option label="UUID v1" :value="1" />
                 <el-option label="UUID v4" :value="4" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_mac_address'" label="分隔符">
-              <el-select v-model="toolForm.separator" placeholder="请选择分隔符">
-                <el-option label="冒号 (:)" value=":" />
-                <el-option label="连字符 (-)" value="-" />
-                <el-option label="无" value="" />
+            <el-form-item v-if="currentTool.name === 'random_mac_address'" :label="$t('dataFactory.form.separator')">
+              <el-select v-model="toolForm.separator" :placeholder="$t('dataFactory.form.separator')">
+                <el-option :label="$t('dataFactory.form.separatorOptions.colon')" value=":" />
+                <el-option :label="$t('dataFactory.form.separatorOptions.hyphen')" value="-" />
+                <el-option :label="$t('dataFactory.form.separatorOptions.none')" value="" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_ip_address'" label="IP版本">
-              <el-select v-model="toolForm.ip_version" placeholder="请选择IP版本">
+            <el-form-item v-if="currentTool.name === 'random_ip_address'" :label="$t('dataFactory.form.ipVersion')">
+              <el-select v-model="toolForm.ip_version" :placeholder="$t('dataFactory.form.ipVersion')">
                 <el-option label="IPv4" :value="4" />
                 <el-option label="IPv6" :value="6" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_date'" label="开始日期">
-              <el-date-picker v-model="toolForm.start_date" type="date" placeholder="选择开始日期" />
+            <el-form-item v-if="currentTool.name === 'random_date'" :label="$t('dataFactory.form.startDate')">
+              <el-date-picker v-model="toolForm.start_date" type="date" :placeholder="$t('dataFactory.form.selectStartDate')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_date'" label="结束日期">
-              <el-date-picker v-model="toolForm.end_date" type="date" placeholder="选择结束日期" />
+            <el-form-item v-if="currentTool.name === 'random_date'" :label="$t('dataFactory.form.endDate')">
+              <el-date-picker v-model="toolForm.end_date" type="date" :placeholder="$t('dataFactory.form.selectEndDate')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_date'" label="日期格式">
+            <el-form-item v-if="currentTool.name === 'random_date'" :label="$t('dataFactory.form.dateFormat')">
               <el-input v-model="toolForm.date_format" placeholder="%Y-%m-%d" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_color'" label="颜色格式">
-              <el-select v-model="toolForm.format" placeholder="请选择颜色格式">
-                <el-option label="十六进制" value="hex" />
-                <el-option label="RGB" value="rgb" />
-                <el-option label="RGBA" value="rgba" />
+            <el-form-item v-if="currentTool.name === 'random_color'" :label="$t('dataFactory.form.colorFormat')">
+              <el-select v-model="toolForm.format" :placeholder="$t('dataFactory.form.colorFormat')">
+                <el-option :label="$t('dataFactory.form.colorFormatOptions.hex')" value="hex" />
+                <el-option :label="$t('dataFactory.form.colorFormatOptions.rgb')" value="rgb" />
+                <el-option :label="$t('dataFactory.form.colorFormatOptions.rgba')" value="rgba" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_password'" label="密码长度">
+            <el-form-item v-if="currentTool.name === 'random_password'" :label="$t('dataFactory.form.passwordLength')">
               <el-input-number v-model="toolForm.length" :min="4" :max="50" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_password'" label="字符选项">
+            <el-form-item v-if="currentTool.name === 'random_password'" :label="$t('dataFactory.form.charOptions')">
               <el-checkbox-group v-model="toolForm.char_options">
-                <el-checkbox label="include_uppercase">大写字母</el-checkbox>
-                <el-checkbox label="include_lowercase">小写字母</el-checkbox>
-                <el-checkbox label="include_digits">数字</el-checkbox>
-                <el-checkbox label="include_special">特殊字符</el-checkbox>
+                <el-checkbox label="include_uppercase">{{ $t('dataFactory.form.charOptionsItems.uppercase') }}</el-checkbox>
+                <el-checkbox label="include_lowercase">{{ $t('dataFactory.form.charOptionsItems.lowercase') }}</el-checkbox>
+                <el-checkbox label="include_digits">{{ $t('dataFactory.form.charOptionsItems.digits') }}</el-checkbox>
+                <el-checkbox label="include_special">{{ $t('dataFactory.form.charOptionsItems.special') }}</el-checkbox>
               </el-checkbox-group>
             </el-form-item>
-            <el-form-item v-if="['random_int', 'random_float', 'random_string', 'random_uuid', 'random_mac_address', 'random_ip_address', 'random_date', 'random_boolean', 'random_color', 'random_password', 'random_sequence'].includes(currentTool.name)" label="生成数量">
+            <el-form-item v-if="['random_int', 'random_float', 'random_string', 'random_uuid', 'random_mac_address', 'random_ip_address', 'random_date', 'random_boolean', 'random_color', 'random_password', 'random_sequence'].includes(currentTool.name)" :label="$t('dataFactory.form.count')">
               <el-input-number v-model="toolForm.count" :min="1" :max="100" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_sequence'" label="序列数据">
-              <el-input v-model="toolForm.sequence" type="textarea" :rows="4" placeholder="请输入序列数据，用逗号分隔，例如：apple,banana,orange" />
+            <el-form-item v-if="currentTool.name === 'random_sequence'" :label="$t('dataFactory.form.sequenceData')">
+              <el-input v-model="toolForm.sequence" type="textarea" :rows="4" :placeholder="$t('dataFactory.form.sequenceDataPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'random_sequence'" label="唯一性">
+            <el-form-item v-if="currentTool.name === 'random_sequence'" :label="$t('dataFactory.form.unique')">
               <el-switch v-model="toolForm.unique" />
-              <span class="form-tip">开启后不会重复选择</span>
+              <span class="form-tip">{{ $t('dataFactory.form.uniqueTip') }}</span>
             </el-form-item>
           </el-form>
         </div>
@@ -323,22 +323,22 @@
         <!-- 编码工具 -->
         <div v-else-if="currentCategory === 'encoding'" class="tool-form">
           <el-form label-width="120px">
-            <el-form-item v-if="['generate_barcode', 'generate_qrcode'].includes(currentTool.name)" label="数据">
-              <el-input v-model="toolForm.data" placeholder="请输入要编码的数据" />
+            <el-form-item v-if="['generate_barcode', 'generate_qrcode'].includes(currentTool.name)" :label="$t('dataFactory.form.data')">
+              <el-input v-model="toolForm.data" :placeholder="$t('dataFactory.form.data')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_barcode'" label="条形码类型">
-              <el-select v-model="toolForm.barcode_type" placeholder="请选择条形码类型">
+            <el-form-item v-if="currentTool.name === 'generate_barcode'" :label="$t('dataFactory.form.barcodeType')">
+              <el-select v-model="toolForm.barcode_type" :placeholder="$t('dataFactory.form.barcodeType')">
                 <el-option label="Code128" value="code128" />
                 <el-option label="Code39" value="code39" />
                 <el-option label="EAN13" value="ean13" />
                 <el-option label="EAN8" value="ean8" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_qrcode'" label="图片大小">
+            <el-form-item v-if="currentTool.name === 'generate_qrcode'" :label="$t('dataFactory.form.imageSize')">
               <el-input-number v-model="toolForm.image_size" :min="100" :max="1000" :step="50" />
-              <span class="form-tip">像素值，建议200-500</span>
+              <span class="form-tip">{{ $t('dataFactory.form.imageSizeTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'decode_qrcode'" label="上传二维码">
+            <el-form-item v-if="currentTool.name === 'decode_qrcode'" :label="$t('dataFactory.form.uploadQrCode')">
               <el-upload
                 class="qr-code-upload"
                 :show-file-list="false"
@@ -348,115 +348,115 @@
               >
                 <div v-if="!qrCodeImage" class="upload-placeholder">
                   <el-icon class="upload-icon"><Upload /></el-icon>
-                  <div class="upload-text">点击或拖拽上传二维码图片</div>
-                  <div class="upload-tip">支持 PNG、JPG、JPEG 等格式</div>
+                  <div class="upload-text">{{ $t('dataFactory.form.uploadQrCodeText') }}</div>
+                  <div class="upload-tip">{{ $t('dataFactory.form.uploadQrCodeTip') }}</div>
                 </div>
                 <div v-else class="upload-preview">
-                  <img :src="qrCodeImage" alt="二维码预览" />
+                  <img :src="qrCodeImage" :alt="$t('dataFactory.form.qrCodePreview')" />
                   <div class="upload-mask" @click="clearQrCodeImage">
                     <el-icon><Delete /></el-icon>
-                    <span>点击删除</span>
+                    <span>{{ $t('dataFactory.form.clickToDelete') }}</span>
                   </div>
                 </div>
               </el-upload>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'timestamp_convert'" label="时间戳/日期">
-              <el-input v-model="toolForm.timestamp" placeholder="请输入时间戳" />
+            <el-form-item v-if="currentTool.name === 'timestamp_convert'" :label="$t('dataFactory.form.timestampOrDate')">
+              <el-input v-model="toolForm.timestamp" :placeholder="$t('dataFactory.form.timestampPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'timestamp_convert'" label="转换类型">
-              <el-select v-model="toolForm.timestamp_convert_type" placeholder="请选择转换类型">
-                <el-option label="时间戳转日期" value="to_datetime" />
-                <el-option label="日期转时间戳" value="to_timestamp" />
-                <el-option label="当前时间戳" value="current_timestamp" />
+            <el-form-item v-if="currentTool.name === 'timestamp_convert'" :label="$t('dataFactory.form.timestampConvertType')">
+              <el-select v-model="toolForm.timestamp_convert_type" :placeholder="$t('dataFactory.form.timestampConvertType')">
+                <el-option :label="$t('dataFactory.form.timestampConvertOptions.toDatetime')" value="to_datetime" />
+                <el-option :label="$t('dataFactory.form.timestampConvertOptions.toTimestamp')" value="to_timestamp" />
+                <el-option :label="$t('dataFactory.form.timestampConvertOptions.currentTimestamp')" value="current_timestamp" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'timestamp_convert' && toolForm.timestamp_convert_type === 'to_datetime'" label="时间戳单位">
-              <el-select v-model="toolForm.timestamp_unit" placeholder="请选择时间戳单位">
-                <el-option label="自动检测" value="auto" />
-                <el-option label="秒" value="second" />
-                <el-option label="毫秒" value="millisecond" />
+            <el-form-item v-if="currentTool.name === 'timestamp_convert' && toolForm.timestamp_convert_type === 'to_datetime'" :label="$t('dataFactory.form.timestampUnit')">
+              <el-select v-model="toolForm.timestamp_unit" :placeholder="$t('dataFactory.form.timestampUnit')">
+                <el-option :label="$t('dataFactory.form.timestampUnitOptions.auto')" value="auto" />
+                <el-option :label="$t('dataFactory.form.timestampUnitOptions.second')" value="second" />
+                <el-option :label="$t('dataFactory.form.timestampUnitOptions.millisecond')" value="millisecond" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'base_convert'" label="数值">
-              <el-input v-model="toolForm.number" placeholder="请输入数值" />
+            <el-form-item v-if="currentTool.name === 'base_convert'" :label="$t('dataFactory.form.numberValue')">
+              <el-input v-model="toolForm.number" :placeholder="$t('dataFactory.form.numberValuePlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'base_convert'" label="源进制">
+            <el-form-item v-if="currentTool.name === 'base_convert'" :label="$t('dataFactory.form.fromBase')">
               <el-input-number v-model="toolForm.from_base" :min="2" :max="36" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'base_convert'" label="目标进制">
+            <el-form-item v-if="currentTool.name === 'base_convert'" :label="$t('dataFactory.form.toBase')">
               <el-input-number v-model="toolForm.to_base" :min="2" :max="36" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'unicode_convert'" label="文本">
-              <el-input v-model="toolForm.text" placeholder="请输入文本" />
+            <el-form-item v-if="currentTool.name === 'unicode_convert'" :label="$t('dataFactory.form.text')">
+              <el-input v-model="toolForm.text" :placeholder="$t('dataFactory.form.inputText')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'unicode_convert'" label="转换类型">
-              <el-select v-model="toolForm.unicode_convert_type" placeholder="请选择转换类型">
-                <el-option label="中文转Unicode" value="to_unicode" />
-                <el-option label="Unicode转中文" value="from_unicode" />
+            <el-form-item v-if="currentTool.name === 'unicode_convert'" :label="$t('dataFactory.form.unicodeConvertType')">
+              <el-select v-model="toolForm.unicode_convert_type" :placeholder="$t('dataFactory.form.unicodeConvertType')">
+                <el-option :label="$t('dataFactory.form.unicodeConvertOptions.toUnicode')" value="to_unicode" />
+                <el-option :label="$t('dataFactory.form.unicodeConvertOptions.fromUnicode')" value="from_unicode" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'ascii_convert'" label="文本">
-              <el-input v-model="toolForm.text" placeholder="请输入文本或ASCII码" />
+            <el-form-item v-if="currentTool.name === 'ascii_convert'" :label="$t('dataFactory.form.text')">
+              <el-input v-model="toolForm.text" :placeholder="$t('dataFactory.form.inputText')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'ascii_convert'" label="转换类型">
-              <el-select v-model="toolForm.convert_type" placeholder="请选择转换类型">
-                <el-option label="字符转ASCII" value="to_ascii" />
-                <el-option label="ASCII转字符" value="from_ascii" />
+            <el-form-item v-if="currentTool.name === 'ascii_convert'" :label="$t('dataFactory.form.asciiConvertType')">
+              <el-select v-model="toolForm.convert_type" :placeholder="$t('dataFactory.form.asciiConvertType')">
+                <el-option :label="$t('dataFactory.form.asciiConvertOptions.toAscii')" value="to_ascii" />
+                <el-option :label="$t('dataFactory.form.asciiConvertOptions.fromAscii')" value="from_ascii" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'color_convert'" label="颜色值">
-              <el-input v-model="toolForm.color" placeholder="请输入颜色值，如 #FF0000" />
+            <el-form-item v-if="currentTool.name === 'color_convert'" :label="$t('dataFactory.form.colorValue')">
+              <el-input v-model="toolForm.color" :placeholder="$t('dataFactory.form.colorValuePlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'color_convert'" label="源格式">
-              <el-select v-model="toolForm.from_type" placeholder="请选择源格式">
-                <el-option label="十六进制" value="hex" />
-                <el-option label="RGB" value="rgb" />
+            <el-form-item v-if="currentTool.name === 'color_convert'" :label="$t('dataFactory.form.sourceFormat')">
+              <el-select v-model="toolForm.from_type" :placeholder="$t('dataFactory.form.sourceFormat')">
+                <el-option :label="$t('dataFactory.form.colorFormatOptions.hex')" value="hex" />
+                <el-option :label="$t('dataFactory.form.colorFormatOptions.rgb')" value="rgb" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'color_convert'" label="目标格式">
-              <el-select v-model="toolForm.to_type" placeholder="请选择目标格式">
-                <el-option label="十六进制" value="hex" />
-                <el-option label="RGB" value="rgb" />
-                <el-option label="RGBA" value="rgba" />
+            <el-form-item v-if="currentTool.name === 'color_convert'" :label="$t('dataFactory.form.targetFormat')">
+              <el-select v-model="toolForm.to_type" :placeholder="$t('dataFactory.form.targetFormat')">
+                <el-option :label="$t('dataFactory.form.colorFormatOptions.hex')" value="hex" />
+                <el-option :label="$t('dataFactory.form.colorFormatOptions.rgb')" value="rgb" />
+                <el-option :label="$t('dataFactory.form.colorFormatOptions.rgba')" value="rgba" />
                 <el-option label="HSL" value="hsl" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="['base64_encode', 'base64_decode'].includes(currentTool.name)" label="文本">
-              <el-input v-model="toolForm.text" type="textarea" :rows="4" placeholder="请输入文本" />
+            <el-form-item v-if="['base64_encode', 'base64_decode'].includes(currentTool.name)" :label="$t('dataFactory.form.text')">
+              <el-input v-model="toolForm.text" type="textarea" :rows="4" :placeholder="$t('dataFactory.form.inputText')" />
             </el-form-item>
-            <el-form-item v-if="['base64_encode', 'base64_decode'].includes(currentTool.name)" label="编码">
+            <el-form-item v-if="['base64_encode', 'base64_decode'].includes(currentTool.name)" :label="$t('dataFactory.form.encoding')">
               <el-input v-model="toolForm.encoding" placeholder="utf-8" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'url_encode'" label="数据">
-              <el-input v-model="toolForm.data" type="textarea" :rows="4" placeholder="请输入要编码的URL数据" />
+            <el-form-item v-if="currentTool.name === 'url_encode'" :label="$t('dataFactory.form.urlData')">
+              <el-input v-model="toolForm.data" type="textarea" :rows="4" :placeholder="$t('dataFactory.form.urlDataEncodePlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'url_encode'" label="编码方式">
-              <el-select v-model="toolForm.plus" placeholder="请选择编码方式">
-                <el-option label="标准编码" :value="false" />
-                <el-option label="Plus编码" :value="true" />
+            <el-form-item v-if="currentTool.name === 'url_encode'" :label="$t('dataFactory.form.encodeMethod')">
+              <el-select v-model="toolForm.plus" :placeholder="$t('dataFactory.form.encodeMethod')">
+                <el-option :label="$t('dataFactory.form.encodeMethodOptions.standard')" :value="false" />
+                <el-option :label="$t('dataFactory.form.encodeMethodOptions.plus')" :value="true" />
               </el-select>
-              <span class="form-tip">Plus编码会将空格转为+号</span>
+              <span class="form-tip">{{ $t('dataFactory.form.plusEncodeTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'url_decode'" label="数据">
-              <el-input v-model="toolForm.data" type="textarea" :rows="4" placeholder="请输入要解码的URL数据" />
+            <el-form-item v-if="currentTool.name === 'url_decode'" :label="$t('dataFactory.form.urlData')">
+              <el-input v-model="toolForm.data" type="textarea" :rows="4" :placeholder="$t('dataFactory.form.urlDataDecodePlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'url_decode'" label="解码方式">
-              <el-select v-model="toolForm.plus" placeholder="请选择解码方式">
-                <el-option label="标准解码" :value="false" />
-                <el-option label="Plus解码" :value="true" />
+            <el-form-item v-if="currentTool.name === 'url_decode'" :label="$t('dataFactory.form.decodeMethod')">
+              <el-select v-model="toolForm.plus" :placeholder="$t('dataFactory.form.decodeMethod')">
+                <el-option :label="$t('dataFactory.form.decodeMethodOptions.standard')" :value="false" />
+                <el-option :label="$t('dataFactory.form.decodeMethodOptions.plus')" :value="true" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'jwt_decode'" label="JWT令牌">
-              <el-input v-model="toolForm.token" type="textarea" :rows="6" placeholder="请输入JWT令牌" />
+            <el-form-item v-if="currentTool.name === 'jwt_decode'" :label="$t('dataFactory.form.jwtToken')">
+              <el-input v-model="toolForm.token" type="textarea" :rows="6" :placeholder="$t('dataFactory.form.jwtTokenPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'jwt_decode'" label="验证签名">
+            <el-form-item v-if="currentTool.name === 'jwt_decode'" :label="$t('dataFactory.form.verifySignature')">
               <el-switch v-model="toolForm.verify" />
-              <span class="form-tip">开启验证需要提供密钥</span>
+              <span class="form-tip">{{ $t('dataFactory.form.verifySignatureTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'jwt_decode' && toolForm.verify" label="密钥">
-              <el-input v-model="toolForm.secret" type="password" placeholder="请输入密钥" show-password />
+            <el-form-item v-if="currentTool.name === 'jwt_decode' && toolForm.verify" :label="$t('dataFactory.form.secretKey')">
+              <el-input v-model="toolForm.secret" type="password" :placeholder="$t('dataFactory.form.secretKeyPlaceholder')" show-password />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'image_to_base64'" label="上传图片">
+            <el-form-item v-if="currentTool.name === 'image_to_base64'" :label="$t('dataFactory.form.uploadImage')">
               <el-upload
                 ref="uploadRef"
                 class="image-upload"
@@ -465,21 +465,21 @@
                 :on-change="handleImageChange"
                 accept="image/*"
               >
-                <el-button type="primary">选择图片</el-button>
+                <el-button type="primary">{{ $t('dataFactory.actions.selectImage') }}</el-button>
                 <template #tip>
                   <div class="el-upload__tip">
-                    支持 JPG、PNG、GIF、WebP 等格式，最大 10MB
+                    {{ $t('dataFactory.form.uploadImageTip') }}
                   </div>
                 </template>
               </el-upload>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'image_to_base64' && imagePreview" label="图片预览">
+            <el-form-item v-if="currentTool.name === 'image_to_base64' && imagePreview" :label="$t('dataFactory.form.imagePreview')">
               <div class="image-preview">
-                <img :src="imagePreview" alt="预览" />
+                <img :src="imagePreview" :alt="$t('dataFactory.image.preview')" />
               </div>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'image_to_base64'" label="图片格式">
-              <el-select v-model="toolForm.image_format" placeholder="选择图片格式">
+            <el-form-item v-if="currentTool.name === 'image_to_base64'" :label="$t('dataFactory.form.imageFormat')">
+              <el-select v-model="toolForm.image_format" :placeholder="$t('dataFactory.form.selectImageFormat')">
                 <el-option label="PNG" value="png" />
                 <el-option label="JPEG" value="jpeg" />
                 <el-option label="GIF" value="gif" />
@@ -487,12 +487,12 @@
                 <el-option label="BMP" value="bmp" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'image_to_base64'" label="包含前缀">
+            <el-form-item v-if="currentTool.name === 'image_to_base64'" :label="$t('dataFactory.form.includePrefix')">
               <el-switch v-model="toolForm.include_prefix" />
-              <span class="form-tip">是否包含 data:image/png;base64, 前缀</span>
+              <span class="form-tip">{{ $t('dataFactory.form.includePrefixTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'base64_to_image'" label="Base64编码">
-              <el-input v-model="toolForm.base64_str" type="textarea" :rows="10" placeholder="请输入Base64编码" />
+            <el-form-item v-if="currentTool.name === 'base64_to_image'" :label="$t('dataFactory.form.base64Code')">
+              <el-input v-model="toolForm.base64_str" type="textarea" :rows="10" :placeholder="$t('dataFactory.form.base64CodePlaceholder')" />
             </el-form-item>
           </el-form>
         </div>
@@ -500,42 +500,42 @@
         <!-- 加密工具 -->
         <div v-else-if="currentCategory === 'encryption'" class="tool-form">
           <el-form label-width="120px">
-            <el-form-item v-if="['md5_hash', 'sha1_hash', 'sha256_hash', 'sha512_hash', 'password_strength'].includes(currentTool.name)" label="文本">
-              <el-input v-model="toolForm.text" type="textarea" :rows="4" placeholder="请输入文本" />
+            <el-form-item v-if="['md5_hash', 'sha1_hash', 'sha256_hash', 'sha512_hash', 'password_strength'].includes(currentTool.name)" :label="$t('dataFactory.form.text')">
+              <el-input v-model="toolForm.text" type="textarea" :rows="4" :placeholder="$t('dataFactory.form.inputText')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'hash_comparison'" label="文本">
-              <el-input v-model="toolForm.text" placeholder="请输入文本" />
+            <el-form-item v-if="currentTool.name === 'hash_comparison'" :label="$t('dataFactory.form.text')">
+              <el-input v-model="toolForm.text" :placeholder="$t('dataFactory.form.inputText')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'hash_comparison'" label="哈希值">
-              <el-input v-model="toolForm.hash_value" placeholder="请输入哈希值" />
+            <el-form-item v-if="currentTool.name === 'hash_comparison'" :label="$t('dataFactory.form.hashValue')">
+              <el-input v-model="toolForm.hash_value" :placeholder="$t('dataFactory.form.hashValuePlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'hash_comparison'" label="算法">
-              <el-select v-model="toolForm.algorithm" placeholder="请选择算法">
+            <el-form-item v-if="currentTool.name === 'hash_comparison'" :label="$t('dataFactory.form.algorithm')">
+              <el-select v-model="toolForm.algorithm" :placeholder="$t('dataFactory.form.algorithm')">
                 <el-option label="MD5" value="md5" />
                 <el-option label="SHA1" value="sha1" />
                 <el-option label="SHA256" value="sha256" />
                 <el-option label="SHA512" value="sha512" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="['aes_encrypt', 'aes_decrypt'].includes(currentTool.name)" label="文本">
-              <el-input v-model="toolForm.text" type="textarea" :rows="4" placeholder="请输入文本" />
+            <el-form-item v-if="['aes_encrypt', 'aes_decrypt'].includes(currentTool.name)" :label="$t('dataFactory.form.text')">
+              <el-input v-model="toolForm.text" type="textarea" :rows="4" :placeholder="$t('dataFactory.form.inputText')" />
             </el-form-item>
-            <el-form-item v-if="['aes_encrypt', 'aes_decrypt'].includes(currentTool.name)" label="密码">
-              <el-input v-model="toolForm.password" type="password" placeholder="请输入密码" />
+            <el-form-item v-if="['aes_encrypt', 'aes_decrypt'].includes(currentTool.name)" :label="$t('dataFactory.form.password')">
+              <el-input v-model="toolForm.password" type="password" :placeholder="$t('dataFactory.form.passwordPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="['aes_encrypt', 'aes_decrypt'].includes(currentTool.name)" label="模式">
-              <el-select v-model="toolForm.mode" placeholder="请选择模式">
+            <el-form-item v-if="['aes_encrypt', 'aes_decrypt'].includes(currentTool.name)" :label="$t('dataFactory.form.mode')">
+              <el-select v-model="toolForm.mode" :placeholder="$t('dataFactory.form.mode')">
                 <el-option label="CBC" value="CBC" />
                 <el-option label="ECB" value="ECB" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_salt'" label="长度">
+            <el-form-item v-if="currentTool.name === 'generate_salt'" :label="$t('dataFactory.form.length')">
               <el-input-number v-model="toolForm.length" :min="8" :max="64" />
             </el-form-item>
-            <el-form-item v-if="['base64_encode', 'base64_decode'].includes(currentTool.name)" label="文本">
-              <el-input v-model="toolForm.text" type="textarea" :rows="4" placeholder="请输入文本" />
+            <el-form-item v-if="['base64_encode', 'base64_decode'].includes(currentTool.name)" :label="$t('dataFactory.form.text')">
+              <el-input v-model="toolForm.text" type="textarea" :rows="4" :placeholder="$t('dataFactory.form.inputText')" />
             </el-form-item>
-            <el-form-item v-if="['base64_encode', 'base64_decode'].includes(currentTool.name)" label="编码">
+            <el-form-item v-if="['base64_encode', 'base64_decode'].includes(currentTool.name)" :label="$t('dataFactory.form.encoding')">
               <el-input v-model="toolForm.encoding" placeholder="utf-8" />
             </el-form-item>
           </el-form>
@@ -546,14 +546,14 @@
           <el-row :gutter="20">
             <el-col :span="24">
               <div class="path-input-panel">
-                <h4>JSONPath表达式</h4>
-                <el-input 
-                  v-model="toolForm.jsonpath_expr" 
-                  placeholder="例如: $.store.book[*].author" 
+                <h4>{{ $t('dataFactory.form.jsonPathExpr') }}</h4>
+                <el-input
+                  v-model="toolForm.jsonpath_expr"
+                  :placeholder="$t('dataFactory.form.jsonPathExprPlaceholder')"
                   @input="handleJsonPathInput"
                 />
                 <div class="form-tip">
-                  <a href="https://goessner.net/articles/JsonPath/" target="_blank">JSONPath语法参考</a>
+                  <a href="https://goessner.net/articles/JsonPath/" target="_blank">{{ $t('dataFactory.form.jsonPathSyntaxRef') }}</a>
                 </div>
               </div>
             </el-col>
@@ -561,24 +561,24 @@
           <el-row :gutter="20">
             <el-col :span="12">
               <div class="json-input-panel">
-                <h4>JSON数据输入</h4>
-                <el-input 
-                  v-model="toolForm.json_str" 
-                  type="textarea" 
-                  :rows="15" 
-                  placeholder="请输入JSON数据" 
+                <h4>{{ $t('dataFactory.form.jsonDataInput') }}</h4>
+                <el-input
+                  v-model="toolForm.json_str"
+                  type="textarea"
+                  :rows="15"
+                  :placeholder="$t('dataFactory.form.jsonDataPlaceholder')"
                   @input="handleJsonPathInput"
                 />
               </div>
             </el-col>
             <el-col :span="12">
               <div class="json-input-panel">
-                <h4>查询结果</h4>
+                <h4>{{ $t('dataFactory.form.queryResult') }}</h4>
                 <div v-if="toolResult" class="result-display">
                   <pre>{{ JSON.stringify(toolResult.result || toolResult, null, 2) }}</pre>
                 </div>
                 <div v-else class="result-empty">
-                  <el-empty description="输入JSON数据和JSONPath表达式后，右侧将实时显示查询结果" :image-size="60" />
+                  <el-empty :description="$t('dataFactory.form.queryResultEmpty')" :image-size="60" />
                 </div>
               </div>
             </el-col>
@@ -590,24 +590,24 @@
           <el-row :gutter="20">
             <el-col :span="12">
               <div class="json-input-panel">
-                <h4>JSON数据1</h4>
-                <el-input 
-                  v-model="toolForm.json_str1" 
-                  type="textarea" 
-                  :rows="15" 
-                  placeholder="请输入第一个JSON数据" 
+                <h4>{{ $t('dataFactory.form.jsonData1') }}</h4>
+                <el-input
+                  v-model="toolForm.json_str1"
+                  type="textarea"
+                  :rows="15"
+                  :placeholder="$t('dataFactory.form.jsonData1Placeholder')"
                   @input="handleJsonDiffInput"
                 />
               </div>
             </el-col>
             <el-col :span="12">
               <div class="json-input-panel">
-                <h4>JSON数据2</h4>
-                <el-input 
-                  v-model="toolForm.json_str2" 
-                  type="textarea" 
-                  :rows="15" 
-                  placeholder="请输入第二个JSON数据" 
+                <h4>{{ $t('dataFactory.form.jsonData2') }}</h4>
+                <el-input
+                  v-model="toolForm.json_str2"
+                  type="textarea"
+                  :rows="15"
+                  :placeholder="$t('dataFactory.form.jsonData2Placeholder')"
                   @input="handleJsonDiffInput"
                 />
               </div>
@@ -616,10 +616,10 @@
           <el-row :gutter="20" class="diff-options">
             <el-col :span="24">
               <el-form label-width="120px">
-                <el-form-item label="忽略空格">
+                <el-form-item :label="$t('dataFactory.form.ignoreWhitespace')">
                   <el-switch v-model="toolForm.ignore_whitespace" @change="handleJsonDiffInput" />
                 </el-form-item>
-                <el-form-item label="仅显示差异">
+                <el-form-item :label="$t('dataFactory.form.showOnlyDiff')">
                   <el-switch v-model="toolForm.show_only_diff" @change="handleJsonDiffInput" />
                 </el-form-item>
               </el-form>
@@ -633,17 +633,17 @@
             <el-col :span="12">
               <div class="json-input-panel">
                 <div class="panel-header">
-                  <h4>输入</h4>
+                  <h4>{{ $t('dataFactory.form.input') }}</h4>
                   <div class="input-stats">
-                    <span>字符: {{ getInputStats().chars }}</span>
-                    <span>行数: {{ getInputStats().lines }}</span>
+                    <span>{{ $t('dataFactory.form.chars') }}: {{ getInputStats().chars }}</span>
+                    <span>{{ $t('dataFactory.form.lines') }}: {{ getInputStats().lines }}</span>
                   </div>
                 </div>
-                <el-input 
-                  v-model="toolForm.json_str" 
-                  type="textarea" 
-                  :rows="20" 
-                  placeholder="请输入JSON数据"
+                <el-input
+                  v-model="toolForm.json_str"
+                  type="textarea"
+                  :rows="20"
+                  :placeholder="$t('dataFactory.form.jsonDataPlaceholder')"
                   @input="handleJsonInput"
                 />
               </div>
@@ -651,7 +651,7 @@
             <el-col :span="12">
               <div class="json-input-panel">
                 <div class="panel-header">
-                  <h4>输出</h4>
+                  <h4>{{ $t('dataFactory.form.output') }}</h4>
                   <!-- <div class="output-stats">
                     <span>字符: {{ getOutputStats().chars }}</span>
                     <span>行数: {{ getOutputStats().lines }}</span>
@@ -661,11 +661,11 @@
                   <div class="json-tree-actions">
                     <el-button size="small" @click="expandAllJson">
                       <el-icon><Operation /></el-icon>
-                      全部展开
+                      {{ $t('dataFactory.actions.expandAll') }}
                     </el-button>
                     <el-button size="small" @click="collapseAllJson">
                       <el-icon><Operation /></el-icon>
-                      全部收缩
+                      {{ $t('dataFactory.actions.collapseAll') }}
                     </el-button>
                   </div>
                   <el-tree
@@ -690,7 +690,7 @@
                   <pre>{{ toolResult.result }}</pre>
                 </div>
                 <div v-else class="result-empty">
-                  <el-empty description="输入JSON数据后，右侧将显示格式化结果" :image-size="60" />
+                  <el-empty :description="$t('dataFactory.form.formatResultEmpty')" :image-size="60" />
                 </div>
               </div>
             </el-col>
@@ -699,19 +699,19 @@
             <el-col :span="24">
               <div class="options-bar">
                 <div class="option-group">
-                  <span class="option-label">缩进:</span>
+                  <span class="option-label">{{ $t('dataFactory.form.indent') }}:</span>
                   <el-radio-group v-model="toolForm.indent" @change="handleJsonInput">
-                    <el-radio-button :value="2">2空格</el-radio-button>
-                    <el-radio-button :value="4">4空格</el-radio-button>
+                    <el-radio-button :value="2">{{ $t('dataFactory.form.indentSpaces2') }}</el-radio-button>
+                    <el-radio-button :value="4">{{ $t('dataFactory.form.indentSpaces4') }}</el-radio-button>
                   </el-radio-group>
                 </div>
                 <div class="option-group">
                   <el-switch v-model="toolForm.sort_keys" @change="handleJsonInput" />
-                  <span class="option-label">排序键</span>
+                  <span class="option-label">{{ $t('dataFactory.form.sortKeys') }}</span>
                 </div>
                 <div class="option-group">
                   <el-switch v-model="toolForm.compress" @change="handleJsonInput" />
-                  <span class="option-label">压缩</span>
+                  <span class="option-label">{{ $t('dataFactory.form.compress') }}</span>
                 </div>
               </div>
             </el-col>
@@ -721,37 +721,37 @@
         <!-- 其他JSON工具 -->
         <div v-else-if="currentCategory === 'json' && !['format_json', 'jsonpath_query', 'json_diff_enhanced'].includes(currentTool.name)" class="tool-form json-tool">
           <el-form label-width="120px">
-            <el-form-item v-if="['format_json', 'validate_json', 'json_to_xml', 'json_to_yaml', 'json_to_csv', 'json_path_list', 'json_flatten'].includes(currentTool.name)" label="JSON数据">
-              <el-input 
-                v-model="toolForm.json_str" 
-                type="textarea" 
-                :rows="8" 
-                placeholder="请输入JSON数据"
+            <el-form-item v-if="['format_json', 'validate_json', 'json_to_xml', 'json_to_yaml', 'json_to_csv', 'json_path_list', 'json_flatten'].includes(currentTool.name)" :label="$t('dataFactory.form.jsonData')">
+              <el-input
+                v-model="toolForm.json_str"
+                type="textarea"
+                :rows="8"
+                :placeholder="$t('dataFactory.form.jsonDataPlaceholder')"
                 @input="handleJsonInput"
               />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'format_json'" label="缩进">
+            <el-form-item v-if="currentTool.name === 'format_json'" :label="$t('dataFactory.form.indent')">
               <el-input-number v-model="toolForm.indent" :min="0" :max="8" @change="handleJsonInput" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'format_json'" label="排序键">
+            <el-form-item v-if="currentTool.name === 'format_json'" :label="$t('dataFactory.form.sortKeys')">
               <el-switch v-model="toolForm.sort_keys" @change="handleJsonInput" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'format_json'" label="压缩">
+            <el-form-item v-if="currentTool.name === 'format_json'" :label="$t('dataFactory.form.compress')">
               <el-switch v-model="toolForm.compress" @change="handleJsonInput" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'xml_to_json'" label="XML数据">
-              <el-input v-model="toolForm.xml_str" type="textarea" :rows="8" placeholder="请输入XML数据" />
+            <el-form-item v-if="currentTool.name === 'xml_to_json'" :label="$t('dataFactory.form.xmlData')">
+              <el-input v-model="toolForm.xml_str" type="textarea" :rows="8" :placeholder="$t('dataFactory.form.xmlDataPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'yaml_to_json'" label="YAML数据">
-              <el-input v-model="toolForm.yaml_str" type="textarea" :rows="8" placeholder="请输入YAML数据" />
+            <el-form-item v-if="currentTool.name === 'yaml_to_json'" :label="$t('dataFactory.form.yamlData')">
+              <el-input v-model="toolForm.yaml_str" type="textarea" :rows="8" :placeholder="$t('dataFactory.form.yamlDataPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'csv_to_json'" label="CSV数据">
-              <el-input v-model="toolForm.csv_str" type="textarea" :rows="8" placeholder="请输入CSV数据" />
+            <el-form-item v-if="currentTool.name === 'csv_to_json'" :label="$t('dataFactory.form.csvData')">
+              <el-input v-model="toolForm.csv_str" type="textarea" :rows="8" :placeholder="$t('dataFactory.form.csvDataPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'csv_to_json'" label="分隔符">
-              <el-input v-model="toolForm.separator" placeholder="默认为逗号" />
+            <el-form-item v-if="currentTool.name === 'csv_to_json'" :label="$t('dataFactory.form.csvSeparator')">
+              <el-input v-model="toolForm.separator" :placeholder="$t('dataFactory.form.csvSeparatorPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'csv_to_json'" label="包含表头">
+            <el-form-item v-if="currentTool.name === 'csv_to_json'" :label="$t('dataFactory.form.hasHeader')">
               <el-switch v-model="toolForm.has_header" />
             </el-form-item>
           </el-form>
@@ -760,40 +760,40 @@
         <!-- Mock数据工具 -->
         <div v-else-if="currentCategory === 'mock'" class="tool-form">
           <el-form label-width="120px">
-            <el-form-item label="生成数量">
+            <el-form-item :label="$t('dataFactory.form.count')">
               <el-input-number v-model="toolForm.count" :min="1" :max="100" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_string'" label="长度">
+            <el-form-item v-if="currentTool.name === 'mock_string'" :label="$t('dataFactory.form.length')">
               <el-input-number v-model="toolForm.length" :min="1" :max="100" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_string'" label="字符类型">
-              <el-select v-model="toolForm.char_type" placeholder="选择字符类型">
-                <el-option label="全部" value="all" />
-                <el-option label="字母" value="letters" />
-                <el-option label="数字" value="digits" />
-                <el-option label="字母数字" value="alphanumeric" />
+            <el-form-item v-if="currentTool.name === 'mock_string'" :label="$t('dataFactory.form.charType')">
+              <el-select v-model="toolForm.char_type" :placeholder="$t('dataFactory.form.charType')">
+                <el-option :label="$t('dataFactory.form.charTypeOptions.all')" value="all" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.letters')" value="letters" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.digits')" value="digits" />
+                <el-option :label="$t('dataFactory.form.charTypeOptions.alphanumeric')" value="alphanumeric" />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_number'" label="最小值">
+            <el-form-item v-if="currentTool.name === 'mock_number'" :label="$t('dataFactory.form.minValue')">
               <el-input-number v-model="toolForm.min_val" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_number'" label="最大值">
+            <el-form-item v-if="currentTool.name === 'mock_number'" :label="$t('dataFactory.form.maxValue')">
               <el-input-number v-model="toolForm.max_val" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_number'" label="小数位数">
+            <el-form-item v-if="currentTool.name === 'mock_number'" :label="$t('dataFactory.form.decimals')">
               <el-input-number v-model="toolForm.decimals" :min="0" :max="10" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_date'" label="开始日期">
-              <el-date-picker v-model="toolForm.start_date" type="date" placeholder="选择开始日期" />
+            <el-form-item v-if="currentTool.name === 'mock_date'" :label="$t('dataFactory.form.startDate')">
+              <el-date-picker v-model="toolForm.start_date" type="date" :placeholder="$t('dataFactory.form.selectStartDate')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_date'" label="结束日期">
-              <el-date-picker v-model="toolForm.end_date" type="date" placeholder="选择结束日期" />
+            <el-form-item v-if="currentTool.name === 'mock_date'" :label="$t('dataFactory.form.endDate')">
+              <el-date-picker v-model="toolForm.end_date" type="date" :placeholder="$t('dataFactory.form.selectEndDate')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_datetime'" label="开始日期">
-              <el-date-picker v-model="toolForm.start_date" type="datetime" placeholder="选择开始日期时间" />
+            <el-form-item v-if="currentTool.name === 'mock_datetime'" :label="$t('dataFactory.form.startDate')">
+              <el-date-picker v-model="toolForm.start_date" type="datetime" :placeholder="$t('dataFactory.form.selectStartDateTime')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'mock_datetime'" label="结束日期">
-              <el-date-picker v-model="toolForm.end_date" type="datetime" placeholder="选择结束日期时间" />
+            <el-form-item v-if="currentTool.name === 'mock_datetime'" :label="$t('dataFactory.form.endDate')">
+              <el-date-picker v-model="toolForm.end_date" type="datetime" :placeholder="$t('dataFactory.form.selectEndDateTime')" />
             </el-form-item>
           </el-form>
         </div>
@@ -801,70 +801,70 @@
         <!-- Crontab工具 -->
         <div v-else-if="currentCategory === 'crontab'" class="tool-form">
           <el-form label-width="120px">
-            <el-form-item v-if="currentTool.name === 'generate_expression'" label="分钟">
+            <el-form-item v-if="currentTool.name === 'generate_expression'" :label="$t('dataFactory.form.minute')">
               <el-input v-model="toolForm.minute" placeholder="0-59, *, */5, 1,3,5, 1-10" />
-              <span class="form-tip">范围: 0-59</span>
+              <span class="form-tip">{{ $t('dataFactory.form.minuteTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_expression'" label="小时">
+            <el-form-item v-if="currentTool.name === 'generate_expression'" :label="$t('dataFactory.form.hour')">
               <el-input v-model="toolForm.hour" placeholder="0-23, *, */2, 9,18, 8-18" />
-              <span class="form-tip">范围: 0-23</span>
+              <span class="form-tip">{{ $t('dataFactory.form.hourTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_expression'" label="日">
+            <el-form-item v-if="currentTool.name === 'generate_expression'" :label="$t('dataFactory.form.day')">
               <el-input v-model="toolForm.day" placeholder="1-31, *, */7, 1,15, 1-10" />
-              <span class="form-tip">范围: 1-31</span>
+              <span class="form-tip">{{ $t('dataFactory.form.dayTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_expression'" label="月">
+            <el-form-item v-if="currentTool.name === 'generate_expression'" :label="$t('dataFactory.form.month')">
               <el-input v-model="toolForm.month" placeholder="1-12, *, */3, 1,4,7,10, 6-9" />
-              <span class="form-tip">范围: 1-12</span>
+              <span class="form-tip">{{ $t('dataFactory.form.monthTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'generate_expression'" label="星期">
+            <el-form-item v-if="currentTool.name === 'generate_expression'" :label="$t('dataFactory.form.weekday')">
               <el-input v-model="toolForm.weekday" placeholder="0-6, *, */2, 1-5, 1,3,5" />
-              <span class="form-tip">范围: 0-6 (0是周日)</span>
+              <span class="form-tip">{{ $t('dataFactory.form.weekdayTip') }}</span>
             </el-form-item>
-            <el-form-item v-if="['parse_expression', 'get_next_runs', 'validate_expression'].includes(currentTool.name)" label="Crontab表达式">
-              <el-input v-model="toolForm.expression" type="textarea" :rows="3" placeholder="例如: */5 * * * *" />
+            <el-form-item v-if="['parse_expression', 'get_next_runs', 'validate_expression'].includes(currentTool.name)" :label="$t('dataFactory.form.crontabExpression')">
+              <el-input v-model="toolForm.expression" type="textarea" :rows="3" :placeholder="$t('dataFactory.form.crontabExpressionPlaceholder')" />
             </el-form-item>
-            <el-form-item v-if="currentTool.name === 'get_next_runs'" label="执行次数">
+            <el-form-item v-if="currentTool.name === 'get_next_runs'" :label="$t('dataFactory.form.runCount')">
               <el-input-number v-model="toolForm.count" :min="1" :max="20" />
             </el-form-item>
           </el-form>
         </div>
 
         <el-form label-width="120px" class="tool-options">
-          <el-form-item label="保存结果">
+          <el-form-item :label="$t('dataFactory.form.saveResult')">
             <el-switch v-model="toolForm.isSaved" />
-            <span class="form-tip">保存后可在历史记录中查看</span>
+            <span class="form-tip">{{ $t('dataFactory.form.saveResultTip') }}</span>
           </el-form-item>
-          <el-form-item label="标签">
+          <el-form-item :label="$t('dataFactory.form.tags')">
             <el-input
               v-model="toolForm.tags"
-              placeholder="输入标签，多个标签用逗号分隔"
+              :placeholder="$t('dataFactory.form.tagsPlaceholder')"
             />
           </el-form-item>
         </el-form>
 
         <div v-if="toolResult && currentTool?.name !== 'jsonpath_query' && currentTool?.name !== 'format_json'" class="tool-result">
           <div class="result-header">
-            <h4>执行结果</h4>
-            <el-button 
+            <h4>{{ $t('dataFactory.form.result') }}</h4>
+            <el-button
               v-if="['json_to_xml', 'json_to_yaml', 'json_to_csv', 'xml_to_json', 'yaml_to_json', 'csv_to_json'].includes(currentTool?.name)"
-              type="primary" 
+              type="primary"
               size="small"
               @click="downloadResult"
             >
               <el-icon><Download /></el-icon>
-              下载结果
+              {{ $t('dataFactory.actions.download') }}
             </el-button>
           </div>
           <div v-if="['generate_barcode', 'generate_qrcode', 'base64_to_image'].includes(currentTool?.name)" class="image-result">
             <div class="image-preview">
               <img v-if="toolResult.url" :src="getImageUrl(toolResult.url)" :alt="currentTool.display_name" />
-              <div v-else class="no-image">图片生成失败</div>
+              <div v-else class="no-image">{{ $t('dataFactory.image.generateFailed') }}</div>
             </div>
             <div class="image-actions">
               <el-button type="primary" @click="downloadImage(toolResult)">
                 <el-icon><Download /></el-icon>
-                下载图片
+                {{ $t('dataFactory.actions.downloadImage') }}
               </el-button>
               <el-tag v-if="toolResult.filename" type="info">{{ toolResult.filename }}</el-tag>
             </div>
@@ -880,9 +880,9 @@
         </div>
       </div>
       <template #footer>
-        <el-button @click="toolDialogVisible = false">取消</el-button>
+        <el-button @click="toolDialogVisible = false">{{ $t('dataFactory.actions.cancel') }}</el-button>
         <el-button type="primary" :loading="executing" @click="executeTool">
-          执行
+          {{ $t('dataFactory.actions.execute') }}
         </el-button>
       </template>
     </el-dialog>
@@ -890,28 +890,28 @@
     <!-- 历史记录对话框 -->
     <el-dialog
       v-model="showHistory"
-      title="使用历史"
+      :title="$t('dataFactory.history.title')"
       width="1200px"
     >
       <el-tabs v-model="historyTab">
-        <el-tab-pane label="所有记录" name="all">
+        <el-tab-pane :label="$t('dataFactory.history.allRecords')" name="all">
           <div class="history-content">
             <el-table :data="historyRecords" stripe class="history-table">
-              <el-table-column label="工具名称" min-width="180">
+              <el-table-column :label="$t('dataFactory.history.toolName')" min-width="180">
                 <template #default="{ row }">
                   <span>{{ getToolDisplayName(row.tool_name) }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="tool_category_display" label="分类" min-width="120" />
-              <el-table-column prop="tool_scenario_display" label="场景" min-width="120" />
-              <el-table-column label="使用时间" min-width="180">
+              <el-table-column prop="tool_category_display" :label="$t('dataFactory.history.category')" min-width="120" />
+              <el-table-column prop="tool_scenario_display" :label="$t('dataFactory.history.scenario')" min-width="120" />
+              <el-table-column :label="$t('dataFactory.history.usageTime')" min-width="180">
                 <template #default="{ row }">
                   {{ formatDateTime(row.created_at) }}
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="100" align="center" fixed="right">
+              <el-table-column :label="$t('dataFactory.history.operation')" width="100" align="center" fixed="right">
                 <template #default="{ row }">
-                  <el-button size="small" type="danger" @click="deleteRecord(row)">删除</el-button>
+                  <el-button size="small" type="danger" @click="deleteRecord(row)">{{ $t('dataFactory.actions.delete') }}</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -927,7 +927,7 @@
             />
           </div>
         </el-tab-pane>
-        <el-tab-pane label="统计信息" name="stats">
+        <el-tab-pane :label="$t('dataFactory.history.statistics')" name="stats">
           <div class="stats-container">
             <el-row :gutter="20">
               <el-col :span="24">
@@ -935,7 +935,7 @@
                   <div class="total-stats">
                     <div class="total-stat-item">
                       <div class="total-stat-value">{{ statistics.total_records || 0 }}</div>
-                      <div class="total-stat-label">总记录数</div>
+                      <div class="total-stat-label">{{ $t('dataFactory.history.totalRecords') }}</div>
                     </div>
                   </div>
                 </el-card>
@@ -945,7 +945,7 @@
               <el-col :span="12">
                 <el-card>
                   <template #header>
-                    <span class="card-header-title">分类统计</span>
+                    <span class="card-header-title">{{ $t('dataFactory.history.categoryStats') }}</span>
                   </template>
                   <div v-if="statistics.category_stats && Object.keys(statistics.category_stats).length > 0">
                     <div v-for="(count, category) in statistics.category_stats" :key="category" class="stat-item">
@@ -960,13 +960,13 @@
                       </div>
                     </div>
                   </div>
-                  <el-empty v-else description="暂无数据" :image-size="80" />
+                  <el-empty v-else :description="$t('dataFactory.history.noData')" :image-size="80" />
                 </el-card>
               </el-col>
               <el-col :span="12">
                 <el-card>
                   <template #header>
-                    <span class="card-header-title">场景统计</span>
+                    <span class="card-header-title">{{ $t('dataFactory.history.scenarioStats') }}</span>
                   </template>
                   <div v-if="statistics.scenario_stats && Object.keys(statistics.scenario_stats).length > 0">
                     <div v-for="(count, scenario) in statistics.scenario_stats" :key="scenario" class="stat-item">
@@ -981,7 +981,7 @@
                       </div>
                     </div>
                   </div>
-                  <el-empty v-else description="暂无数据" :image-size="80" />
+                  <el-empty v-else :description="$t('dataFactory.history.noData')" :image-size="80" />
                 </el-card>
               </el-col>
             </el-row>
@@ -995,6 +995,7 @@
 <script setup>
 import { ref, onMounted, watch, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
   DataLine, Menu, Grid, Clock, Operation, ArrowRight,
@@ -1004,6 +1005,7 @@ import {
 import axios from 'axios'
 
 const router = useRouter()
+const { t } = useI18n()
 
 const viewMode = ref('category')
 const categories = ref([])
@@ -1162,7 +1164,7 @@ const fetchCategories = async () => {
     const response = await axios.get('/api/data-factory/categories/')
     categories.value = response.data.categories
   } catch (error) {
-    ElMessage.error('获取工具分类失败')
+    ElMessage.error(t('dataFactory.messages.fetchCategoriesFailed'))
   }
 }
 
@@ -1186,119 +1188,40 @@ const fetchScenarios = async () => {
     })
     scenarios.value = Object.values(scenarioMap)
   } catch (error) {
-    ElMessage.error('获取场景列表失败')
+    ElMessage.error(t('dataFactory.messages.fetchScenariosFailed'))
   }
 }
 
 const getScenarioName = (scenario) => {
-  const names = {
-    'test_data': '测试数据',
-    'json': 'JSON工具',
-    'string': '字符工具',
-    'encoding': '编码工具',
-    'random': '随机工具',
-    'encryption': '加密工具',
-    'crontab': 'Crontab工具'
-  }
-  return names[scenario] || '其他'
+  const key = `dataFactory.scenarios.${scenario}`
+  const translated = t(key)
+  // vue-i18n returns the key itself if translation doesn't exist
+  return translated === key ? t('dataFactory.scenarios.other') : translated
 }
 
 const getScenarioDesc = (scenario) => {
-  const descs = {
-    'test_data': '生成各种类型的测试数据',
-    'json': 'JSON数据的格式化、验证和转换',
-    'string': '字符串的处理和转换',
-    'encoding': '各种编码格式的转换',
-    'random': '生成随机数据',
-    'encryption': '加密和解密敏感数据',
-    'crontab': '生成和解析Crontab命令'
-  }
-  return descs[scenario] || '其他工具'
+  const key = `dataFactory.scenarioDescs.${scenario}`
+  const translated = t(key)
+  return translated === key ? t('dataFactory.scenarioDescs.other') : translated
+}
+
+const getCategoryName = (category) => {
+  const key = `dataFactory.scenarios.${category}`
+  const translated = t(key)
+  return translated === key ? category : translated
 }
 
 const getToolDisplayName = (toolName) => {
-  const toolNames = {
-    'generate_chinese_name': '生成中文姓名',
-    'generate_chinese_phone': '生成手机号',
-    'generate_chinese_email': '生成邮箱',
-    'generate_chinese_address': '生成地址',
-    'generate_id_card': '生成身份证号',
-    'generate_company_name': '生成公司名称',
-    'generate_bank_card': '生成银行卡号',
-    'generate_user_profile': '生成用户档案',
-    'generate_hk_id_card': '生成香港身份证号',
-    'generate_business_license': '生成营业执照号',
-    'generate_coordinates': '生成经纬度',
-    'remove_whitespace': '去除空格换行',
-    'replace_string': '字符串替换',
-    'escape_string': '字符串转义',
-    'unescape_string': '字符串反转义',
-    'word_count': '字数统计',
-    'text_diff': '文本对比',
-    'regex_test': '正则测试',
-    'case_convert': '大小写转换',
-    'string_format': '字符串格式化',
-    'generate_barcode': '生成条形码',
-    'generate_qrcode': '生成二维码',
-    'decode_qrcode':'二维码解析',
-    'timestamp_convert': '时间戳转换',
-    'base_convert': '进制转换',
-    'unicode_convert': 'Unicode转换',
-    'ascii_convert': 'ASCII转换',
-    'color_convert': '颜色值转换',
-    'base64_encode': 'Base64编码',
-    'base64_decode': 'Base64解码',
-    'random_int': '随机整数',
-    'random_float': '随机浮点数',
-    'random_string': '随机字符串',
-    'random_uuid': '随机UUID',
-    'random_mac_address': '随机MAC地址',
-    'random_ip_address': '随机IP地址',
-    'random_date': '随机日期',
-    'random_boolean': '随机布尔值',
-    'random_color': '随机颜色',
-    'random_password': '随机密码',
-    'random_sequence': '随机序列',
-    'md5_hash': 'MD5加密',
-    'sha1_hash': 'SHA1加密',
-    'sha256_hash': 'SHA256加密',
-    'sha512_hash': 'SHA512加密',
-    'hash_comparison': '哈希值比对',
-    'aes_encrypt': 'AES加密',
-    'aes_decrypt': 'AES解密',
-    'password_strength': '密码强度分析',
-    'generate_salt': '生成盐值',
-    'format_json': 'JSON格式化',
-    'validate_json': 'JSON校验',
-    'json_to_xml': 'JSON转XML',
-    'xml_to_json': 'XML转JSON',
-    'json_to_yaml': 'JSON转YAML',
-    'yaml_to_json': 'YAML转JSON',
-    'json_diff': 'JSON对比',
-    'jsonpath_query': 'JSONPath查询',
-    'json_path_list': '列出JSON路径',
-    'json_flatten': '扁平化JSON',
-    'json_diff_enhanced': 'JSON增强对比',
-    'mock_string': 'Mock字符串',
-    'mock_number': 'Mock数字',
-    'mock_boolean': 'Mock布尔值',
-    'mock_email': 'Mock邮箱',
-    'mock_phone': 'Mock手机号',
-    'mock_date': 'Mock日期',
-    'mock_datetime': 'Mock日期时间',
-    'mock_name': 'Mock姓名',
-    'mock_address': 'Mock地址',
-    'mock_url': 'Mock URL',
-    'mock_uuid': 'Mock UUID',
-    'mock_ip': 'Mock IP地址',
-    'generate_expression': '生成Crontab表达式',
-    'parse_expression': '解析Crontab表达式',
-    'get_next_runs': '获取下次执行时间',
-    'validate_expression': '验证Crontab表达式',
-    'image_to_base64': '图片转Base64',
-    'base64_to_image': 'Base64转图片'
-  }
-  return toolNames[toolName] || toolName
+  const key = `dataFactory.tools.${toolName}`
+  const translated = t(key)
+  // vue-i18n returns the key itself if translation doesn't exist
+  return translated === key ? null : translated
+}
+
+const getToolDescription = (toolName) => {
+  const key = `dataFactory.toolDescs.${toolName}`
+  const translated = t(key)
+  return translated === key ? null : translated
 }
 
 const goToHome = () => {
@@ -1470,9 +1393,9 @@ const executeTool = async () => {
     })
 
     toolResult.value = response.data
-    ElMessage.success('执行成功')
+    ElMessage.success(t('dataFactory.messages.executeSuccess'))
   } catch (error) {
-    ElMessage.error(error.response?.data?.error || '执行失败')
+    ElMessage.error(error.response?.data?.error || t('dataFactory.messages.executeFailed'))
   } finally {
     executing.value = false
   }
@@ -1724,7 +1647,7 @@ const handleQrCodeUpload = (file) => {
       resolve(false)
     }
     reader.onerror = () => {
-      ElMessage.error('图片读取失败')
+      ElMessage.error(t('dataFactory.messages.imageReadFailed'))
       reject(false)
     }
     reader.readAsDataURL(file)
@@ -1803,7 +1726,7 @@ const handleJsonPathInput = async () => {
 
 const handleImageChange = (file) => {
   if (file.raw.size > 10 * 1024 * 1024) {
-    ElMessage.error('图片大小不能超过10MB')
+    ElMessage.error(t('dataFactory.messages.fileSizeLimit'))
     return false
   }
 
@@ -1880,7 +1803,7 @@ const downloadResult = () => {
 const filterByScenario = (scenario) => {
   currentScenario.value = scenario
   viewMode.value = 'category'
-  ElMessage.success(`已筛选: ${scenario.name}`)
+  ElMessage.success(`${t('dataFactory.messages.filtered')}: ${scenario.name}`)
 }
 
 const clearScenario = () => {
@@ -1906,7 +1829,7 @@ const fetchHistory = async () => {
     historyRecords.value = response.data.results
     historyTotal.value = response.data.count
   } catch (error) {
-    ElMessage.error('获取历史记录失败')
+    ElMessage.error(t('dataFactory.messages.fetchHistoryFailed'))
   }
 }
 
@@ -1926,18 +1849,18 @@ const fetchStatistics = async () => {
     const response = await axios.get('/api/data-factory/statistics/')
     statistics.value = response.data
   } catch (error) {
-    ElMessage.error('获取统计信息失败')
+    ElMessage.error(t('dataFactory.messages.fetchStatsFailed'))
   }
 }
 
 const deleteRecord = async (record) => {
   try {
     await axios.delete(`/api/data-factory/${record.id}/`)
-    ElMessage.success('删除成功')
+    ElMessage.success(t('dataFactory.history.deleteSuccess'))
     fetchHistory()
     fetchStatistics()
   } catch (error) {
-    ElMessage.error('删除失败')
+    ElMessage.error(t('dataFactory.history.deleteFailed'))
   }
 }
 
@@ -1966,7 +1889,7 @@ const getImageUrl = (url) => {
 
 const downloadImage = (result) => {
   if (!result || !result.url) {
-    ElMessage.error('图片URL不存在')
+    ElMessage.error(t('dataFactory.messages.imageUrlNotFound'))
     return
   }
   
@@ -1979,7 +1902,7 @@ const downloadImage = (result) => {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
-  ElMessage.success('下载已开始')
+  ElMessage.success(t('dataFactory.messages.downloadStarted'))
 }
 
 watch(showHistory, (newVal) => {
