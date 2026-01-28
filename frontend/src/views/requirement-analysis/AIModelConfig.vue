@@ -112,8 +112,7 @@
                 type="text"
                 class="form-input"
                 :placeholder="$t('configuration.aiModel.configNamePlaceholder')"
-                required
-                @input="console.log('Name input:', $event.target.value, 'Form value:', configForm.name)">
+                required>
             </div>
 
             <div class="form-group">
@@ -151,8 +150,7 @@
                 type="password"
                 class="form-input"
                 :placeholder="isEditing ? $t('configuration.aiModel.apiKeyPlaceholderEdit') : $t('configuration.aiModel.apiKeyPlaceholder')"
-                :required="!isEditing"
-                @input="console.log('API Key input:', $event.target.value, 'Form value:', configForm.api_key)">
+                :required="!isEditing">
               <small v-if="isEditing && configForm.api_key && configForm.api_key.includes('*')" class="form-hint">
                 {{ $t('configuration.aiModel.apiKeyMaskHint') }}
               </small>
@@ -398,7 +396,7 @@ export default {
     async loadConfigs() {
       try {
         console.log('Loading configs...')
-        const response = await api.get('/requirement-analysis/api/ai-models/')
+        const response = await api.get('/requirement-analysis/ai-models/')
         console.log('API response:', response.data)
         
         // 处理分页API响应格式 {count: 1, next: null, previous: null, results: [...]}
@@ -536,11 +534,11 @@ export default {
           }
           
           console.log('Updating with data:', updateData)
-          await api.patch(`/requirement-analysis/api/ai-models/${this.editingConfigId}/`, updateData)
+          await api.patch(`/requirement-analysis/ai-models/${this.editingConfigId}/`, updateData)
           ElMessage.success(this.t('configuration.aiModel.messages.updateSuccess'))
         } else {
           console.log('Creating with data:', this.configForm)
-          await api.post('/requirement-analysis/api/ai-models/', this.configForm)
+          await api.post('/requirement-analysis/ai-models/', this.configForm)
           ElMessage.success(this.t('configuration.aiModel.messages.saveSuccess'))
         }
         
@@ -608,7 +606,7 @@ export default {
       }
 
       try {
-        await api.delete(`/requirement-analysis/api/ai-models/${configId}/`)
+        await api.delete(`/requirement-analysis/ai-models/${configId}/`)
         ElMessage.success(this.t('configuration.aiModel.messages.deleteSuccess'))
         this.loadConfigs()
       } catch (error) {
@@ -622,7 +620,7 @@ export default {
       this.testingConfigId = config.id
 
       try {
-        const response = await api.post(`/requirement-analysis/api/ai-models/${config.id}/test_connection/`)
+        const response = await api.post(`/requirement-analysis/ai-models/${config.id}/test_connection/`)
         this.testResult = response.data
         this.showTestResult = true
       } catch (error) {

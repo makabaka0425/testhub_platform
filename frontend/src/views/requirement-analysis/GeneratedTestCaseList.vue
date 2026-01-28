@@ -391,6 +391,7 @@ export default {
       tasks: [], // 改为任务列表
       selectedStatus: '',
       selectedTaskDetail: null,
+      selectedTestCaseDetail: null,
       showAdoptModal: false,
       isAdopting: false,
       projects: [],
@@ -470,12 +471,12 @@ export default {
     async loadTasks() {
       this.isLoading = true
       try {
-        let url = '/requirement-analysis/api/testcase-generation/'
+        let url = '/requirement-analysis/testcase-generation/'
         const params = new URLSearchParams()
         
         // 添加分页参数
-        params.append('page', this.pagination.currentPage)
-        params.append('page_size', this.pagination.pageSize)
+        params.append('page', String(this.pagination.currentPage))
+        params.append('page_size', String(this.pagination.pageSize))
         
         if (this.selectedStatus) {
           params.append('status', this.selectedStatus)
@@ -557,7 +558,7 @@ export default {
         // 逐个删除选中的任务
         for (const taskId of this.selectedTasks) {
           try {
-            await api.delete(`/requirement-analysis/api/testcase-generation/${taskId}/`)
+            await api.delete(`/requirement-analysis/testcase-generation/${taskId}/`)
             successCount++
           } catch (error) {
             console.error(`删除任务 ${taskId} 失败:`, error)
@@ -593,7 +594,7 @@ export default {
     async loadAllStats() {
       try {
         // 构建统计请求URL
-        let url = '/requirement-analysis/api/testcase-generation/'
+        let url = '/requirement-analysis/testcase-generation/'
         const params = new URLSearchParams()
         
         // 获取所有数据来进行统计
@@ -713,8 +714,8 @@ export default {
 
       try {
         // 调用后端API批量采纳该任务的所有测试用例
-        // await api.post(`/requirement-analysis/api/testcase-generation/${task.task_id}/batch-adopt/`)
-        await api.post(`/requirement-analysis/api/testcase-generation/${task.task_id}/batch_adopt/`)
+        // await api.post(`/requirement-analysis/testcase-generation/${task.task_id}/batch-adopt/`)
+        await api.post(`/requirement-analysis/testcase-generation/${task.task_id}/batch_adopt/`)
         ElMessage.success(this.$t('generatedTestCases.adoptSuccess'))
         this.loadTasks()
       } catch (error) {
@@ -730,8 +731,8 @@ export default {
 
       try {
         // 调用后端API批量删除该任务的所有测试用例
-        // await api.post(`/requirement-analysis/api/testcase-generation/${task.task_id}/batch-discard/`)
-        await api.post(`/requirement-analysis/api/testcase-generation/${task.task_id}/batch_discard/`)
+        // await api.post(`/requirement-analysis/testcase-generation/${task.task_id}/batch-discard/`)
+        await api.post(`/requirement-analysis/testcase-generation/${task.task_id}/batch_discard/`)
         ElMessage.success(this.$t('generatedTestCases.discardSuccess'))
         this.loadTasks()
       } catch (error) {
@@ -791,7 +792,7 @@ export default {
 
     // 采纳测试用例
     async adoptTestCase(testCase) {
-      this.currentAdoptingTestCase = testCase
+      this.currentAdoptingTask = testCase
       
       // 预填充表单数据
       this.adoptForm = {
@@ -858,24 +859,30 @@ export default {
       
       try {
         // 准备提交的数据，将单选版本转换为数组格式（如果API需要）
-        const submitData = { ...this.adoptForm }
+        const submitData = {
+          title: this.adoptForm.title,
+          description: this.adoptForm.description,
+          project_id: this.adoptForm.project_id,
+          priority: this.adoptForm.priority || 'low',
+          test_type: this.adoptForm.test_type,
+          status: this.adoptForm.status,
+          preconditions: this.adoptForm.preconditions,
+          steps: this.adoptForm.steps,
+          expected_result: this.adoptForm.expected_result,
+          version_ids: this.adoptForm.version_id ? [this.adoptForm.version_id] : []
+        }
         
         // 确保优先级有默认值
         if (!submitData.priority) {
           submitData.priority = 'low'
         }
         
-        if (submitData.version_id) {
-          submitData.version_ids = [submitData.version_id]
-        }
-        delete submitData.version_id
-        
         // 调用API创建测试用例
         await api.post('/testcases/', submitData)
         
         // 将AI生成的用例状态更新为"已采纳"
         try {
-          await api.patch(`/requirement-analysis/api/test-cases/${this.currentAdoptingTestCase.id}/`, {
+          await api.patch(`/requirement-analysis/test-cases/${this.currentAdoptingTask.id}/`, {
             status: 'adopted'
           })
         } catch (updateError) {
@@ -903,7 +910,7 @@ export default {
 
       try {
         // 将状态更新为"已弃用"
-        await api.patch(`/requirement-analysis/api/test-cases/${testCase.id}/`, {
+        await api.patch(`/requirement-analysis/test-cases/${testCase.id}/`, {
           status: 'discarded'
         })
         alert(this.$t('generatedTestCases.caseDiscarded'))
@@ -917,8 +924,18 @@ export default {
     // 关闭采纳弹框
     closeAdoptModal() {
       this.showAdoptModal = false
-      this.currentAdoptingTestCase = null
+      this.currentAdoptingTask = null
       this.projectVersions = []
+    },
+
+    // 关闭测试用例详情弹窗
+    closeTestCaseDetail() {
+      this.selectedTestCaseDetail = null
+    },
+
+    // 加载测试用例列表（别名，与loadTasks一致）
+    loadTestCases() {
+      this.loadTasks()
     },
 
     // 获取项目名称的辅助方法
