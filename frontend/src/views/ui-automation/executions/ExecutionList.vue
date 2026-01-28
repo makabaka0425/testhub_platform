@@ -328,17 +328,17 @@ const formatDateTime = (dateString) => {
 
 // 处理图片加载错误
 const handleImageError = (event, screenshot) => {
-  console.error('截图加载失败:', screenshot)
+  console.error('Screenshot load failed:', screenshot)
   const img = event.target
   img.style.display = 'none'
-  // 在图片后显示错误提示
+  // Show error message after image
   const errorDiv = img.parentElement.querySelector('.img-load-error')
   if (!errorDiv) {
     const div = document.createElement('div')
     div.className = 'img-load-error'
     div.innerHTML = `
       <i class="el-icon-warning"></i>
-      <span>图片加载失败（可能是 base64 编码问题）</span>
+      <span>${t('uiAutomation.execution.imageLoadFailed')}</span>
     `
     img.parentElement.appendChild(div)
   }

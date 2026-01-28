@@ -95,12 +95,16 @@ export default {
     generationCancelled: 'Generation cancelled',
     statusGenerating: 'Writing test cases...',
     statusReviewing: 'Reviewing test cases...',
+    statusRevising: 'Generating final test cases...',
     statusCompleted: 'Generation complete!',
     statusFailed: 'Generation failed',
     generateCompleteSuccess: 'Test case generation complete!',
     checkProgressFailed: 'Failed to check progress',
     createTaskFailed: 'Failed to create task',
     unknownError: 'Unknown error',
+    tokenRefreshFailed: 'Token refresh failed, please login again',
+    streamConnectionInterrupted: 'Stream connection interrupted, switching to polling mode',
+    fetchResultFailed: 'Failed to fetch result',
 
     // Stream Display
     realtimeGeneratedContent: '✍️ Real-time Generated Content',

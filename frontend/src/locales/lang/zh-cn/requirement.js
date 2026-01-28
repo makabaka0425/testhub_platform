@@ -93,12 +93,16 @@ export default {
     generationCancelled: '生成已取消',
     statusGenerating: '正在编写测试用例...',
     statusReviewing: '正在评审测试用例...',
+    statusRevising: '正在生成最终版用例...',
     statusCompleted: '生成完成！',
     statusFailed: '生成失败',
     generateCompleteSuccess: '测试用例生成完成！',
     checkProgressFailed: '检查进度失败',
     createTaskFailed: '创建任务失败',
     unknownError: '未知错误',
+    tokenRefreshFailed: 'Token刷新失败，请重新登录',
+    streamConnectionInterrupted: '流式连接中断，切换到轮询模式',
+    fetchResultFailed: '获取结果失败',
 
     // Stream Display
     realtimeGeneratedContent: '✍️ 实时生成内容',

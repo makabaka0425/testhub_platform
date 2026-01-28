@@ -5,16 +5,16 @@
         <el-dropdown @command="handleLanguageChange" class="language-dropdown">
           <span class="el-dropdown-link">
             <span class="language-icon">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
-            <span class="language-text">{{ currentLanguage === 'zh-cn' ? '中文' : 'English' }}</span>
+            <span class="language-text">{{ $t('home.language.current') }}</span>
             <el-icon class="el-icon--right"><arrow-down /></el-icon>
           </span>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">
-                <span class="dropdown-flag">🇨🇳</span> 简体中文
+                <span class="dropdown-flag">🇨🇳</span> {{ $t('home.language.zhCN') }}
               </el-dropdown-item>
               <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">
-                <span class="dropdown-flag">🇺🇸</span> English
+                <span class="dropdown-flag">🇺🇸</span> {{ $t('home.language.en') }}
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
