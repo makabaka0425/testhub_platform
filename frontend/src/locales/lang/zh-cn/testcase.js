@@ -112,11 +112,7 @@ export default {
     excelAuthor: '作者',
     excelCreatedAt: '创建时间',
     excelSheetName: '测试用例',
-    excelFileName: '测试用例_{date}.xlsx',
-
-    // 导入相关
-    importExcel: '导入Excel',
-    importHistory: '导入历史'
+    excelFileName: '测试用例_{date}.xlsx'
   },
   testSuite: {
     title: '测试套件',

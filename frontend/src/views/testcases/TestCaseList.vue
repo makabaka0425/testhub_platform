@@ -15,14 +15,6 @@
           <el-icon><Download /></el-icon>
           {{ $t('testcase.exportExcel') }}
         </el-button>
-        <el-button type="warning" @click="showImportDialog">
-          <el-icon><Upload /></el-icon>
-          {{ $t('testcase.importExcel') }}
-        </el-button>
-        <el-button @click="$router.push('/ai-generation/testcases/import-history')">
-          <el-icon><Document /></el-icon>
-          {{ $t('testcase.importHistory') }}
-        </el-button>
         <el-button type="primary" @click="$router.push('/ai-generation/testcases/create')">
           <el-icon><Plus /></el-icon>
           {{ $t('testcase.newCase') }}
@@ -145,130 +137,6 @@
         />
       </div>
     </div>
-
-    <!-- 导入弹框 -->
-    <el-dialog
-      v-model="importDialogVisible"
-      :title="$t('import.title')"
-      width="700px"
-      :close-on-click-modal="false"
-    >
-      <el-steps :active="importStep" align-center style="margin-bottom: 30px">
-        <el-step :title="$t('import.step1')" />
-        <el-step :title="$t('import.step2')" />
-        <el-step :title="$t('import.step3')" />
-      </el-steps>
-
-      <!-- 步骤1: 下载模板 -->
-      <div v-if="importStep === 0" class="step-content">
-        <el-alert
-          :title="$t('import.step1Tip')"
-          type="info"
-          :closable="false"
-          style="margin-bottom: 20px"
-        />
-        <el-button type="primary" size="large" @click="downloadTemplate" style="width: 100%">
-          <el-icon><Download /></el-icon>
-          {{ $t('import.downloadTemplate') }}
-        </el-button>
-      </div>
-
-      <!-- 步骤2: 上传Excel -->
-      <div v-if="importStep === 1" class="step-content">
-        <el-form :model="importForm" label-width="100px">
-          <el-form-item :label="$t('testcase.project')">
-            <el-select
-              v-model="importForm.project_id"
-              :placeholder="$t('testcase.selectProject')"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="project in projects"
-                :key="project.id"
-                :label="project.name"
-                :value="project.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="$t('import.uploadFile')">
-            <el-upload
-              ref="uploadRef"
-              class="upload-demo"
-              drag
-              :auto-upload="false"
-              :on-change="handleFileChange"
-              :limit="1"
-              accept=".xlsx,.xls"
-            >
-              <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-              <div class="el-upload__text">
-                {{ $t('import.uploadTip') }}
-              </div>
-              <template #tip>
-                <div class="el-upload__tip">
-                  {{ $t('import.fileTypeTip') }}
-                </div>
-              </template>
-            </el-upload>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- 步骤3: 预览确认 -->
-      <div v-if="importStep === 2" class="step-content">
-        <el-alert
-          :title="$t('import.step3Tip')"
-          type="success"
-          :closable="false"
-          style="margin-bottom: 20px"
-        />
-        <div class="preview-info">
-          <p><strong>{{ $t('import.fileName') }}:</strong> {{ importForm.file?.name }}</p>
-          <p><strong>{{ $t('import.previewCount') }}:</strong> {{ previewData.length }}</p>
-        </div>
-        <el-table
-          :data="previewData.slice(0, 5)"
-          max-height="300"
-          border
-          style="margin-top: 15px"
-        >
-          <el-table-column
-            v-for="col in previewColumns"
-            :key="col.key"
-            :prop="col.key"
-            :label="col.label"
-            :width="col.width"
-            show-overflow-tooltip
-          />
-        </el-table>
-        <p v-if="previewData.length > 5" style="text-align: center; margin-top: 10px; color: #909399">
-          {{ $t('import.previewMore', { count: previewData.length - 5 }) }}
-        </p>
-      </div>
-
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="importDialogVisible = false">{{ $t('common.cancel') }}</el-button>
-          <el-button v-if="importStep > 0" @click="importStep--">{{ $t('common.previous') }}</el-button>
-          <el-button
-            v-if="importStep < 2"
-            type="primary"
-            @click="nextStep"
-            :disabled="!canNextStep"
-          >
-            {{ $t('common.next') }}
-          </el-button>
-          <el-button
-            v-if="importStep === 2"
-            type="primary"
-            @click="confirmImport"
-            :loading="importing"
-          >
-            {{ $t('import.confirmImport') }}
-          </el-button>
-        </span>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -277,7 +145,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Download, Delete, Upload, Document, UploadFilled } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Delete } from '@element-plus/icons-vue'
 import api from '@/utils/api'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
@@ -295,29 +163,6 @@ const projectFilter = ref('')
 const priorityFilter = ref('')
 const selectedTestCases = ref([])
 const isDeleting = ref(false)
-
-// 导入相关
-const importDialogVisible = ref(false)
-const importStep = ref(0)
-const importing = ref(false)
-const uploadRef = ref()
-const importForm = ref({
-  project_id: null,
-  file: null
-})
-const previewData = ref([])
-const previewColumns = ref([
-  { key: 'title', label: t('testcase.caseTitle'), width: 200 },
-  { key: 'preconditions', label: t('testcase.preconditions'), width: 150 },
-  { key: 'steps', label: t('testcase.steps'), width: 200 },
-  { key: 'expected_result', label: t('testcase.expectedResult'), width: 150 }
-])
-
-const canNextStep = computed(() => {
-  if (importStep.value === 0) return true
-  if (importStep.value === 1) return importForm.value.file !== null
-  return true
-})
 
 const fetchTestCases = async () => {
   loading.value = true
@@ -630,113 +475,6 @@ const fetchProjects = async () => {
     projects.value = response.data.results || response.data || []
   } catch (error) {
     ElMessage.error(t('testcase.fetchProjectsFailed'))
-  }
-}
-
-// 导入相关方法
-const showImportDialog = () => {
-  importStep.value = 0
-  importForm.value = {
-    project_id: projects.value.length > 0 ? projects.value[0].id : null,
-    file: null
-  }
-  previewData.value = []
-  importDialogVisible.value = true
-}
-
-const downloadTemplate = async () => {
-  try {
-    const response = await api.get('/testcases/import-template/', {
-      responseType: 'blob'
-    })
-
-    // 创建下载链接
-    const url = window.URL.createObjectURL(new Blob([response.data]))
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', 'testcase_import_template.xlsx')
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
-
-    ElMessage.success(t('import.templateDownloadSuccess'))
-  } catch (error) {
-    ElMessage.error(t('import.templateDownloadFailed'))
-  }
-}
-
-const handleFileChange = (file) => {
-  importForm.value.file = file.raw
-
-  // 读取Excel文件用于预览
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    try {
-      const data = new Uint8Array(e.target.result)
-      const workbook = XLSX.read(data, { type: 'array' })
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 })
-
-      // 找到表头行
-      let headerRowIndex = 0
-      for (let i = 0; i < jsonData.length; i++) {
-        if (jsonData[i][0] && String(jsonData[i][0]).includes('标题')) {
-          headerRowIndex = i
-          break
-        }
-      }
-
-      const headers = jsonData[headerRowIndex]
-      const rows = jsonData.slice(headerRowIndex + 1).filter(row => row && row.length > 0)
-
-      // 转换为对象数组
-      previewData.value = rows.map(row => ({
-        title: row[headers.indexOf('用例标题')] || row[0] || '',
-        preconditions: row[headers.indexOf('前置条件')] || row[1] || '',
-        steps: row[headers.indexOf('操作步骤')] || row[2] || '',
-        expected_result: row[headers.indexOf('预期结果')] || row[3] || ''
-      })).filter(item => item.title)
-    } catch (error) {
-      ElMessage.error(t('import.fileParseFailed'))
-    }
-  }
-  reader.readAsArrayBuffer(file.raw)
-}
-
-const nextStep = () => {
-  if (importStep.value < 2) {
-    importStep.value++
-  }
-}
-
-const confirmImport = async () => {
-  if (!importForm.value.file) {
-    ElMessage.warning(t('import.pleaseUploadFile'))
-    return
-  }
-
-  importing.value = true
-  try {
-    const formData = new FormData()
-    formData.append('file', importForm.value.file)
-    formData.append('project_id', importForm.value.project_id)
-
-    const response = await api.post('/testcases/import-tasks/', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    })
-
-    ElMessage.success(t('import.importStarted'))
-
-    // 关闭弹框并跳转到导入历史页面
-    importDialogVisible.value = false
-    router.push('/ai-generation/testcases/import-history')
-  } catch (error) {
-    ElMessage.error(t('import.importFailed') + ': ' + (error.response?.data?.detail || error.message))
-  } finally {
-    importing.value = false
   }
 }
 

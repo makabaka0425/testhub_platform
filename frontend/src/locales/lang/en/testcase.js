@@ -112,11 +112,7 @@ export default {
     excelAuthor: 'Author',
     excelCreatedAt: 'Created At',
     excelSheetName: 'Test Cases',
-    excelFileName: 'TestCases_{date}.xlsx',
-
-    // Import related
-    importExcel: 'Import Excel',
-    importHistory: 'Import History'
+    excelFileName: 'TestCases_{date}.xlsx'
   },
   testSuite: {
     title: 'Test Suites',
