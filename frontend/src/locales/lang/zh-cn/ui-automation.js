@@ -57,7 +57,7 @@ export default {
     notifications: '通知管理',
     aiTesting: 'AI智能测试',
     aiCases: 'AI用例',
-    aiRecords: 'AI执行记录'
+    aiRecords: 'AI测试报告'
   },
 
   // 通用

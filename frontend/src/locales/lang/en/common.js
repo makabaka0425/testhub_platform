@@ -20,5 +20,7 @@ export default {
   success: 'Operation successful',
   error: 'Operation failed',
   tips: 'Tips',
-  warning: 'Warning'
+  warning: 'Warning',
+  previous: 'Previous',
+  next: 'Next'
 }

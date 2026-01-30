@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TestCase, TestCaseStep, TestCaseAttachment, TestCaseComment
+from .models import TestCase, TestCaseStep, TestCaseAttachment, TestCaseComment, TestCaseImportTask
 from apps.users.serializers import UserSerializer
 from apps.versions.serializers import VersionSimpleSerializer
 
@@ -49,7 +49,8 @@ class TestCaseListSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCase
         fields = [
-            'id', 'title', 'description', 'priority', 'status', 'test_type',
+            'id', 'title', 'description', 'preconditions', 'steps', 'expected_result',
+            'priority', 'test_type',
             'author', 'assignee', 'project', 'versions', 'tags', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -78,8 +79,8 @@ class TestCaseCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCase
         fields = [
-            'title', 'description', 'preconditions', 'steps', 'expected_result', 
-            'priority', 'status', 'test_type', 'tags', 'project_id', 'version_ids'
+            'title', 'description', 'preconditions', 'steps', 'expected_result',
+            'priority', 'test_type', 'tags', 'project_id', 'version_ids'
         ]
     
     def create(self, validated_data):
@@ -107,8 +108,8 @@ class TestCaseUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCase
         fields = [
-            'title', 'description', 'preconditions', 'steps', 'expected_result', 
-            'priority', 'status', 'test_type', 'tags', 'project_id', 'version_ids'
+            'title', 'description', 'preconditions', 'steps', 'expected_result',
+            'priority', 'test_type', 'tags', 'project_id', 'version_ids'
         ]
     
     def update(self, instance, validated_data):
@@ -121,5 +122,29 @@ class TestCaseUpdateSerializer(serializers.ModelSerializer):
         # 更新版本关联
         if version_ids is not None:
             instance.versions.set(version_ids)
-        
+
         return instance
+
+class TestCaseImportTaskSerializer(serializers.ModelSerializer):
+    created_by = UserSerializer(read_only=True)
+    project = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = TestCaseImportTask
+        fields = [
+            'id', 'task_id', 'file_name', 'status', 'status_display',
+            'progress', 'total_count', 'success_count', 'failed_count',
+            'error_details', 'created_by', 'project', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'task_id', 'created_at', 'updated_at']
+
+    def get_project(self, obj):
+        return {'id': obj.project.id, 'name': obj.project.name} if obj.project else None
+
+class TestCaseImportTaskCreateSerializer(serializers.ModelSerializer):
+    """创建导入任务的序列化器"""
+
+    class Meta:
+        model = TestCaseImportTask
+        fields = ['file_name', 'project']

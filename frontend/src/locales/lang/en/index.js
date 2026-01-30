@@ -15,6 +15,7 @@ import configurationModule from './configuration.js'
 import assistantModule from './assistant.js'
 import dataFactoryModule from './data-factory.js'
 import notificationModule from './notification.js'
+import importModule from './import.js'
 
 export default {
   // 模块化导出
@@ -67,6 +68,9 @@ export default {
 
   // Notification Module
   notification: notificationModule,
+
+  // Import Module
+  import: importModule.import,
 
   // Element Plus 语言包
   ...elementEn

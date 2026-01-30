@@ -3,9 +3,9 @@
     <div class="page-header">
       <h1 class="page-title">{{ $t('testcase.title') }}</h1>
       <div class="header-actions">
-        <el-button 
-          v-if="selectedTestCases.length > 0" 
-          type="danger" 
+        <el-button
+          v-if="selectedTestCases.length > 0"
+          type="danger"
           @click="batchDeleteTestCases"
           :disabled="isDeleting">
           <el-icon><Delete /></el-icon>
@@ -14,6 +14,14 @@
         <el-button type="success" @click="exportToExcel">
           <el-icon><Download /></el-icon>
           {{ $t('testcase.exportExcel') }}
+        </el-button>
+        <el-button type="warning" @click="showImportDialog">
+          <el-icon><Upload /></el-icon>
+          {{ $t('testcase.importExcel') }}
+        </el-button>
+        <el-button @click="$router.push('/ai-generation/testcases/import-history')">
+          <el-icon><Document /></el-icon>
+          {{ $t('testcase.importHistory') }}
         </el-button>
         <el-button type="primary" @click="$router.push('/ai-generation/testcases/create')">
           <el-icon><Plus /></el-icon>
@@ -53,13 +61,6 @@
               <el-option :label="$t('testcase.medium')" value="medium" />
               <el-option :label="$t('testcase.high')" value="high" />
               <el-option :label="$t('testcase.critical')" value="critical" />
-            </el-select>
-          </el-col>
-          <el-col :span="3">
-            <el-select v-model="statusFilter" :placeholder="$t('testcase.statusFilter')" clearable @change="handleFilter">
-              <el-option :label="$t('testcase.draft')" value="draft" />
-              <el-option :label="$t('testcase.active')" value="active" />
-              <el-option :label="$t('testcase.deprecated')" value="deprecated" />
             </el-select>
           </el-col>
         </el-row>
@@ -112,11 +113,6 @@
               <el-tag :class="`priority-tag ${row.priority}`">{{ getPriorityText(row.priority) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="status" :label="$t('testcase.status')" width="100">
-            <template #default="{ row }">
-              <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
           <el-table-column prop="test_type" :label="$t('testcase.testType')" width="120">
             <template #default="{ row }">
               {{ getTypeText(row.test_type) }}
@@ -149,15 +145,139 @@
         />
       </div>
     </div>
+
+    <!-- 导入弹框 -->
+    <el-dialog
+      v-model="importDialogVisible"
+      :title="$t('import.title')"
+      width="700px"
+      :close-on-click-modal="false"
+    >
+      <el-steps :active="importStep" align-center style="margin-bottom: 30px">
+        <el-step :title="$t('import.step1')" />
+        <el-step :title="$t('import.step2')" />
+        <el-step :title="$t('import.step3')" />
+      </el-steps>
+
+      <!-- 步骤1: 下载模板 -->
+      <div v-if="importStep === 0" class="step-content">
+        <el-alert
+          :title="$t('import.step1Tip')"
+          type="info"
+          :closable="false"
+          style="margin-bottom: 20px"
+        />
+        <el-button type="primary" size="large" @click="downloadTemplate" style="width: 100%">
+          <el-icon><Download /></el-icon>
+          {{ $t('import.downloadTemplate') }}
+        </el-button>
+      </div>
+
+      <!-- 步骤2: 上传Excel -->
+      <div v-if="importStep === 1" class="step-content">
+        <el-form :model="importForm" label-width="100px">
+          <el-form-item :label="$t('testcase.project')">
+            <el-select
+              v-model="importForm.project_id"
+              :placeholder="$t('testcase.selectProject')"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="project in projects"
+                :key="project.id"
+                :label="project.name"
+                :value="project.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="$t('import.uploadFile')">
+            <el-upload
+              ref="uploadRef"
+              class="upload-demo"
+              drag
+              :auto-upload="false"
+              :on-change="handleFileChange"
+              :limit="1"
+              accept=".xlsx,.xls"
+            >
+              <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+              <div class="el-upload__text">
+                {{ $t('import.uploadTip') }}
+              </div>
+              <template #tip>
+                <div class="el-upload__tip">
+                  {{ $t('import.fileTypeTip') }}
+                </div>
+              </template>
+            </el-upload>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 步骤3: 预览确认 -->
+      <div v-if="importStep === 2" class="step-content">
+        <el-alert
+          :title="$t('import.step3Tip')"
+          type="success"
+          :closable="false"
+          style="margin-bottom: 20px"
+        />
+        <div class="preview-info">
+          <p><strong>{{ $t('import.fileName') }}:</strong> {{ importForm.file?.name }}</p>
+          <p><strong>{{ $t('import.previewCount') }}:</strong> {{ previewData.length }}</p>
+        </div>
+        <el-table
+          :data="previewData.slice(0, 5)"
+          max-height="300"
+          border
+          style="margin-top: 15px"
+        >
+          <el-table-column
+            v-for="col in previewColumns"
+            :key="col.key"
+            :prop="col.key"
+            :label="col.label"
+            :width="col.width"
+            show-overflow-tooltip
+          />
+        </el-table>
+        <p v-if="previewData.length > 5" style="text-align: center; margin-top: 10px; color: #909399">
+          {{ $t('import.previewMore', { count: previewData.length - 5 }) }}
+        </p>
+      </div>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="importDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+          <el-button v-if="importStep > 0" @click="importStep--">{{ $t('common.previous') }}</el-button>
+          <el-button
+            v-if="importStep < 2"
+            type="primary"
+            @click="nextStep"
+            :disabled="!canNextStep"
+          >
+            {{ $t('common.next') }}
+          </el-button>
+          <el-button
+            v-if="importStep === 2"
+            type="primary"
+            @click="confirmImport"
+            :loading="importing"
+          >
+            {{ $t('import.confirmImport') }}
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Download, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Delete, Upload, Document, UploadFilled } from '@element-plus/icons-vue'
 import api from '@/utils/api'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
@@ -173,9 +293,31 @@ const total = ref(0)
 const searchText = ref('')
 const projectFilter = ref('')
 const priorityFilter = ref('')
-const statusFilter = ref('')
 const selectedTestCases = ref([])
 const isDeleting = ref(false)
+
+// 导入相关
+const importDialogVisible = ref(false)
+const importStep = ref(0)
+const importing = ref(false)
+const uploadRef = ref()
+const importForm = ref({
+  project_id: null,
+  file: null
+})
+const previewData = ref([])
+const previewColumns = ref([
+  { key: 'title', label: t('testcase.caseTitle'), width: 200 },
+  { key: 'preconditions', label: t('testcase.preconditions'), width: 150 },
+  { key: 'steps', label: t('testcase.steps'), width: 200 },
+  { key: 'expected_result', label: t('testcase.expectedResult'), width: 150 }
+])
+
+const canNextStep = computed(() => {
+  if (importStep.value === 0) return true
+  if (importStep.value === 1) return importForm.value.file !== null
+  return true
+})
 
 const fetchTestCases = async () => {
   loading.value = true
@@ -185,8 +327,7 @@ const fetchTestCases = async () => {
       page_size: pageSize.value,
       search: searchText.value,
       project: projectFilter.value,
-      priority: priorityFilter.value,
-      status: statusFilter.value
+      priority: priorityFilter.value
     }
     const response = await api.get('/testcases/', { params })
     testcases.value = response.data.results || []
@@ -321,24 +462,6 @@ const getPriorityText = (priority) => {
   return textMap[priority] || priority
 }
 
-const getStatusType = (status) => {
-  const typeMap = {
-    draft: 'info',
-    active: 'success',
-    deprecated: 'warning'
-  }
-  return typeMap[status] || 'info'
-}
-
-const getStatusText = (status) => {
-  const textMap = {
-    draft: t('testcase.draft'),
-    active: t('testcase.active'),
-    deprecated: t('testcase.deprecated')
-  }
-  return textMap[status] || status
-}
-
 const getTypeText = (type) => {
   const textMap = {
     functional: t('testcase.functional'),
@@ -368,34 +491,61 @@ const convertBrToNewline = (text) => {
 const exportToExcel = async () => {
   try {
     loading.value = true
-    
-    // 获取所有测试用例数据（不分页）
-    const response = await api.get('/testcases/', { 
-      params: { 
-        page_size: 9999, // 获取所有数据
-        search: searchText.value,
-        project: projectFilter.value,
-        priority: priorityFilter.value,
-        status: statusFilter.value
-      } 
-    })
-    
-    const allTestCases = response.data.results || []
-    
-    if (allTestCases.length === 0) {
+
+    // 确定要导出的数据
+    let testCasesToExport = []
+
+    if (selectedTestCases.value.length > 0) {
+      // 如果有勾选，导出勾选的数据
+      testCasesToExport = selectedTestCases.value
+    } else {
+      // 如果没有勾选，分页获取所有数据
+      const pageSize = 100  // 使用后端允许的最大值
+      let page = 1
+      let hasMore = true
+      let allData = []
+
+      while (hasMore) {
+        const response = await api.get('/testcases/', {
+          params: {
+            page: page,
+            page_size: pageSize,
+            search: searchText.value,
+            project: projectFilter.value,
+            priority: priorityFilter.value
+          }
+        })
+
+        const results = response.data.results || []
+        allData.push(...results)
+
+        // 检查是否还有更多数据
+        // 如果返回的数据少于pageSize，说明已经是最后一页
+        if (results.length < pageSize) {
+          hasMore = false
+        } else {
+          page++
+        }
+      }
+
+      testCasesToExport = allData
+    }
+
+    if (testCasesToExport.length === 0) {
       ElMessage.warning(t('testcase.noDataToExport'))
+      loading.value = false
       return
     }
-    
+
     // 创建工作簿
     const workbook = XLSX.utils.book_new()
-    
+
     // 准备Excel数据
     const worksheetData = [
-      [t('testcase.excelNumber'), t('testcase.excelTitle'), t('testcase.excelProject'), t('testcase.excelVersions'), t('testcase.excelPreconditions'), t('testcase.excelSteps'), t('testcase.excelExpectedResult'), t('testcase.excelPriority'), t('testcase.excelStatus'), t('testcase.excelTestType'), t('testcase.excelAuthor'), t('testcase.excelCreatedAt')]
+      [t('testcase.excelNumber'), t('testcase.excelTitle'), t('testcase.excelProject'), t('testcase.excelVersions'), t('testcase.excelPreconditions'), t('testcase.excelSteps'), t('testcase.excelExpectedResult'), t('testcase.excelPriority'), t('testcase.excelTestType'), t('testcase.excelAuthor'), t('testcase.excelCreatedAt')]
     ]
-    
-    allTestCases.forEach((testcase, index) => {
+
+    testCasesToExport.forEach((testcase, index) => {
       const versions = testcase.versions && testcase.versions.length > 0
         ? testcase.versions.map(v => v.name + (v.is_baseline ? '(' + t('testcase.baseline') + ')' : '')).join('、')
         : t('testcase.noVersion')
@@ -409,7 +559,6 @@ const exportToExcel = async () => {
         convertBrToNewline(testcase.steps || ''),
         convertBrToNewline(testcase.expected_result || ''),
         getPriorityText(testcase.priority),
-        getStatusText(testcase.status),
         getTypeText(testcase.test_type),
         testcase.author?.username || '',
         formatDate(testcase.created_at)
@@ -429,7 +578,6 @@ const exportToExcel = async () => {
       { wch: 40 }, // Steps
       { wch: 30 }, // Expected result
       { wch: 10 }, // Priority
-      { wch: 10 }, // Status
       { wch: 15 }, // Test type
       { wch: 15 }, // Author
       { wch: 20 }  // Created at
@@ -482,6 +630,113 @@ const fetchProjects = async () => {
     projects.value = response.data.results || response.data || []
   } catch (error) {
     ElMessage.error(t('testcase.fetchProjectsFailed'))
+  }
+}
+
+// 导入相关方法
+const showImportDialog = () => {
+  importStep.value = 0
+  importForm.value = {
+    project_id: projects.value.length > 0 ? projects.value[0].id : null,
+    file: null
+  }
+  previewData.value = []
+  importDialogVisible.value = true
+}
+
+const downloadTemplate = async () => {
+  try {
+    const response = await api.get('/testcases/import-template/', {
+      responseType: 'blob'
+    })
+
+    // 创建下载链接
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', 'testcase_import_template.xlsx')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+
+    ElMessage.success(t('import.templateDownloadSuccess'))
+  } catch (error) {
+    ElMessage.error(t('import.templateDownloadFailed'))
+  }
+}
+
+const handleFileChange = (file) => {
+  importForm.value.file = file.raw
+
+  // 读取Excel文件用于预览
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result)
+      const workbook = XLSX.read(data, { type: 'array' })
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 })
+
+      // 找到表头行
+      let headerRowIndex = 0
+      for (let i = 0; i < jsonData.length; i++) {
+        if (jsonData[i][0] && String(jsonData[i][0]).includes('标题')) {
+          headerRowIndex = i
+          break
+        }
+      }
+
+      const headers = jsonData[headerRowIndex]
+      const rows = jsonData.slice(headerRowIndex + 1).filter(row => row && row.length > 0)
+
+      // 转换为对象数组
+      previewData.value = rows.map(row => ({
+        title: row[headers.indexOf('用例标题')] || row[0] || '',
+        preconditions: row[headers.indexOf('前置条件')] || row[1] || '',
+        steps: row[headers.indexOf('操作步骤')] || row[2] || '',
+        expected_result: row[headers.indexOf('预期结果')] || row[3] || ''
+      })).filter(item => item.title)
+    } catch (error) {
+      ElMessage.error(t('import.fileParseFailed'))
+    }
+  }
+  reader.readAsArrayBuffer(file.raw)
+}
+
+const nextStep = () => {
+  if (importStep.value < 2) {
+    importStep.value++
+  }
+}
+
+const confirmImport = async () => {
+  if (!importForm.value.file) {
+    ElMessage.warning(t('import.pleaseUploadFile'))
+    return
+  }
+
+  importing.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', importForm.value.file)
+    formData.append('project_id', importForm.value.project_id)
+
+    const response = await api.post('/testcases/import-tasks/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+
+    ElMessage.success(t('import.importStarted'))
+
+    // 关闭弹框并跳转到导入历史页面
+    importDialogVisible.value = false
+    router.push('/ai-generation/testcases/import-history')
+  } catch (error) {
+    ElMessage.error(t('import.importFailed') + ': ' + (error.response?.data?.detail || error.message))
+  } finally {
+    importing.value = false
   }
 }
 
@@ -620,6 +875,20 @@ onMounted(() => {
   
   .pagination-container {
     padding: 15px;
+  }
+}
+
+.step-content {
+  min-height: 200px;
+}
+
+.preview-info {
+  padding: 15px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+
+  p {
+    margin: 5px 0;
   }
 }
 </style>

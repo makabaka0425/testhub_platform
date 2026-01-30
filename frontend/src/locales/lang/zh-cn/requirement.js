@@ -17,12 +17,14 @@ export default {
     requirementTitle: '需求标题',
     requirementDescription: '需求描述',
     relatedProject: '关联项目（可选）',
+    associatedProject: '关联项目（可选）',
     titlePlaceholder: '请输入需求标题，如：用户登录功能需求',
     descriptionPlaceholder: '请详细描述您的需求，包括功能描述、使用场景、业务流程等',
     selectProject: '请选择项目',
     charCount: '{count}/2000',
     generating: '🔄 生成中...',
     generateBtn: '🚀 生成测试用例',
+    generateButton: '🚀 生成测试用例',
 
     // Document Upload
     uploadTitle: '📄 上传需求文档',

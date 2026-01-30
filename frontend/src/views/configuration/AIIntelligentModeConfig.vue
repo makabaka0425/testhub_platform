@@ -103,6 +103,7 @@
                 <option value="google_gemini">{{ $t('configuration.aiMode.providers.google_gemini') }}</option>
                 <option value="deepseek">{{ $t('configuration.aiMode.providers.deepseek') }}</option>
                 <option value="siliconflow">{{ $t('configuration.aiMode.providers.siliconflow') }}</option>
+                <option value="zhipu">{{ $t('configuration.aiMode.providers.zhipu') }}</option>
                 <option value="other">{{ $t('configuration.aiMode.providers.other') }}</option>
               </select>
             </div>
@@ -230,6 +231,7 @@ const modelBaseUrlMap = {
   google_gemini: '',
   deepseek: 'https://api.deepseek.com',
   siliconflow: 'https://api.siliconflow.cn/v1',
+  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
   other: ''
 }
 
@@ -298,17 +300,6 @@ const onModelTypeChange = () => {
   // 根据选择的提供商自动填充base_url
   if (modelBaseUrlMap[configForm.value.model_type]) {
     configForm.value.base_url = modelBaseUrlMap[configForm.value.model_type]
-  }
-
-  // 根据提供商自动填充模型名称建议
-  if (configForm.value.model_type === 'openai' && !configForm.value.model_name) {
-    configForm.value.model_name = 'gpt-4o'
-  } else if (configForm.value.model_type === 'anthropic' && !configForm.value.model_name) {
-    configForm.value.model_name = 'claude-3-5-sonnet-20241022'
-  } else if (configForm.value.model_type === 'deepseek' && !configForm.value.model_name) {
-    configForm.value.model_name = 'deepseek-chat'
-  } else if (configForm.value.model_type === 'siliconflow' && !configForm.value.model_name) {
-    configForm.value.model_name = 'Qwen/Qwen2.5-7B-Instruct'
   }
 }
 
@@ -686,6 +677,11 @@ onMounted(() => {
 .provider-badge.siliconflow {
   background: #e0f7fa;
   color: #006064;
+}
+
+.provider-badge.zhipu {
+  background: #f3e5f5;
+  color: #7b1fa2;
 }
 
 .provider-badge.other {

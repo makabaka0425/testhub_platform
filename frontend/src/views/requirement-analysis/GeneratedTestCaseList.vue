@@ -66,7 +66,7 @@
       <div v-else-if="tasks.length === 0" class="empty-state">
         <div class="empty-icon">📝</div>
         <h3>{{ $t('generatedTestCases.noTasks') }}</h3>
-        <p>{{ $t('generatedTestCases.emptyHint') }}<router-link to="/requirement-analysis">{{ $t('generatedTestCases.aiGeneration') }}</router-link>{{ $t('generatedTestCases.createTask') }}</p>
+        <p>{{ $t('generatedTestCases.emptyHint') }}<router-link to="/ai-generation/requirement-analysis">{{ $t('generatedTestCases.aiGeneration') }}</router-link>{{ $t('generatedTestCases.createTask') }}</p>
       </div>
 
       <div v-else class="testcases-table">

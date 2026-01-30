@@ -63,15 +63,7 @@
         </el-row>
         
         <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item :label="$t('testcase.status')" prop="status">
-              <el-select v-model="form.status" :placeholder="$t('testcase.selectStatus')">
-                <el-option :label="$t('testcase.draft')" value="draft" />
-                <el-option :label="$t('testcase.active')" value="active" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
+          <el-col :span="24">
             <el-form-item :label="$t('testcase.relatedVersions')">
               <el-select
                 v-model="form.version_ids"
@@ -152,7 +144,6 @@ const form = reactive({
   project_id: null,
   priority: 'medium',
   test_type: 'functional',
-  status: 'draft',
   preconditions: '',
   steps: '',
   expected_result: '',

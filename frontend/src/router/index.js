@@ -81,6 +81,11 @@ const routes = [
         component: () => import('@/views/testcases/TestCaseEdit.vue')
       },
       {
+        path: 'testcases/import-history',
+        name: 'ImportHistory',
+        component: () => import('@/views/testcases/ImportHistory.vue')
+      },
+      {
         path: 'versions',
         name: 'Versions',
         component: () => import('@/views/versions/VersionList.vue')

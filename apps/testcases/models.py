@@ -92,3 +92,35 @@ class TestCaseComment(models.Model):
         verbose_name = '测试用例评论'
         verbose_name_plural = '测试用例评论'
         ordering = ['-created_at']
+
+class TestCaseImportTask(models.Model):
+    """测试用例导入任务"""
+    STATUS_CHOICES = [
+        ('pending', '待处理'),
+        ('processing', '进行中'),
+        ('success', '成功'),
+        ('failed', '失败'),
+        ('partial_success', '部分成功'),
+    ]
+
+    task_id = models.CharField(max_length=255, unique=True, verbose_name='任务ID')
+    file_name = models.CharField(max_length=255, verbose_name='文件名')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='状态')
+    progress = models.IntegerField(default=0, verbose_name='进度百分比')
+    total_count = models.IntegerField(default=0, verbose_name='总数')
+    success_count = models.IntegerField(default=0, verbose_name='成功数')
+    failed_count = models.IntegerField(default=0, verbose_name='失败数')
+    error_details = models.JSONField(default=list, verbose_name='错误详情')
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='创建者')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True, blank=True, verbose_name='关联项目')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    def __str__(self):
+        return f'{self.file_name} - {self.get_status_display()}'
+
+    class Meta:
+        db_table = 'testcase_import_tasks'
+        verbose_name = '测试用例导入任务'
+        verbose_name_plural = '测试用例导入任务'
+        ordering = ['-created_at']
