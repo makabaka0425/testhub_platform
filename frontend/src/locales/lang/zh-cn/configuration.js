@@ -114,6 +114,7 @@ export default {
       google_gemini: 'Google Gemini',
       deepseek: 'DeepSeek',
       siliconflow: '硅基流动 (SiliconFlow)',
+      zhipu: '智谱',
       other: '其他 (Other)'
     },
     messages: {
@@ -178,6 +179,7 @@ export default {
       deepseek: 'DeepSeek',
       qwen: '通义千问',
       siliconflow: '硅基流动',
+      zhipu: '智谱',
       other: '其他'
     },
     roles: {

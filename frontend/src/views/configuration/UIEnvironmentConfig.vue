@@ -62,16 +62,6 @@
                     </el-tag>
                   </div>
                 </div>
-                <div class="browser-actions" v-if="!browser.installed">
-                  <el-button
-                    type="primary"
-                    size="small"
-                    @click="installDriver(browser.name)"
-                    :loading="installing === browser.name"
-                  >
-                    {{ $t('configuration.uiEnv.oneClickInstall') }}
-                  </el-button>
-                </div>
               </div>
           </div>
         </div>

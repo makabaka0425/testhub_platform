@@ -114,6 +114,7 @@ export default {
       google_gemini: 'Google Gemini',
       deepseek: 'DeepSeek',
       siliconflow: 'SiliconFlow',
+      zhipu: 'Zhipu AI',
       other: 'Other'
     },
     messages: {
@@ -178,6 +179,7 @@ export default {
       deepseek: 'DeepSeek',
       qwen: 'Qwen',
       siliconflow: 'SiliconFlow',
+      zhipu: 'Zhipu AI',
       other: 'Other'
     },
     roles: {

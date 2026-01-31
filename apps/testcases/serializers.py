@@ -49,7 +49,8 @@ class TestCaseListSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCase
         fields = [
-            'id', 'title', 'description', 'priority', 'status', 'test_type',
+            'id', 'title', 'description', 'preconditions', 'steps', 'expected_result',
+            'priority', 'test_type',
             'author', 'assignee', 'project', 'versions', 'tags', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -78,8 +79,8 @@ class TestCaseCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCase
         fields = [
-            'title', 'description', 'preconditions', 'steps', 'expected_result', 
-            'priority', 'status', 'test_type', 'tags', 'project_id', 'version_ids'
+            'title', 'description', 'preconditions', 'steps', 'expected_result',
+            'priority', 'test_type', 'tags', 'project_id', 'version_ids'
         ]
     
     def create(self, validated_data):
@@ -107,8 +108,8 @@ class TestCaseUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCase
         fields = [
-            'title', 'description', 'preconditions', 'steps', 'expected_result', 
-            'priority', 'status', 'test_type', 'tags', 'project_id', 'version_ids'
+            'title', 'description', 'preconditions', 'steps', 'expected_result',
+            'priority', 'test_type', 'tags', 'project_id', 'version_ids'
         ]
     
     def update(self, instance, validated_data):
@@ -121,5 +122,6 @@ class TestCaseUpdateSerializer(serializers.ModelSerializer):
         # 更新版本关联
         if version_ids is not None:
             instance.versions.set(version_ids)
-        
+
         return instance
+

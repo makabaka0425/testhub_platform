@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">{{ $t('project.projectManagement') }}</h1>
-      <el-button type="primary" @click="showCreateDialog = true">
+      <el-button type="primary" @click="handleCreateProject">
         <el-icon><Plus /></el-icon>
         {{ $t('project.newProject') }}
       </el-button>
@@ -82,6 +82,7 @@
       :modal="true"
       :destroy-on-close="false"
       width="600px"
+      @close="handleDialogClose"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item :label="$t('project.projectName')" prop="name">
@@ -191,6 +192,11 @@ const goToProject = (id) => {
   router.push(`/ai-generation/projects/${id}`)
 }
 
+const handleCreateProject = () => {
+  resetForm()
+  showCreateDialog.value = true
+}
+
 const editProject = (project) => {
   isEdit.value = true
   form.id = project.id
@@ -200,12 +206,20 @@ const editProject = (project) => {
   showCreateDialog.value = true
 }
 
+const handleDialogClose = () => {
+  resetForm()
+}
+
 const resetForm = () => {
   form.id = null
   form.name = ''
   form.description = ''
   form.status = 'active'
   isEdit.value = false
+  // 清除表单验证错误
+  if (formRef.value) {
+    formRef.value.clearValidate()
+  }
 }
 
 const handleSubmit = async () => {

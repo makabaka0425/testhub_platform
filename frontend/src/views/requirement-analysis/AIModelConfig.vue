@@ -126,6 +126,7 @@
                 <option value="deepseek">{{ $t('configuration.aiModel.modelTypes.deepseek') }}</option>
                 <option value="qwen">{{ $t('configuration.aiModel.modelTypes.qwen') }}</option>
                 <option value="siliconflow">{{ $t('configuration.aiModel.modelTypes.siliconflow') }}</option>
+                <option value="zhipu">{{ $t('configuration.aiModel.modelTypes.zhipu') }}</option>
                 <option value="other">{{ $t('configuration.aiModel.modelTypes.other') }}</option>
               </select>
             </div>
@@ -310,6 +311,7 @@ export default {
         deepseek: 'https://api.deepseek.com',
         qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
         siliconflow: 'https://api.siliconflow.cn/v1',
+        zhipu: 'https://open.bigmodel.cn/api/paas/v4',
         other: ''
       },
       testResult: {
@@ -364,15 +366,6 @@ export default {
       if (this.modelBaseUrlMap[modelType]) {
         this.configForm.base_url = this.modelBaseUrlMap[modelType]
         console.log('Auto-filled base_url:', this.configForm.base_url)
-      }
-
-      // 根据模型类型自动填充模型名称建议
-      if (modelType === 'deepseek' && !this.configForm.model_name) {
-        this.configForm.model_name = 'deepseek-chat'
-      } else if (modelType === 'qwen' && !this.configForm.model_name) {
-        this.configForm.model_name = 'qwen-plus'
-      } else if (modelType === 'siliconflow' && !this.configForm.model_name) {
-        this.configForm.model_name = 'Qwen/Qwen2.5-7B-Instruct'
       }
     },
 
