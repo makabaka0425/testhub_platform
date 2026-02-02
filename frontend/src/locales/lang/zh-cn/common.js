@@ -21,5 +21,7 @@ export default {
   error: '操作失败',
   tips: '提示',
   warning: '警告',
-  selectProject: '选择项目'
+  selectProject: '选择项目',
+  previous: '上一步',
+  next: '下一步'
 }

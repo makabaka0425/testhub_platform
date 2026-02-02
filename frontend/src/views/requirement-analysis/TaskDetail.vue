@@ -26,7 +26,6 @@
         <el-collapse-item name="requirement">
           <template #title>
             <div class="collapse-title">
-              <span class="title-icon">📋</span>
               <span class="title-text">{{ $t('taskDetail.requirementTitle') }}</span>
               <span class="title-hint">{{ $t('taskDetail.requirementHint') }}</span>
             </div>
@@ -52,7 +51,7 @@
 
     <div v-else-if="!task.task_id" class="error-state">
       <h3>{{ $t('taskDetail.taskNotExist') }}</h3>
-      <router-link to="/generated-testcases">{{ $t('taskDetail.backToList') }}</router-link>
+      <router-link to="/ai-generation/generated-testcases">{{ $t('taskDetail.backToList') }}</router-link>
     </div>
 
     <div v-else class="task-content">
@@ -113,9 +112,15 @@
             </div>
             <div class="body-cell">{{ testCase.caseId || `TC${String(index + 1).padStart(3, '0')}` }}</div>
             <div class="body-cell">{{ testCase.scenario }}</div>
-            <div class="body-cell text-limit-2">{{ formatTextForList(testCase.precondition) }}</div>
-            <div class="body-cell text-limit-2">{{ formatTextForList(testCase.steps) }}</div>
-            <div class="body-cell text-limit-2">{{ formatTextForList(testCase.expected) }}</div>
+            <div class="body-cell text-truncate">
+              {{ formatTextForList(testCase.precondition) }}
+            </div>
+            <div class="body-cell text-truncate">
+              {{ formatTextForList(testCase.steps) }}
+            </div>
+            <div class="body-cell text-truncate">
+              {{ formatTextForList(testCase.expected) }}
+            </div>
             <div class="body-cell">
               <span class="priority-tag" :class="testCase.priority?.toLowerCase()">{{ testCase.priority || 'P2' }}</span>
             </div>
@@ -159,7 +164,7 @@
     </div>
 
     <!-- 用例详情弹窗 -->
-    <div v-if="showCaseDetail" class="case-detail-modal" @click="closeCaseDetail">
+    <div v-if="showCaseDetail" class="case-detail-modal">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
           <h3>{{ isEditing ? $t('taskDetail.modalEditTitle') : $t('taskDetail.modalViewTitle') }}</h3>
@@ -347,7 +352,7 @@ export default {
           this.testCases = this.parseTestCases(this.task.final_test_cases)
         }
       } catch (error) {
-        console.error('加载任务详情失败:', error)
+        console.error('Failed to load task details:', error)
         ElMessage.error(this.$t('taskDetail.loadFailed'))
       } finally {
         this.isLoading = false
@@ -418,9 +423,9 @@ export default {
           })
 
           if (testCase.scenario || testCase.caseId) {
-            // 如果没有steps字段，使用scenario作为steps的默认值
+            // If steps field is empty, use scenario as default
             if (!testCase.steps && testCase.scenario) {
-              testCase.steps = '参考测试目标执行相应操作'
+              testCase.steps = testCase.scenario
             }
             // 如果没有priority，设置默认值
             if (!testCase.priority) {
@@ -445,11 +450,11 @@ export default {
             
             currentTestCase = {
               caseId: `TC${String(caseNumber).padStart(3, '0')}`,
-              scenario: line.replace(/^(\d+\.|\*|\-|\d+、)\s*/, '').replace(/测试用例\d*[:：]?\s*/, ''),
+              scenario: line.replace(/^(\d+\.|\*|\-|\d+、)\s*/, '').replace(/测试用例\d*[:：]?\s*/, '').replace(/Test Case\s*\d*[:：]?\s*/i, ''),
               precondition: '',
               steps: '',
               expected: '',
-              priority: '中'
+              priority: 'P2'
             }
           } else if (line.includes('前置条件') || line.includes('前提')) {
             currentTestCase.precondition = line.replace(/.*?[:：]\s*/, '')
@@ -536,7 +541,7 @@ export default {
 
       try {
         const casesData = this.selectedCases.map((testCase, index) => ({
-          title: testCase.scenario || `测试用例${index + 1}`,
+          title: testCase.scenario || `Test Case ${index + 1}`,
           description: testCase.scenario || '',
           preconditions: testCase.precondition || '',
           steps: testCase.steps || '',
@@ -553,11 +558,11 @@ export default {
         ElMessage.success(this.$t('taskDetail.adoptSuccess', { count: this.selectedCases.length }))
         this.selectedCases = []
 
-        // 不再移除已采纳的用例，保留在列表中供多次采纳
+        // Keep adopted cases in the list for multiple adoptions
         // this.testCases = this.testCases.filter(tc => !this.selectedCases.includes(tc))
 
       } catch (error) {
-        console.error('批量采纳失败:', error)
+        console.error('Batch adopt failed:', error)
         ElMessage.error(this.$t('taskDetail.batchAdoptFailed') + ': ' + (error.response?.data?.message || error.message))
       }
     },
@@ -615,7 +620,7 @@ export default {
         }
 
       } catch (error) {
-        console.error('批量弃用失败:', error)
+        console.error('Batch discard failed:', error)
         ElMessage.error(this.$t('taskDetail.batchDiscardFailed') + ': ' + (error.response?.data?.error || error.message))
       }
     },
@@ -711,7 +716,7 @@ export default {
         ElMessage.success(this.$t('taskDetail.updateSuccess'))
         this.isEditing = false
       } catch (error) {
-        console.error('更新失败:', error)
+        console.error('Update failed:', error)
         ElMessage.error(this.$t('taskDetail.updateFailed') + ': ' + (error.response?.data?.error || error.message))
       } finally {
         this.isSaving = false
@@ -723,7 +728,14 @@ export default {
       if (this.testCases.length === 0) return ''
 
       // 表头
-      const headers = ['测试用例编号', '测试场景', '前置条件', '操作步骤', '预期结果', '优先级']
+      const headers = [
+        this.$t('taskDetail.tableCaseId'),
+        this.$t('taskDetail.tableScenario'),
+        this.$t('taskDetail.tablePrecondition'),
+        this.$t('taskDetail.tableSteps'),
+        this.$t('taskDetail.tableExpected'),
+        this.$t('taskDetail.tablePriority')
+      ]
       let result = headers.join(' | ') + '\n'
       result += '|'.repeat(headers.length) + '\n'
 
@@ -789,7 +801,7 @@ export default {
         // this.testCases.splice(this.testCases.indexOf(testCase), 1)
 
       } catch (error) {
-        console.error('采纳用例失败:', error)
+        console.error('Adopt case failed:', error)
         ElMessage.error(this.$t('taskDetail.adoptFailed') + ': ' + (error.response?.data?.message || error.message))
       }
     },
@@ -838,7 +850,7 @@ export default {
         }
 
       } catch (error) {
-        console.error('弃用用例失败:', error)
+        console.error('Discard case failed:', error)
         ElMessage.error(this.$t('taskDetail.discardFailed') + ': ' + (error.response?.data?.error || error.message))
       }
     },
@@ -857,15 +869,15 @@ export default {
       return priorityMap[priority] || 'medium'
     },
 
-    // 将英文优先级转换为中文显示
+    // 将英文优先级转换为本地化显示
     priorityToChinese(priority) {
       const priorityMap = {
-        'critical': '紧急',
-        'high': '高',
-        'medium': '中',
-        'low': '低'
+        'critical': this.$t('generatedTestCases.priorityCritical'),
+        'high': this.$t('generatedTestCases.priorityHigh'),
+        'medium': this.$t('generatedTestCases.priorityMedium'),
+        'low': this.$t('generatedTestCases.priorityLow')
       }
-      return priorityMap[priority] || '中'
+      return priorityMap[priority] || this.$t('generatedTestCases.priorityMedium')
     },
 
     // 导出到Excel
@@ -947,7 +959,7 @@ export default {
 
         ElMessage.success(this.$t('taskDetail.exportSuccess'))
       } catch (error) {
-        console.error('导出Excel失败:', error)
+        console.error('Export Excel failed:', error)
         ElMessage.error(this.$t('taskDetail.exportFailed') + ': ' + (error.message || ''))
       } finally {
         this.isExporting = false
@@ -979,6 +991,13 @@ export default {
   gap: 8px;
   font-size: 15px;
   font-weight: 500;
+  position: relative;
+  padding-left: 20px;
+}
+
+/* 隐藏左侧可能存在的Element Plus默认箭头 */
+.collapse-title::before {
+  content: none;
 }
 
 .title-icon {
@@ -1031,6 +1050,15 @@ export default {
   border-bottom: 1px solid #e4e7ed;
   padding: 16px 20px;
   font-size: 15px;
+}
+
+/* 隐藏Element Plus默认的箭头图标 */
+.requirement-description-card :deep(.el-collapse-item__header .el-icon) {
+  display: none !important;
+}
+
+.requirement-description-card :deep(.el-collapse-item__arrow) {
+  display: none !important;
 }
 
 .requirement-description-card :deep(.el-collapse-item__wrap) {
@@ -1201,17 +1229,24 @@ export default {
 }
 
 .header-cell, .body-cell {
-  padding: 12px 8px;
+  padding: 16px 8px;
   display: flex;
   align-items: flex-start; /* 改为顶部对齐，避免内容被裁剪 */
   border-right: 1px solid #eee;
   word-break: break-word;
+  min-height: 60px;
 }
 
-/* 操作步骤和预期结果列的特殊样式 */
-.body-cell.text-limit-2 {
-  align-items: flex-start;
+/* 文本截断样式 */
+.text-truncate {
   overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  word-break: break-word;
 }
 
 .checkbox-cell {
@@ -1227,19 +1262,6 @@ export default {
   border-radius: 4px;
   font-size: 0.8rem;
   font-weight: bold;
-}
-
-.text-limit-2 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  white-space: pre-wrap;
-  line-height: 1.6;
-  max-height: 3.6em; /* 2行 × 1.6行高 + 0.4em余量 */
-  min-height: 3.2em; /* 确保有足够空间显示2行 */
-  word-break: break-word;
 }
 
 .priority-tag.low {
@@ -1547,5 +1569,29 @@ export default {
 
 .close-btn-footer:hover {
   background: #ecf5ff;
+}
+</style>
+
+<style>
+/* 全局样式：隐藏Element Plus折叠面板的默认箭头图标 */
+.requirement-description-card .el-collapse-item__header .el-icon {
+  display: none !important;
+}
+
+.requirement-description-card .el-collapse-item__arrow {
+  display: none !important;
+}
+
+/* 针对Element Plus不同版本的箭头图标 */
+.requirement-description-card .el-collapse-item__header .el-collapse-item__arrow {
+  display: none !important;
+}
+
+.requirement-description-card .el-collapse-item__header .el-icon-arrow-right {
+  display: none !important;
+}
+
+.requirement-description-card .el-collapse-item__header .el-icon-arrow-left {
+  display: none !important;
 }
 </style>

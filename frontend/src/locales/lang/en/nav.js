@@ -47,7 +47,7 @@ export default {
     // AI Intelligent Mode
     aiIntelligentTesting: 'AI Intelligent Testing',
     aiCaseManagement: 'AI Case Management',
-    aiExecutionRecords: 'AI Execution Records',
+    aiExecutionRecords: 'AI Test Reports',
 
     // Configuration Center
     aiCaseGenerationConfig: 'AI Test Case Config',

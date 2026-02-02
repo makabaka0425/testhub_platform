@@ -3,7 +3,6 @@ import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import axios from 'axios'
 import { useUserStore } from '@/stores/user'
 import i18n from './locales'
@@ -40,10 +39,7 @@ async function init() {
 
   // Element Plus 语言由 App.vue 的 el-config-provider 动态配置
   app.use(ElementPlus)
-  //app.use(ElementPlus, {
-  //  locale: zhCn,
-  //})
-  
+
   app.mount('#app')
 }
 

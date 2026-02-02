@@ -3,7 +3,7 @@
     <div class="page-header">
       <h1 class="page-title">{{ $t('testcase.create') }}</h1>
     </div>
-    
+
     <div class="card-container">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item :label="$t('testcase.caseTitle')" prop="title">
@@ -63,15 +63,7 @@
         </el-row>
         
         <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item :label="$t('testcase.status')" prop="status">
-              <el-select v-model="form.status" :placeholder="$t('testcase.selectStatus')">
-                <el-option :label="$t('testcase.draft')" value="draft" />
-                <el-option :label="$t('testcase.active')" value="active" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
+          <el-col :span="24">
             <el-form-item :label="$t('testcase.relatedVersions')">
               <el-select
                 v-model="form.version_ids"
@@ -120,7 +112,7 @@
             :placeholder="$t('testcase.expectedResultPlaceholder')"
           />
         </el-form-item>
-        
+
         <el-form-item>
           <el-button type="primary" @click="handleSubmit" :loading="submitting">
             {{ $t('testcase.createCase') }}
@@ -152,7 +144,6 @@ const form = reactive({
   project_id: null,
   priority: 'medium',
   test_type: 'functional',
-  status: 'draft',
   preconditions: '',
   steps: '',
   expected_result: '',
@@ -186,7 +177,7 @@ const fetchProjectVersions = async (projectId) => {
     projectVersions.value = []
     return
   }
-  
+
   try {
     const response = await api.get(`/versions/projects/${projectId}/versions/`)
     projectVersions.value = response.data || []
@@ -198,18 +189,17 @@ const fetchProjectVersions = async (projectId) => {
 }
 
 const onProjectChange = (projectId) => {
-  // 当项目改变时，清空版本选择并重新获取版本列表
   form.version_ids = []
   fetchProjectVersions(projectId)
 }
 
 const onVersionChange = () => {
-  // 版本选择变化的处理逻辑（如果需要的话）
+  // Version change handling logic if needed
 }
 
 const handleSubmit = async () => {
   if (!formRef.value) return
-  
+
   await formRef.value.validate(async (valid) => {
     if (valid) {
       submitting.value = true

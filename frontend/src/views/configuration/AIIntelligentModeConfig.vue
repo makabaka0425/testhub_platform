@@ -71,7 +71,7 @@
     </div>
 
     <!-- 添加/编辑配置弹窗 -->
-    <div v-show="shouldShowModal" :class="['config-modal', { hidden: !shouldShowModal }]" @click="closeModals" @keydown.esc="closeModals">
+    <div v-show="shouldShowModal" :class="['config-modal', { hidden: !shouldShowModal }]" @keydown.esc="closeModals">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
           <h3>{{ isEditing ? $t('configuration.aiMode.editConfig') : $t('configuration.aiMode.addConfigTitle') }}</h3>
@@ -103,6 +103,7 @@
                 <option value="google_gemini">{{ $t('configuration.aiMode.providers.google_gemini') }}</option>
                 <option value="deepseek">{{ $t('configuration.aiMode.providers.deepseek') }}</option>
                 <option value="siliconflow">{{ $t('configuration.aiMode.providers.siliconflow') }}</option>
+                <option value="zhipu">{{ $t('configuration.aiMode.providers.zhipu') }}</option>
                 <option value="other">{{ $t('configuration.aiMode.providers.other') }}</option>
               </select>
             </div>
@@ -179,7 +180,7 @@
         <div class="modal-body">
           <div class="test-result" :class="{ success: testResult.success, error: !testResult.success }">
             <div class="result-icon">
-              {{ testResult.success ? '✅' : '❌' }}
+              {{ testResult.success ? '' : '' }}
             </div>
             <div class="result-content">
               <h4>{{ testResult.success ? $t('configuration.aiMode.connectionSuccess') : $t('configuration.aiMode.connectionFailed') }}</h4>
@@ -230,13 +231,17 @@ const modelBaseUrlMap = {
   google_gemini: '',
   deepseek: 'https://api.deepseek.com',
   siliconflow: 'https://api.siliconflow.cn/v1',
+  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
   other: ''
 }
 
 const shouldShowModal = computed(() => showAddModal.value || showEditModal.value)
 
 const getProviderLabel = (modelType) => {
-  return t('configuration.aiMode.providers.' + modelType) || modelType
+  const key = `configuration.aiMode.providers.${modelType}`
+  const translated = t(key)
+  // 如果翻译key存在则返回翻译，否则返回原值
+  return translated !== key ? translated : modelType
 }
 
 const loadConfigs = async () => {
@@ -296,17 +301,6 @@ const onModelTypeChange = () => {
   if (modelBaseUrlMap[configForm.value.model_type]) {
     configForm.value.base_url = modelBaseUrlMap[configForm.value.model_type]
   }
-
-  // 根据提供商自动填充模型名称建议
-  if (configForm.value.model_type === 'openai' && !configForm.value.model_name) {
-    configForm.value.model_name = 'gpt-4o'
-  } else if (configForm.value.model_type === 'anthropic' && !configForm.value.model_name) {
-    configForm.value.model_name = 'claude-3-5-sonnet-20241022'
-  } else if (configForm.value.model_type === 'deepseek' && !configForm.value.model_name) {
-    configForm.value.model_name = 'deepseek-chat'
-  } else if (configForm.value.model_type === 'siliconflow' && !configForm.value.model_name) {
-    configForm.value.model_name = 'Qwen/Qwen2.5-7B-Instruct'
-  }
 }
 
 const saveConfig = async () => {
@@ -320,7 +314,7 @@ const saveConfig = async () => {
   const emptyFields = requiredFields.filter(field => !field.value || (typeof field.value === 'string' && field.value.trim() === ''))
 
   if (emptyFields.length > 0) {
-    ElMessage.error(`请填写以下必填字段: ${emptyFields.map(f => f.name).join(', ')}`)
+    ElMessage.error(`${t('configuration.aiMode.messages.fillRequired')}: ${emptyFields.map(f => f.name).join(', ')}`)
     return
   }
 
@@ -399,11 +393,18 @@ const toggleActive = async (config) => {
   if (config.is_active) {
     const activeConfigs = configs.value.filter(c => c.id !== config.id && c.is_active)
     if (activeConfigs.length > 0) {
-      const activeConfigNames = activeConfigs.map(c => c.name).join('、')
-      const confirmed = confirm(
-        `启用"${config.name}"将会自动禁用以下已启用的配置:\n\n${activeConfigNames}\n\n确定要继续吗?`
-      )
-      if (!confirmed) {
+      const activeConfigNames = activeConfigs.map(c => c.name).join(', ')
+      try {
+        await ElMessageBox.confirm(
+          t('configuration.aiMode.messages.toggleConfirm', { name: config.name, configs: activeConfigNames }),
+          t('configuration.common.confirm'),
+          {
+            confirmButtonText: t('configuration.common.confirm'),
+            cancelButtonText: t('configuration.common.cancel'),
+            type: 'warning'
+          }
+        )
+      } catch {
         // 恢复开关状态
         config.is_active = false
         return
@@ -676,6 +677,11 @@ onMounted(() => {
 .provider-badge.siliconflow {
   background: #e0f7fa;
   color: #006064;
+}
+
+.provider-badge.zhipu {
+  background: #f3e5f5;
+  color: #7b1fa2;
 }
 
 .provider-badge.other {

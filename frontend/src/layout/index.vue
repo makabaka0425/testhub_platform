@@ -4,7 +4,7 @@
       <!-- 侧边栏 -->
       <el-aside width="240px">
         <div class="logo" @click="router.push('/home')" style="cursor: pointer;">
-          <h2>TestHub</h2>
+          <img src="@/assets/images/logo_home.png" alt="TestHub" />
         </div>
         <el-menu
           :default-active="$route.path"
@@ -399,6 +399,12 @@ const handleCommand = (command) => {
   border-bottom: 1px solid #1f1f1f;
   flex-shrink: 0;
 
+  img {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+  }
+
   h2 {
     margin: 0;
     font-weight: 600;
@@ -563,10 +569,6 @@ const handleCommand = (command) => {
   .el-main {
     padding: 18px;
   }
-  
-  .logo h2 {
-    font-size: 19px;
-  }
 }
 
 @media screen and (max-width: 1600px) {
@@ -577,11 +579,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 16px;
   }
-  
-  .logo h2 {
-    font-size: 18px;
-  }
-  
+
   .el-menu {
     :deep(.el-sub-menu__title),
     :deep(.el-menu-item) {
@@ -598,11 +596,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 14px;
   }
-  
-  .logo h2 {
-    font-size: 17px;
-  }
-  
+
   .el-menu {
     :deep(.el-sub-menu__title),
     :deep(.el-menu-item) {
@@ -619,11 +613,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 12px;
   }
-  
-  .logo h2 {
-    font-size: 16px;
-  }
-  
+
   .el-header {
     height: 56px !important;
   }
@@ -644,11 +634,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 12px;
   }
-  
-  .logo h2 {
-    font-size: 15px;
-  }
-  
+
   .el-header {
     height: 56px !important;
     
@@ -674,11 +660,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 10px;
   }
-  
-  .logo h2 {
-    font-size: 14px;
-  }
-  
+
   .el-header {
     height: 52px !important;
     
@@ -718,11 +700,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 8px;
   }
-  
-  .logo h2 {
-    font-size: 16px;
-  }
-  
+
   .el-header {
     height: 50px !important;
     
@@ -748,11 +726,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 6px;
   }
-  
-  .logo h2 {
-    font-size: 15px;
-  }
-  
+
   .el-header {
     height: 48px !important;
     

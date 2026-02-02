@@ -265,7 +265,7 @@ const formatTime = (timeStr) => {
   const date = new Date(timeStr)
   const now = new Date()
   const diff = now - date
-  
+
   // 小于1分钟
   if (diff < 60000) {
     return t('apiTesting.dashboard.timeFormat.justNow')

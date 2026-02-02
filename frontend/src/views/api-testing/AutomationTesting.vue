@@ -203,8 +203,8 @@
     <el-dialog
       v-model="showCreateSuiteDialog"
       :title="editingSuite ? $t('apiTesting.automation.editSuite') : $t('apiTesting.automation.createSuite')"
-      :close-on-click-modal="false"
       width="600px"
+      :close-on-click-modal="false"
       @close="resetSuiteForm"
     >
       <el-form
@@ -261,8 +261,8 @@
     <el-dialog
       v-model="showAddRequestDialog"
       :title="$t('apiTesting.automation.addRequestToSuite')"
-      :close-on-click-modal="false"
       width="800px"
+      :close-on-click-modal="false"
     >
       <div class="add-request-content">
         <div class="request-selector">
@@ -305,7 +305,6 @@
     <el-dialog
       v-model="showExecutionDialog"
       :title="$t('apiTesting.automation.testExecutionResult')"
-      :close-on-click-modal="false"
       width="80%"
       :top="'5vh'"
     >
@@ -527,7 +526,7 @@ const loadEnvironments = async () => {
       // 不传递project参数，让后端返回所有可访问的环境（全局+当前项目）
     })
     const allEnvironments = response.data.results || response.data
-    
+
     // 过滤当前项目相关或全局环境
     environments.value = allEnvironments.filter(env =>
       env.scope === 'GLOBAL' ||
@@ -540,18 +539,18 @@ const loadEnvironments = async () => {
 
 const loadRequestTree = async () => {
   if (!selectedProject.value) return
-  
+
   try {
     // 加载集合
     const collectionsRes = await api.get('/api-testing/collections/', {
       params: { project: selectedProject.value }
     })
     const collections = collectionsRes.data.results || collectionsRes.data
-    
+
     // 加载请求
     const requestsRes = await api.get('/api-testing/requests/')
     const requests = requestsRes.data.results || requestsRes.data
-    
+
     // 构建树形结构
     requestTree.value = buildRequestTree(collections, requests)
   } catch (error) {
@@ -597,7 +596,7 @@ const buildRequestTree = (collections, requests) => {
 
 const loadExecutions = async () => {
   if (!selectedSuite.value) return
-  
+
   executionsLoading.value = true
   try {
     const response = await api.get('/api-testing/test-executions/', {
@@ -625,7 +624,7 @@ const onProjectChange = async () => {
     }
     return
   }
-  
+
   selectedSuite.value = null
   await Promise.all([
     loadTestSuites(),
@@ -708,7 +707,7 @@ const deleteSuite = async (suite) => {
         type: 'warning'
       }
     )
-    
+
     await api.delete(`/api-testing/test-suites/${suite.id}/`)
     ElMessage.success(t('apiTesting.messages.success.delete'))
 
@@ -725,10 +724,10 @@ const deleteSuite = async (suite) => {
 
 const submitSuiteForm = async () => {
   if (!suiteFormRef.value) return
-  
+
   const valid = await suiteFormRef.value.validate().catch(() => false)
   if (!valid) return
-  
+
   submittingSuite.value = true
   try {
     if (editingSuite.value) {
@@ -738,7 +737,7 @@ const submitSuiteForm = async () => {
       await api.post('/api-testing/test-suites/', suiteForm)
       ElMessage.success(t('apiTesting.messages.success.suiteCreated'))
     }
-    
+
     showCreateSuiteDialog.value = false
     await loadTestSuites()
   } catch (error) {
@@ -789,12 +788,12 @@ const addSelectedRequests = async () => {
   const requestIds = checkedNodes
     .filter(node => node.type === 'request')
     .map(node => node.id.replace('request_', ''))
-  
+
   if (requestIds.length === 0) {
     ElMessage.warning(t('apiTesting.messages.warning.selectAtLeastOneRequest'))
     return
   }
-  
+
   addingRequests.value = true
   try {
     // 这里需要调用添加请求到套件的API
@@ -835,7 +834,7 @@ const removeRequest = async (suiteRequest) => {
       cancelButtonText: t('apiTesting.common.cancel'),
       type: 'warning'
     })
-    
+
     await api.delete(`/api-testing/test-suite-requests/${suiteRequest.id}/`)
     ElMessage.success(t('apiTesting.messages.success.removeSuccess'))
     // 重新加载当前测试套件详情
@@ -849,15 +848,15 @@ const removeRequest = async (suiteRequest) => {
 
 const reloadCurrentSuite = async () => {
   if (!selectedSuite.value) return
-  
+
   try {
     // 重新加载当前测试套件的详细信息
     const response = await api.get(`/api-testing/test-suites/${selectedSuite.value.id}/`)
     const updatedSuite = response.data
-    
+
     // 强制重新设置响应式数据
     selectedSuite.value = { ...updatedSuite }
-    
+
     // 同时更新测试套件列表中对应的套件
     const index = testSuites.value.findIndex(suite => suite.id === updatedSuite.id)
     if (index !== -1) {

@@ -404,6 +404,7 @@
       v-model="showCreateDialog"
       :title="editingTestCase ? $t('uiAutomation.testCase.editTestCase') : $t('uiAutomation.testCase.createTestCase')"
       width="500px"
+      :close-on-click-modal="false"
     >
       <el-form :model="testCaseForm" label-width="100px">
         <el-form-item :label="$t('uiAutomation.testCase.caseName')" required>
@@ -438,10 +439,7 @@
       v-model="showScreenshotPreview"
       :title="$t('uiAutomation.testCase.screenshotPreview')"
       width="80%"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      :modal="true"
-      :destroy-on-close="false"
+      :close-on-click-modal="true"
     >
       <div v-if="currentScreenshot" class="screenshot-preview">
         <div class="preview-info">
@@ -457,9 +455,6 @@
 
     <!-- 变量助手对话框 -->
     <el-dialog
-      :close-on-press-escape="false"
-      :modal="true"
-      :destroy-on-close="false"
       v-model="showVariableHelper"
       :title="$t('uiAutomation.testCase.variableHelper')"
       :close-on-click-modal="false"
@@ -1023,7 +1018,7 @@ const insertVariable = (variable) => {
   if (currentEditingStep.value && currentEditingField.value) {
     const example = variable.example
     const currentValue = currentEditingStep.value[currentEditingField.value] || ''
-    
+
     // 简单起见，这里直接追加到末尾，或者如果为空则替换
     if (!currentValue) {
       currentEditingStep.value[currentEditingField.value] = example
