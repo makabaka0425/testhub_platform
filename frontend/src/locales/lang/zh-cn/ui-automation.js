@@ -238,7 +238,7 @@ export default {
       title: '提示：根据定位策略输入对应的定位值',
       id: 'ID: 输入元素的id属性值',
       css: 'CSS Selector: 输入CSS选择器，如 .class 或 #id',
-      xpath: 'XPath: 输入XPath表达式，如 //input[@name="username"]',
+      xpath: 'XPath: 输入XPath表达式，如 //input[&#64;name="username"]',
       other: '其他策略请输入对应属性的值'
     },
     rules: {

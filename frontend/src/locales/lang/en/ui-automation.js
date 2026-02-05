@@ -238,7 +238,7 @@ export default {
       title: 'Tip: Enter locator value based on strategy',
       id: 'ID: Enter element id attribute value',
       css: 'CSS Selector: Enter CSS selector, e.g. .class or #id',
-      xpath: 'XPath: Enter XPath expression, e.g. //input[@name="username"]',
+      xpath: 'XPath: Enter XPath expression, e.g. //input[&#64;name="username"]',
       other: 'For other strategies, enter the corresponding attribute value'
     },
     rules: {
