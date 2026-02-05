@@ -106,8 +106,10 @@ class EnvironmentConfigViewSet(viewsets.ViewSet):
         # Playwright 缓存路径
         if is_windows:
             playwright_cache_dir = os.path.join(os.environ.get('LOCALAPPDATA'), 'ms-playwright')
-        else:
+        elif platform.system() == 'Darwin':  # macOS
             playwright_cache_dir = os.path.expanduser('~/Library/Caches/ms-playwright')
+        else:  # Linux
+            playwright_cache_dir = os.path.expanduser('~/.cache/ms-playwright')
         
         # 调试信息：打印缓存路径
         print(f"Playwright cache dir: {playwright_cache_dir}")
