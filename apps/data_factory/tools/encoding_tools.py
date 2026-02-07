@@ -287,13 +287,13 @@ class EncodingTools:
                 for encoding in encodings:
                     try:
                         decoded = obj.data.decode(encoding)
+                        # 优先选择UTF-8编码的结果
+                        if encoding == 'utf-8':
+                            data_str = decoded
+                            break
                         # 保存第一次成功的解码结果
                         if data_str is None:
                             data_str = decoded
-                        # 如果解码结果包含非ASCII字符（可能是中文等），优先使用
-                        if any(ord(c) > 127 for c in decoded):
-                            data_str = decoded
-                            break
                     except UnicodeDecodeError:
                         continue
                 
