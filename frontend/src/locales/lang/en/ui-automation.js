@@ -1186,7 +1186,8 @@ export default {
       createSuccess: 'Test case created successfully',
       updateSuccess: 'Test case updated successfully',
       createFailed: 'Failed to save',
-      variableInserted: 'Variable inserted'
+      variableInserted: 'Variable inserted',
+      dataFactorySelected: 'Data factory selected: {toolName}'
     }
   },
 
