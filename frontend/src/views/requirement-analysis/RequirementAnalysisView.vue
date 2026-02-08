@@ -6,7 +6,7 @@
     </div>
 
     <!-- 配置引导弹出窗口 -->
-    <div v-if="showConfigGuide && !checkingConfig" class="modal-overlay" @click.self="showConfigGuide = false" :key="modalKey">
+    <div v-if="showConfigGuide && !checkingConfig" class="modal-overlay" :key="modalKey">
       <div class="guide-config-modal">
       <div class="guide-header">
         <svg class="guide-icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
@@ -786,13 +786,11 @@ export default {
       // 注意：EventSource不使用axios代理，需要直接指向后端服务器
       // 完整的URL路径: /api/requirement-analysis/testcase-generation/{task_id}/stream_progress/
 
-      // 动态获取后端URL：使用当前页面的协议和主机名，端口改为8000
-      // 这样无论通过 localhost、127.0.0.1 还是 IP 地址访问，都能正确连接后端
-      const currentOrigin = window.location.origin  // 如 http://192.168.10.107:3000
-      const url = new URL(currentOrigin)
-      // 将端口改为后端端口 8000
-      const baseUrl = `${url.protocol}//${url.hostname}:8000`
-      const apiUrl = `${baseUrl}/api/requirement-analysis/testcase-generation/${this.currentTaskId}/stream_progress/`
+      // 动态获取后端URL：使用当前页面的协议和主机名
+      // 在生产环境中(如Docker部署)，通常通过Nginx反向代理访问，端口应该是80或443(与当前页面一致)
+      // 而不是直接访问后端端口8000
+      const currentOrigin = window.location.origin
+      const apiUrl = `${currentOrigin}/api/requirement-analysis/testcase-generation/${this.currentTaskId}/stream_progress/`
 
       console.log('SSE连接URL:', apiUrl)
 

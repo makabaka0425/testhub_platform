@@ -4,7 +4,7 @@
       <!-- 侧边栏 -->
       <el-aside width="240px">
         <div class="logo" @click="router.push('/home')" style="cursor: pointer;">
-          <img src="@/assets/images/logo_home.png" alt="TestHub" />
+          <img :src="logoImage" alt="TestHub" class="logo-img" />
         </div>
         <el-menu
           :default-active="$route.path"
@@ -326,12 +326,19 @@ import {
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
   Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened
 } from '@element-plus/icons-vue'
+import logoSvg from '@/assets/images/logo.svg'
+import logoHomePng from '@/assets/images/logo_home.png'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const appStore = useAppStore()
 const { t } = useI18n()
+
+const logoImage = computed(() => {
+		return route.path === '/home' ? logoSvg : logoHomePng
+	})
+	
 
 // 当前语言显示
 const currentLanguage = computed(() => {
@@ -471,18 +478,12 @@ const handleCommand = (command) => {
   border-bottom: 1px solid #1f1f1f;
   flex-shrink: 0;
 
-  img {
-    height: 100%;
-    width: 100%;
-    object-fit: cover;
-  }
-
-  h2 {
-    margin: 0;
-    font-weight: 600;
-    font-size: 20px;
-  }
-}
+		.logo-img {
+			width: 100%;
+			height: 100%;
+			object-fit: fill;
+		}
+	}
 
 .el-aside {
   background-color: #001529;
@@ -651,7 +652,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 16px;
   }
-  
+
   .el-menu {
     :deep(.el-sub-menu__title),
     :deep(.el-menu-item) {
@@ -668,7 +669,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 14px;
   }
-  
+
   .el-menu {
     :deep(.el-sub-menu__title),
     :deep(.el-menu-item) {
@@ -685,7 +686,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 12px;
   }
-  
+
   .el-header {
     height: 56px !important;
   }
@@ -706,7 +707,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 12px;
   }
-  
+
   .el-header {
     height: 56px !important;
     
@@ -732,7 +733,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 10px;
   }
-  
+
   .el-header {
     height: 52px !important;
     
@@ -772,7 +773,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 8px;
   }
-  
+
   .el-header {
     height: 50px !important;
     
@@ -798,7 +799,7 @@ const handleCommand = (command) => {
   .el-main {
     padding: 6px;
   }
-  
+
   .el-header {
     height: 48px !important;
     
