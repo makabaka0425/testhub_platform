@@ -32,6 +32,12 @@ media/requirement_docs/*
 media/ai_recording/*
 !media/ai_recording/.gitkeep
 
+# 忽略 APP 自动化运行时产生的文件
+apps/app_automation/allure-results/
+apps/app_automation/allure-reports/
+apps/app_automation/logs/
+apps/app_automation/screenshots/
+
 # 忽略前端文件
 frontend/node_modules/
 frontend/.DS_Store
