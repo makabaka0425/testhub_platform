@@ -2048,13 +2048,29 @@ const parseAndImportCurl = async () => {
   }
 }
 
+// 辅助函数：将对象格式转换为数组格式
+const convertToArrayFormat = (data) => {
+  if (!data) return []
+  // 如果已经是数组格式，直接返回
+  if (Array.isArray(data)) return data
+  // 如果是对象格式，转换为数组格式
+  if (typeof data === 'object') {
+    return Object.entries(data).map(([key, value]) => ({
+      key,
+      value: typeof value === 'object' ? JSON.stringify(value) : String(value),
+      enabled: true
+    }))
+  }
+  return []
+}
+
 const exportRequest = () => {
   if (!selectedRequest.value) return
 
   try {
     let baseURL = ''
     let path = ''
-    
+
     if (selectedRequest.value.url) {
       try {
         const url = new URL(selectedRequest.value.url)
@@ -2065,20 +2081,20 @@ const exportRequest = () => {
         path = ''
       }
     }
-    
+
     const requestModel = {
       method: selectedRequest.value?.method || 'GET',
       baseURL: baseURL,
       path: path,
-      query: selectedRequest.value?.params || [],
-      headers: selectedRequest.value?.headers || [],
+      query: convertToArrayFormat(selectedRequest.value?.params),
+      headers: convertToArrayFormat(selectedRequest.value?.headers),
       body: {
         mode: 'none',
         raw: rawBody.value || ''
       },
       timeout: 30000
     }
-    
+
     const curlCommand = RequestModelParser.toCurl(requestModel)
     navigator.clipboard.writeText(curlCommand)
     ElMessage.success('已复制到剪贴板')
