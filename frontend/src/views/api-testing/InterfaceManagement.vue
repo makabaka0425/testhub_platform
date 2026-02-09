@@ -291,6 +291,7 @@
                     </el-button>
                   </div>
                   <el-input
+                    ref="rawBodyInputRef"
                     v-model="rawBody"
                     type="textarea"
                     :rows="10"
@@ -967,6 +968,7 @@ const headersEditorRef = ref(null)
 const editingNodeId = ref(null)
 const editingNodeName = ref('')
 const editInputRef = ref(null)
+const rawBodyInputRef = ref(null)
 const currentHeaders = ref({})
 
 const searchKeyword = ref('')
@@ -2359,26 +2361,16 @@ const insertVariable = (variable) => {
       const example = variable.example
 
       if (currentEditingField.value === 'rawBody') {
-        const currentValue = rawBody.value || ''
-        if (!currentValue) {
-          rawBody.value = example
-        } else {
-          rawBody.value = currentValue + example
-        }
+        // 在光标位置插入变量
+        insertTextAtCursor(rawBodyInputRef, example)
       } else if (currentEditingField.value === 'pre_request_script') {
+        // 对于脚本字段，暂时保持追加到末尾的行为
+        // （如果需要光标插入，需要为脚本编辑器添加ref并实现类似逻辑）
         const currentValue = selectedRequest.value.pre_request_script || ''
-        if (!currentValue) {
-          selectedRequest.value.pre_request_script = example
-        } else {
-          selectedRequest.value.pre_request_script = currentValue + example
-        }
+        selectedRequest.value.pre_request_script = currentValue + example
       } else if (currentEditingField.value === 'post_request_script') {
         const currentValue = selectedRequest.value.post_request_script || ''
-        if (!currentValue) {
-          selectedRequest.value.post_request_script = example
-        } else {
-          selectedRequest.value.post_request_script = currentValue + example
-        }
+        selectedRequest.value.post_request_script = currentValue + example
       }
 
       ElMessage.success(`已插入变量: ${variable.name}`)
@@ -2443,7 +2435,8 @@ const handleDataFactorySelect = (record) => {
   // 如果是Body字段
   else if (currentBodyField.value) {
     if (currentBodyField.value === 'rawBody') {
-      rawBody.value = valueToSet
+      // 在光标位置插入文本
+      insertTextAtCursor(rawBodyInputRef, valueToSet)
     }
     ElMessage.success(`已引用数据工厂数据到Body: ${record.tool_name}`)
   }
@@ -2457,6 +2450,42 @@ const handleDataFactorySelect = (record) => {
   }
 
   showDataFactorySelector.value = false
+}
+
+// 在光标位置插入文本的辅助函数
+const insertTextAtCursor = (inputRef, textToInsert) => {
+  if (!inputRef.value) {
+    // 如果没有找到ref，直接追加到末尾
+    rawBody.value = rawBody.value + textToInsert
+    return
+  }
+
+  // 获取textarea DOM元素
+  const textarea = inputRef.value.$el?.querySelector('textarea')
+  if (!textarea) {
+    // 如果找不到textarea元素，直接追加到末尾
+    rawBody.value = rawBody.value + textToInsert
+    return
+  }
+
+  const startPos = textarea.selectionStart
+  const endPos = textarea.selectionEnd
+  const currentValue = rawBody.value
+
+  // 在光标位置插入新文本
+  const newValue =
+    currentValue.substring(0, startPos) +
+    textToInsert +
+    currentValue.substring(endPos)
+
+  rawBody.value = newValue
+
+  // 恢复光标位置到插入文本的末尾
+  nextTick(() => {
+    const newCursorPos = startPos + textToInsert.length
+    textarea.setSelectionRange(newCursorPos, newCursorPos)
+    textarea.focus()
+  })
 }
 
 // 加载变量函数
