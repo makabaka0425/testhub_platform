@@ -1171,12 +1171,25 @@ const loadRequests = async () => {
       clearCollectionChildren(collection)
     })
 
-    // 将请求添加到对应集合中
+    // 过滤掉之前的未分类接口（type 为 request 且 id 为 null 的项）
+    collections.value = collections.value.filter(item => item.type === 'collection')
+
+    // 将请求添加到对应集合中或直接添加到根级别
     requests.forEach(request => {
-      const collection = findCollectionById(collections.value, request.collection)
-      if (collection) {
-        if (!collection.children) collection.children = []
-        collection.children.push({
+      if (request.collection) {
+        // 有关联集合的请求，添加到对应集合下
+        const collection = findCollectionById(collections.value, request.collection)
+        if (collection) {
+          if (!collection.children) collection.children = []
+          collection.children.push({
+            ...request,
+            type: 'request',
+            name: request.name
+          })
+        }
+      } else {
+        // 未关联集合的请求，直接添加到集合列表的根级别
+        collections.value.push({
           ...request,
           type: 'request',
           name: request.name
