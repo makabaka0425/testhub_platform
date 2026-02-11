@@ -60,6 +60,23 @@ class AppTestExecutionViewSet(viewsets.ModelViewSet):
             Q(user__username__icontains=search_value)
         )
     
+    @action(detail=False, methods=['get'])
+    def ws_status(self, request):
+        """检查 WebSocket 是否可用"""
+        try:
+            import daphne
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            ws_available = channel_layer is not None and not isinstance(
+                channel_layer, type(None)
+            )
+            # 检查是否通过 ASGI 服务器运行（非 runserver）
+            server_type = request.META.get('SERVER_SOFTWARE', '')
+            is_asgi = 'daphne' in server_type.lower() or request.META.get('asgi', False)
+            return Response({'websocket': ws_available and is_asgi})
+        except (ImportError, Exception):
+            return Response({'websocket': False})
+
     @action(detail=True, methods=['post'])
     def stop(self, request, pk=None):
         """停止执行"""

@@ -22,7 +22,7 @@
             ref="imageRef"
             :src="capturedImage"
             @load="handleImageLoad"
-            style="max-width: 100%; display: block; user-select: none;"
+            class="capture-image"
           />
           <!-- 选区框 -->
           <div
@@ -228,9 +228,15 @@
   </el-dialog>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
+import type { PropType } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+interface ProjectItem {
+  id: number
+  name: string
+}
 import { FolderOpened, Plus, Delete } from '@element-plus/icons-vue'
 import {
   getDeviceList,
@@ -244,7 +250,7 @@ import {
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
-  projectList: { type: Array, default: () => [] }
+  projectList: { type: Array as PropType<ProjectItem[]>, default: () => [] }
 })
 
 const emit = defineEmits(['update:modelValue', 'success'])
@@ -888,9 +894,10 @@ watch(() => props.modelValue, (val) => {
 
 .capture-left {
   flex: 1;
+  min-width: 0;
   border: 1px solid #dcdfe6;
   border-radius: 4px;
-  overflow: auto;
+  overflow: hidden;
   background: #f5f7fa;
   display: flex;
   align-items: center;
@@ -901,6 +908,16 @@ watch(() => props.modelValue, (val) => {
   position: relative;
   cursor: crosshair;
   display: inline-block;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.capture-image {
+  max-width: 100%;
+  max-height: calc(100vh - 220px);
+  display: block;
+  user-select: none;
+  object-fit: contain;
 }
 
 .selection-box {
@@ -967,6 +984,7 @@ watch(() => props.modelValue, (val) => {
 
 .capture-right {
   width: 400px;
+  flex-shrink: 0;
   overflow-y: auto;
   padding-right: 10px;
 }

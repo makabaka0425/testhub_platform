@@ -253,7 +253,8 @@ import {
   getExecutionDetail,
   stopExecution as apiStopExecution,
   getPackageList,
-  getAppProjects
+  getAppProjects,
+  getWsStatus
 } from '@/api/app-automation'
 import { getDeviceList } from '@/api/app-automation'
 import { getExecutionStatusType, getExecutionStatusText, formatDateTime } from '@/utils/app-automation-helpers'
@@ -393,7 +394,7 @@ const loadExecutions = async () => {
 
     executionData.value.results.forEach(execution => {
       if ((execution.status === 'pending' || execution.status === 'running') && execution.id) {
-        connectWebSocket(execution.id)
+        trackExecution(execution.id)
       }
     })
   } catch (error) {
@@ -473,7 +474,7 @@ const runCase = async (testCase) => {
       ElMessage.success('测试已提交执行')
       const executionId = data.execution?.id || data.execution_id
       if (executionId) {
-        connectWebSocket(executionId)
+        trackExecution(executionId)
         checkExecutionStatus(executionId)
       }
       // 刷新执行记录
@@ -551,14 +552,62 @@ const updateExecutionData = (updates) => {
   if (updates.finished_at) target.finished_at = updates.finished_at
 }
 
-const connectWebSocket = (executionId) => {
-  if (websockets.value[executionId]) {
-    return
+// ===== 执行状态推送：WebSocket 模式 / 轮询模式（由 ws_status 接口决定） =====
+const wsDisabled = ref(false)
+const pollingTimers = ref({})
+const wsRetryCount = ref({})  // WebSocket 重试计数
+const WS_MAX_RETRY = 3       // 最大重试次数
+
+// --- 轮询模式：每 3 秒查一次执行状态 ---
+const startPolling = (executionId) => {
+  if (pollingTimers.value[executionId]) return
+  pollingTimers.value[executionId] = setInterval(async () => {
+    try {
+      const res = await getExecutionDetail(executionId)
+      if (res.data) {
+        updateExecutionData({
+          execution_id: res.data.id,
+          status: res.data.status,
+          progress: res.data.progress,
+          report_path: res.data.report_path,
+          finished_at: res.data.finished_at,
+        })
+        if (['success', 'failed', 'stopped'].includes(res.data.status)) {
+          stopPolling(executionId)
+          if (res.data.status === 'success') ElMessage.success('测试执行完成')
+          else if (res.data.status === 'failed') ElMessage.error('测试执行失败')
+        }
+      }
+    } catch (e) {
+      console.error('轮询执行状态失败:', e)
+    }
+  }, 3000)
+}
+
+const stopPolling = (executionId) => {
+  if (pollingTimers.value[executionId]) {
+    clearInterval(pollingTimers.value[executionId])
+    delete pollingTimers.value[executionId]
   }
+}
+
+const stopAllPolling = () => {
+  Object.keys(pollingTimers.value).forEach(id => stopPolling(id))
+}
+
+// --- WebSocket 模式：实时推送 ---
+const connectWebSocket = (executionId) => {
+  if (websockets.value[executionId]) return
+
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const wsUrl = `${protocol}://${window.location.host}/ws/app-automation/executions/${executionId}/`
+
   const ws = new WebSocket(wsUrl)
   websockets.value[executionId] = ws
+
+  ws.onopen = () => {
+    wsRetryCount.value[executionId] = 0
+  }
 
   ws.onmessage = (event) => {
     try {
@@ -566,24 +615,47 @@ const connectWebSocket = (executionId) => {
       updateExecutionData(data)
       if (data.status && lastStatusMessages.value[executionId] !== data.status) {
         lastStatusMessages.value[executionId] = data.status
-        if (data.status === 'success') {
-          ElMessage.success('测试执行完成')
-        } else if (data.status === 'failed') {
-          ElMessage.error('测试执行失败')
-        }
+        if (data.status === 'success') ElMessage.success('测试执行完成')
+        else if (data.status === 'failed') ElMessage.error('测试执行失败')
       }
-      if (data.status === 'success' || data.status === 'failed' || data.status === 'stopped') {
+      if (['success', 'failed', 'stopped'].includes(data.status)) {
         closeWebSocket(executionId)
       }
     } catch (error) {
       console.error('处理 WebSocket 消息失败:', error)
     }
   }
+
   ws.onclose = () => {
     delete websockets.value[executionId]
   }
+
   ws.onerror = () => {
     closeWebSocket(executionId)
+    const retries = (wsRetryCount.value[executionId] || 0) + 1
+    wsRetryCount.value[executionId] = retries
+    if (retries <= WS_MAX_RETRY) {
+      console.warn(`WebSocket 连接异常 (${retries}/${WS_MAX_RETRY})，${retries}秒后重试`)
+      setTimeout(() => {
+        const target = executionData.value.results.find(e => e.id === executionId)
+        if (target && ['pending', 'running'].includes(target.status)) {
+          connectWebSocket(executionId)
+        }
+      }, retries * 1000)
+    } else {
+      console.warn(`WebSocket 重试超限，execution_id=${executionId} 切换为轮询`)
+      delete wsRetryCount.value[executionId]
+      startPolling(executionId)
+    }
+  }
+}
+
+// --- 统一入口：根据模式选择推送方式 ---
+const trackExecution = (executionId) => {
+  if (wsDisabled.value) {
+    startPolling(executionId)
+  } else {
+    connectWebSocket(executionId)
   }
 }
 
@@ -688,20 +760,34 @@ const getProgressStatus = (status) => {
 // formatDateTime 已从 app-automation-helpers 导入
 
 // 组件挂载
-onMounted(() => {
+onMounted(async () => {
+  // 先检测 WebSocket 是否可用
+  try {
+    const res = await getWsStatus()
+    wsDisabled.value = !(res.data?.websocket)
+  } catch {
+    wsDisabled.value = true
+  }
+  if (wsDisabled.value) {
+    console.info('WebSocket 不可用，将使用轮询模式')
+  }
+
   loadProjectList()
   loadDevices()
   loadPackages()
   loadTestCases()
   loadExecutions()
   
-  // 每10秒自动刷新执行记录（如果有运行中的任务）
-  refreshTimer = setInterval(() => {
-    const hasRunning = executionData.value.results.some(e => e.status === 'running')
-    if (hasRunning) {
-      loadExecutions()
-    }
-  }, 10000)
+  // WebSocket 模式下，每10秒刷新执行列表（补充 WS 推送）
+  // 轮询模式下不需要（trackExecution 已有 3 秒轮询）
+  if (!wsDisabled.value) {
+    refreshTimer = setInterval(() => {
+      const hasRunning = executionData.value.results.some(e => e.status === 'running')
+      if (hasRunning) {
+        loadExecutions()
+      }
+    }, 10000)
+  }
 })
 
 // 组件卸载
@@ -710,6 +796,7 @@ onBeforeUnmount(() => {
     clearInterval(refreshTimer)
   }
   closeAllWebSockets()
+  stopAllPolling()
 })
 </script>
 

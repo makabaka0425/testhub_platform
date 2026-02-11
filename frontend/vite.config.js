@@ -53,6 +53,12 @@ export default defineConfig({
         target: 'ws://127.0.0.1:8000',
         ws: true,
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {})
+          proxy.on('proxyReqWs', (proxyReq, req, socket) => {
+            socket.on('error', () => {})
+          })
+        },
       },
     },
   },

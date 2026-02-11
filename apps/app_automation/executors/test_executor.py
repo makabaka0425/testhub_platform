@@ -8,6 +8,7 @@ import subprocess
 import glob
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any
 from django.conf import settings
 import logging
@@ -268,46 +269,20 @@ class AppTestExecutor:
             return None
     
     def _find_allure_command(self) -> Optional[str]:
-        """查找 Allure 命令"""
+        """查找项目内置的 Allure 命令"""
         import platform
         
-        # 1. 优先从环境变量读取自定义路径
-        custom_allure_path = os.getenv('ALLURE_PATH')
-        if custom_allure_path and os.path.exists(custom_allure_path):
-            logger.info(f"从环境变量找到 Allure: {custom_allure_path}")
-            return custom_allure_path
-        
-        # 2. Windows 平台 - 搜索常见安装路径
+        base_dir = Path(__file__).resolve().parent.parent.parent.parent
         if platform.system() == 'Windows':
-            # 常见的安装路径
-            possible_paths = [
-                r'D:\Program Files\allure-2.34.1\bin\allure.bat',
-                r'D:\Program Files\allure\bin\allure.bat',
-                r'C:\Program Files\allure\bin\allure.bat',
-                r'D:\allure\bin\allure.bat',
-                r'C:\allure\bin\allure.bat',
-            ]
-            
-            for path in possible_paths:
-                if os.path.exists(path):
-                    logger.info(f"找到 Allure: {path}")
-                    return path
+            builtin_allure = base_dir / 'allure' / 'bin' / 'allure.bat'
+        else:
+            builtin_allure = base_dir / 'allure' / 'bin' / 'allure'
         
-        # 尝试从环境变量查找
-        try:
-            result = subprocess.run(
-                ['allure', '--version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                logger.info("从环境变量找到 Allure")
-                return 'allure'
-        except Exception:
-            pass
+        if builtin_allure.exists():
+            logger.info(f"使用项目内置 Allure: {builtin_allure}")
+            return str(builtin_allure)
         
-        logger.warning("未找到 Allure 命令")
+        logger.warning("未找到项目内置 Allure，请确认 allure 目录存在")
         return None
     
     def _parse_allure_results(self, results_dir: str) -> Dict[str, Any]:

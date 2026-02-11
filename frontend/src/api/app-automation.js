@@ -382,6 +382,16 @@ export function getExecutionDetail(id) {
 }
 
 /**
+ * 检查 WebSocket 是否可用
+ */
+export function getWsStatus() {
+  return request({
+    url: '/app-automation/executions/ws_status/',
+    method: 'get'
+  })
+}
+
+/**
  * 删除执行记录
  */
 export function deleteExecution(id) {
