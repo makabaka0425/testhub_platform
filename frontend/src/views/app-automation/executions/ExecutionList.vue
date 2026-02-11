@@ -32,8 +32,8 @@
             <el-option label="全部" value="" />
             <el-option label="等待中" value="pending" />
             <el-option label="执行中" value="running" />
-            <el-option label="成功" value="success" />
-            <el-option label="失败" value="failed" />
+            <el-option label="已完成" value="completed" />
+            <el-option label="执行异常" value="error" />
             <el-option label="已停止" value="stopped" />
           </el-select>
           <el-button @click="loadExecutions">
@@ -56,8 +56,8 @@
         <el-table-column prop="device_name" label="设备" width="150" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
-              {{ getStatusText(row.status) }}
+            <el-tag :type="getDisplayStatus(row.status, row.result).type" size="small">
+              {{ getDisplayStatus(row.status, row.result).text }}
             </el-tag>
           </template>
         </el-table-column>
@@ -65,7 +65,7 @@
           <template #default="{ row }">
             <el-progress
               :percentage="row.progress || 0"
-              :status="row.status === 'failed' ? 'exception' : row.status === 'success' ? 'success' : undefined"
+              :status="row.status === 'error' ? 'exception' : row.result === 'failed' ? 'exception' : row.result === 'passed' ? 'success' : undefined"
             />
           </template>
         </el-table-column>
@@ -168,7 +168,7 @@ import {
   getAppProjects
 } from '@/api/app-automation'
 import { Search, Refresh } from '@element-plus/icons-vue'
-import { getExecutionStatusType, getExecutionStatusText, formatDateTime } from '@/utils/app-automation-helpers'
+import { getExecutionStatusType, getExecutionStatusText, getDisplayStatus, formatDateTime } from '@/utils/app-automation-helpers'
 
 const loading = ref(false)
 const executions = ref([])
@@ -246,8 +246,7 @@ const viewError = (execution) => {
   errorDialogVisible.value = true
 }
 
-const getStatusType = getExecutionStatusType
-const getStatusText = getExecutionStatusText
+// getDisplayStatus 已从 helpers 导入
 
 const formatDuration = (seconds) => {
   if (!seconds) return '-'
@@ -261,7 +260,7 @@ const formatDuration = (seconds) => {
 const startAutoRefresh = () => {
   refreshTimer = setInterval(() => {
     // 如果有执行中的记录，自动刷新
-    const hasRunning = executions.value.some(e => e.status === 'running' || e.status === 'pending')
+    const hasRunning = executions.value.some(e => ['running', 'pending'].includes(e.status))
     if (hasRunning) {
       loadExecutions()
     }

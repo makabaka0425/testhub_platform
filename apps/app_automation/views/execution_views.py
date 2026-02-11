@@ -4,7 +4,6 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import SearchFilter
 from django.db.models import Q
 from django_filters.rest_framework import DjangoFilterBackend
@@ -17,14 +16,9 @@ import os
 from ..models import AppTestExecution
 from ..serializers import AppTestExecutionSerializer
 from ..tasks import send_execution_update
+from .test_case_views import AppPagination
 
 logger = logging.getLogger(__name__)
-
-
-class AppExecutionPagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = 'page_size'
-    max_page_size = 100
 
 
 class AppTestExecutionViewSet(viewsets.ModelViewSet):
@@ -35,7 +29,7 @@ class AppTestExecutionViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['status', 'test_case', 'device']
     search_fields = ['test_case__name', 'device__name', 'device__device_id', 'user__username']
-    pagination_class = AppExecutionPagination
+    pagination_class = AppPagination
     
     def get_queryset(self):
         queryset = super().get_queryset()

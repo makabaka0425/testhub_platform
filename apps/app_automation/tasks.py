@@ -165,7 +165,7 @@ def _send_app_email_notification(task, detail_content, status_text):
         )
 
 
-def send_execution_update(execution_id, status=None, progress=None, message=None, report_path=None, finished_at=None):
+def send_execution_update(execution_id, status=None, progress=None, message=None, report_path=None, finished_at=None, result=None):
     """通过 WebSocket 发送执行状态更新"""
     try:
         channel_layer = get_channel_layer()
@@ -175,6 +175,7 @@ def send_execution_update(execution_id, status=None, progress=None, message=None
             "type": "execution_update",
             "execution_id": int(execution_id),
             "status": status,
+            "result": result,
             "progress": progress,
             "message": message,
             "report_path": report_path,
@@ -272,8 +273,14 @@ def execute_app_test_task(execution_id, package_name: str = None, scheduled_task
             report_path=execution.report_path
         )
         
-        # 3. 完成测试
-        execution.status = 'success' if execution.failed_steps == 0 else 'failed'
+        # 3. 完成测试 — 分离任务状态和测试结果
+        execution.status = 'completed'
+        if execution.total_steps == 0:
+            execution.result = 'skipped'
+        elif execution.failed_steps == 0:
+            execution.result = 'passed'
+        else:
+            execution.result = 'failed'
         execution.finished_at = timezone.now()
         execution.duration = (execution.finished_at - execution.started_at).total_seconds()
         execution.progress = 100
@@ -284,22 +291,23 @@ def execute_app_test_task(execution_id, package_name: str = None, scheduled_task
             progress=100,
             message='执行完成',
             report_path=execution.report_path,
-            finished_at=execution.finished_at
+            finished_at=execution.finished_at,
+            result=execution.result,
         )
         
-        logger.info(f"APP测试执行完成: {test_case.name}, 状态: {execution.status}")
+        logger.info(f"APP测试执行完成: {test_case.name}, 状态: {execution.status}, 结果: {execution.result}")
 
         # 定时任务通知
         if scheduled_task_id:
             try:
                 from .models import AppScheduledTask
                 st = AppScheduledTask.objects.get(id=scheduled_task_id)
-                is_success = execution.status == 'success'
+                is_success = execution.result == 'passed'
                 if is_success:
                     st.successful_runs += 1
                 else:
                     st.failed_runs += 1
-                st.last_result = {'status': execution.status, 'message': f'{test_case.name} - {execution.status}'}
+                st.last_result = {'status': execution.status, 'result': execution.result, 'message': f'{test_case.name} - {execution.result or execution.status}'}
                 st.save(update_fields=['successful_runs', 'failed_runs', 'last_result'])
                 send_scheduled_task_notification(scheduled_task_id, success=is_success)
             except Exception as ne:
@@ -311,7 +319,8 @@ def execute_app_test_task(execution_id, package_name: str = None, scheduled_task
         logger.error(f"执行APP测试失败: {str(e)}", exc_info=True)
         
         if execution:
-            execution.status = 'failed'
+            execution.status = 'error'       # 任务异常（非用例失败）
+            execution.result = None           # 没有测试结果
             execution.error_message = str(e)
             execution.finished_at = timezone.now()
             if execution.started_at:
@@ -319,11 +328,12 @@ def execute_app_test_task(execution_id, package_name: str = None, scheduled_task
             execution.save()
             send_execution_update(
                 execution_id,
-                status='failed',
+                status='error',
                 progress=execution.progress or 0,
                 message=str(e),
                 report_path=execution.report_path,
-                finished_at=execution.finished_at
+                finished_at=execution.finished_at,
+                result=None,
             )
             
             # 尝试生成报告
@@ -387,7 +397,8 @@ def execute_app_suite_task(suite_id, execution_ids, package_name=None, scheduled
         for idx, execution in enumerate(executions):
             test_case = execution.test_case
             if not test_case:
-                execution.status = 'failed'
+                execution.status = 'error'
+                execution.result = None
                 execution.error_message = '用例不存在'
                 execution.finished_at = timezone.now()
                 execution.save()
@@ -437,13 +448,19 @@ def execute_app_suite_task(suite_id, execution_ids, package_name=None, scheduled
                 execution.passed_steps = test_results.get('passed', 0)
                 execution.failed_steps = test_results.get('failed', 0)
 
-                execution.status = 'success' if execution.failed_steps == 0 else 'failed'
+                execution.status = 'completed'
+                if execution.total_steps == 0:
+                    execution.result = 'skipped'
+                elif execution.failed_steps == 0:
+                    execution.result = 'passed'
+                else:
+                    execution.result = 'failed'
                 execution.finished_at = timezone.now()
                 execution.duration = (execution.finished_at - execution.started_at).total_seconds()
                 execution.progress = 100
                 execution.save()
 
-                if execution.status == 'success':
+                if execution.result == 'passed':
                     passed += 1
                 else:
                     failed += 1
@@ -452,14 +469,16 @@ def execute_app_suite_task(suite_id, execution_ids, package_name=None, scheduled
                     execution.id, status=execution.status, progress=100,
                     message='执行完成',
                     report_path=execution.report_path,
-                    finished_at=execution.finished_at
+                    finished_at=execution.finished_at,
+                    result=execution.result,
                 )
 
-                logger.info(f"用例 {test_case.name} 执行完成: {execution.status}")
+                logger.info(f"用例 {test_case.name} 执行完成: status={execution.status}, result={execution.result}")
 
             except Exception as e:
                 logger.error(f"用例 {test_case.name} 执行失败: {str(e)}", exc_info=True)
-                execution.status = 'failed'
+                execution.status = 'error'
+                execution.result = None
                 execution.error_message = str(e)
                 execution.finished_at = timezone.now()
                 if execution.started_at:
@@ -467,18 +486,25 @@ def execute_app_suite_task(suite_id, execution_ids, package_name=None, scheduled
                 execution.save()
                 failed += 1
                 send_execution_update(
-                    execution.id, status='failed',
+                    execution.id, status='error',
                     progress=execution.progress or 0,
                     message=str(e),
-                    finished_at=execution.finished_at
+                    finished_at=execution.finished_at,
+                    result=None,
                 )
 
         # 更新套件统计
-        suite.execution_status = 'success' if failed == 0 else 'failed'
+        suite.execution_status = 'completed'
+        if passed == 0 and failed == 0:
+            suite.execution_result = 'skipped'
+        elif failed == 0:
+            suite.execution_result = 'passed'
+        else:
+            suite.execution_result = 'failed'
         suite.passed_count = passed
         suite.failed_count = failed
         suite.last_run_at = timezone.now()
-        suite.save(update_fields=['execution_status', 'passed_count', 'failed_count', 'last_run_at'])
+        suite.save(update_fields=['execution_status', 'execution_result', 'passed_count', 'failed_count', 'last_run_at'])
 
         logger.info(f"套件执行完成: {suite.name}, 通过: {passed}, 失败: {failed}")
 
@@ -493,7 +519,8 @@ def execute_app_suite_task(suite_id, execution_ids, package_name=None, scheduled
                 else:
                     st.failed_runs += 1
                 st.last_result = {
-                    'status': 'success' if is_success else 'failed',
+                    'status': suite.execution_status,
+                    'result': suite.execution_result,
                     'message': f'通过: {passed}, 失败: {failed}'
                 }
                 st.save(update_fields=['successful_runs', 'failed_runs', 'last_result'])
@@ -506,11 +533,12 @@ def execute_app_suite_task(suite_id, execution_ids, package_name=None, scheduled
     except Exception as e:
         logger.error(f"执行套件失败: {str(e)}", exc_info=True)
         if suite:
-            suite.execution_status = 'failed'
+            suite.execution_status = 'error'
+            suite.execution_result = None
             suite.failed_count = failed
             suite.passed_count = passed
             suite.last_run_at = timezone.now()
-            suite.save(update_fields=['execution_status', 'passed_count', 'failed_count', 'last_run_at'])
+            suite.save(update_fields=['execution_status', 'execution_result', 'passed_count', 'failed_count', 'last_run_at'])
     finally:
         # 释放设备
         try:

@@ -9,6 +9,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 import logging
 
 from ..models import AppTestSuite, AppTestSuiteCase, AppTestCase, AppDevice, AppTestExecution
+from .test_case_views import AppPagination
 from ..serializers import (
     AppTestSuiteSerializer,
     AppTestSuiteCreateSerializer,
@@ -24,6 +25,7 @@ class AppTestSuiteViewSet(viewsets.ModelViewSet):
     """APP测试套件 ViewSet"""
     queryset = AppTestSuite.objects.all()
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['project']
     search_fields = ['name', 'description']

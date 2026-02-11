@@ -188,6 +188,7 @@ class AppTestExecutionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(read_only=True)
     pass_rate = serializers.FloatField(read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    result_display = serializers.CharField(source='get_result_display', read_only=True, default=None)
     
     class Meta:
         model = AppTestExecution
@@ -256,12 +257,16 @@ class AppTestSuiteSerializer(serializers.ModelSerializer):
     execution_status_display = serializers.CharField(
         source='get_execution_status_display', read_only=True
     )
+    execution_result_display = serializers.CharField(
+        source='get_execution_result_display', read_only=True, default=None
+    )
 
     class Meta:
         model = AppTestSuite
         fields = (
             'id', 'name', 'description', 'project',
             'execution_status', 'execution_status_display',
+            'execution_result', 'execution_result_display',
             'passed_count', 'failed_count', 'last_run_at',
             'test_case_count', 'suite_cases',
             'created_by', 'created_by_name',
@@ -269,7 +274,8 @@ class AppTestSuiteSerializer(serializers.ModelSerializer):
         )
         read_only_fields = (
             'created_at', 'updated_at',
-            'execution_status', 'passed_count', 'failed_count', 'last_run_at',
+            'execution_status', 'execution_result',
+            'passed_count', 'failed_count', 'last_run_at',
         )
 
     def get_created_by_name(self, obj):

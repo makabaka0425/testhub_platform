@@ -50,5 +50,5 @@ urlpatterns += [
 urlpatterns += [
     path('app-automation-reports/<path:path>', 
          serve, 
-         {'document_root': os.path.join(settings.BASE_DIR, 'apps', 'app_automation', 'allure-reports')}),
+         {'document_root': os.path.join(settings.MEDIA_ROOT, 'app-automation', 'allure-reports')}),
 ]

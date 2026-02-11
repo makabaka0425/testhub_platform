@@ -148,9 +148,9 @@
     <!-- 分页 -->
     <el-pagination
       v-show="caseTotal > 0"
-      :current-page="caseCurrentPage"
+      v-model:current-page="caseCurrentPage"
+      v-model:page-size="casePageSize"
       :page-sizes="[10, 20, 30, 50]"
-      :page-size="casePageSize"
       :total="caseTotal"
       layout="total, sizes, prev, pager, next, jumper"
       style="margin-top: 16px; text-align: right"
@@ -184,8 +184,8 @@
         <el-table-column prop="user_name" label="测试人员" width="120" />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
-              {{ getStatusText(row.status) }}
+            <el-tag :type="getDisplayStatus(row.status, row.result).type" size="small">
+              {{ getDisplayStatus(row.status, row.result).text }}
             </el-tag>
           </template>
         </el-table-column>
@@ -194,7 +194,7 @@
             <div class="progress-wrapper">
               <el-progress
                 :percentage="calculateProgress(row)"
-                :status="getProgressStatus(row.status)"
+                :status="getProgressStatus(row)"
                 :stroke-width="8"
                 :show-text="false"
                 style="flex: 1"
@@ -216,7 +216,7 @@
         <el-table-column label="操作" width="150">
           <template #default="{ row }">
             <el-button
-              v-if="row.status === 'success' || row.status === 'failed'"
+              v-if="row.status === 'completed' || row.status === 'error'"
               link
               type="primary"
               size="small"
@@ -257,7 +257,7 @@ import {
   getWsStatus
 } from '@/api/app-automation'
 import { getDeviceList } from '@/api/app-automation'
-import { getExecutionStatusType, getExecutionStatusText, formatDateTime } from '@/utils/app-automation-helpers'
+import { getExecutionStatusType, getExecutionStatusText, getDisplayStatus, formatDateTime } from '@/utils/app-automation-helpers'
 
 const router = useRouter()
 
@@ -547,6 +547,7 @@ const updateExecutionData = (updates) => {
     return
   }
   if (updates.status) target.status = updates.status
+  if (updates.result !== undefined) target.result = updates.result
   if (updates.progress !== null && updates.progress !== undefined) target.progress = updates.progress
   if (updates.report_path !== undefined) target.report_path = updates.report_path
   if (updates.finished_at) target.finished_at = updates.finished_at
@@ -568,14 +569,16 @@ const startPolling = (executionId) => {
         updateExecutionData({
           execution_id: res.data.id,
           status: res.data.status,
+          result: res.data.result,
           progress: res.data.progress,
           report_path: res.data.report_path,
           finished_at: res.data.finished_at,
         })
-        if (['success', 'failed', 'stopped'].includes(res.data.status)) {
+        if (['completed', 'error', 'stopped'].includes(res.data.status)) {
           stopPolling(executionId)
-          if (res.data.status === 'success') ElMessage.success('测试执行完成')
-          else if (res.data.status === 'failed') ElMessage.error('测试执行失败')
+          if (res.data.result === 'passed') ElMessage.success('测试执行通过')
+          else if (res.data.result === 'failed') ElMessage.error('测试用例失败')
+          else if (res.data.status === 'error') ElMessage.error('执行异常')
         }
       }
     } catch (e) {
@@ -615,10 +618,11 @@ const connectWebSocket = (executionId) => {
       updateExecutionData(data)
       if (data.status && lastStatusMessages.value[executionId] !== data.status) {
         lastStatusMessages.value[executionId] = data.status
-        if (data.status === 'success') ElMessage.success('测试执行完成')
-        else if (data.status === 'failed') ElMessage.error('测试执行失败')
+        if (data.result === 'passed') ElMessage.success('测试执行通过')
+        else if (data.result === 'failed') ElMessage.error('测试用例失败')
+        else if (data.status === 'error') ElMessage.error('执行异常')
       }
-      if (['success', 'failed', 'stopped'].includes(data.status)) {
+      if (['completed', 'error', 'stopped'].includes(data.status)) {
         closeWebSocket(executionId)
       }
     } catch (error) {
@@ -727,33 +731,30 @@ const batchRun = async () => {
 }
 
 // 分页处理
-const handleCaseSizeChange = (size) => {
-  casePageSize.value = size
+const handleCaseSizeChange = () => {
+  caseCurrentPage.value = 1  // 切换每页条数时回到第1页
   loadTestCases()
 }
 
-const handleCasePageChange = (page) => {
-  caseCurrentPage.value = page
+const handleCasePageChange = () => {
   loadTestCases()
 }
 
 
 // 计算执行进度
 const calculateProgress = (execution) => {
-  if (execution.status === 'completed' || execution.status === 'success') return 100
-  if (execution.status === 'failed' || execution.status === 'stopped') return execution.progress || 0
+  if (execution.status === 'completed') return 100
+  if (execution.status === 'error' || execution.status === 'stopped') return execution.progress || 0
   if (execution.status === 'running') return execution.progress || 0
   return 0
 }
 
-const getStatusType = getExecutionStatusType
-const getStatusText = getExecutionStatusText
-
-// 获取进度条状态
-const getProgressStatus = (status) => {
-  if (status === 'completed' || status === 'success') return 'success'
-  if (status === 'failed') return 'exception'
-  if (status === 'running') return undefined
+// 获取进度条状态（基于测试结果）
+const getProgressStatus = (row) => {
+  if (row.status === 'completed') {
+    return row.result === 'failed' ? 'exception' : 'success'
+  }
+  if (row.status === 'error') return 'exception'
   return undefined
 }
 

@@ -104,8 +104,8 @@
       </el-table-column>
       <el-table-column label="执行状态" width="110" align="center">
         <template #default="{ row }">
-          <el-tag :type="getSuiteStatusType(row.execution_status)" size="small">
-            {{ row.execution_status_display }}
+          <el-tag :type="getSuiteDisplayStatus(row).type" size="small">
+            {{ getSuiteDisplayStatus(row).text }}
           </el-tag>
         </template>
       </el-table-column>
@@ -247,8 +247,8 @@
         <el-table-column prop="device_name" label="设备" width="150" />
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
-              {{ getStatusText(row.status) }}
+            <el-tag :type="getDisplayStatus(row.status, row.result).type" size="small">
+              {{ getDisplayStatus(row.status, row.result).text }}
             </el-tag>
           </template>
         </el-table-column>
@@ -256,7 +256,7 @@
           <template #default="{ row }">
             <el-progress
               :percentage="row.progress || 0"
-              :status="getProgressStatus(row.status)"
+              :status="getProgressStatus(row)"
               :stroke-width="6"
             />
           </template>
@@ -269,7 +269,7 @@
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
             <el-button
-              v-if="row.status === 'success' || row.status === 'failed'"
+              v-if="row.status === 'completed' || row.status === 'error'"
               link type="primary" size="small"
               @click="viewReport(row)"
             >
@@ -303,7 +303,7 @@ import {
   getPackageList,
   getAppProjects,
 } from '@/api/app-automation'
-import { getExecutionStatusType, getExecutionStatusText, formatDateTime } from '@/utils/app-automation-helpers'
+import { getExecutionStatusType, getExecutionStatusText, getDisplayStatus, formatDateTime } from '@/utils/app-automation-helpers'
 
 // ===== 响应式数据 =====
 const loading = ref(false)
@@ -625,22 +625,27 @@ const viewReport = (execution) => {
 }
 
 // ===== 工具方法 =====
-const getSuiteStatusType = (status) => {
-  const map = {
-    'not_run': 'info',
-    'running': '',
-    'success': 'success',
-    'failed': 'danger',
-  }
-  return map[status] || 'info'
+const getSuiteDisplayStatus = (row) => {
+  const status = row.execution_status
+  const result = row.execution_result
+  if (status === 'not_run') return { type: 'info', text: '未执行' }
+  if (status === 'running') return { type: 'warning', text: '执行中' }
+  if (status === 'error') return { type: 'danger', text: '执行异常' }
+  // completed -> 显示测试结果
+  if (result === 'passed') return { type: 'success', text: '通过' }
+  if (result === 'failed') return { type: 'danger', text: '失败' }
+  if (result === 'skipped') return { type: 'warning', text: '跳过' }
+  // 向后兼容旧值
+  if (status === 'success') return { type: 'success', text: '通过' }
+  if (status === 'failed') return { type: 'danger', text: '失败' }
+  return { type: 'info', text: status }
 }
 
-const getStatusType = getExecutionStatusType
-const getStatusText = getExecutionStatusText
-
-const getProgressStatus = (status) => {
-  if (status === 'success') return 'success'
-  if (status === 'failed') return 'exception'
+const getProgressStatus = (row) => {
+  if (row.status === 'completed') {
+    return row.result === 'failed' ? 'exception' : 'success'
+  }
+  if (row.status === 'error') return 'exception'
   return undefined
 }
 

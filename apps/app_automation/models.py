@@ -3,7 +3,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from .constants import DeviceStatus, ExecutionStatus, ElementType
+from .constants import DeviceStatus, ExecutionStatus, ExecutionResult, ElementType
 
 User = get_user_model()
 
@@ -396,8 +396,13 @@ class AppTestSuite(models.Model):
     EXECUTION_STATUS_CHOICES = [
         ('not_run', '未执行'),
         ('running', '执行中'),
-        ('success', '通过'),
+        ('completed', '已完成'),
+        ('error', '执行异常'),
+    ]
+    EXECUTION_RESULT_CHOICES = [
+        ('passed', '通过'),
         ('failed', '失败'),
+        ('skipped', '跳过'),
     ]
 
     project = models.ForeignKey(
@@ -420,6 +425,14 @@ class AppTestSuite(models.Model):
         choices=EXECUTION_STATUS_CHOICES,
         default='not_run',
         verbose_name='执行状态'
+    )
+    execution_result = models.CharField(
+        max_length=20,
+        choices=EXECUTION_RESULT_CHOICES,
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name='测试结果'
     )
     passed_count = models.IntegerField(default=0, verbose_name='通过用例数')
     failed_count = models.IntegerField(default=0, verbose_name='失败用例数')
@@ -528,9 +541,15 @@ class AppTestExecution(models.Model):
     STATUS_CHOICES = [
         (ExecutionStatus.PENDING, '等待中'),
         (ExecutionStatus.RUNNING, '执行中'),
-        (ExecutionStatus.SUCCESS, '成功'),
-        (ExecutionStatus.FAILED, '失败'),
+        (ExecutionStatus.COMPLETED, '已完成'),
+        (ExecutionStatus.ERROR, '执行异常'),
         (ExecutionStatus.STOPPED, '已停止'),
+    ]
+
+    RESULT_CHOICES = [
+        (ExecutionResult.PASSED, '通过'),
+        (ExecutionResult.FAILED, '失败'),
+        (ExecutionResult.SKIPPED, '跳过'),
     ]
     
     test_case = models.ForeignKey(
@@ -570,6 +589,14 @@ class AppTestExecution(models.Model):
         choices=STATUS_CHOICES, 
         default=ExecutionStatus.PENDING, 
         verbose_name='执行状态'
+    )
+    result = models.CharField(
+        max_length=20,
+        choices=RESULT_CHOICES,
+        null=True,
+        blank=True,
+        default=None,
+        verbose_name='测试结果'
     )
     task_id = models.CharField(
         max_length=255, 

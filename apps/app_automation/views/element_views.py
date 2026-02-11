@@ -8,6 +8,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.http import FileResponse
 from django.conf import settings
 from pathlib import Path
+from .test_case_views import AppPagination
 import hashlib
 import re
 import logging
@@ -23,6 +24,7 @@ class AppElementViewSet(viewsets.ModelViewSet):
     queryset = AppElement.objects.filter(is_active=True)
     serializer_class = AppElementSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
     # ⚠️ 移除 SearchFilter，使用自定义搜索逻辑
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['element_type', 'is_active', 'project']

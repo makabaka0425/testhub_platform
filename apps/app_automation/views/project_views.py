@@ -7,6 +7,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
 import logging
 
+from .test_case_views import AppPagination
 from ..models import AppProject
 from ..serializers import (
     AppProjectSerializer,
@@ -21,6 +22,7 @@ class AppProjectViewSet(viewsets.ModelViewSet):
     """APP自动化项目 ViewSet"""
     queryset = AppProject.objects.all()
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'owner']
     search_fields = ['name', 'description']

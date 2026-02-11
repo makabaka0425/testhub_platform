@@ -176,10 +176,10 @@ class AppTestExecutor:
             os.chdir(original_cwd)
     
     def _get_log_file_path(self, username: str) -> str:
-        """生成日志文件路径: apps/app_automation/logs/{username}/{日期}.log"""
+        """生成日志文件路径: logs/app_automation/{username}/{日期}.log"""
         today = datetime.now().strftime('%Y-%m-%d')
         log_dir = os.path.join(
-            str(self.base_path), 'apps', 'app_automation', 'logs', username
+            str(self.base_path), 'logs', 'app_automation', username
         )
         os.makedirs(log_dir, exist_ok=True)
         return os.path.join(log_dir, f'{today}.log')
@@ -201,8 +201,8 @@ class AppTestExecutor:
         return os.pathsep.join(python_path_parts)
     
     def _get_allure_results_dir(self, execution_id: Optional[int] = None) -> str:
-        """获取 Allure 结果目录: apps/app_automation/allure-results/"""
-        base_dir = os.path.join(settings.BASE_DIR, 'apps', 'app_automation', 'allure-results')
+        """获取 Allure 结果目录: media/app-automation/allure-results/"""
+        base_dir = os.path.join(settings.MEDIA_ROOT, 'app-automation', 'allure-results')
         
         if execution_id:
             return os.path.join(base_dir, f'execution_{execution_id}')
@@ -210,8 +210,8 @@ class AppTestExecutor:
         return base_dir
     
     def _get_allure_report_dir(self, execution_id: Optional[int] = None) -> str:
-        """获取 Allure 报告目录: apps/app_automation/allure-reports/"""
-        base_dir = os.path.join(settings.BASE_DIR, 'apps', 'app_automation', 'allure-reports')
+        """获取 Allure 报告目录: media/app-automation/allure-reports/"""
+        base_dir = os.path.join(settings.MEDIA_ROOT, 'app-automation', 'allure-reports')
         
         if execution_id:
             return os.path.join(base_dir, f'execution_{execution_id}')

@@ -10,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 
+from .test_case_views import AppPagination
 from ..models import (
     AppScheduledTask, AppNotificationLog,
     AppTestSuite, AppTestCase, AppDevice,
@@ -27,6 +28,7 @@ class AppScheduledTaskViewSet(viewsets.ModelViewSet):
     queryset = AppScheduledTask.objects.all()
     serializer_class = AppScheduledTaskSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['task_type', 'status', 'trigger_type', 'project']
     search_fields = ['name', 'description']
@@ -154,6 +156,7 @@ class AppNotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AppNotificationLog.objects.all()
     serializer_class = AppNotificationLogSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'notification_type']
     search_fields = ['task_name', 'notification_content']

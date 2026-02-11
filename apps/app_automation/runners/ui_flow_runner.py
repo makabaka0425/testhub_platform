@@ -58,9 +58,9 @@ class UiFlowRunner:
             # 使用统一的 Template 目录作为图片基础目录
             self.image_base_dir = os.path.join(settings.BASE_DIR, 'apps', 'app_automation', 'Template')
         
-        # 截图保存目录: apps/app_automation/screenshots/{username}/
+        # 截图保存目录: media/app-automation/screenshots/{username}/
         self.screenshots_dir = os.path.join(
-            settings.BASE_DIR, 'apps', 'app_automation', 'screenshots', username or 'unknown'
+            settings.MEDIA_ROOT, 'app-automation', 'screenshots', username or 'unknown'
         )
         
         os.makedirs(self.image_base_dir, exist_ok=True)

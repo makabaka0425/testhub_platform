@@ -4,6 +4,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 import logging
@@ -14,11 +15,19 @@ from ..serializers import AppPackageSerializer, AppTestCaseSerializer, AppTestEx
 logger = logging.getLogger(__name__)
 
 
+class AppPagination(PageNumberPagination):
+    """APP自动化模块通用分页"""
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class AppPackageViewSet(viewsets.ModelViewSet):
     """APP应用包名管理 ViewSet"""
     queryset = AppPackage.objects.all()
     serializer_class = AppPackageSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
     search_fields = ['name', 'package_name']
     
     def perform_create(self, serializer):
@@ -30,6 +39,7 @@ class AppTestCaseViewSet(viewsets.ModelViewSet):
     queryset = AppTestCase.objects.all()
     serializer_class = AppTestCaseSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['project', 'app_package']
     search_fields = ['name']

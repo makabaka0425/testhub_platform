@@ -10,6 +10,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 import logging
 
+from .test_case_views import AppPagination
 from ..models import AppDevice
 from ..serializers import AppDeviceSerializer
 from ..managers.device_manager import DeviceManager
@@ -35,6 +36,7 @@ class AppDeviceViewSet(viewsets.ModelViewSet):
     queryset = AppDevice.objects.all()
     serializer_class = AppDeviceSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'connection_type']
     search_fields = ['device_id', 'name']

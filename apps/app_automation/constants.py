@@ -13,12 +13,23 @@ class DeviceStatus:
 
 
 class ExecutionStatus:
-    """执行状态"""
+    """执行状态（任务生命周期）"""
     PENDING = 'pending'
     RUNNING = 'running'
+    COMPLETED = 'completed'
+    ERROR = 'error'
+    STOPPED = 'stopped'
+
+    # 向后兼容旧值
     SUCCESS = 'success'
     FAILED = 'failed'
-    STOPPED = 'stopped'
+
+
+class ExecutionResult:
+    """测试结果（用例真实通过/失败）"""
+    PASSED = 'passed'
+    FAILED = 'failed'
+    SKIPPED = 'skipped'
 
 
 class ElementType:

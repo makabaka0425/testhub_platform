@@ -30,8 +30,8 @@
             <el-col :span="5">
               <el-select v-model="suiteStatusFilter" placeholder="执行状态" clearable @change="loadSuiteReports">
                 <el-option label="全部" value="" />
-                <el-option label="通过" value="success" />
-                <el-option label="失败" value="failed" />
+                <el-option label="已完成" value="completed" />
+                <el-option label="执行异常" value="error" />
                 <el-option label="执行中" value="running" />
               </el-select>
             </el-col>
@@ -50,8 +50,8 @@
           </el-table-column>
           <el-table-column label="执行状态" min-width="90">
             <template #default="{ row }">
-              <el-tag :type="getSuiteStatusType(row.execution_status)" size="small">
-                {{ row.execution_status_display || row.execution_status }}
+              <el-tag :type="getSuiteDisplayStatus(row).type" size="small">
+                {{ getSuiteDisplayStatus(row).text }}
               </el-tag>
             </template>
           </el-table-column>
@@ -135,8 +135,8 @@
             <el-col :span="4">
               <el-select v-model="caseStatusFilter" placeholder="执行状态" clearable @change="loadCaseReports">
                 <el-option label="全部" value="" />
-                <el-option label="成功" value="success" />
-                <el-option label="失败" value="failed" />
+                <el-option label="已完成" value="completed" />
+                <el-option label="执行异常" value="error" />
                 <el-option label="已停止" value="stopped" />
               </el-select>
             </el-col>
@@ -157,7 +157,9 @@
           </el-table-column>
           <el-table-column label="状态" min-width="80">
             <template #default="{ row }">
-              <el-tag :type="getStatusType(row.status)" size="small">{{ getStatusText(row.status) }}</el-tag>
+              <el-tag :type="getDisplayStatus(row.status, row.result).type" size="small">
+                {{ getDisplayStatus(row.status, row.result).text }}
+              </el-tag>
             </template>
           </el-table-column>
           <el-table-column label="步骤通过率" min-width="140">
@@ -219,8 +221,8 @@
         <el-descriptions :column="2" border>
           <el-descriptions-item label="套件名称">{{ selectedSuite.name }}</el-descriptions-item>
           <el-descriptions-item label="执行状态">
-            <el-tag :type="getSuiteStatusType(selectedSuite.execution_status)">
-              {{ selectedSuite.execution_status_display || selectedSuite.execution_status }}
+            <el-tag :type="getSuiteDisplayStatus(selectedSuite).type">
+              {{ getSuiteDisplayStatus(selectedSuite).text }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="创建人">{{ selectedSuite.created_by_name || '-' }}</el-descriptions-item>
@@ -277,7 +279,9 @@
         </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">{{ getStatusText(row.status) }}</el-tag>
+            <el-tag :type="getDisplayStatus(row.status, row.result).type" size="small">
+              {{ getDisplayStatus(row.status, row.result).text }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="步骤统计" width="200">
@@ -316,7 +320,9 @@
           <el-descriptions-item label="测试用例">{{ selectedCase.case_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="执行设备">{{ selectedCase.device_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="执行状态">
-            <el-tag :type="getStatusType(selectedCase.status)">{{ getStatusText(selectedCase.status) }}</el-tag>
+            <el-tag :type="getDisplayStatus(selectedCase.status, selectedCase.result).type">
+              {{ getDisplayStatus(selectedCase.status, selectedCase.result).text }}
+            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="执行人">{{ selectedCase.user_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="开始时间">{{ formatDateTime(selectedCase.started_at) }}</el-descriptions-item>
@@ -381,7 +387,7 @@ import {
   getTestSuiteList, getTestSuiteExecutions,
   getAppProjects,
 } from '@/api/app-automation.js'
-import { getExecutionStatusType, getExecutionStatusText, formatDateTime } from '@/utils/app-automation-helpers.js'
+import { getExecutionStatusType, getExecutionStatusText, getDisplayStatus, formatDateTime } from '@/utils/app-automation-helpers.js'
 
 // ==================== 公共 ====================
 const activeTab = ref('suite')
@@ -413,8 +419,8 @@ const selectedSuite = ref(null)
 const suiteStatsCards = computed(() => {
   const data = suiteReports.value
   const executed = data.filter(s => s.last_run_at)
-  const success = executed.filter(s => s.execution_status === 'success')
-  const failed = executed.filter(s => s.execution_status === 'failed')
+  const success = executed.filter(s => s.execution_result === 'passed')
+  const failed = executed.filter(s => s.execution_result === 'failed')
   const avgRate = executed.length > 0
     ? Math.round(executed.reduce((sum, s) => sum + getSuitePassRate(s), 0) / executed.length)
     : 0
@@ -490,9 +496,19 @@ function getSuitePassRate(suite) {
   return Math.round(((suite.passed_count || 0) / total) * 100)
 }
 
-function getSuiteStatusType(status) {
-  const map = { 'not_run': 'info', 'running': 'warning', 'success': 'success', 'failed': 'danger' }
-  return map[status] || 'info'
+function getSuiteDisplayStatus(row) {
+  const status = row.execution_status
+  const result = row.execution_result
+  if (status === 'not_run') return { type: 'info', text: '未执行' }
+  if (status === 'running') return { type: 'warning', text: '执行中' }
+  if (status === 'error') return { type: 'danger', text: '执行异常' }
+  if (result === 'passed') return { type: 'success', text: '通过' }
+  if (result === 'failed') return { type: 'danger', text: '失败' }
+  if (result === 'skipped') return { type: 'warning', text: '跳过' }
+  // 向后兼容
+  if (status === 'success') return { type: 'success', text: '通过' }
+  if (status === 'failed') return { type: 'danger', text: '失败' }
+  return { type: 'info', text: status }
 }
 
 // ==================== 用例报告 ====================
@@ -507,14 +523,14 @@ const selectedCase = ref(null)
 
 const caseStatsCards = computed(() => {
   const data = caseReports.value
-  const success = data.filter(r => r.status === 'success').length
-  const failed = data.filter(r => r.status === 'failed').length
+  const success = data.filter(r => r.result === 'passed').length
+  const failed = data.filter(r => r.result === 'failed').length
   const avgRate = data.length > 0
     ? Math.round(data.reduce((sum, r) => sum + (r.pass_rate || 0), 0) / data.length)
     : 0
   return [
     { label: '总报告数', value: casePagination.total, color: '#409eff' },
-    { label: '本页成功', value: success, color: '#67c23a' },
+    { label: '本页通过', value: success, color: '#67c23a' },
     { label: '本页失败', value: failed, color: '#f56c6c' },
     { label: '本页平均通过率', value: avgRate + '%', color: '#e6a23c' },
   ]
@@ -563,8 +579,7 @@ async function deleteCaseReport(row) {
   } catch (e) { if (e !== 'cancel') ElMessage.error('删除失败') }
 }
 
-const getStatusType = getExecutionStatusType
-const getStatusText = getExecutionStatusText
+// getDisplayStatus 已从 helpers 导入
 
 function getPassRateColor(rate) {
   if (rate >= 80) return '#67c23a'

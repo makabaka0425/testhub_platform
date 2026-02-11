@@ -10,6 +10,7 @@ import logging
 import json
 import yaml
 from datetime import datetime
+from .test_case_views import AppPagination
 
 from ..models import AppComponent, AppCustomComponent, AppComponentPackage
 from ..serializers import (
@@ -26,6 +27,7 @@ class AppComponentViewSet(viewsets.ModelViewSet):
     queryset = AppComponent.objects.all()
     serializer_class = AppComponentSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
 
     def get_queryset(self):
         queryset = AppComponent.objects.all()
@@ -82,6 +84,7 @@ class AppCustomComponentViewSet(viewsets.ModelViewSet):
     queryset = AppCustomComponent.objects.all()
     serializer_class = AppCustomComponentSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
 
     def get_queryset(self):
         queryset = AppCustomComponent.objects.all()
@@ -139,6 +142,7 @@ class AppComponentPackageViewSet(viewsets.ModelViewSet):
     queryset = AppComponentPackage.objects.all()
     serializer_class = AppComponentPackageSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AppPagination
 
     def _parse_manifest(self, request) -> dict:
         """解析组件包清单"""
