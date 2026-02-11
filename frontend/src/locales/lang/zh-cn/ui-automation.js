@@ -1186,7 +1186,8 @@ export default {
       createSuccess: '测试用例创建成功',
       updateSuccess: '测试用例更新成功',
       createFailed: '保存失败',
-      variableInserted: '已插入变量'
+      variableInserted: '已插入变量',
+      dataFactorySelected: '已选择数据工厂: {toolName}'
     }
   },
 
