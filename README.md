@@ -209,8 +209,10 @@ testhub_platform/
 ### 环境要求
 
 - **Python**: 推荐Python3.12,其他版本可能会存在兼容性问题
-- **Node.js**: 18+
-- **MySQL**: 8.0+
+- **Node.js**: 18+(开发环境必须安装Node.js用于构建前端项目,生产可不安装)
+- **MySQL**: 8.0+(必须安装MySQL客户端，用于执行数据库迁移等操作)
+- **Java**: 17+ (可选,用于运行浏览器驱动、Allure 报告生成等，否则会生成报告失败)
+- **Redis**: 6.0+ (可选,用于APP自动化测试相关)
 - **浏览器驱动**: ChromeDriver / GeckoDriver (用于 UI 自动化,建议提前下载好)
 
 ### 后端部署
@@ -266,23 +268,27 @@ python manage.py createsuperuser
 # 根目录执行
 python manage.py init_locator_strategies
 ```
+7. **初始化app自动化组件库**
+```bash
+# 根目录执行
+python manage.py load_component_pack
+```
 
-7. **启动定时任务**
+8. **启动定时任务**
 ```bash
 # 启动统一任务调度器(同时管理API和UI模块)
 python manage.py run_all_scheduled_tasks
-```
-
-8. **数据工厂初始化（从低版本升级到当前版本需要执行此步骤，新安装不需要执行此步骤）**
-```bash
-python manage.py makemigrations data_factory
-python manage.py migrate data_factory
 ```
 
 9. **启动服务**
 ```bash
 # 启动 Django 开发服务器
 python manage.py runserver
+```
+10. **启动Celery服务**
+```bash
+# 启动 Celery 开发服务(可选，用于处理APP自动化任务)
+celery -A backend worker -l info
 ```
 
 ### 数据工厂模块初始化
