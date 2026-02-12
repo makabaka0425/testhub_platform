@@ -86,7 +86,6 @@ orjson==3.11.5
 outcome==1.3.0.post0
 packaging==25.0
 pfzy==0.3.4
-pillow==11.3.0
 playwright==1.57.0
 pluggy==1.6.0
 ply==3.11

@@ -1040,7 +1040,7 @@ const handleDataFactorySelect = (record) => {
     }
     
     step[field] = valueToSet
-    ElMessage.success(t('uiAutomation.testCase.dataFactory.selected', { toolName: record.tool_name }))
+    ElMessage.success(t('uiAutomation.testCase.messages.dataFactorySelected', { toolName: record.tool_name }))
   }
   
   showDataFactorySelector.value = false
@@ -1058,7 +1058,7 @@ const insertVariable = (variable) => {
       currentEditingStep.value[currentEditingField.value] = currentValue + example
     }
     
-    ElMessage.success(t('uiAutomation.testCase.variable.inserted', { name: variable.name }))
+    ElMessage.success(t('uiAutomation.testCase.messages.variableInserted', { name: variable.name }))
     showVariableHelper.value = false
   }
 }
