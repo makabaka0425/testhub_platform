@@ -261,7 +261,10 @@ def execute_app_test_task(execution_id, package_name: str = None, scheduled_task
         test_results = report_result.get('test_results', {})
         execution.total_steps = test_results.get('total', 0)
         execution.passed_steps = test_results.get('passed', 0)
-        execution.failed_steps = test_results.get('failed', 0)
+        # Broken 状态在解析时应已经加到 failed 中，额外保底
+        execution.failed_steps = test_results.get('failed', 0) + test_results.get('broken', 0)
+        if test_results.get('broken', 0):
+            logger.info(f"检测到 broken 用例 {test_results.get('broken')} 个，计入失败统计。")
         
         execution.progress = 95
         execution.save()
@@ -446,7 +449,9 @@ def execute_app_suite_task(suite_id, execution_ids, package_name=None, scheduled
                 test_results = report_result.get('test_results', {})
                 execution.total_steps = test_results.get('total', 0)
                 execution.passed_steps = test_results.get('passed', 0)
-                execution.failed_steps = test_results.get('failed', 0)
+                execution.failed_steps = test_results.get('failed', 0) + test_results.get('broken', 0)
+                if test_results.get('broken', 0):
+                    logger.info(f"检测到 broken 用例 {test_results.get('broken')} 个，计入失败统计。")
 
                 execution.status = 'completed'
                 if execution.total_steps == 0:
