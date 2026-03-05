@@ -2983,9 +2983,27 @@ class AICaseViewSet(viewsets.ModelViewSet):
                     execution_record.status = 'stopped'
                     execution_record.logs += "\n[System] 任务已由用户停止。"
                 else:
-                    # 更新成功状态
-                    execution_record.status = 'passed'
-                    execution_record.logs += "\n执行完成。"
+                    # 根据执行过程判断最终状态（任务或步骤出现失败则标记失败）
+                    failed = False
+                    if execution_record.planned_tasks:
+                        failed = any(t.get('status') in ('failed', 'error') for t in execution_record.planned_tasks)
+                    # history 也可能包含状态信息
+                    if not failed and history:
+                        try:
+                            steps = history.steps if hasattr(history, 'steps') else []
+                            for step in steps:
+                                if getattr(step, 'status', None) == 'failed':
+                                    failed = True
+                                    break
+                        except Exception:
+                            pass
+
+                    if failed:
+                        execution_record.status = 'failed'
+                        execution_record.logs += "\n执行完成，但检测到失败步骤或任务。"
+                    else:
+                        execution_record.status = 'passed'
+                        execution_record.logs += "\n执行完成。"
 
                     # 记录任务完成统计信息
                     if execution_record.planned_tasks:
@@ -3329,9 +3347,26 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                     execution_record.status = 'stopped'
                     execution_record.logs += "\n[System] 任务已由用户停止。"
                 else:
-                    # 更新成功状态
-                    execution_record.status = 'passed'
-                    execution_record.logs += "\n执行完成。"
+                    # 根据执行结果判定失败
+                    failed = False
+                    if execution_record.planned_tasks:
+                        failed = any(t.get('status') in ('failed', 'error') for t in execution_record.planned_tasks)
+                    if not failed and history:
+                        try:
+                            steps = history.steps if hasattr(history, 'steps') else []
+                            for step in steps:
+                                if getattr(step, 'status', None) == 'failed':
+                                    failed = True
+                                    break
+                        except Exception:
+                            pass
+
+                    if failed:
+                        execution_record.status = 'failed'
+                        execution_record.logs += "\n执行完成，但检测到失败步骤或任务。"
+                    else:
+                        execution_record.status = 'passed'
+                        execution_record.logs += "\n执行完成。"
 
                     # 记录任务完成统计信息
                     if execution_record.planned_tasks:
