@@ -314,10 +314,15 @@ class AppTestExecutor:
                         
                         if status == 'passed':
                             passed += 1
-                        elif status == 'failed':
+                        elif status in ('failed', 'broken'):
+                            # allure 会把异常用例标记为 broken，需要当作失败处理
                             failed += 1
                         elif status == 'skipped':
                             skipped += 1
+                        else:
+                            # 其他未知状态同样视为失败，保证不会被误判为通过
+                            failed += 1
+                            logger.debug(f"未知测试状态 '{status}' 视为失败: {result_file}")
                             
                 except Exception as e:
                     logger.warning(f"解析结果文件失败: {result_file}, 错误: {e}")
