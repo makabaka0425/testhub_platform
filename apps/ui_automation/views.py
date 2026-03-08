@@ -3087,35 +3087,34 @@ class AICaseViewSet(viewsets.ModelViewSet):
         """
         自动标记已完成的任务
         通过分析执行历史和当前任务状态，自动标记那些已经执行但未被标记完成的任务
+        
+        注意：已移除统一标记逻辑，任务状态完全由AI智能体通过mark_task_complete控制
+        - 执行成功时标记为completed
+        - 执行失败时标记为failed
+        - 跳过执行时标记为skipped
+        - 未执行时标记为pending
         """
         try:
             # 记录初始状态
             initial_completed = 0
             initial_pending = 0
+            initial_failed = 0
+            initial_skipped = 0
+            
             if execution_record.planned_tasks:
                 initial_completed = len([t for t in execution_record.planned_tasks if t.get('status') == 'completed'])
                 initial_pending = len([t for t in execution_record.planned_tasks if t.get('status') == 'pending'])
-                logger.info(f"📊 Before auto-mark: {initial_completed} completed, {initial_pending} pending tasks")
-
-            # 如果执行成功，标记所有任务为完成
-            if execution_record.status == 'passed' and execution_record.planned_tasks:
-                auto_marked_count = 0
-                for task in execution_record.planned_tasks:
-                    # 只对标记为pending的任务进行处理
-                    if task.get('status') == 'pending':
-                        task['status'] = 'completed'
-                        auto_marked_count += 1
-                        logger.info(f"🔒 Auto-marked task {task['id']} as completed")
-
-                if auto_marked_count > 0:
-                    logger.info(f"✨ Auto-marked {auto_marked_count} tasks as completed")
-                else:
-                    logger.info("📋 No pending tasks needed auto-marking")
-
-            # TODO: 可以添加更智能的分析逻辑来识别部分完成的任务
+                initial_failed = len([t for t in execution_record.planned_tasks if t.get('status') == 'failed'])
+                initial_skipped = len([t for t in execution_record.planned_tasks if t.get('status') == 'skipped'])
+                
+                logger.info(f"📊 Task status summary: {initial_completed} completed, {initial_pending} pending, {initial_failed} failed, {initial_skipped} skipped")
+            
+            # 不再自动标记所有任务为完成
+            # 任务状态完全由AI智能体通过mark_task_complete来控制
+            logger.info("📋 Task statuses are controlled by AI agent via mark_task_complete action")
 
         except Exception as e:
-            logger.warning(f"⚠️ Failed to auto-mark completed tasks: {e}")
+            logger.warning(f"⚠️ Failed to summarize task statuses: {e}")
 
 
 # 全局停止信号字典 {execution_id: bool}
@@ -3455,35 +3454,34 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
         """
         自动标记已完成的任务
         通过分析执行历史和当前任务状态，自动标记那些已经执行但未被标记完成的任务
+        
+        注意：已移除统一标记逻辑，任务状态完全由AI智能体通过mark_task_complete控制
+        - 执行成功时标记为completed
+        - 执行失败时标记为failed
+        - 跳过执行时标记为skipped
+        - 未执行时标记为pending
         """
         try:
             # 记录初始状态
             initial_completed = 0
             initial_pending = 0
+            initial_failed = 0
+            initial_skipped = 0
+            
             if execution_record.planned_tasks:
                 initial_completed = len([t for t in execution_record.planned_tasks if t.get('status') == 'completed'])
                 initial_pending = len([t for t in execution_record.planned_tasks if t.get('status') == 'pending'])
-                logger.info(f"📊 Before auto-mark: {initial_completed} completed, {initial_pending} pending tasks")
-
-            # 如果执行成功，标记所有任务为完成
-            if execution_record.status == 'passed' and execution_record.planned_tasks:
-                auto_marked_count = 0
-                for task in execution_record.planned_tasks:
-                    # 只对标记为pending的任务进行处理
-                    if task.get('status') == 'pending':
-                        task['status'] = 'completed'
-                        auto_marked_count += 1
-                        logger.info(f"🔒 Auto-marked task {task['id']} as completed")
-
-                if auto_marked_count > 0:
-                    logger.info(f"✨ Auto-marked {auto_marked_count} tasks as completed")
-                else:
-                    logger.info("📋 No pending tasks needed auto-marking")
-
-            # TODO: 可以添加更智能的分析逻辑来识别部分完成的任务
+                initial_failed = len([t for t in execution_record.planned_tasks if t.get('status') == 'failed'])
+                initial_skipped = len([t for t in execution_record.planned_tasks if t.get('status') == 'skipped'])
+                
+                logger.info(f"📊 Task status summary: {initial_completed} completed, {initial_pending} pending, {initial_failed} failed, {initial_skipped} skipped")
+            
+            # 不再自动标记所有任务为完成
+            # 任务状态完全由AI智能体通过mark_task_complete来控制
+            logger.info("📋 Task statuses are controlled by AI agent via mark_task_complete action")
 
         except Exception as e:
-            logger.warning(f"⚠️ Failed to auto-mark completed tasks: {e}")
+            logger.warning(f"⚠️ Failed to summarize task statuses: {e}")
 
     @action(detail=True, methods=['get'], url_path='report')
     def generate_report(self, request, pk=None):
