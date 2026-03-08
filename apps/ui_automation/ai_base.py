@@ -106,17 +106,48 @@ try:
 
         try:
             if hasattr(response, 'content') and isinstance(response.content, str):
-                content_dict = json_module.loads(response.content)
+                # 处理带有 <thinking> 标签的响应
+                content_text = response.content.strip()
+                # 移除开头的 <thinking>...</thinking> 标签块
+                import re
+                thinking_pattern = r'^<thinking>.*?</thinking>\s*'
+                if re.match(thinking_pattern, content_text, re.DOTALL):
+                    content_text = re.sub(thinking_pattern, '', content_text, count=1, flags=re.DOTALL)
+                    logger.info("🔧 Fixed: removed leading <thinking> block from response")
+                
+                content_dict = json_module.loads(content_text)
 
                 # 规范化 action 字典
                 if 'action' in content_dict:
+                    import re
                     normalized_actions = []
                     for action_dict in content_dict['action']:
+                        # 处理字符串格式的 action（如 "mark_task_complete(task_id=8)"）
+                        if isinstance(action_dict, str):
+                            match = re.match(r'(\w+)\(([^)]*)\)', action_dict.strip())
+                            if match:
+                                action_name = match.group(1)
+                                params_str = match.group(2)
+                                # 解析参数
+                                if action_name == 'mark_task_complete':
+                                    task_id_match = re.search(r'task_id=(\d+)', params_str)
+                                    if task_id_match:
+                                        normalized_actions.append({action_name: {'task_id': int(task_id_match.group(1))}})
+                                        logger.info(f"🔧 Fixed: parsed string action '{action_dict}'")
+                                elif action_name == 'done':
+                                    normalized_actions.append({'done': {}})
+                            continue
+                        
                         normalized_action = {}
                         for action_name, action_params in action_dict.items():
-                            # 自动修复: 将 int 参数转换为 index 字典
+                            # 自动修复: 将 int 参数转换为对应的参数字典
                             if isinstance(action_params, int):
-                                normalized_action[action_name] = {'index': action_params}
+                                # mark_task_complete 需要转换为 {'task_id': value}
+                                if action_name == 'mark_task_complete':
+                                    normalized_action[action_name] = {'task_id': action_params}
+                                else:
+                                    # 其他操作转换为 {'index': value}
+                                    normalized_action[action_name] = {'index': action_params}
                             # 自动修复: switch_tab 的 tab_id 字符串参数
                             elif action_name == 'switch_tab' and isinstance(action_params, str) and not isinstance(
                                     action_params, dict):
@@ -129,10 +160,31 @@ try:
                                     else:
                                         normalized_params[k] = v
                                 normalized_action[action_name] = normalized_params
+                            # 忽略无效的字符串参数（如 {"click": "保存"}）
+                            elif isinstance(action_params, str) and action_name not in ['done']:
+                                logger.warning(f"⚠️ Invalid action format: {action_name}: {action_params}, skipping")
+                                continue
                             else:
                                 normalized_action[action_name] = action_params
-                        normalized_actions.append(normalized_action)
+                        if normalized_action:  # 只添加非空的 action
+                            normalized_actions.append(normalized_action)
                     content_dict['action'] = normalized_actions
+                
+                # 检查 action 数组外部的 mark_task_complete（错误格式）
+                # 如果存在，将其添加到 action 数组中
+                if 'mark_task_complete' in content_dict and isinstance(content_dict['mark_task_complete'], dict):
+                    task_id = content_dict['mark_task_complete'].get('task_id')
+                    if task_id:
+                        if 'action' not in content_dict:
+                            content_dict['action'] = []
+                        content_dict['action'].append({'mark_task_complete': {'task_id': task_id}})
+                        logger.info(f"🔧 Fixed: moved mark_task_complete(task_id={task_id}) into action array")
+                elif 'mark_task_complete' in content_dict and isinstance(content_dict['mark_task_complete'], int):
+                    task_id = content_dict['mark_task_complete']
+                    if 'action' not in content_dict:
+                        content_dict['action'] = []
+                    content_dict['action'].append({'mark_task_complete': {'task_id': task_id}})
+                    logger.info(f"🔧 Fixed: converted mark_task_complete({task_id}) to proper format and added to action array")
 
                 parsed = AgentOutput.model_construct(
                     thinking=content_dict.get('thinking'),
@@ -257,6 +309,12 @@ try:
             import json as json_module
             clean_content = result.content.strip() if hasattr(result, 'content') else str(result).strip()
 
+            # 处理带有 <thinking> 标签的响应
+            thinking_pattern = r'^<thinking>.*?</thinking>\s*'
+            if re.match(thinking_pattern, clean_content, re.DOTALL):
+                clean_content = re.sub(thinking_pattern, '', clean_content, count=1, flags=re.DOTALL)
+                logger.info("🔧 Fixed in TokenCost: removed leading <thinking> block from response")
+
             # Remove Markdown
             if '```' in clean_content:
                 match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', clean_content, re.DOTALL)
@@ -306,6 +364,22 @@ try:
                 # Normalize actions
                 normalized_actions = []
                 for action_dict in parsed_data['action']:
+                    # 处理字符串格式的 action（如 "mark_task_complete(task_id=8)"）
+                    if isinstance(action_dict, str):
+                        match = re.match(r'(\w+)\(([^)]*)\)', action_dict.strip())
+                        if match:
+                            action_name = match.group(1)
+                            params_str = match.group(2)
+                            # 解析参数
+                            if action_name == 'mark_task_complete':
+                                task_id_match = re.search(r'task_id=(\d+)', params_str)
+                                if task_id_match:
+                                    normalized_actions.append({action_name: {'task_id': int(task_id_match.group(1))}})
+                                    logger.info(f"🔧 Fixed in TokenCost: parsed string action '{action_dict}'")
+                            elif action_name == 'done':
+                                normalized_actions.append({'done': {}})
+                        continue
+                    
                     normalized_action = {}
                     for action_name, action_params in action_dict.items():
                         if isinstance(action_params, dict):
@@ -316,10 +390,32 @@ try:
                                 else:
                                     normalized_params[k] = v
                             normalized_action[action_name] = normalized_params
+                        elif isinstance(action_params, int):
+                            # 处理整数参数：mark_task_complete 需要 task_id，其他需要 index
+                            if action_name == 'mark_task_complete':
+                                normalized_action[action_name] = {'task_id': action_params}
+                            else:
+                                normalized_action[action_name] = {'index': action_params}
+                        # 忽略无效的字符串参数（如 {"click": "保存"}）
+                        elif isinstance(action_params, str) and action_name not in ['done']:
+                            logger.warning(f"⚠️ Invalid action format in TokenCost: {action_name}: {action_params}, skipping")
+                            continue
                         else:
                             normalized_action[action_name] = action_params
-                    normalized_actions.append(normalized_action)
+                    if normalized_action:  # 只添加非空的 action
+                        normalized_actions.append(normalized_action)
                 parsed_data['action'] = normalized_actions
+
+                # 检查 action 数组外部的 mark_task_complete（错误格式）
+                if 'mark_task_complete' in parsed_data:
+                    task_id = None
+                    if isinstance(parsed_data['mark_task_complete'], dict):
+                        task_id = parsed_data['mark_task_complete'].get('task_id')
+                    elif isinstance(parsed_data['mark_task_complete'], int):
+                        task_id = parsed_data['mark_task_complete']
+                    if task_id:
+                        parsed_data['action'].append({'mark_task_complete': {'task_id': task_id}})
+                        logger.info(f"🔧 Fixed in TokenCost: moved mark_task_complete(task_id={task_id}) into action array")
 
                 try:
                     from browser_use.agent.message_manager.service import AgentOutput
@@ -1019,17 +1115,35 @@ class BaseBrowserAgent:
         from datetime import datetime
         final_task += f"\n\nCURRENT TIME: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         final_task += "\nCRITICAL PERFORMANCE & SYNC RULES:\n"
-        final_task += "1. ACTION-TASK MAPPING: For EVERY sub-task that requires an action (click, input, select), you MUST call 'mark_task_complete(task_id=...)' in the SAME STEP as that action. DO NOT skip any task ID. Example: After clicking a button for task 8, immediately call mark_task_complete(task_id=8). IF YOU PERFORM MULTIPLE ACTIONS IN ONE STEP, YOU MUST CALL mark_task_complete FOR EACH CORRESPONDING TASK.\n"
+        final_task += "1. TASK COMPLETION MARKING RULES:\n"
+        final_task += "   a) MARK AFTER COMPLETION: Call 'mark_task_complete(task_id=N)' ONLY AFTER you have SUCCESSFULLY COMPLETED task N.\n"
+        final_task += "   b) MARK CURRENT TASK: Always mark the task you just completed, NOT the next task or previous tasks.\n"
+        final_task += "   c) CHECK TASK ID: Before marking, verify: 'I just completed task N' - if N is already marked, check which task you actually completed.\n"
+        final_task += "   d) DO NOT SKIP: Every click/input/select action MUST be followed by mark_task_complete for that specific task.\n"
+        final_task += "   e) EXAMPLE: If task 4 is 'click version management', action should be [{click: {...}}, {mark_task_complete: {task_id: 4}}]\n"
+        final_task += "   f) NO PRE-MARKING: Never mark a task before completing it. Never mark a task twice.\n"
         final_task += "2. NO JAVASCRIPT IN INPUT: When a task asks for a timestamp, YOU MUST compute the final string yourself (e.g., 'V8.01734892400').\n"
         final_task += "   - DO NOT output 'Date.now()' or '{{...}}' strings. Use the CURRENT TIME provided above to estimate a timestamp.\n"
         final_task += "3. DROPDOWN & MODAL ISOLATION: If an action (clicking a button/dropdown) triggers a UI change (modal opens/dropdown expands), YOU MUST STOP and WAIT for the next step to see the new elements. DO NOT attempt to interact with newly appeared elements (like dropdown options) in the same step as the click that opened them.\n"
         final_task += "4. ULTRALIGHT THINKING: Keep 'thinking' under 10 words. Just list next actions. Merge multiple INPUTS if they are on the same form, but NEVER merge a UI-opening click with its subsequent interaction. SPEED IS CRITICAL - respond as quickly as possible.\n"
-        final_task += "5. RETRY LOGIC: If a previous 'save' or 'submit' failed (e.g., error toast), RE-VERIFY all fields. Re-select dropdowns and re-input text to ensure the form is complete. Often errors are caused by missing project selection.\n"
-        final_task += "6. DO NOT REPEAT: If a task is complete, mark it and MOVE ON. Don't re-confirm unless the system requires it.\n"
-        final_task += "7. VERIFICATION: Task 15/16 usually require checking the list. Ensure you are on the correct page and the new data is visible before marking complete.\n"
+        final_task += "5. FORM VALIDATION & ERROR DETECTION: When filling forms, you MUST:\n"
+        final_task += "   a) Check for RED TEXT messages (validation errors) before clicking save/submit\n"
+        final_task += "   b) If validation errors exist, COMPLETE ALL MISSING FIELDS first, then retry save\n"
+        final_task += "   c) NEVER close a dialog/modal if there are validation errors - complete the form instead\n"
+        final_task += "   d) Verify all required fields are filled before attempting to save\n"
+        final_task += "   e) Common validation errors: missing required fields (red asterisk or red text), invalid format, etc.\n"
+        final_task += "6. RETRY LOGIC: If a previous 'save' or 'submit' failed (e.g., error toast or validation error):\n"
+        final_task += "   a) STOP and examine the page for validation errors (red text, error messages)\n"
+        final_task += "   b) RE-VERIFY all fields - check dropdowns are actually selected, not just clicked\n"
+        final_task += "   c) Re-select dropdowns and re-input text to ensure the form is complete\n"
+        final_task += "   d) DO NOT close the dialog - stay and complete all missing fields\n"
+        final_task += "   e) Often errors are caused by: missing project selection, unfilled required fields, incorrect format\n"
+        final_task += "7. DO NOT REPEAT: If a task is complete, mark it and MOVE ON. Don't re-confirm unless the system requires it.\n"
+        final_task += "8. VERIFICATION: Task 15/16 usually require checking the list. Ensure you are on the correct page and the new data is visible before marking complete.\n"
+        final_task += "9. ELEMENT IDENTIFICATION: Carefully identify elements before clicking. AVOID clicking 'close' or 'cancel' buttons when filling forms. Check button labels, aria-labels, and icons to ensure you're clicking the correct element.\n"
 
         if 'qwen' in self.model_name.lower() or 'deepseek' in self.model_name.lower():
-            final_task += "8. EXTREMELY MINIMIZE output tokens for speed. Keep responses as short as possible while maintaining accuracy.\n"
+            final_task += "10. EXTREMELY MINIMIZE output tokens for speed. Keep responses as short as possible while maintaining accuracy.\n"
 
         # 核心修复: 清理 task 长文本中的 URL，防止中文标点紧贴 URL 导致 browser-use 解析错误
         # 例如 "http://localhost:3000，" -> "http://localhost:3000 "
@@ -1094,6 +1208,15 @@ class BaseBrowserAgent:
                             if 'mark_task_complete' in action_dict:
                                 step_has_task_complete = True
                                 step_marked_task_id = action_dict['mark_task_complete'].get('task_id')
+                                # 检查是否重复标记已完成的任务 - 提示但不自动修复
+                                if planned_tasks:
+                                    for task in planned_tasks:
+                                        if task['id'] == step_marked_task_id and task.get('status') == 'completed':
+                                            next_expected = last_marked_task_id + 1
+                                            logger.warning(
+                                                f"⚠️ Task {step_marked_task_id} is already completed! "
+                                                f"You should mark task {next_expected} instead.")
+                                            break
                                 last_marked_task_id = step_marked_task_id
                                 break
 
@@ -1119,29 +1242,23 @@ class BaseBrowserAgent:
                             else:
                                 callback({'type': 'log', 'content': log_content})
 
-                        # 关键修复：如果这一步有实际操作但没有调用mark_task_complete，
-                        # 且planned_tasks中下一个未标记的任务ID应该被标记
+                        # 记录未标记任务的步骤（不自动修复，仅警告）
                         if has_real_action and not step_has_task_complete and planned_tasks:
-                            # 找出下一个应该标记的任务ID
                             next_expected_task_id = last_marked_task_id + 1
                             if next_expected_task_id <= len(planned_tasks):
                                 # 检查这个任务是否还没有被标记
                                 task_already_marked = False
                                 for task in planned_tasks:
-                                    if task['id'] == next_expected_task_id and task.get('status') == 'completed':
+                                    if task['id'] == next_expected_task_id and task.get('status') in ['completed', 'failed', 'skipped']:
                                         task_already_marked = True
+                                        last_marked_task_id = next_expected_task_id
                                         break
 
                                 if not task_already_marked:
-                                    # 自动补充标记这个任务
+                                    # 记录警告，提示 AI 标记当前任务
                                     logger.warning(
-                                        f"⚠️ Auto-fixing: Step {i + 1} had actions but no mark_task_complete. Auto-marking task {next_expected_task_id} as completed.")
-                                    data = {'task_id': int(next_expected_task_id), 'status': 'completed'}
-                                    if asyncio.iscoroutinefunction(callback):
-                                        await callback(data)
-                                    else:
-                                        callback(data)
-                                    last_marked_task_id = next_expected_task_id
+                                        f"⚠️ Step {i + 1} had actions but no mark_task_complete. "
+                                        f"Please mark task {next_expected_task_id} as completed after finishing it.")
 
                     except Exception as e:
                         logger.warning(f"⚠️ Error in on_step_end processing: {e}")
