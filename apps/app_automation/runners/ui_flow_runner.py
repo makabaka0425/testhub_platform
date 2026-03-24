@@ -876,6 +876,7 @@ class UiFlowRunner:
         """输入文本"""
         target = self._resolve_selector(step)
         value = step.get('value', '')
+        send_enter = step.get('send_enter', False)
         
         if target:
             touch(target)
@@ -883,6 +884,18 @@ class UiFlowRunner:
         
         logger.info(f"输入文本: {value}")
         airtest_text(value)
+        
+        # 如果需要发送回车键（用于搜索）
+        if send_enter:
+            time.sleep(0.2)
+            try:
+                from airtest.core.api import keyevent
+                keyevent("KEYCODE_ENTER")
+                logger.info("发送回车键")
+            except ImportError:
+                # 如果没有keyevent，尝试发送换行符
+                airtest_text('\n')
+                logger.info("发送换行符模拟回车")
     
     def _action_long_press(self, step: Dict[str, Any]):
         """长按"""
