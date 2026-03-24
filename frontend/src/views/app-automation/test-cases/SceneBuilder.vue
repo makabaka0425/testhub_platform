@@ -1225,6 +1225,9 @@ const shouldShowField = (field, step) => {
         if (field === "times" && mode !== "count") {
             return false
         }
+        if (field === "max_loops" && mode !== "condition") {
+            return false
+        }
         if ((field === "left" || field === "operator" || field === "right") && mode !== "condition") {
             return false
         }
