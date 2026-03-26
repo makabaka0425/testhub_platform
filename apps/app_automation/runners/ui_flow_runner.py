@@ -876,6 +876,11 @@ class UiFlowRunner:
         """输入文本"""
         target = self._resolve_selector(step)
         value = step.get('value', '')
+        
+        # 解析变量表达式（如随机数函数）
+        from apps.core.variable_resolver import resolve_variables
+        value = resolve_variables(value)
+        
         send_enter = step.get('send_enter', False)
         
         if target:
