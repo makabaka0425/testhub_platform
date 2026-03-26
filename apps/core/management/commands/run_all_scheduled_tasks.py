@@ -40,7 +40,8 @@ class Command(BaseCommand):
             # 每次循环前关闭旧连接，防止 MySQL 超时断开
             close_old_connections()
             try:
-                now = timezone.now()
+                # 统一使用本地时区，避免UTC导致调度延后8小时问题
+                now = timezone.localtime(timezone.now())
                 self.stdout.write(f"\n[{now.strftime('%Y-%m-%d %H:%M:%S')}] 开始检查任务...")
 
                 # 调度 API 测试模块的定时任务
