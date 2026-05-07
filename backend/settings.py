@@ -281,9 +281,12 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
+# Redis URL (used across celery, channels, and SMS verification)
+REDIS_URL = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
+
 # Celery Configuration
-CELERY_BROKER_URL = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
-CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Channels Configuration
@@ -291,10 +294,16 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': [config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')],
+            'hosts': [REDIS_URL],
         },
     },
 }
+
+# SMS Configuration (阿里云短信)
+SMS_ACCESS_KEY_ID = config('SMS_ACCESS_KEY_ID', default='')
+SMS_ACCESS_KEY_SECRET = config('SMS_ACCESS_KEY_SECRET', default='')
+SMS_SIGN_NAME = config('SMS_SIGN_NAME', default='杭州智穹云启科技')
+SMS_REGISTER_TEMPLATE_CODE = config('SMS_REGISTER_TEMPLATE_CODE', default='SMS_133001115')
 
 # Cache Configuration
 CACHES = {

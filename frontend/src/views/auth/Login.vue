@@ -105,6 +105,26 @@
           <p>{{ $t('auth.loginSubtitle') }}</p>
         </div>
 
+        <!-- 登录模式切换 -->
+        <div class="mode-tabs">
+          <button
+            type="button"
+            class="mode-tab"
+            :class="{ active: loginMode === 'password' }"
+            @click="loginMode = 'password'"
+          >
+            密码登录
+          </button>
+          <button
+            type="button"
+            class="mode-tab"
+            :class="{ active: loginMode === 'sms' }"
+            @click="loginMode = 'sms'; refreshCaptcha()"
+          >
+            短信登录
+          </button>
+        </div>
+
         <el-form
           ref="formRef"
           :model="form"
@@ -112,26 +132,86 @@
           @submit.prevent="handleLogin"
           class="login-form"
         >
-          <el-form-item prop="username">
-            <el-input
-              v-model="form.username"
-              :placeholder="$t('auth.usernamePlaceholder')"
-              size="large"
-              :prefix-icon="User"
-            />
-          </el-form-item>
+          <!-- 密码登录 -->
+          <template v-if="loginMode === 'password'">
+            <el-form-item prop="username">
+              <el-input
+                v-model="form.username"
+                :placeholder="$t('auth.usernamePlaceholder')"
+                size="large"
+                :prefix-icon="User"
+              />
+            </el-form-item>
 
-          <el-form-item prop="password">
-            <el-input
-              v-model="form.password"
-              type="password"
-              :placeholder="$t('auth.passwordPlaceholder')"
-              size="large"
-              :prefix-icon="Lock"
-              show-password
-              @keyup.enter="handleLogin"
-            />
-          </el-form-item>
+            <el-form-item prop="password">
+              <el-input
+                v-model="form.password"
+                type="password"
+                :placeholder="$t('auth.passwordPlaceholder')"
+                size="large"
+                :prefix-icon="Lock"
+                show-password
+                @keyup.enter="handleLogin"
+              />
+            </el-form-item>
+          </template>
+
+          <!-- 短信登录 -->
+          <template v-if="loginMode === 'sms'">
+            <el-form-item prop="phone">
+              <el-input
+                v-model="form.phone"
+                placeholder="请输入手机号"
+                size="large"
+                :prefix-icon="Phone"
+                maxlength="11"
+              />
+            </el-form-item>
+
+            <!-- 图形验证码 -->
+            <el-row :gutter="12">
+              <el-col :span="14">
+                <el-form-item prop="captcha_code">
+                  <el-input
+                    v-model="form.captcha_code"
+                    placeholder="图形验证码"
+                    size="large"
+                    maxlength="4"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :span="10">
+                <img
+                  :src="captchaImage"
+                  alt="验证码"
+                  class="captcha-img"
+                  @click="refreshCaptcha"
+                  title="点击刷新验证码"
+                />
+              </el-col>
+            </el-row>
+
+            <!-- 短信验证码 -->
+            <el-form-item prop="verify_code">
+              <el-input
+                v-model="form.verify_code"
+                placeholder="短信验证码"
+                size="large"
+                maxlength="6"
+              >
+                <template #append>
+                  <el-button
+                    :disabled="smsCountdown > 0 || !form.phone || !form.captcha_code"
+                    :loading="sendingSms"
+                    @click="sendVerifyCode"
+                    style="min-width: 110px"
+                  >
+                    {{ smsCountdown > 0 ? `${smsCountdown}s后重试` : '发送验证码' }}
+                  </el-button>
+                </template>
+              </el-input>
+            </el-form-item>
+          </template>
 
           <el-form-item>
             <el-button
@@ -163,13 +243,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { User, Lock, Document, MagicStick, Connection, TrendCharts, ArrowDown } from '@element-plus/icons-vue'
+import { User, Lock, Phone, Document, MagicStick, Connection, TrendCharts, ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
+import api from '@/utils/api'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -185,11 +266,35 @@ const handleLanguageChange = (lang) => {
 }
 const formRef = ref()
 const loading = ref(false)
+const loginMode = ref('password')
+
+// 图形验证码相关
+const captchaImage = ref('')
+const captchaToken = ref('')
+
+// 短信验证码相关
+const sendingSms = ref(false)
+const smsCountdown = ref(0)
+let countdownTimer = null
 
 const form = reactive({
   username: '',
-  password: ''
+  password: '',
+  phone: '',
+  captcha_code: '',
+  verify_code: '',
+  verify_code_token: ''
 })
+
+const validatePhone = (rule, value, callback) => {
+  if (!value) {
+    callback(new Error('请输入手机号'))
+  } else if (!/^1[3-9]\d{9}$/.test(value)) {
+    callback(new Error('手机号格式不正确'))
+  } else {
+    callback()
+  }
+}
 
 const rules = {
   username: [
@@ -198,6 +303,15 @@ const rules = {
   password: [
     { required: true, message: computed(() => t('auth.passwordRequired')), trigger: 'blur' },
     { min: 6, message: computed(() => t('auth.passwordLength')), trigger: 'blur' }
+  ],
+  phone: [
+    { required: true, validator: validatePhone, trigger: 'blur' }
+  ],
+  captcha_code: [
+    { required: true, message: '请输入图形验证码', trigger: 'blur' }
+  ],
+  verify_code: [
+    { required: true, message: '请输入短信验证码', trigger: 'blur' }
   ]
 }
 
@@ -229,31 +343,93 @@ const features = computed(() => [
   }
 ])
 
+// 获取图形验证码
+const refreshCaptcha = async () => {
+  try {
+    const response = await api.get('/auth/captcha/')
+    captchaImage.value = response.data.image
+    captchaToken.value = response.data.token
+    form.captcha_code = ''
+  } catch (error) {
+    // 静默失败
+  }
+}
+
+// 发送短信验证码
+const sendVerifyCode = async () => {
+  if (!form.phone) {
+    ElMessage.warning('请先输入手机号')
+    return
+  }
+  if (!form.captcha_code) {
+    ElMessage.warning('请先输入图形验证码')
+    return
+  }
+
+  sendingSms.value = true
+  try {
+    const response = await api.post('/auth/send-register-code/', {
+      phone: form.phone,
+      captcha_token: captchaToken.value,
+      captcha_code: form.captcha_code,
+      mode: 'login'
+    })
+    form.verify_code_token = response.data.verify_code_token
+    ElMessage.success('验证码已发送')
+    // 开始 60 秒倒计时
+    smsCountdown.value = 60
+    countdownTimer = setInterval(() => {
+      smsCountdown.value--
+      if (smsCountdown.value <= 0) {
+        clearInterval(countdownTimer)
+        countdownTimer = null
+      }
+    }, 1000)
+  } catch (error) {
+    const errMsg = error.response?.data?.error || '验证码发送失败'
+    ElMessage.error(errMsg)
+    refreshCaptcha()
+  } finally {
+    sendingSms.value = false
+  }
+}
+
 const handleLogin = async () => {
   if (!formRef.value) return
 
+  // 短信模式：校验手机号、图形验证码、短信验证码
+  if (loginMode.value === 'sms') {
+    await formRef.value.validate(async (valid) => {
+      if (valid) {
+        loading.value = true
+        try {
+          await userStore.smsLogin({
+            phone: form.phone,
+            verify_code: form.verify_code,
+            verify_code_token: form.verify_code_token
+          })
+          ElMessage.success(t('auth.loginSuccess'))
+          await router.replace('/home')
+        } catch (error) {
+          ElMessage.error(error.response?.data?.error || t('auth.loginFailed'))
+          refreshCaptcha()
+        } finally {
+          loading.value = false
+        }
+      }
+    })
+    return
+  }
+
+  // 密码模式
   await formRef.value.validate(async (valid) => {
     if (valid) {
       loading.value = true
       try {
-        console.log('Starting login...')
-        const result = await userStore.login(form)
-        console.log('Login result:', result)
-        console.log('User store state:', {
-          token: userStore.token,
-          user: userStore.user,
-          isAuthenticated: userStore.isAuthenticated
-        })
-
+        await userStore.login(form)
         ElMessage.success(t('auth.loginSuccess'))
-        console.log('Preparing to redirect to /home')
-
-        // Use replace instead of push to prevent returning to login page
         await router.replace('/home')
-        console.log('Redirect completed')
-
       } catch (error) {
-        console.error('Login failed:', error)
         ElMessage.error(error.response?.data?.error || t('auth.loginFailed'))
       } finally {
         loading.value = false
@@ -261,6 +437,13 @@ const handleLogin = async () => {
     }
   })
 }
+
+onUnmounted(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -529,7 +712,7 @@ const handleLogin = async () => {
 
   .form-header {
     text-align: center;
-    margin-bottom: 40px;
+    margin-bottom: 24px;
     animation: fadeIn 0.8s ease-out;
 
     h2 {
@@ -545,6 +728,45 @@ const handleLogin = async () => {
       margin: 0;
       line-height: 1.6;
     }
+  }
+
+  .mode-tabs {
+    display: flex;
+    background: #f0f2f5;
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 24px;
+
+    .mode-tab {
+      flex: 1;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #909399;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      background: transparent;
+
+      &.active {
+        background: white;
+        color: #667eea;
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      }
+
+      &:hover:not(.active) {
+        color: #606266;
+      }
+    }
+  }
+
+  .captcha-img {
+    width: 100%;
+    height: 40px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid #dcdfe6;
   }
 
   .login-form {
