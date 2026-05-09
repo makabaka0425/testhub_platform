@@ -2,30 +2,48 @@
   <div class="home-container">
     <div class="content-wrapper">
       <div class="header-actions">
-        <el-dropdown @command="handleCommand">
+        <el-dropdown @command="handleLanguageChange" class="language-dropdown">
           <span class="el-dropdown-link">
-            <el-avatar :size="32" :icon="UserFilled" />
-            <span class="username">{{ userStore.user?.username || '用户' }}</span>
+            <span class="language-icon">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
+            <span class="language-text">{{ $t('home.language.current') }}</span>
             <el-icon class="el-icon--right"><arrow-down /></el-icon>
           </span>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+              <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">
+                <span class="dropdown-flag">🇨🇳</span> {{ $t('home.language.zhCN') }}
+              </el-dropdown-item>
+              <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">
+                <span class="dropdown-flag">🇺🇸</span> {{ $t('home.language.en') }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+
+        <el-dropdown @command="handleCommand">
+          <span class="el-dropdown-link">
+            <el-avatar :size="32" :icon="UserFilled" />
+            <span class="username">{{ userStore.user?.username || $t('home.user') }}</span>
+            <el-icon class="el-icon--right"><arrow-down /></el-icon>
+          </span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="logout">{{ $t('home.logout') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
-      <h1 class="main-title">TestHub 测试平台</h1>
-      <p class="subtitle">一站式智能化测试解决方案</p>
-      
+      <h1 class="main-title">{{ $t('home.title') }}</h1>
+      <p class="subtitle">{{ $t('home.subtitle') }}</p>
+
       <div class="cards-container">
         <!-- AI用例生成 -->
         <div class="nav-card" @click="handleNavigate('ai')" role="button" tabindex="0">
           <div class="card-icon ai-icon">
             <el-icon><MagicStick /></el-icon>
           </div>
-          <h3>AI用例生成</h3>
-          <p>智能分析需求，自动生成测试用例</p>
+          <h3>{{ $t('home.aiCaseGeneration') }}</h3>
+          <p>{{ $t('home.aiCaseGenerationDesc') }}</p>
         </div>
 
         <!-- 接口测试 -->
@@ -33,8 +51,8 @@
           <div class="card-icon api-icon">
             <el-icon><Link /></el-icon>
           </div>
-          <h3>接口测试</h3>
-          <p>高效的接口自动化测试与管理</p>
+          <h3>{{ $t('home.apiTesting') }}</h3>
+          <p>{{ $t('home.apiTestingDesc') }}</p>
         </div>
 
         <!-- UI自动化测试 -->
@@ -42,8 +60,8 @@
           <div class="card-icon ui-icon">
             <el-icon><Monitor /></el-icon>
           </div>
-          <h3>UI自动化测试</h3>
-          <p>可视化的Web/App UI自动化测试</p>
+          <h3>{{ $t('home.uiAutomation') }}</h3>
+          <p>{{ $t('home.uiAutomationDesc') }}</p>
         </div>
 
         <!-- 数据工厂 -->
@@ -51,32 +69,42 @@
           <div class="card-icon data-icon">
             <el-icon><DataLine /></el-icon>
           </div>
-          <h3>数据工厂</h3>
-          <p>灵活的测试数据构造与管理</p>
+          <h3>{{ $t('home.dataFactory') }}</h3>
+          <p>{{ $t('home.dataFactoryDesc') }}</p>
         </div>
+
+        <!-- APP自动化测试 -->
+        <div class="nav-card" @click="handleNavigate('app')" role="button" tabindex="0">
+          <div class="card-icon app-icon">
+            <el-icon><Cellphone /></el-icon>
+          </div>
+          <h3>APP自动化测试</h3>
+          <p>基于Airtest的Android APP自动化测试</p>
+        </div>
+
         <!-- AI 智能模式 -->
         <div class="nav-card" @click="handleNavigate('ai-intelligent')" role="button" tabindex="0">
           <div class="card-icon ai-intelligent-icon">
             <el-icon><Cpu /></el-icon>
           </div>
-          <h3>AI 智能模式</h3>
-          <p>基于自然语言的智能化测试执行</p>
+          <h3>{{ $t('home.aiIntelligentMode') }}</h3>
+          <p>{{ $t('home.aiIntelligentModeDesc') }}</p>
         </div>
         <!-- AI评测师 -->
         <div class="nav-card" @click="handleNavigate('assistant')" role="button" tabindex="0">
           <div class="card-icon assistant-icon">
             <el-icon><ChatDotRound /></el-icon>
           </div>
-          <h3>AI评测师</h3>
-          <p>基于评测师知识库，提供专业软件测试问答</p>
+          <h3>{{ $t('home.aiEvaluator') }}</h3>
+          <p>{{ $t('home.aiEvaluatorDesc') }}</p>
         </div>
         <!-- 配置中心 -->
         <div class="nav-card" @click="handleNavigate('config')" role="button" tabindex="0">
           <div class="card-icon config-icon">
             <el-icon><Setting /></el-icon>
           </div>
-          <h3>配置中心</h3>
-          <p>系统环境、AI模型及通知配置</p>
+          <h3>{{ $t('home.configCenter') }}</h3>
+          <p>{{ $t('home.configCenterDesc') }}</p>
         </div>
       </div>
     </div>
@@ -84,13 +112,26 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, Link, Monitor, DataLine, Cpu, Setting, ChatDotRound, UserFilled, ArrowDown } from '@element-plus/icons-vue'
+import { MagicStick, Link, Monitor, DataLine, Cpu, Setting, ChatDotRound, UserFilled, ArrowDown, Cellphone } from '@element-plus/icons-vue'
 
 const router = useRouter()
+const { t } = useI18n()
 const userStore = useUserStore()
+const appStore = useAppStore()
+
+// 当前语言
+const currentLanguage = computed(() => appStore.language)
+
+// 语言切换（无刷新）
+const handleLanguageChange = (lang) => {
+  appStore.setLanguage(lang)
+}
 
 const handleCommand = (command) => {
   if (command === 'logout') {
@@ -99,14 +140,14 @@ const handleCommand = (command) => {
 }
 
 const handleLogout = () => {
-  ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
+  ElMessageBox.confirm(t('home.logoutConfirm'), t('common.tips'), {
+    confirmButtonText: t('common.confirm'),
+    cancelButtonText: t('common.cancel'),
     type: 'warning'
   }).then(() => {
     userStore.logout()
     router.push('/login')
-    ElMessage.success('已退出登录')
+    ElMessage.success(t('home.logoutSuccess'))
   }).catch(() => {})
 }
 
@@ -115,14 +156,11 @@ const handleNavigate = (type) => {
     'ai': '/ai-generation/requirement-analysis',
     'api': '/api-testing/dashboard',
     'ui': '/ui-automation/dashboard',
+    'app': '/app-automation/dashboard',
     'ai-intelligent': '/ai-intelligent-mode/testing',
     'assistant': '/ai-generation/assistant',
-    'config': '/configuration/ai-model'
-  }
-
-  if (type === 'data') {
-    ElMessage.info('功能正在开发中......')
-    return
+    'config': '/configuration/ai-model',
+    'data': '/data-factory'
   }
 
   if (routes[type]) {
@@ -154,22 +192,66 @@ const handleNavigate = (type) => {
   top: 0;
   right: 0;
   padding: 10px;
-  
+  display: flex;
+  align-items: center;
+  gap: 20px;
+
+  .language-dropdown {
+    .el-dropdown-link {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      color: #5e6d82;
+      transition: color 0.3s;
+      outline: none;
+
+      &:focus {
+        outline: none;
+      }
+
+      .language-icon {
+        font-size: 18px;
+        margin-right: 5px;
+        line-height: 1;
+      }
+
+      .language-text {
+        margin: 0 5px;
+        font-size: 14px;
+      }
+
+      &:hover {
+        color: #409eff;
+      }
+    }
+  }
+
   .el-dropdown-link {
     display: flex;
     align-items: center;
     cursor: pointer;
     color: #5e6d82;
-    
+    transition: color 0.3s;
+    outline: none;
+
+    &:focus {
+      outline: none;
+    }
+
     .username {
       margin: 0 8px;
       font-size: 14px;
     }
-    
+
     &:hover {
       color: #409eff;
     }
   }
+}
+
+.dropdown-flag {
+  font-size: 16px;
+  margin-right: 5px;
 }
 
 .main-title {
@@ -250,8 +332,13 @@ const handleNavigate = (type) => {
   }
 
   &.data-icon {
-    background: #f4f4f5;
-    color: #909399;
+    background: #e8f4ff;
+    color: #409eff;
+  }
+
+  &.app-icon {
+    background: #f9f0ff;
+    color: #722ed1;
   }
 
   &.ai-intelligent-icon {

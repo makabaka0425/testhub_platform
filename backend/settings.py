@@ -35,6 +35,7 @@ THIRD_PARTY_APPS = [
     'corsheaders',
     'django_filters',
     'drf_spectacular',
+    'channels',
 ]
 
 LOCAL_APPS = [
@@ -50,7 +51,9 @@ LOCAL_APPS = [
     'apps.requirement_analysis',
     'apps.api_testing',
     'apps.ui_automation.apps.UiAutomationConfig',
+    'apps.app_automation.apps.AppAutomationConfig',  # APP自动化测试
     'apps.core',
+    'apps.data_factory',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -86,6 +89,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'backend.wsgi.application'
+ASGI_APPLICATION = 'backend.asgi.application'
 
 DATABASES = {
     'default': {
@@ -117,13 +121,21 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-LANGUAGE_CODE = 'zh-hans'
-TIME_ZONE = 'Asia/Shanghai'
+# Internationalization
+# https://docs.djangoproject.com/en/4.2/topics/i18n/
+# Supported language codes: 'en-us' (English), 'zh-hans' (Simplified Chinese), 'ja' (Japanese), 'ko' (Korean), etc.
+# See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones for timezone list
+LANGUAGE_CODE = config('LANGUAGE_CODE', default='zh-hans')
+TIME_ZONE = config('TIME_ZONE', default='Asia/Shanghai')
 USE_I18N = True
-USE_TZ = True  # 移除重复定义
+USE_TZ = True
 
 STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+STATIC_ROOT = os.path.join(BASE_DIR, 'static_files')
+
+# 数据工厂的静态文件目录
+STATIC_FILES_URL = '/static_files/'
+STATIC_FILES_ROOT = os.path.join(BASE_DIR, 'static_files')
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -203,14 +215,18 @@ else:
     CSRF_COOKIE_SAMESITE = 'Strict'
 
 # CORS Settings
+cors_origins_str = config('CORS_ALLOWED_ORIGINS', default='')
+parsed_cors_origins = [s.strip() for s in cors_origins_str.split(',') if s.strip()]
+
 if DEBUG:
+    # 开发环境默认允许本地地址，同时合并环境变量里的配置
+    # 优先使用环境变量配置的地址，确保服务器IP优先级最高
     CORS_ALLOWED_ORIGINS = [
+        *parsed_cors_origins,  # 环境变量配置的地址优先
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
     ]
     CORS_ALLOW_CREDENTIALS = True
     # 支持EventSource (SSE) 的额外CORS头部
@@ -224,10 +240,17 @@ if DEBUG:
         'user-agent',
         'x-csrftoken',
         'x-requested-with',
+        'cache-control',  # 添加 SSE 需要的头部
     ]
 else:
-    CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000',
-                                  cast=lambda v: [s.strip() for s in v.split(',')])
+    # 生产环境 CORS 配置
+    if parsed_cors_origins:
+        # 如果配置了 CORS_ALLOWED_ORIGINS，使用配置的值
+        CORS_ALLOWED_ORIGINS = parsed_cors_origins
+    else:
+        # 如果未配置，允许所有来源（可根据需求调整）
+        CORS_ALLOW_ALL_ORIGINS = True
+
     CORS_ALLOW_CREDENTIALS = True
     CORS_ALLOW_HEADERS = [
         'accept',
@@ -239,14 +262,15 @@ else:
         'user-agent',
         'x-csrftoken',
         'x-requested-with',
+        'cache-control',  # 添加 SSE 需要的头部
     ]
+    # SSE 需要的额外配置
+    CORS_EXPOSE_HEADERS = ['Content-Type', 'Cache-Control']
 
 # CSRF Settings
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
 ]
 
 # Spectacular Settings
@@ -260,6 +284,26 @@ SPECTACULAR_SETTINGS = {
 # Celery Configuration
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
 CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Channels Configuration
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')],
+        },
+    },
+}
+
+# Cache Configuration
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'TIMEOUT': 300,  # 默认缓存超时5分钟
+    }
+}
 
 # Email Configuration
 EMAIL_BACKEND = 'apps.api_testing.custom_email_backend.CustomEmailBackend'
@@ -287,12 +331,22 @@ LOGGING = {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
         },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
     },
     'handlers': {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
+            'filename': os.path.join(BASE_DIR, 'logs', 'app.log'),
+            'formatter': 'verbose',
+        },
+        'error_file': {
+            'level': 'ERROR',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'error.log'),
             'formatter': 'verbose',
         },
         'console': {
@@ -302,16 +356,37 @@ LOGGING = {
         },
     },
     'loggers': {
+        # 其他具体模块的 logger 配置
         'django': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file', 'error_file', 'console'],
             'level': 'INFO',
             'propagate': True,
         },
         'apps.api_testing.views': {
-            'handlers': ['file', 'console'],
+            'handlers': ['file', 'error_file', 'console'],
             'level': 'INFO',
             'propagate': True,
         },
+        'apps.data_factory.tools.json_tools': {
+            'handlers': ['file', 'error_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.data_factory.tools.encoding_tools': {
+            'handlers': ['file', 'error_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.data_factory.tools': {
+            'handlers': ['file', 'error_file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+    'root': {
+        'handlers': ['file', 'error_file', 'console'],
+        'level': 'INFO',
+        # 'propagate': True,
     },
 }
 
@@ -386,3 +461,6 @@ SIMPLEUI_ICON = {
     '生成的测试用例': 'el-icon-document',
     '需求文档': 'el-icon-document',
 }
+
+# 开发环境，暂时禁用迁移历史检查
+# SILENCED_SYSTEM_CHECKS = ['django.db.migrations.InconsistentMigrationHistory']

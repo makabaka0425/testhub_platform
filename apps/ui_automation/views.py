@@ -67,7 +67,7 @@ def extract_step_info(s, step_index):
                     if isinstance(value, str):
                         attrs[key] = value
                     elif callable(value):
-                       attrs[key] = getattr(value, '__name__', str(value))
+                        attrs[key] = getattr(value, '__name__', str(value))
                     else:
                         attrs[key] = str(value)
             if attrs:
@@ -113,6 +113,7 @@ def extract_step_info(s, step_index):
 
 
 from rest_framework.pagination import PageNumberPagination
+
 
 class StandardPagination(PageNumberPagination):
     page_size = 20
@@ -367,7 +368,9 @@ class ElementGroupViewSet(viewsets.ModelViewSet):
         accessible_projects = UiProject.objects.filter(
             models.Q(owner=user) | models.Q(members=user)
         ).distinct()
-        return ElementGroup.objects.filter(project__in=accessible_projects).select_related('project', 'parent_group').order_by('order', 'name')
+        return ElementGroup.objects.filter(project__in=accessible_projects).select_related('project',
+                                                                                           'parent_group').order_by(
+            'order', 'name')
 
     @action(detail=False, methods=['get'])
     def tree(self, request):
@@ -780,12 +783,19 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         test_suite.execution_status = 'running'
         test_suite.save()
 
-        try:
-            # 在后台线程中执行测试
-            import threading
-            from .test_executor import TestExecutor
+        # 记录运行操作
+        log_operation('run', 'suite', test_suite.id, test_suite.name, request.user)
 
-            def run_test():
+        # 在后台线程中执行测试
+        import threading
+        import traceback
+        from .test_executor import TestExecutor
+
+        def run_test():
+            try:
+                print(f"[测试套件] 开始执行: {test_suite.name} (ID: {test_suite.id})")
+                print(f"[测试套件] 配置: engine={engine}, browser={browser}, headless={headless}")
+
                 executor = TestExecutor(
                     test_suite=test_suite,
                     engine=engine,
@@ -795,26 +805,32 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                 )
                 executor.run()
 
-            # 启动后台线程执行测试
-            thread = threading.Thread(target=run_test)
-            thread.daemon = True
-            thread.start()
+                print(f"[测试套件] 执行完成: {test_suite.name}")
+            except Exception as e:
+                print(f"[测试套件] 执行异常: {test_suite.name}")
+                print(f"[测试套件] 错误: {str(e)}")
+                traceback.print_exc()
 
-            # 记录运行操作
-            log_operation('run', 'suite', test_suite.id, test_suite.name, request.user)
+                # 更新套件状态为失败
+                try:
+                    test_suite.execution_status = 'failed'
+                    test_suite.save()
+                    print(f"[测试套件] 已更新状态为失败")
+                except Exception as save_error:
+                    print(f"[测试套件] 更新状态失败: {save_error}")
 
-            return Response({
-                'message': '测试套件开始执行',
-                'suite_id': test_suite.id,
-                'test_case_count': test_case_count,
-                'engine': engine,
-                'browser': browser,
-                'headless': headless
-            }, status=status.HTTP_200_OK)
-        except Exception as e:
-            test_suite.execution_status = 'failed'
-            test_suite.save()
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # 启动后台线程执行测试
+        thread = threading.Thread(target=run_test, daemon=False)
+        thread.start()
+
+        return Response({
+            'message': '测试套件开始执行',
+            'suite_id': test_suite.id,
+            'test_case_count': test_case_count,
+            'engine': engine,
+            'browser': browser,
+            'headless': headless
+        }, status=status.HTTP_200_OK)
 
 
 class TestExecutionViewSet(viewsets.ModelViewSet):
@@ -824,7 +840,6 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['project', 'test_suite', 'test_script', 'status', 'environment', 'executed_by']
     search_fields = ['error_message']
-    ordering = ['-created_at']
     ordering = ['-created_at']
     pagination_class = StandardPagination
 
@@ -842,52 +857,6 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
         if self.action == 'create':
             return TestExecutionCreateSerializer
         return TestExecutionSerializer
-
-
-
-    @action(detail=True, methods=['post'])
-    def run(self, request, pk=None):
-        """运行测试执行"""
-        execution = self.get_object()
-        execution.status = 'RUNNING'
-        execution.started_at = timezone.now()
-        execution.save()
-        
-        # 这里应该有实际的测试运行逻辑，这里只是模拟
-        # 在实际实现中，这里可能会启动一个异步任务来执行测试
-        
-        # 模拟测试运行结果
-        import time
-        time.sleep(2)  # 模拟测试执行时间
-        
-        execution.status = 'SUCCESS'  # 假设测试成功
-        execution.finished_at = timezone.now()
-        execution.result_data = {
-            'steps': [
-                {'name': 'Step 1', 'status': 'PASS', 'duration': 1.2},
-                {'name': 'Step 2', 'status': 'PASS', 'duration': 0.8},
-                {'name': 'Step 3', 'status': 'PASS', 'duration': 1.5},
-            ],
-            'total_steps': 3,
-            'passed_steps': 3,
-            'failed_steps': 0,
-            'duration': 3.5
-        }
-        execution.save()
-        
-        serializer = TestExecutionSerializer(execution)
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['post'])
-    def abort(self, request, pk=None):
-        """中止测试执行"""
-        execution = self.get_object()
-        if execution.status == 'RUNNING':
-            execution.status = 'ABORTED'
-            execution.finished_at = timezone.now()
-            execution.save()
-            return Response(TestExecutionSerializer(execution).data)
-        return Response({'error': '测试执行未在运行中'}, status=status.HTTP_400_BAD_REQUEST)
 
     def perform_destroy(self, instance):
         # 记录操作（删除测试报告）
@@ -930,6 +899,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
         accessible_projects = UiProject.objects.filter(
             models.Q(owner=user) | models.Q(members=user)
         ).distinct()
+
     def get_queryset(self):
         # 只显示用户有权限访问的项目的测试用例
         user = self.request.user
@@ -984,7 +954,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     )
                     created_count += 1
                 except Exception as e:
-                    logger.error(f"创建步骤 {i+1} 失败: {str(e)}")
+                    logger.error(f"创建步骤 {i + 1} 失败: {str(e)}")
                     logger.error(f"步骤数据: {step_data}")
 
             logger.info(f"成功创建了 {created_count} 个新步骤")
@@ -993,7 +963,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
     def copy_case(self, request, pk=None):
         """复制测试用例"""
         test_case = self.get_object()
-        
+
         try:
             # 1. 复制测试用例基本信息
             new_case = TestCase.objects.create(
@@ -1004,7 +974,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                 status=test_case.status,
                 created_by=request.user
             )
-            
+
             # 2. 复制测试步骤
             steps = test_case.steps.all().order_by('step_number')
             new_steps = []
@@ -1020,16 +990,16 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     assert_value=step.assert_value,
                     description=step.description
                 ))
-            
+
             if new_steps:
                 TestCaseStep.objects.bulk_create(new_steps)
-            
+
             # 记录操作
             log_operation('create', 'test_case', new_case.id, new_case.name, request.user)
-            
+
             serializer = self.get_serializer(new_case)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-            
+
         except Exception as e:
             logger.error(f"复制测试用例失败: {str(e)}")
             return Response({'error': f"复制失败: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -1085,7 +1055,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     )
                     created_count += 1
                 except Exception as e:
-                    logger.error(f"创建步骤 {i+1} 失败: {str(e)}")
+                    logger.error(f"创建步骤 {i + 1} 失败: {str(e)}")
                     logger.error(f"步骤数据: {step_data}")
 
             logger.info(f"成功创建了 {created_count} 个新步骤")
@@ -1139,7 +1109,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
         elif step.action_type == 'waitFor':
             log_parts.append(f"等待元素 '{element_name}' 出现")
             log_parts.append(f"- 使用定位器: {locator_info}")
-            log_parts.append(f"- 超时时间: {step.wait_time/1000}秒")
+            log_parts.append(f"- 超时时间: {step.wait_time / 1000}秒")
             if step_result == 'success':
                 log_parts.append(f"- 元素在 {execution_time}s 后出现")
             else:
@@ -1185,7 +1155,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
         elif step.action_type == 'wait':
             log_parts.append(f"固定等待")
-            log_parts.append(f"- 等待时间: {step.wait_time/1000}秒")
+            log_parts.append(f"- 等待时间: {step.wait_time / 1000}秒")
             log_parts.append(f"- 等待完成")
 
         else:
@@ -1237,12 +1207,12 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             draw.text((40, info_y), f"失败步骤: 步骤 {step_number}", fill=(50, 50, 50), font=font_text)
             draw.text((40, info_y + 40), f"步骤说明: {step_description}", fill=(50, 50, 50), font=font_text)
             draw.text((40, info_y + 80), f"失败时间: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                     fill=(50, 50, 50), font=font_text)
+                      fill=(50, 50, 50), font=font_text)
 
             # 绘制一个模拟的浏览器窗口
             browser_y = info_y + 140
-            draw.rectangle([40, browser_y, width-40, height-40], outline=(200, 200, 200), width=2)
-            draw.rectangle([40, browser_y, width-40, browser_y + 40], fill=(200, 200, 200))
+            draw.rectangle([40, browser_y, width - 40, height - 40], outline=(200, 200, 200), width=2)
+            draw.rectangle([40, browser_y, width - 40, browser_y + 40], fill=(200, 200, 200))
             draw.text((60, browser_y + 10), "模拟浏览器页面 - 失败截图", fill=(80, 80, 80), font=font_text)
 
             # 在浏览器窗口中绘制错误提示
@@ -1391,7 +1361,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         try:
                             engine.start()
                             mode_text = "无头模式" if headless else "有头模式"
-                            execution_logs.append(f"✓ {browser_type.capitalize()} 浏览器启动成功 (Selenium, {mode_text})")
+                            execution_logs.append(
+                                f"✓ {browser_type.capitalize()} 浏览器启动成功 (Selenium, {mode_text})")
                             execution_logs.append("")
                         except Exception as browser_error:
                             # 浏览器启动失败
@@ -1399,7 +1370,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                             execution_logs.append(f"  错误: {str(browser_error)}")
                             execution_logs.append("")
                             execution_result['status'] = 'failed'
-                            execution_result['error_message'] = f"{browser_type.capitalize()} 浏览器启动失败: {str(browser_error)}"
+                            execution_result[
+                                'error_message'] = f"{browser_type.capitalize()} 浏览器启动失败: {str(browser_error)}"
 
                             # 添加详细错误信息
                             detailed_errors.append({
@@ -1449,7 +1421,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
                                 if element_data:
                                     execution_logs.append(f"  元素: {element_data['name']}")
-                                    execution_logs.append(f"  定位器: {element_data['locator_strategy']}={element_data['locator_value']}")
+                                    execution_logs.append(
+                                        f"  定位器: {element_data['locator_strategy']}={element_data['locator_value']}")
                                 else:
                                     execution_logs.append(f"  (此步骤不需要元素)")
 
@@ -1572,6 +1545,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                 # Playwright异步执行
                 def run_test_in_thread():
                     """在独立线程中运行异步测试"""
+
                     async def run_test():
                         """异步执行测试"""
                         # 根据浏览器类型选择
@@ -1591,7 +1565,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                             execution_logs.append("========== 初始化浏览器 ==========")
                             await engine.start()
                             mode_text = "无头模式" if headless else "有头模式"
-                            execution_logs.append(f"✓ {browser_type.capitalize()} 浏览器启动成功 (Playwright, {mode_text})")
+                            execution_logs.append(
+                                f"✓ {browser_type.capitalize()} 浏览器启动成功 (Playwright, {mode_text})")
                             execution_logs.append("")
 
                             # 导航到项目基础URL
@@ -1632,14 +1607,16 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
                                     if element_data:
                                         execution_logs.append(f"  元素: {element_data['name']}")
-                                        execution_logs.append(f"  定位器: {element_data['locator_strategy']}={element_data['locator_value']}")
+                                        execution_logs.append(
+                                            f"  定位器: {element_data['locator_strategy']}={element_data['locator_value']}")
                                     else:
                                         execution_logs.append(f"  (此步骤不需要元素)")
 
                                     # 执行步骤
                                     try:
                                         execution_logs.append(f"  [调试] 准备执行步骤...")
-                                        success, step_log, screenshot_base64 = await engine.execute_step(step, element_data or {})
+                                        success, step_log, screenshot_base64 = await engine.execute_step(step,
+                                                                                                         element_data or {})
                                         execution_logs.append(f"  [调试] 步骤执行完成, success={success}")
 
                                         execution_logs.append(f"  {step_log}")
@@ -1941,17 +1918,35 @@ class TestCaseExecutionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='batch-delete')
     def batch_delete(self, request):
         """批量删除执行记录"""
-        ids = request.data.get('ids', [])
-        if not ids:
-            return Response({'error': '未提供要删除的记录ID'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # 确保只能删除有权限的记录
-        queryset = self.get_queryset()
-        deleted_count, _ = queryset.filter(id__in=ids).delete()
-        
-        return Response({'message': f'成功删除 {deleted_count} 条记录'})
+        try:
+            ids = request.data.get('ids', [])
 
+            # 验证ids参数
+            if not ids:
+                return Response({'error': '未提供要删除的记录ID'}, status=status.HTTP_400_BAD_REQUEST)
 
+            # 确保ids是列表
+            if not isinstance(ids, list):
+                return Response({'error': 'ids参数格式错误，应为数组'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 确保只能删除有权限的记录
+            queryset = self.get_queryset()
+            records_to_delete = queryset.filter(id__in=ids)
+
+            # 检查是否有记录可删除
+            if not records_to_delete.exists():
+                return Response({'error': '未找到可删除的记录或没有权限删除'}, status=status.HTTP_404_NOT_FOUND)
+
+            # 获取可删除记录的ID列表，避免对带select_related的queryset调用delete()可能出现的问题
+            deletable_ids = list(records_to_delete.values_list('id', flat=True))
+
+            # 使用ID列表直接删除
+            deleted_count = TestCaseExecution.objects.filter(id__in=deletable_ids).delete()[0]
+
+            return Response({'message': f'成功删除 {deleted_count} 条记录', 'deleted_count': deleted_count})
+        except Exception as e:
+            logger.error(f"批量删除测试用例执行记录失败: {str(e)}", exc_info=True)
+            return Response({'error': f'批量删除失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class OperationRecordViewSet(viewsets.ReadOnlyModelViewSet):
@@ -2244,7 +2239,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                             action_type = step_info['action_type']
                                             element_data = step_info['element_data']
 
-                                            success, step_log, screenshot_base64 = engine.execute_step(step, element_data or {})
+                                            success, step_log, screenshot_base64 = engine.execute_step(step,
+                                                                                                       element_data or {})
 
                                             step_results.append({
                                                 'step_number': i,
@@ -2320,7 +2316,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                                 action_type = step_info['action_type']
                                                 element_data = step_info['element_data']
 
-                                                success, step_log, screenshot_base64 = await engine.execute_step(step, element_data or {})
+                                                success, step_log, screenshot_base64 = await engine.execute_step(step,
+                                                                                                                 element_data or {})
 
                                                 step_results.append({
                                                     'step_number': i,
@@ -2559,7 +2556,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
 
                 # 构造详细内容
                 # 转换执行时间到本地时区
-                local_run_time = timezone.localtime(task.last_run_time).strftime('%Y-%m-%d %H:%M:%S') if task.last_run_time else '未知'
+                local_run_time = timezone.localtime(task.last_run_time).strftime(
+                    '%Y-%m-%d %H:%M:%S') if task.last_run_time else '未知'
                 detail_content = f"""任务名称: {task.name}
 
 执行状态: {status_text}
@@ -2747,7 +2745,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
             result_message = last_result.get('message', '')
 
             # 转换执行时间到本地时区
-            local_run_time = timezone.localtime(task.last_run_time).strftime('%Y-%m-%d %H:%M:%S') if task.last_run_time else '未知'
+            local_run_time = timezone.localtime(task.last_run_time).strftime(
+                '%Y-%m-%d %H:%M:%S') if task.last_run_time else '未知'
 
             message = f"""
 任务名称: {task.name}
@@ -2888,15 +2887,55 @@ class AICaseViewSet(viewsets.ModelViewSet):
             executed_by=request.user,
             logs="正在分析任务...\n"
         )
-        
+
         # 异步执行
         import threading
+        import os
         from asgiref.sync import sync_to_async
+        from django.db import connection, DatabaseError
         from .ai_agent import run_full_process_sync
-        
+
         def run_task():
             # 注册停止信号
             STOP_SIGNALS[execution_record.id] = False
+
+            # 关键修复：关闭旧连接，避免子线程共享主线程的连接
+            try:
+                connection.close()
+            except:
+                pass
+
+            # 设置环境变量，允许在后台线程中使用同步 ORM
+            os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+
+            def safe_save(record, update_fields=None, max_retries=3):
+                """安全的保存方法，带有重试机制"""
+                for attempt in range(max_retries):
+                    try:
+                        record.save(update_fields=update_fields)
+                        return True
+                    except (DatabaseError, Exception) as e:
+                        error_str = str(e)
+                        # 检查是否是MySQL连接错误
+                        if '2006' in error_str or 'MySQL server has gone away' in error_str or '0' == error_str:
+                            if attempt < max_retries - 1:
+                                logger.warning(f"数据库连接失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                                # 关闭旧连接并重试
+                                try:
+                                    connection.close()
+                                except:
+                                    pass
+                                import time
+                                time.sleep(0.5)  # 等待一下再重试
+                                continue
+                            else:
+                                logger.error(f"数据库保存失败，已达最大重试次数: {e}")
+                                raise
+                        else:
+                            # 其他错误直接抛出
+                            logger.error(f"数据库保存失败: {e}")
+                            raise
+                return False
 
             try:
                 def should_stop():
@@ -2905,8 +2944,8 @@ class AICaseViewSet(viewsets.ModelViewSet):
                 async def on_analysis_complete(planned_tasks):
                     execution_record.planned_tasks = planned_tasks
                     execution_record.logs += "任务分析完成，开始执行...\n"
-                    await sync_to_async(execution_record.save)()
-                    
+                    await sync_to_async(safe_save)(execution_record, update_fields=['planned_tasks', 'logs'])
+
                 async def on_step_update(step_info):
                     try:
                         # 处理日志
@@ -2914,50 +2953,63 @@ class AICaseViewSet(viewsets.ModelViewSet):
                             content = step_info.get('content')
                             if content:
                                 execution_record.logs += content
-                                await sync_to_async(execution_record.save)()
+                                await sync_to_async(safe_save)(execution_record, update_fields=['logs'])
                             return
 
                         # 处理任务状态
                         task_id = step_info.get('task_id')
                         status = step_info.get('status')
                         if task_id and status:
-                            updated = False
-                            for task in execution_record.planned_tasks:
-                                if task['id'] == task_id:
-                                    task['status'] = status
-                                    updated = True
-                                    break
+                            if str(status).strip().lower() == 'completed':
+                                backfilled_ids = backfill_prior_pending_tasks(
+                                    execution_record.planned_tasks,
+                                    task_id
+                                )
+                                if backfilled_ids:
+                                    execution_record.logs += (
+                                        f"\n[System] 已补齐遗漏标记的前序子任务: "
+                                        f"{', '.join(map(str, backfilled_ids))}"
+                                    )
+                            updated = update_planned_task_status(
+                                execution_record.planned_tasks,
+                                task_id,
+                                status
+                            )
                             if updated:
-                                await sync_to_async(execution_record.save)()
+                                update_fields = ['planned_tasks']
+                                if str(status).strip().lower() == 'completed' and 'backfilled_ids' in locals() and backfilled_ids:
+                                    update_fields.append('logs')
+                                await sync_to_async(safe_save)(execution_record, update_fields=update_fields)
                     except Exception as e:
-                        print(f"更新步骤状态失败: {e}")
+                        logger.error(f"更新步骤状态失败: {e}")
 
                 history = run_full_process_sync(
-                    ai_case.task_description, 
-                    analysis_callback=on_analysis_complete, 
+                    ai_case.task_description,
+                    analysis_callback=on_analysis_complete,
                     step_callback=on_step_update,
                     should_stop=should_stop
                 )
-                
+
                 # 检查是否是手动停止
                 if should_stop():
                     execution_record.status = 'stopped'
                     execution_record.logs += "\n[System] 任务已由用户停止。"
                 else:
-                    # 更新成功状态
-                    execution_record.status = 'passed'
-                    execution_record.logs += "\n执行完成。"
+                    execution_record.status, task_summary = resolve_execution_status(execution_record.planned_tasks)
+                    if execution_record.status == 'passed':
+                        execution_record.logs += "\n执行完成。"
+                    else:
+                        execution_record.logs += "\n执行结束，但存在未完成或失败的子任务。"
+                    logger.info(
+                        "🏁 Task completion summary: "
+                        f"{task_summary['completed']}/{task_summary['total']} completed, "
+                        f"{task_summary['failed']} failed, "
+                        f"{task_summary['pending'] + task_summary['in_progress']} pending"
+                    )
 
-                    # 记录任务完成统计信息
-                    if execution_record.planned_tasks:
-                        total_tasks = len(execution_record.planned_tasks)
-                        completed_tasks = len([t for t in execution_record.planned_tasks if t.get('status') == 'completed'])
-                        pending_tasks = len([t for t in execution_record.planned_tasks if t.get('status') == 'pending'])
-                        logger.info(f"🏁 Task completion summary: {completed_tasks}/{total_tasks} tasks completed, {pending_tasks} pending")
-                
                 execution_record.end_time = timezone.now()
                 execution_record.duration = (execution_record.end_time - execution_record.start_time).total_seconds()
-                
+
                 # 格式化 history 为日志 (如果不是停止状态)
                 steps = []
                 if history:
@@ -2969,18 +3021,38 @@ class AICaseViewSet(viewsets.ModelViewSet):
                 # 自动标记已完成的任务
                 if execution_record.planned_tasks:
                     self._auto_mark_completed_tasks(execution_record)
+                    execution_record.logs = append_execution_summary(
+                        execution_record.logs,
+                        summarize_planned_tasks(execution_record.planned_tasks)
+                    )
 
                 # 处理GIF录制文件
                 self._process_gif_recording(execution_record, history)
 
-                execution_record.save()
+                safe_save(execution_record)
 
             except Exception as e:
+                error_message = str(e)
+                failed_task_id = None if is_infrastructure_failure(error_message) else mark_first_active_task(execution_record.planned_tasks, 'failed')
                 execution_record.status = 'failed'
                 execution_record.end_time = timezone.now()
                 execution_record.duration = (execution_record.end_time - execution_record.start_time).total_seconds()
-                execution_record.logs += f"\n执行出错: {str(e)}"
-                execution_record.save()
+                if 'Execution LLM unavailable' in error_message:
+                    execution_record.logs += f"\n执行出错: AI 执行模型连接失败。{error_message}"
+                else:
+                    execution_record.logs += f"\n执行出错: {error_message}"
+                if failed_task_id is not None:
+                    execution_record.logs += f"\n[System] 子任务 {failed_task_id} 已自动标记为失败。"
+                execution_record.logs = append_execution_summary(
+                    execution_record.logs,
+                    summarize_planned_tasks(execution_record.planned_tasks)
+                )
+                try:
+                    safe_save(execution_record)
+                except:
+                    # 如果保存失败，至少尝试保存基本信息
+                    logger.error(f"保存失败状态时出错: {e}")
+                    pass
             finally:
                 # 清理停止信号
                 if execution_record.id in STOP_SIGNALS:
@@ -2989,7 +3061,7 @@ class AICaseViewSet(viewsets.ModelViewSet):
         thread = threading.Thread(target=run_task)
         thread.daemon = True
         thread.start()
-        
+
         return Response({
             'message': 'AI 用例开始执行',
             'execution_id': execution_record.id
@@ -3019,15 +3091,16 @@ class AICaseViewSet(viewsets.ModelViewSet):
                 # 生成新的文件名：用例名称+年月日时分秒
                 timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
                 # 清理用例名称中的非法字符
-                safe_case_name = "".join([c if c.isalnum() or c in (' ', '_', '-') else '_' for c in execution_record.case_name])
+                safe_case_name = "".join(
+                    [c if c.isalnum() or c in (' ', '_', '-') else '_' for c in execution_record.case_name])
                 new_gif_filename = f"{safe_case_name}_{timestamp}.gif"
                 new_gif_path = os.path.join(gif_dir, new_gif_filename)
 
                 # 移动并重命名文件
                 shutil.move(default_gif_path, new_gif_path)
 
-                # 保存相对路径到数据库
-                relative_path = os.path.join('media', 'ai_recording', new_gif_filename)
+                # 保存相对路径到数据库（使用正斜杠，确保跨平台兼容）
+                relative_path = f'media/ai_recording/{new_gif_filename}'
                 execution_record.gif_path = relative_path
 
                 logger.info(f"✅ GIF recording saved to: {relative_path}")
@@ -3040,39 +3113,188 @@ class AICaseViewSet(viewsets.ModelViewSet):
         """
         自动标记已完成的任务
         通过分析执行历史和当前任务状态，自动标记那些已经执行但未被标记完成的任务
+        
+        注意：已移除统一标记逻辑，任务状态完全由AI智能体通过mark_task_complete控制
+        - 执行成功时标记为completed
+        - 执行失败时标记为failed
+        - 跳过执行时标记为skipped
+        - 未执行时标记为pending
         """
         try:
             # 记录初始状态
             initial_completed = 0
             initial_pending = 0
+            initial_failed = 0
+            initial_skipped = 0
+            
             if execution_record.planned_tasks:
                 initial_completed = len([t for t in execution_record.planned_tasks if t.get('status') == 'completed'])
                 initial_pending = len([t for t in execution_record.planned_tasks if t.get('status') == 'pending'])
-                logger.info(f"📊 Before auto-mark: {initial_completed} completed, {initial_pending} pending tasks")
-
-            # 如果执行成功，标记所有任务为完成
-            if execution_record.status == 'passed' and execution_record.planned_tasks:
-                auto_marked_count = 0
-                for task in execution_record.planned_tasks:
-                    # 只对标记为pending的任务进行处理
-                    if task.get('status') == 'pending':
-                        task['status'] = 'completed'
-                        auto_marked_count += 1
-                        logger.info(f"🔒 Auto-marked task {task['id']} as completed")
-
-                if auto_marked_count > 0:
-                    logger.info(f"✨ Auto-marked {auto_marked_count} tasks as completed")
-                else:
-                    logger.info("📋 No pending tasks needed auto-marking")
-
-            # TODO: 可以添加更智能的分析逻辑来识别部分完成的任务
+                initial_failed = len([t for t in execution_record.planned_tasks if t.get('status') == 'failed'])
+                initial_skipped = len([t for t in execution_record.planned_tasks if t.get('status') == 'skipped'])
+                
+                logger.info(f"📊 Task status summary: {initial_completed} completed, {initial_pending} pending, {initial_failed} failed, {initial_skipped} skipped")
+            
+            # 不再自动标记所有任务为完成
+            # 任务状态完全由AI智能体通过mark_task_complete来控制
+            logger.info("📋 Task statuses are controlled by AI agent via mark_task_complete action")
 
         except Exception as e:
-            logger.warning(f"⚠️ Failed to auto-mark completed tasks: {e}")
+            logger.warning(f"⚠️ Failed to summarize task statuses: {e}")
 
 
 # 全局停止信号字典 {execution_id: bool}
 STOP_SIGNALS = {}
+
+TERMINAL_TASK_STATUSES = {'completed', 'failed', 'skipped'}
+ACTIVE_TASK_STATUSES = {'pending', 'in_progress'}
+
+
+def update_planned_task_status(planned_tasks, task_id, task_status):
+    """更新子任务状态，返回是否命中任务。"""
+    if not planned_tasks or task_id is None or not task_status:
+        return False
+
+    normalized_status = str(task_status).strip().lower()
+    for task in planned_tasks:
+        if str(task.get('id')) == str(task_id):
+            task['status'] = normalized_status
+            return True
+    return False
+
+
+def backfill_prior_pending_tasks(planned_tasks, current_task_id):
+    """受限补齐：仅在强依赖场景下补齐紧邻前一步遗漏标记。"""
+    if not planned_tasks or current_task_id is None:
+        return []
+
+    try:
+        current_task_id_int = int(current_task_id)
+    except (TypeError, ValueError):
+        return []
+
+    task_by_id = {}
+    for task in planned_tasks:
+        try:
+            task_by_id[int(task.get('id'))] = task
+        except (TypeError, ValueError):
+            continue
+
+    current_task = task_by_id.get(current_task_id_int)
+    previous_task = task_by_id.get(current_task_id_int - 1)
+    if not current_task or not previous_task:
+        return []
+
+    if previous_task.get('status', 'pending') not in ACTIVE_TASK_STATUSES:
+        return []
+
+    previous_desc = str(previous_task.get('description', '')).strip()
+    current_desc = str(current_task.get('description', '')).strip()
+
+    # 验证/检查类任务必须显式标记，禁止自动补齐
+    verification_keywords = ['校验', '确认', '检查', '验证', '断言']
+    if any(keyword in previous_desc for keyword in verification_keywords):
+        return []
+
+    dependency_pairs = [
+        (['访问', '打开', '进入'], ['搜索', '输入', '点击', '查看']),
+        (['搜索'], ['点击第', '点击第2条', '点击第二条', '查看详情']),
+        (['点击第', '点击第2条', '点击第二条', '查看详情'], ['关闭', '关闭该标签页', '关闭标签页']),
+        (['打开详情', '查看详情'], ['关闭', '返回']),
+    ]
+
+    def matches_any(text, keywords):
+        return any(keyword in text for keyword in keywords)
+
+    allowed = any(
+        matches_any(previous_desc, prev_keywords) and matches_any(current_desc, curr_keywords)
+        for prev_keywords, curr_keywords in dependency_pairs
+    )
+
+    if not allowed:
+        return []
+
+    previous_task['status'] = 'completed'
+    return [current_task_id_int - 1]
+
+
+def mark_first_active_task(planned_tasks, task_status):
+    """在执行异常时为第一个未终态任务补一个状态。"""
+    if not planned_tasks:
+        return None
+
+    normalized_status = str(task_status).strip().lower()
+    for task in planned_tasks:
+        if task.get('status', 'pending') in ACTIVE_TASK_STATUSES:
+            task['status'] = normalized_status
+            return task.get('id')
+    return None
+
+
+def summarize_planned_tasks(planned_tasks):
+    """汇总子任务状态。"""
+    summary = {
+        'total': 0,
+        'completed': 0,
+        'failed': 0,
+        'skipped': 0,
+        'pending': 0,
+        'in_progress': 0,
+    }
+    if not planned_tasks:
+        return summary
+
+    summary['total'] = len(planned_tasks)
+    for task in planned_tasks:
+        task_status = task.get('status', 'pending')
+        if task_status in summary:
+            summary[task_status] += 1
+        else:
+            summary['pending'] += 1
+    return summary
+
+
+def resolve_execution_status(planned_tasks):
+    """根据子任务实际状态推导整单状态。"""
+    summary = summarize_planned_tasks(planned_tasks)
+
+    if summary['total'] == 0:
+        return 'passed', summary
+    if summary['failed'] > 0:
+        return 'failed', summary
+    if summary['pending'] > 0 or summary['in_progress'] > 0:
+        return 'failed', summary
+    return 'passed', summary
+
+
+def append_execution_summary(logs, summary):
+    """把任务统计附加到日志中。"""
+    if summary['total'] == 0:
+        return logs
+    return (
+        f"{logs}\n[System] 子任务统计: 总数 {summary['total']}，"
+        f"已完成 {summary['completed']}，失败 {summary['failed']}，"
+        f"跳过 {summary['skipped']}，待处理 {summary['pending'] + summary['in_progress']}。"
+    )
+
+
+def is_infrastructure_failure(error_message: str) -> bool:
+    """判断是否为模型/网络/初始化类故障，这类问题不应直接把首个子任务标失败。"""
+    message = (error_message or '').lower()
+    infra_markers = [
+        'execution llm unavailable',
+        'connection error',
+        'timed out',
+        'timeout',
+        'api key',
+        'authentication',
+        'unauthorized',
+        'forbidden',
+        'rate limit',
+        'service unavailable',
+    ]
+    return any(marker in message for marker in infra_markers)
+
 
 class AIExecutionRecordViewSet(viewsets.ModelViewSet):
     """AI执行记录视图集"""
@@ -3099,22 +3321,35 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def batch_delete(self, request):
         """批量删除AI执行记录"""
-        ids = request.data.get('ids', [])
-        if not ids:
-            return Response({'error': '请选择要删除的记录'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            ids = request.data.get('ids', [])
 
-        # 确保只能删除有权限的记录，重新构建查询以避免 distinct() 限制
-        user = self.request.user
-        accessible_projects = UiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        )
-        deleted_count, _ = AIExecutionRecord.objects.filter(
-            id__in=ids
-        ).filter(
-            models.Q(project__in=accessible_projects) | models.Q(project__isnull=True)
-        ).delete()
+            # 验证ids参数
+            if not ids:
+                return Response({'error': '请选择要删除的记录'}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({'message': f'成功删除 {deleted_count} 条记录'})
+            # 确保ids是列表
+            if not isinstance(ids, list):
+                return Response({'error': 'ids参数格式错误，应为数组'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 只能删除自己有权限的项目下的记录
+            queryset = self.get_queryset()
+            records_to_delete = queryset.filter(id__in=ids)
+
+            # 检查是否有权限删除这些记录
+            if not records_to_delete.exists():
+                return Response({'error': '未找到可删除的记录或没有权限删除'}, status=status.HTTP_404_NOT_FOUND)
+
+            # 获取可删除记录的ID列表，避免对distinct()后的queryset调用delete()
+            deletable_ids = list(records_to_delete.values_list('id', flat=True))
+
+            # 使用ID列表直接删除，避免distinct()的问题
+            deleted_count = AIExecutionRecord.objects.filter(id__in=deletable_ids).delete()[0]
+
+            return Response({'message': f'成功删除 {deleted_count} 条记录', 'deleted_count': deleted_count})
+        except Exception as e:
+            logger.error(f"批量删除AI执行记录失败: {str(e)}", exc_info=True)
+            return Response({'error': f'批量删除失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['post'], url_path='run_adhoc')
     def run_adhoc(self, request):
@@ -3148,12 +3383,52 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
 
         # 异步执行
         import threading
+        import os
         from asgiref.sync import sync_to_async
+        from django.db import connection, DatabaseError
         from .ai_agent import run_full_process_sync
 
         def run_task():
             # 注册停止信号
             STOP_SIGNALS[execution_record.id] = False
+
+            # 关键修复：关闭旧连接，避免子线程共享主线程的连接
+            try:
+                connection.close()
+            except:
+                pass
+
+            # 设置环境变量，允许在后台线程中使用同步 ORM
+            os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+
+            def safe_save(record, update_fields=None, max_retries=3):
+                """安全的保存方法，带有重试机制"""
+                for attempt in range(max_retries):
+                    try:
+                        record.save(update_fields=update_fields)
+                        return True
+                    except (DatabaseError, Exception) as e:
+                        error_str = str(e)
+                        # 检查是否是MySQL连接错误
+                        if '2006' in error_str or 'MySQL server has gone away' in error_str or '0' == error_str:
+                            if attempt < max_retries - 1:
+                                logger.warning(f"数据库连接失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                                # 关闭旧连接并重试
+                                try:
+                                    connection.close()
+                                except:
+                                    pass
+                                import time
+                                time.sleep(0.5)  # 等待一下再重试
+                                continue
+                            else:
+                                logger.error(f"数据库保存失败，已达最大重试次数: {e}")
+                                raise
+                        else:
+                            # 其他错误直接抛出
+                            logger.error(f"数据库保存失败: {e}")
+                            raise
+                return False
 
             try:
                 # 定义异步安全的 should_stop
@@ -3175,8 +3450,8 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                 async def on_analysis_complete(planned_tasks):
                     execution_record.planned_tasks = planned_tasks
                     execution_record.logs += "任务分析完成，开始执行...\n"
-                    await sync_to_async(execution_record.save)()
-                    
+                    await sync_to_async(safe_save)(execution_record, update_fields=['planned_tasks', 'logs'])
+
                 async def on_step_update(step_info):
                     try:
                         # 处理日志
@@ -3185,30 +3460,49 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                             if content:
                                 execution_record.logs += content
                                 # 立即保存到数据库，确保前端轮询能看到最新日志
-                                await sync_to_async(execution_record.save)(update_fields=['logs'])
+                                await sync_to_async(safe_save)(execution_record, update_fields=['logs'])
                             return
 
                         # 处理任务状态
                         task_id = step_info.get('task_id')
                         status = step_info.get('status')
                         logger.info(f"DEBUG: on_step_update received: task_id={task_id}, status={status}")
-                        
+
                         if task_id and status:
                             updated = False
                             if execution_record.planned_tasks:
+                                old_status = None
                                 for task in execution_record.planned_tasks:
-                                    # 确保类型一致进行比较
-                                    if str(task['id']) == str(task_id):
+                                    if str(task.get('id')) == str(task_id):
                                         old_status = task.get('status', 'pending')
-                                        task['status'] = status
-                                        updated = True
-                                        logger.info(f"DEBUG: Updated task {task_id} from {old_status} to {status}")
                                         break
+                                backfilled_ids = []
+                                if str(status).strip().lower() == 'completed':
+                                    backfilled_ids = backfill_prior_pending_tasks(
+                                        execution_record.planned_tasks,
+                                        task_id
+                                    )
+                                    if backfilled_ids:
+                                        execution_record.logs += (
+                                            f"\n[System] 已补齐遗漏标记的前序子任务: "
+                                            f"{', '.join(map(str, backfilled_ids))}"
+                                        )
+                                updated = update_planned_task_status(
+                                    execution_record.planned_tasks,
+                                    task_id,
+                                    status
+                                )
+                                if updated:
+                                    logger.info(f"DEBUG: Updated task {task_id} from {old_status} to {status}")
                             if updated:
                                 # 立即保存到数据库，确保前端轮询能看到最新状态
-                                await sync_to_async(execution_record.save)(update_fields=['planned_tasks'])
+                                update_fields = ['planned_tasks']
+                                if 'backfilled_ids' in locals() and backfilled_ids:
+                                    update_fields.append('logs')
+                                await sync_to_async(safe_save)(execution_record, update_fields=update_fields)
                             else:
-                                logger.warning(f"DEBUG: Task ID {task_id} not found in planned_tasks: {execution_record.planned_tasks}")
+                                logger.warning(
+                                    f"DEBUG: Task ID {task_id} not found in planned_tasks: {execution_record.planned_tasks}")
                     except Exception as e:
                         logger.error(f"更新步骤状态失败: {e}", exc_info=True)
 
@@ -3216,7 +3510,7 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                     task_description,
                     analysis_callback=on_analysis_complete,
                     step_callback=on_step_update,
-                    should_stop=should_stop_async, # 传递异步版本
+                    should_stop=should_stop_async,  # 传递异步版本
                     execution_mode=execution_mode,
                     enable_gif=enable_gif,  # 传递GIF录制开关
                     case_name=task_description[:50] if task_description else "Adhoc Task"  # 传递用例名称用于GIF文件命名
@@ -3227,20 +3521,21 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                     execution_record.status = 'stopped'
                     execution_record.logs += "\n[System] 任务已由用户停止。"
                 else:
-                    # 更新成功状态
-                    execution_record.status = 'passed'
-                    execution_record.logs += "\n执行完成。"
+                    execution_record.status, task_summary = resolve_execution_status(execution_record.planned_tasks)
+                    if execution_record.status == 'passed':
+                        execution_record.logs += "\n执行完成。"
+                    else:
+                        execution_record.logs += "\n执行结束，但存在未完成或失败的子任务。"
+                    logger.info(
+                        "🏁 Task completion summary: "
+                        f"{task_summary['completed']}/{task_summary['total']} completed, "
+                        f"{task_summary['failed']} failed, "
+                        f"{task_summary['pending'] + task_summary['in_progress']} pending"
+                    )
 
-                    # 记录任务完成统计信息
-                    if execution_record.planned_tasks:
-                        total_tasks = len(execution_record.planned_tasks)
-                        completed_tasks = len([t for t in execution_record.planned_tasks if t.get('status') == 'completed'])
-                        pending_tasks = len([t for t in execution_record.planned_tasks if t.get('status') == 'pending'])
-                        logger.info(f"🏁 Task completion summary: {completed_tasks}/{total_tasks} tasks completed, {pending_tasks} pending")
-                
                 execution_record.end_time = timezone.now()
                 execution_record.duration = (execution_record.end_time - execution_record.start_time).total_seconds()
-                
+
                 # 格式化 history 为日志 (如果不是停止状态)
                 steps = []
                 if history:
@@ -3252,18 +3547,38 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                 # 自动标记已完成的任务
                 if execution_record.planned_tasks:
                     self._auto_mark_completed_tasks(execution_record)
+                    execution_record.logs = append_execution_summary(
+                        execution_record.logs,
+                        summarize_planned_tasks(execution_record.planned_tasks)
+                    )
 
                 # 处理GIF录制文件
                 self._process_gif_recording(execution_record, history)
 
-                execution_record.save()
+                safe_save(execution_record)
 
             except Exception as e:
+                error_message = str(e)
+                failed_task_id = None if is_infrastructure_failure(error_message) else mark_first_active_task(execution_record.planned_tasks, 'failed')
                 execution_record.status = 'failed'
                 execution_record.end_time = timezone.now()
                 execution_record.duration = (execution_record.end_time - execution_record.start_time).total_seconds()
-                execution_record.logs += f"\n执行出错: {str(e)}"
-                execution_record.save()
+                if 'Execution LLM unavailable' in error_message:
+                    execution_record.logs += f"\n执行出错: AI 执行模型连接失败。{error_message}"
+                else:
+                    execution_record.logs += f"\n执行出错: {error_message}"
+                if failed_task_id is not None:
+                    execution_record.logs += f"\n[System] 子任务 {failed_task_id} 已自动标记为失败。"
+                execution_record.logs = append_execution_summary(
+                    execution_record.logs,
+                    summarize_planned_tasks(execution_record.planned_tasks)
+                )
+                try:
+                    safe_save(execution_record)
+                except:
+                    # 如果保存失败，至少尝试保存基本信息
+                    logger.error(f"保存失败状态时出错: {e}")
+                    pass
             finally:
                 # 清理停止信号
                 if execution_record.id in STOP_SIGNALS:
@@ -3272,12 +3587,11 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
         thread = threading.Thread(target=run_task)
         thread.daemon = True
         thread.start()
-        
+
         return Response({
             'message': 'AI 任务开始执行',
             'execution_id': execution_record.id
         })
-
 
     @action(detail=True, methods=['post'], url_path='stop')
     def stop_task(self, request, pk=None):
@@ -3325,15 +3639,16 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                 # 生成新的文件名：用例名称+年月日时分秒
                 timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
                 # 清理用例名称中的非法字符
-                safe_case_name = "".join([c if c.isalnum() or c in (' ', '_', '-') else '_' for c in execution_record.case_name])
+                safe_case_name = "".join(
+                    [c if c.isalnum() or c in (' ', '_', '-') else '_' for c in execution_record.case_name])
                 new_gif_filename = f"{safe_case_name}_{timestamp}.gif"
                 new_gif_path = os.path.join(gif_dir, new_gif_filename)
 
                 # 移动并重命名文件
                 shutil.move(default_gif_path, new_gif_path)
 
-                # 保存相对路径到数据库
-                relative_path = os.path.join('media', 'ai_recording', new_gif_filename)
+                # 保存相对路径到数据库（使用正斜杠，确保跨平台兼容）
+                relative_path = f'media/ai_recording/{new_gif_filename}'
                 execution_record.gif_path = relative_path
 
                 logger.info(f"✅ GIF recording saved to: {relative_path}")
@@ -3346,35 +3661,34 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
         """
         自动标记已完成的任务
         通过分析执行历史和当前任务状态，自动标记那些已经执行但未被标记完成的任务
+        
+        注意：已移除统一标记逻辑，任务状态完全由AI智能体通过mark_task_complete控制
+        - 执行成功时标记为completed
+        - 执行失败时标记为failed
+        - 跳过执行时标记为skipped
+        - 未执行时标记为pending
         """
         try:
             # 记录初始状态
             initial_completed = 0
             initial_pending = 0
+            initial_failed = 0
+            initial_skipped = 0
+            
             if execution_record.planned_tasks:
                 initial_completed = len([t for t in execution_record.planned_tasks if t.get('status') == 'completed'])
                 initial_pending = len([t for t in execution_record.planned_tasks if t.get('status') == 'pending'])
-                logger.info(f"📊 Before auto-mark: {initial_completed} completed, {initial_pending} pending tasks")
-
-            # 如果执行成功，标记所有任务为完成
-            if execution_record.status == 'passed' and execution_record.planned_tasks:
-                auto_marked_count = 0
-                for task in execution_record.planned_tasks:
-                    # 只对标记为pending的任务进行处理
-                    if task.get('status') == 'pending':
-                        task['status'] = 'completed'
-                        auto_marked_count += 1
-                        logger.info(f"🔒 Auto-marked task {task['id']} as completed")
-
-                if auto_marked_count > 0:
-                    logger.info(f"✨ Auto-marked {auto_marked_count} tasks as completed")
-                else:
-                    logger.info("📋 No pending tasks needed auto-marking")
-
-            # TODO: 可以添加更智能的分析逻辑来识别部分完成的任务
+                initial_failed = len([t for t in execution_record.planned_tasks if t.get('status') == 'failed'])
+                initial_skipped = len([t for t in execution_record.planned_tasks if t.get('status') == 'skipped'])
+                
+                logger.info(f"📊 Task status summary: {initial_completed} completed, {initial_pending} pending, {initial_failed} failed, {initial_skipped} skipped")
+            
+            # 不再自动标记所有任务为完成
+            # 任务状态完全由AI智能体通过mark_task_complete来控制
+            logger.info("📋 Task statuses are controlled by AI agent via mark_task_complete action")
 
         except Exception as e:
-            logger.warning(f"⚠️ Failed to auto-mark completed tasks: {e}")
+            logger.warning(f"⚠️ Failed to summarize task statuses: {e}")
 
     @action(detail=True, methods=['get'], url_path='report')
     def generate_report(self, request, pk=None):
@@ -3488,7 +3802,7 @@ class UiDashboardViewSet(viewsets.ViewSet):
     def stats(self, request):
         """获取仪表盘统计数据"""
         user = request.user
-        
+
         # 获取用户可访问的项目ID列表
         accessible_projects = UiProject.objects.filter(
             models.Q(owner=user) | models.Q(members=user)
@@ -3497,13 +3811,13 @@ class UiDashboardViewSet(viewsets.ViewSet):
 
         # 统计数据
         project_count = accessible_projects.count()
-        
+
         # 测试用例数量
         test_case_count = TestCase.objects.filter(project_id__in=project_ids).count()
-        
+
         # 测试套件数量（包含用例总数）
         suite_count = TestSuite.objects.filter(project_id__in=project_ids).count()
-        
+
         from .models import TestSuiteTestCase
         suite_test_case_count = TestSuiteTestCase.objects.filter(
             test_suite__project_id__in=project_ids
@@ -3520,5 +3834,3 @@ class UiDashboardViewSet(viewsets.ViewSet):
             'suite_count': suite_test_case_count,
             'execution_count': total_execution_count
         })
-
-
