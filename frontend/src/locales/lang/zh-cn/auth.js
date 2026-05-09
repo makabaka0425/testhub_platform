@@ -24,7 +24,7 @@ export default {
   position: '职位',
   register: '注册',
   hasAccount: '已有账号？立即登录',
-  registerSuccess: '注册成功，请登录',
+  registerSuccess: '注册成功',
   registerFailed: '注册失败',
 
   // Features
