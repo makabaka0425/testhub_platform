@@ -1225,6 +1225,9 @@ const shouldShowField = (field, step) => {
         if (field === "times" && mode !== "count") {
             return false
         }
+        if (field === "max_loops" && mode !== "condition") {
+            return false
+        }
         if ((field === "left" || field === "operator" || field === "right") && mode !== "condition") {
             return false
         }
@@ -1986,6 +1989,7 @@ const getFieldLabel = (field) => {
         fallback_image_scope: "备用图片路径",
         fallback_image_threshold: "备用图片匹配阈值",
         value: "输入内容",
+        send_enter: "输入后发送回车",
         direction: "滑动方向",
         timeout: "超时时间",
         expected: "断言文本",
@@ -2109,6 +2113,7 @@ const getFieldPlaceholder = (field) => {
                 click_selector: "image: 文件名 | pos: x,y",
                 ocr_selector: "region: x1,y1,x2,y2 | pos: x,y",
                 value: "请输入内容",
+                send_enter: "勾选后输入文本后自动发送回车键",
                 expected: "期望文本，如是数字匹配：格式为1,000,000",
                 note: "备注",
                 image_scope: "图片目录名（位于 Template/ 下），默认 common 或输入自定义目录名",
@@ -2341,6 +2346,7 @@ const getFieldOrder = (fields) => {
                 "selector_type",
                 "selector",
                 "value",
+                "send_enter",
                 "direction",
                 "duration",
                 "expected_exists",
