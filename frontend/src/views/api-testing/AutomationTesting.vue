@@ -547,8 +547,10 @@ const loadRequestTree = async () => {
     })
     const collections = collectionsRes.data.results || collectionsRes.data
 
-    // 加载请求
-    const requestsRes = await api.get('/api-testing/requests/')
+    // 加载请求，传递project参数
+    const requestsRes = await api.get('/api-testing/requests/', {
+      params: { project: selectedProject.value }
+    })
     const requests = requestsRes.data.results || requestsRes.data
 
     // 构建树形结构
@@ -580,10 +582,17 @@ const buildRequestTree = (collections, requests) => {
     }
   })
   
-  // 添加请求到对应集合
+  // 添加请求到对应集合或根节点
   requests.forEach(request => {
     if (map[request.collection]) {
       map[request.collection].children.push({
+        ...request,
+        type: 'request',
+        id: `request_${request.id}`
+      })
+    } else {
+      // 没有关联集合的请求，直接添加到根节点
+      roots.push({
         ...request,
         type: 'request',
         id: `request_${request.id}`
