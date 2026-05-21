@@ -24,7 +24,7 @@ export default {
   position: 'Position',
   register: 'Register',
   hasAccount: 'Already have an account? Login now',
-  registerSuccess: 'Registration successful, please login',
+  registerSuccess: 'Registration successful',
   registerFailed: 'Registration failed',
 
   // Features

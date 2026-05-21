@@ -563,14 +563,37 @@ class UiFlowRunner:
     
     def _action_swipe(self, step: Dict[str, Any]):
         """滑动动作"""
+        import json
+        
         start = step.get('start')
         end = step.get('end')
         duration = step.get('duration', 0.5)
+        
+        # 处理 pos 定位方式的 selector
+        if not start and not end:
+            selector = step.get('selector')
+            selector_type = step.get('selector_type')
+            if selector and selector_type == 'pos':
+                try:
+                    if isinstance(selector, str):
+                        locator = json.loads(selector)
+                    else:
+                        locator = selector
+                    if isinstance(locator, list) and len(locator) >= 2:
+                        start = tuple(locator[0])
+                        end = tuple(locator[1])
+                    else:
+                        raise ValueError(f"Invalid locator for swipe: {locator}")
+                except (json.JSONDecodeError, ValueError) as e:
+                    raise ValueError(f"Failed to parse swipe locator: {selector}, error: {e}")
         
         if isinstance(start, str):
             start = tuple(int(x) for x in start.split(','))
         if isinstance(end, str):
             end = tuple(int(x) for x in end.split(','))
+        
+        if not start or not end:
+            raise ValueError(f"Missing start or end coordinates for swipe: start={start}, end={end}")
         
         logger.info(f"执行滑动: {start} -> {end}")
         swipe(start, end, duration=duration)
@@ -854,12 +877,30 @@ class UiFlowRunner:
         target = self._resolve_selector(step)
         value = step.get('value', '')
         
+        # 解析变量表达式（如随机数函数）
+        from apps.core.variable_resolver import resolve_variables
+        value = resolve_variables(value)
+        
+        send_enter = step.get('send_enter', False)
+        
         if target:
             touch(target)
             time.sleep(0.3)
         
         logger.info(f"输入文本: {value}")
         airtest_text(value)
+        
+        # 如果需要发送回车键（用于搜索）
+        if send_enter:
+            time.sleep(0.2)
+            try:
+                from airtest.core.api import keyevent
+                keyevent("KEYCODE_ENTER")
+                logger.info("发送回车键")
+            except ImportError:
+                # 如果没有keyevent，尝试发送换行符
+                airtest_text('\n')
+                logger.info("发送换行符模拟回车")
     
     def _action_long_press(self, step: Dict[str, Any]):
         """长按"""

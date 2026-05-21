@@ -37,7 +37,7 @@ import UiAIExecutionRecords from '@/views/ui-automation/ai/AIExecutionRecords.vu
 const routes = [
   {
     path: '/',
-    redirect: '/home'
+    redirect: to => ({ path: '/home', query: to.query })
   },
   {
     path: '/home',
@@ -475,45 +475,54 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const userStore = useUserStore()
 
-  console.log('路由守卫:', {
-    to: to.path,
-    from: from.path,
-    hasToken: !!userStore.accessToken,
-    hasUser: !!userStore.user,
-    isAuthenticated: userStore.isAuthenticated
-  })
+  // SSO 授权码交换：在登录态检查之前，先把 URL 中的 code 换成 JWT
+  const code = to.query.code
+  if (code && !userStore.accessToken) {
+    try {
+      const api = (await import('@/utils/api')).default
+      const response = await api.post('/auth/exchange-token/', {
+        action: 'redeem',
+        code: code,
+      })
+      const expiresAt = Date.now() + 30 * 60 * 1000
+      localStorage.setItem('access_token', response.data.access)
+      localStorage.setItem('refresh_token', response.data.refresh)
+      localStorage.setItem('token_expires_at', expiresAt.toString())
+      localStorage.setItem('user', JSON.stringify(response.data.user))
+      userStore.accessToken = response.data.access
+      userStore.refreshToken = response.data.refresh
+      userStore.tokenExpiresAt = expiresAt
+      userStore.user = response.data.user
 
-  // 只在应用初始化或从登录页面导航时初始化认证
+      // 清除 URL 中的 code，使用 replace 避免产生多余历史记录
+      const query = { ...to.query }
+      delete query.code
+      next({ path: to.path, query, replace: true })
+      return
+    } catch {
+      // code 无效或已过期，继续正常流程
+    }
+  }
+
+  // 有 token 但没有用户信息时，初始化认证
   if (!userStore.user && userStore.accessToken) {
     try {
-      console.log('初始化认证...')
       await userStore.initAuth()
-      console.log('认证初始化完成:', {
-        hasUser: !!userStore.user,
-        isAuthenticated: userStore.isAuthenticated
-      })
     } catch (error) {
       console.error('认证初始化失败:', error)
     }
   }
 
   if (to.meta.requiresAuth && !userStore.isAuthenticated) {
-    console.log('需要认证但未认证，跳转到登录页')
     next('/login')
   } else if (to.meta.requiresGuest && userStore.isAuthenticated) {
-    console.log('访客页面但已认证，跳转到项目页')
     next('/home')
   } else {
-    console.log('路由守卫通过，继续导航')
     next()
   }
-})
-
-router.afterEach((to, from) => {
-  console.log(`Navigated from ${from.path} to ${to.path}`)
 })
 
 export default router
