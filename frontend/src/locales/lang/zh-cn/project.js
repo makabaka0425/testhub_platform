@@ -100,7 +100,10 @@ export default {
     configCenterDesc: '系统环境、AI模型及通知配置',
 
     // Messages
-    featureInDevelopment: '功能正在开发中......'
+    featureInDevelopment: '功能正在开发中......',
+    mobileTipTitle: '请使用电脑端访问',
+    mobileTipDesc: '本平台需在电脑浏览器中使用，请复制链接或切换至电脑打开 TestHub。',
+    mobileTipOk: '我知道了'
   },
   profile: {
     // Page
