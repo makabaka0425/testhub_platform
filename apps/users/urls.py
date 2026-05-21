@@ -12,4 +12,8 @@ urlpatterns = [
     path('users/', views.UserListView.as_view(), name='user-list'),
     path('users/<int:pk>/', views.UserDetailView.as_view(), name='user-detail'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),  # JWT token刷新
+    path('captcha/', views.get_captcha, name='get_captcha'),                    # 图形验证码
+    path('send-register-code/', views.send_register_code, name='send_register_code'),  # 发送注册验证码
+    path('sms-login/', views.sms_login_view, name='sms_login'),                 # 短信验证码登录
+    path('exchange-token/', views.exchange_token_view, name='exchange_token'),  # SSO 授权码交换
 ]
