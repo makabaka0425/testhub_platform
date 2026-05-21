@@ -2995,17 +2995,36 @@ class AICaseViewSet(viewsets.ModelViewSet):
                     execution_record.status = 'stopped'
                     execution_record.logs += "\n[System] 任务已由用户停止。"
                 else:
-                    execution_record.status, task_summary = resolve_execution_status(execution_record.planned_tasks)
-                    if execution_record.status == 'passed':
-                        execution_record.logs += "\n执行完成。"
+                    # 根据执行过程判断最终状态（任务或步骤出现失败则标记失败）
+                    failed = False
+                    if execution_record.planned_tasks:
+                        failed = any(t.get('status') in ('failed', 'error') for t in execution_record.planned_tasks)
+                    # history 也可能包含状态信息
+                    if not failed and history:
+                        try:
+                            steps = history.steps if hasattr(history, 'steps') else []
+                            for step in steps:
+                                if getattr(step, 'status', None) == 'failed':
+                                    failed = True
+                                    break
+                        except Exception:
+                            pass
+
+                    if failed:
+                        execution_record.status = 'failed'
+                        execution_record.logs += "\n执行完成，但检测到失败步骤或任务。"
                     else:
-                        execution_record.logs += "\n执行结束，但存在未完成或失败的子任务。"
-                    logger.info(
-                        "🏁 Task completion summary: "
-                        f"{task_summary['completed']}/{task_summary['total']} completed, "
-                        f"{task_summary['failed']} failed, "
-                        f"{task_summary['pending'] + task_summary['in_progress']} pending"
-                    )
+                        execution_record.status = 'passed'
+                        execution_record.logs += "\n执行完成。"
+
+                    # 记录任务完成统计信息
+                    if execution_record.planned_tasks:
+                        total_tasks = len(execution_record.planned_tasks)
+                        completed_tasks = len(
+                            [t for t in execution_record.planned_tasks if t.get('status') == 'completed'])
+                        pending_tasks = len([t for t in execution_record.planned_tasks if t.get('status') == 'pending'])
+                        logger.info(
+                            f"🏁 Task completion summary: {completed_tasks}/{total_tasks} tasks completed, {pending_tasks} pending")
 
                 execution_record.end_time = timezone.now()
                 execution_record.duration = (execution_record.end_time - execution_record.start_time).total_seconds()
@@ -3521,17 +3540,35 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                     execution_record.status = 'stopped'
                     execution_record.logs += "\n[System] 任务已由用户停止。"
                 else:
-                    execution_record.status, task_summary = resolve_execution_status(execution_record.planned_tasks)
-                    if execution_record.status == 'passed':
-                        execution_record.logs += "\n执行完成。"
+                    # 根据执行结果判定失败
+                    failed = False
+                    if execution_record.planned_tasks:
+                        failed = any(t.get('status') in ('failed', 'error') for t in execution_record.planned_tasks)
+                    if not failed and history:
+                        try:
+                            steps = history.steps if hasattr(history, 'steps') else []
+                            for step in steps:
+                                if getattr(step, 'status', None) == 'failed':
+                                    failed = True
+                                    break
+                        except Exception:
+                            pass
+
+                    if failed:
+                        execution_record.status = 'failed'
+                        execution_record.logs += "\n执行完成，但检测到失败步骤或任务。"
                     else:
-                        execution_record.logs += "\n执行结束，但存在未完成或失败的子任务。"
-                    logger.info(
-                        "🏁 Task completion summary: "
-                        f"{task_summary['completed']}/{task_summary['total']} completed, "
-                        f"{task_summary['failed']} failed, "
-                        f"{task_summary['pending'] + task_summary['in_progress']} pending"
-                    )
+                        execution_record.status = 'passed'
+                        execution_record.logs += "\n执行完成。"
+
+                    # 记录任务完成统计信息
+                    if execution_record.planned_tasks:
+                        total_tasks = len(execution_record.planned_tasks)
+                        completed_tasks = len(
+                            [t for t in execution_record.planned_tasks if t.get('status') == 'completed'])
+                        pending_tasks = len([t for t in execution_record.planned_tasks if t.get('status') == 'pending'])
+                        logger.info(
+                            f"🏁 Task completion summary: {completed_tasks}/{total_tasks} tasks completed, {pending_tasks} pending")
 
                 execution_record.end_time = timezone.now()
                 execution_record.duration = (execution_record.end_time - execution_record.start_time).total_seconds()
