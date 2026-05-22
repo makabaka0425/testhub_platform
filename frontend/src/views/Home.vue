@@ -2,29 +2,65 @@
   <div class="home-container">
     <div class="content-wrapper">
       <div class="header-actions">
-        <el-dropdown trigger="click" @command="handleHeaderCommand" class="user-menu-dropdown">
-          <span class="user-menu-trigger">
-            <span class="avatar-wrap">
-              <el-avatar :size="28" :icon="UserFilled" />
-              <span class="lang-badge">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
+        <!-- PC：语言、用户分开 -->
+        <div class="header-actions-pc">
+          <el-dropdown @command="handleLanguageChange" class="language-dropdown">
+            <span class="el-dropdown-link">
+              <span class="language-icon">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
+              <span class="language-text">{{ $t('home.language.current') }}</span>
+              <el-icon class="el-icon--right"><arrow-down /></el-icon>
             </span>
-            <span class="username">{{ userStore.user?.username || $t('home.user') }}</span>
-            <el-icon class="trigger-arrow"><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">
-                <span class="dropdown-flag">🇨🇳</span> {{ $t('home.language.zhCN') }}
-              </el-dropdown-item>
-              <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">
-                <span class="dropdown-flag">🇺🇸</span> {{ $t('home.language.en') }}
-              </el-dropdown-item>
-              <el-dropdown-item command="logout" divided>
-                {{ $t('home.logout') }}
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">
+                  <span class="dropdown-flag">🇨🇳</span> {{ $t('home.language.zhCN') }}
+                </el-dropdown-item>
+                <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">
+                  <span class="dropdown-flag">🇺🇸</span> {{ $t('home.language.en') }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
+          <el-dropdown @command="handleCommand">
+            <span class="el-dropdown-link">
+              <el-avatar :size="32" :icon="UserFilled" />
+              <span class="username">{{ userStore.user?.username || $t('home.user') }}</span>
+              <el-icon class="el-icon--right"><arrow-down /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="logout">{{ $t('home.logout') }}</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+
+        <!-- 移动端：合并菜单 -->
+        <div class="header-actions-mobile">
+          <el-dropdown trigger="click" @command="handleHeaderCommand">
+            <span class="user-menu-trigger">
+              <span class="avatar-wrap">
+                <el-avatar :size="28" :icon="UserFilled" />
+                <span class="lang-badge">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
+              </span>
+              <el-icon class="trigger-arrow"><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">
+                  <span class="dropdown-flag">🇨🇳</span> {{ $t('home.language.zhCN') }}
+                </el-dropdown-item>
+                <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">
+                  <span class="dropdown-flag">🇺🇸</span> {{ $t('home.language.en') }}
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>
+                  {{ $t('home.logout') }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </div>
 
       <h1 class="main-title">{{ $t('home.title') }}</h1>
@@ -184,6 +220,16 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateMobileTip)
 })
 
+const handleLanguageChange = (lang) => {
+  appStore.setLanguage(lang)
+}
+
+const handleCommand = (command) => {
+  if (command === 'logout') {
+    handleLogout()
+  }
+}
+
 const handleHeaderCommand = (command) => {
   if (command === 'logout') {
     handleLogout()
@@ -228,48 +274,104 @@ const handleNavigate = (type) => {
 <style scoped lang="scss">
 .home-container {
   min-height: 100vh;
-  min-height: 100dvh;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  padding: 16px;
-  padding-top: max(16px, env(safe-area-inset-top));
-  padding-left: max(16px, env(safe-area-inset-left));
-  padding-right: max(16px, env(safe-area-inset-right));
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
-  box-sizing: border-box;
+  align-items: center;
+  padding: 20px;
 }
 
 .content-wrapper {
   text-align: center;
   max-width: 1200px;
   width: 100%;
-  margin: 0 auto;
+  position: relative;
 }
 
 .header-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 10px;
+}
+
+.header-actions-pc {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  margin-bottom: 12px;
+  gap: 20px;
+
+  .language-dropdown {
+    .el-dropdown-link {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      color: #5e6d82;
+      transition: color 0.3s;
+      outline: none;
+
+      &:focus {
+        outline: none;
+      }
+
+      .language-icon {
+        font-size: 18px;
+        margin-right: 5px;
+        line-height: 1;
+      }
+
+      .language-text {
+        margin: 0 5px;
+        font-size: 14px;
+      }
+
+      &:hover {
+        color: #409eff;
+      }
+    }
+  }
+
+  .el-dropdown-link {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    color: #5e6d82;
+    transition: color 0.3s;
+    outline: none;
+
+    &:focus {
+      outline: none;
+    }
+
+    .username {
+      margin: 0 8px;
+      font-size: 14px;
+    }
+
+    &:hover {
+      color: #409eff;
+    }
+  }
+}
+
+.header-actions-mobile {
+  display: none;
 }
 
 .user-menu-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   color: #5e6d82;
-  padding: 6px 12px 6px 8px;
-  background: rgba(255, 255, 255, 0.35);
+  padding: 6px 10px 6px 6px;
+  background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  transition: color 0.3s, background 0.3s, box-shadow 0.3s;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 8px rgba(31, 45, 61, 0.06);
+  transition: color 0.3s, background 0.3s;
   outline: none;
-  white-space: nowrap;
 
   &:focus {
     outline: none;
@@ -277,8 +379,7 @@ const handleNavigate = (type) => {
 
   &:hover {
     color: #409eff;
-    background: rgba(255, 255, 255, 0.55);
-    box-shadow: 0 2px 8px rgba(31, 45, 61, 0.06);
+    background: rgba(255, 255, 255, 0.85);
   }
 
   .avatar-wrap {
@@ -299,13 +400,6 @@ const handleNavigate = (type) => {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   }
 
-  .username {
-    font-size: 14px;
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
   .trigger-arrow {
     font-size: 12px;
     color: #909399;
@@ -318,74 +412,66 @@ const handleNavigate = (type) => {
 }
 
 .main-title {
-  font-size: 2.5rem;
-  color: #303133;
-  margin: 0 0 12px;
+  font-size: 3.5rem;
+  color: #2c3e50;
+  margin-bottom: 1rem;
   font-weight: 700;
-  letter-spacing: 1px;
-  line-height: 1.3;
+  letter-spacing: 2px;
 }
 
 .subtitle {
-  font-size: 1rem;
-  color: #909399;
-  margin: 0 0 32px;
-  line-height: 1.6;
+  font-size: 1.5rem;
+  color: #5e6d82;
+  margin-bottom: 4rem;
 }
 
 .cards-container {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 30px;
+  padding: 20px;
 }
 
 .nav-card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 28px 20px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 16px;
+  padding: 40px 20px;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
   align-items: center;
-  -webkit-tap-highlight-color: transparent;
 
   &:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  }
-
-  &:active {
-    transform: translateY(-2px);
+    transform: translateY(-10px);
+    box-shadow: 0 20px 30px rgba(0, 0, 0, 0.1);
+    background: #fff;
   }
 
   h3 {
-    font-size: 17px;
-    color: #303133;
-    margin: 16px 0 8px;
-    font-weight: 600;
-    line-height: 1.4;
+    font-size: 1.5rem;
+    color: #2c3e50;
+    margin: 20px 0 10px;
   }
 
   p {
-    color: #909399;
-    font-size: 14px;
+    color: #7f8c8d;
     line-height: 1.5;
     margin: 0;
   }
 }
 
 .card-icon {
-  width: 64px;
-  height: 64px;
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
-  flex-shrink: 0;
-  transition: transform 0.3s ease;
+  font-size: 40px;
+  margin-bottom: 10px;
+  transition: all 0.3s ease;
 
   &.ai-icon {
     background: #e8f4ff;
@@ -429,43 +515,178 @@ const handleNavigate = (type) => {
 }
 
 .nav-card:hover .card-icon {
-  transform: scale(1.05);
+  transform: scale(1.1);
 }
 
-@media screen and (max-width: 1024px) {
+@media screen and (max-width: 1920px) {
   .main-title {
-    font-size: 2rem;
+    font-size: 3.2rem;
   }
 
   .subtitle {
-    font-size: 0.95rem;
-    margin-bottom: 24px;
+    font-size: 1.4rem;
   }
 
   .cards-container {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
+    gap: 28px;
+    padding: 18px;
+  }
+}
+
+@media screen and (max-width: 1600px) {
+  .main-title {
+    font-size: 3rem;
+  }
+
+  .subtitle {
+    font-size: 1.3rem;
+  }
+
+  .cards-container {
+    gap: 26px;
+    padding: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   }
 
   .nav-card {
-    padding: 24px 16px;
+    padding: 35px 18px;
+  }
+}
+
+@media screen and (max-width: 1440px) {
+  .main-title {
+    font-size: 2.8rem;
+  }
+
+  .subtitle {
+    font-size: 1.2rem;
+  }
+
+  .cards-container {
+    gap: 24px;
+    padding: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .nav-card {
+    padding: 30px 16px;
 
     h3 {
-      font-size: 16px;
-    }
-
-    p {
-      font-size: 13px;
+      font-size: 1.4rem;
     }
   }
 
   .card-icon {
-    width: 56px;
-    height: 56px;
-    font-size: 28px;
+    width: 70px;
+    height: 70px;
+    font-size: 35px;
   }
 }
 
+@media screen and (max-width: 1366px) {
+  .main-title {
+    font-size: 2.6rem;
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+  }
+
+  .cards-container {
+    gap: 22px;
+    padding: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  .nav-card {
+    padding: 28px 14px;
+
+    h3 {
+      font-size: 1.3rem;
+    }
+  }
+
+  .card-icon {
+    width: 65px;
+    height: 65px;
+    font-size: 32px;
+  }
+}
+
+@media screen and (max-width: 1280px) {
+  .main-title {
+    font-size: 2.4rem;
+  }
+
+  .subtitle {
+    font-size: 1rem;
+  }
+
+  .cards-container {
+    gap: 20px;
+    padding: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .nav-card {
+    padding: 25px 12px;
+
+    h3 {
+      font-size: 1.2rem;
+    }
+  }
+
+  .card-icon {
+    width: 60px;
+    height: 60px;
+    font-size: 30px;
+  }
+}
+
+@media screen and (max-width: 1024px) {
+  .home-container {
+    padding: 15px;
+  }
+
+  .main-title {
+    font-size: 2.2rem;
+  }
+
+  .subtitle {
+    font-size: 1rem;
+    margin-bottom: 3rem;
+  }
+
+  .cards-container {
+    gap: 18px;
+    padding: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+
+  .nav-card {
+    padding: 20px 10px;
+
+    h3 {
+      font-size: 1.1rem;
+    }
+
+    p {
+      font-size: 0.9rem;
+    }
+  }
+
+  .card-icon {
+    width: 55px;
+    height: 55px;
+    font-size: 28px;
+  }
+
+  .header-actions {
+    padding: 8px;
+  }
+}
+
+/* 移动端：≤768px 专用样式 */
 @media screen and (max-width: 768px) {
   .home-container {
     position: relative;
@@ -506,18 +727,18 @@ const handleNavigate = (type) => {
   }
 
   .header-actions {
+    position: static;
     margin-bottom: 12px;
+    padding: 0;
   }
 
-  .user-menu-trigger {
-    padding: 6px 10px 6px 6px;
-    background: rgba(255, 255, 255, 0.72);
-    border-color: rgba(255, 255, 255, 0.8);
-    box-shadow: 0 2px 8px rgba(31, 45, 61, 0.06);
+  .header-actions-pc {
+    display: none;
+  }
 
-    .username {
-      display: none;
-    }
+  .header-actions-mobile {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .main-title {
@@ -605,7 +826,7 @@ const handleNavigate = (type) => {
     margin-bottom: 16px;
   }
 
-  .user-menu-trigger {
+  .header-actions-mobile .user-menu-trigger {
     padding: 5px 8px 5px 5px;
     gap: 4px;
   }
