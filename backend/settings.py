@@ -38,6 +38,15 @@ THIRD_PARTY_APPS = [
     'channels',
 ]
 
+ANALYTICS_ENABLED = config('ANALYTICS_ENABLED', default=False, cast=bool)
+ANALYTICS_MAX_BATCH_SIZE = config('ANALYTICS_MAX_BATCH_SIZE', default=20, cast=int)
+REGISTRATION_STATS_ENABLED = config('REGISTRATION_STATS_ENABLED', default=False, cast=bool)
+REGISTRATION_STATS_VISIBLE_USERNAMES = config(
+    'REGISTRATION_STATS_VISIBLE_USERNAMES',
+    default='',
+    cast=lambda value: [item.strip() for item in value.split(',') if item.strip()],
+)
+
 LOCAL_APPS = [
     'apps.users',
     'apps.projects',
@@ -55,6 +64,9 @@ LOCAL_APPS = [
     'apps.core',
     'apps.data_factory',
 ]
+
+if ANALYTICS_ENABLED or REGISTRATION_STATS_ENABLED:
+    LOCAL_APPS.append('apps.analytics')
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -75,7 +87,7 @@ ROOT_URLCONF = 'backend.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -390,6 +402,11 @@ LOGGING = {
             'handlers': ['file', 'error_file', 'console'],
             'level': 'INFO',
             'propagate': True,
+        },
+        'apps.analytics': {
+            'handlers': ['file', 'error_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
         },
     },
     'root': {

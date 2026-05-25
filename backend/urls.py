@@ -34,6 +34,9 @@ urlpatterns = [
     path('api/data-factory/', include('apps.data_factory.urls')),
 ]
 
+if settings.ANALYTICS_ENABLED:
+    urlpatterns.append(path('api/analytics/', include('apps.analytics.urls')))
+
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_FILES_URL, document_root=settings.STATIC_FILES_ROOT)
