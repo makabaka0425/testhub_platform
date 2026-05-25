@@ -133,6 +133,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
+import { track } from '@/utils/tracker'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Link, Monitor, DataLine, Cpu, Setting, ChatDotRound, UserFilled, ArrowDown, Cellphone } from '@element-plus/icons-vue'
 
@@ -219,6 +220,15 @@ const handleNavigate = (type) => {
   }
 
   if (routes[type]) {
+    track('module_card_click', {
+      event_type: 'click',
+      module: 'home',
+      page_path: '/home',
+      target_path: routes[type],
+      metadata: {
+        card_type: type
+      }
+    })
     const routeData = router.resolve({ path: routes[type] })
     window.open(routeData.href, '_blank')
   }

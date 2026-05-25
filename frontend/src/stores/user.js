@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '@/utils/api'
+import { track } from '@/utils/tracker'
 
 export const useUserStore = defineStore('user', () => {
   const user = ref(null)
@@ -77,6 +78,16 @@ export const useUserStore = defineStore('user', () => {
       // 启动自动刷新
       startAutoRefresh()
 
+      track('login_success', {
+        event_type: 'business',
+        module: 'auth',
+        page_path: '/login',
+        success: true,
+        metadata: {
+          login_type: 'password'
+        }
+      })
+
       return response.data
     } catch (error) {
       throw error
@@ -100,6 +111,16 @@ export const useUserStore = defineStore('user', () => {
       localStorage.setItem('user', JSON.stringify(user.value))
 
       startAutoRefresh()
+
+      track('login_success', {
+        event_type: 'business',
+        module: 'auth',
+        page_path: '/login',
+        success: true,
+        metadata: {
+          login_type: 'sms'
+        }
+      })
 
       return response.data
     } catch (error) {
@@ -125,6 +146,13 @@ export const useUserStore = defineStore('user', () => {
       localStorage.setItem('user', JSON.stringify(user.value))
 
       startAutoRefresh()
+
+      track('register_success', {
+        event_type: 'business',
+        module: 'auth',
+        page_path: '/register',
+        success: true
+      })
 
       return response.data
     } catch (error) {

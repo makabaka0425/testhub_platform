@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { trackPageView } from '@/utils/tracker'
 
 // 静态导入常用组件来避免动态导入问题
 import Login from '@/views/auth/Login.vue'
@@ -523,6 +524,10 @@ router.beforeEach(async (to, _from, next) => {
     } else {
         next()
     }
+})
+
+router.afterEach((to, from) => {
+    trackPageView(to, from)
 })
 
 export default router

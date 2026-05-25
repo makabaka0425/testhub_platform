@@ -17,6 +17,15 @@ class User(AbstractUser):
         verbose_name = '用户'
         verbose_name_plural = '用户'
 
+
+class RegistrationStatsProxy(User):
+    """用于后台展示注册统计，不新增数据表"""
+
+    class Meta:
+        proxy = True
+        verbose_name = '注册统计'
+        verbose_name_plural = '注册统计'
+
 class UserProfile(models.Model):
     """用户配置"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
