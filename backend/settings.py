@@ -6,6 +6,10 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def parse_csv(value):
+    return [item.strip() for item in value.split(',') if item.strip()]
+
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-your-secret-key-here')
 
 DEBUG = config('DEBUG', default=True, cast=bool)
@@ -15,7 +19,7 @@ if DEBUG:
     ALLOWED_HOSTS = ['*']
 else:
     ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1',
-                           cast=lambda v: [s.strip() for s in v.split(',')])
+                           cast=parse_csv)
 
 DJANGO_APPS = [
     'simpleui',
@@ -44,8 +48,10 @@ REGISTRATION_STATS_ENABLED = config('REGISTRATION_STATS_ENABLED', default=False,
 REGISTRATION_STATS_VISIBLE_USERNAMES = config(
     'REGISTRATION_STATS_VISIBLE_USERNAMES',
     default='',
-    cast=lambda value: [item.strip() for item in value.split(',') if item.strip()],
+    cast=parse_csv,
 )
+APP_USE_HTTPS = config('APP_USE_HTTPS', default=not DEBUG, cast=bool)
+TRUST_PROXY_SSL_HEADER = config('TRUST_PROXY_SSL_HEADER', default=APP_USE_HTTPS, cast=bool)
 
 LOCAL_APPS = [
     'apps.users',
@@ -215,20 +221,20 @@ SIMPLE_JWT = {
     'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
 }
 
-# CSRF Settings - 根据DEBUG模式设置
-if DEBUG:
-    CSRF_COOKIE_SECURE = False
-    CSRF_USE_SESSIONS = False
-    CSRF_COOKIE_HTTPONLY = False
-    CSRF_COOKIE_SAMESITE = 'Lax'
-else:
-    CSRF_COOKIE_SECURE = True
-    CSRF_COOKIE_HTTPONLY = True
-    CSRF_COOKIE_SAMESITE = 'Strict'
+# CSRF / Session Settings - 支持通过 .env 控制 HTTP/HTTPS
+CSRF_USE_SESSIONS = config('CSRF_USE_SESSIONS', default=False, cast=bool)
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=APP_USE_HTTPS, cast=bool)
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=APP_USE_HTTPS, cast=bool)
+CSRF_COOKIE_HTTPONLY = config('CSRF_COOKIE_HTTPONLY', default=not DEBUG, cast=bool)
+CSRF_COOKIE_SAMESITE = config('CSRF_COOKIE_SAMESITE', default='Lax')
+SESSION_COOKIE_SAMESITE = config('SESSION_COOKIE_SAMESITE', default='Lax')
+
+if TRUST_PROXY_SSL_HEADER:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # CORS Settings
 cors_origins_str = config('CORS_ALLOWED_ORIGINS', default='')
-parsed_cors_origins = [s.strip() for s in cors_origins_str.split(',') if s.strip()]
+parsed_cors_origins = parse_csv(cors_origins_str)
 
 if DEBUG:
     # 开发环境默认允许本地地址，同时合并环境变量里的配置
@@ -280,10 +286,11 @@ else:
     CORS_EXPOSE_HEADERS = ['Content-Type', 'Cache-Control']
 
 # CSRF Settings
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='http://localhost:3000,http://127.0.0.1:3000',
+    cast=parse_csv,
+)
 
 # Spectacular Settings
 SPECTACULAR_SETTINGS = {
