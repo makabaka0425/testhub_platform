@@ -21,6 +21,8 @@ class AIModelConfig(models.Model):
         ('deepseek', 'DeepSeek'),
         ('qwen', '通义千问'),
         ('siliconflow', '硅基流动'),
+        ('xiaomi', '小米'),
+        ('xiaomi_coding_plan', '小米coding plan'),
         ('other', '其他'),
     ]
     

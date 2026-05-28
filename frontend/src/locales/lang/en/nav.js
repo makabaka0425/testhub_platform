@@ -51,8 +51,7 @@ export default {
 
     // Configuration Center
     aiCaseGenerationConfig: 'AI Test Case Config',
-    aiModelConfig: 'Model Config',
-    promptConfig: 'Prompt Configuration',
+    aiModelConfig: 'AI Test Case Model Config',
     generationConfig: 'Generation Behavior Config',
     uiEnvConfig: 'UI Environment Configuration',
     aiModeConfig: 'AI Mode Configuration',

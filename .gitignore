@@ -36,6 +36,10 @@ media/ai_recording/*
 media/requirement_docs/*
 !media/requirement_docs/.gitkeep
 
+# 忽略用例导入文件
+media/testcase_imports
+media/testcase_import_failures
+
 # 忽略接口测试运行时产生的 Allure 报告文件，但保留.gitkeep文件
 media/api-testing/allure-results/*
 !media/api-testing/allure-results/.gitkeep

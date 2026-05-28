@@ -414,7 +414,9 @@ export default {
     loadDefaultsFailed: 'Failed to load default prompts',
     loadConfigsFailed: 'Failed to load configurations',
     loadFailed: 'Load failed',
-    pleaseLogin: 'Please login first'
+    pleaseLogin: 'Please login first',
+    promptExists: 'The following prompts already exist: {types}. Please do not load or add duplicates',
+    promptTypeExists: '{type} already exists. Please do not add duplicates'
   },
   generationConfig: {
     // Page

@@ -929,6 +929,177 @@ class AIModelConfigViewSet(viewsets.ModelViewSet):
 
         return queryset.order_by('-created_at')
 
+    def _fetch_models_with_timeout(self, config, timeout=30.0):
+        """同步包装异步模型列表获取。"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                asyncio.wait_for(
+                    AIModelService.list_available_models(config),
+                    timeout=timeout
+                )
+            )
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            finally:
+                loop.close()
+
+    @action(detail=False, methods=['post'], url_path='available_models')
+    def available_models_preview(self, request):
+        """获取未保存配置下的可用模型列表。"""
+        try:
+            data = request.data
+            required_fields = ['model_type', 'api_key', 'base_url']
+            missing_fields = [field for field in required_fields if not data.get(field)]
+            if missing_fields:
+                return Response(
+                    {'success': False, 'message': f'缺少必填字段: {", ".join(missing_fields)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            preview_config = AIModelConfig(
+                name=data.get('name', '临时模型列表配置'),
+                model_type=data.get('model_type'),
+                role=data.get('role', 'writer'),
+                api_key=data.get('api_key'),
+                base_url=data.get('base_url'),
+                model_name=data.get('model_name', 'temp-model'),
+                max_tokens=data.get('max_tokens') or 256,
+                temperature=data.get('temperature') if data.get('temperature') is not None else 0.7,
+                top_p=data.get('top_p') if data.get('top_p') is not None else 0.9,
+                is_active=False
+            )
+
+            models = self._fetch_models_with_timeout(preview_config)
+            return Response({
+                'success': True,
+                'message': f'成功获取{len(models)}个模型',
+                'models': models
+            }, status=status.HTTP_200_OK)
+        except asyncio.TimeoutError:
+            return Response(
+                {'success': False, 'message': '获取模型列表超时，请检查网络连接或API地址是否正确'},
+                status=status.HTTP_408_REQUEST_TIMEOUT
+            )
+        except Exception as e:
+            logger.error(f"获取未保存配置模型列表失败: {e}")
+            return Response(
+                {'success': False, 'message': f'获取模型列表失败: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['get'], url_path='available_models')
+    def available_models(self, request, pk=None):
+        """获取已保存配置下的可用模型列表。"""
+        try:
+            config = self.get_object()
+            models = self._fetch_models_with_timeout(config)
+            return Response({
+                'success': True,
+                'message': f'成功获取{len(models)}个模型',
+                'models': models
+            }, status=status.HTTP_200_OK)
+        except asyncio.TimeoutError:
+            return Response(
+                {'success': False, 'message': '获取模型列表超时，请检查网络连接或API地址是否正确'},
+                status=status.HTTP_408_REQUEST_TIMEOUT
+            )
+        except Exception as e:
+            logger.error(f"获取已保存配置模型列表失败: {e}")
+            return Response(
+                {'success': False, 'message': f'获取模型列表失败: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=False, methods=['post'], url_path='test_connection')
+    def test_connection_preview(self, request):
+        """测试未保存的模型配置连接"""
+        try:
+            data = request.data
+
+            required_fields = ['model_type', 'api_key', 'base_url', 'model_name']
+            missing_fields = [field for field in required_fields if not data.get(field)]
+            if missing_fields:
+                return Response(
+                    {'success': False, 'message': f'缺少必填字段: {", ".join(missing_fields)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            test_config = AIModelConfig(
+                name=data.get('name', '临时测试配置'),
+                model_type=data.get('model_type'),
+                role=data.get('role', 'writer'),
+                api_key=data.get('api_key'),
+                base_url=data.get('base_url'),
+                model_name=data.get('model_name'),
+                max_tokens=data.get('max_tokens') or 256,
+                temperature=data.get('temperature') if data.get('temperature') is not None else 0.7,
+                top_p=data.get('top_p') if data.get('top_p') is not None else 0.9,
+                is_active=False
+            )
+
+            logger.info("=== 开始测试未保存模型配置连接 ===")
+            logger.info(f"模型类型: {test_config.model_type}")
+            logger.info(f"模型名称: {test_config.model_name}")
+            logger.info(f"API URL: {test_config.base_url}")
+
+            test_messages = [
+                {"role": "system", "content": "你是一个AI助手"},
+                {"role": "user", "content": "请回复'连接成功'"}
+            ]
+
+            def test_api_connection():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                    try:
+                        result = loop.run_until_complete(
+                            asyncio.wait_for(
+                                AIModelService.call_openai_compatible_api(test_config, test_messages),
+                                timeout=60.0
+                            )
+                        )
+                        return {
+                            'success': True,
+                            'message': '连接测试成功',
+                            'response': result.get('choices', [{}])[0].get('message', {}).get('content', '')
+                        }
+                    except asyncio.TimeoutError:
+                        return {
+                            'success': False,
+                            'message': '连接测试超时: 请检查网络连接或API地址是否正确'
+                        }
+                    finally:
+                        try:
+                            loop.run_until_complete(loop.shutdown_asyncgens())
+                        except Exception:
+                            pass
+                        finally:
+                            loop.close()
+                except Exception as e:
+                    logger.error(f"未保存配置连接测试异常: {repr(e)}")
+                    return {
+                        'success': False,
+                        'message': f'连接测试失败: {str(e)}'
+                    }
+
+            result = test_api_connection()
+            return Response(
+                result,
+                status=status.HTTP_200_OK if result['success'] else status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"测试未保存配置连接时出错: {e}")
+            return Response(
+                {'success': False, 'message': f'测试失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=True, methods=['post'])
     def test_connection(self, request, pk=None):
         """测试模型连接"""

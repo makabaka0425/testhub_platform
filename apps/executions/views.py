@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.utils import timezone
+from django.db import transaction
 from .models import TestPlan, TestRun, TestRunCase, TestRunCaseHistory
 from apps.testcases.models import TestCase
 from apps.projects.models import Project
@@ -21,6 +22,68 @@ class TestPlanViewSet(viewsets.ModelViewSet):
             return TestPlanDetailSerializer
         return TestPlanSerializer
 
+    def _sync_test_runs(self, test_plan, project_ids, testcase_ids):
+        if not project_ids:
+            test_plan.projects.clear()
+            test_plan.test_runs.all().delete()
+            return
+
+        valid_projects = list(Project.objects.filter(id__in=project_ids))
+        valid_project_ids = [project.id for project in valid_projects]
+        test_plan.projects.set(valid_project_ids)
+
+        testcase_queryset = TestCase.objects.filter(
+            id__in=testcase_ids,
+            project_id__in=valid_project_ids
+        ).select_related('project')
+        testcase_map = {testcase.id: testcase for testcase in testcase_queryset}
+
+        existing_runs = {test_run.project_id: test_run for test_run in test_plan.test_runs.all()}
+
+        for project_id, test_run in list(existing_runs.items()):
+            if project_id not in valid_project_ids:
+                test_run.delete()
+                existing_runs.pop(project_id, None)
+
+        for project in valid_projects:
+            test_run = existing_runs.get(project.id)
+            if not test_run:
+                test_run = TestRun.objects.create(
+                    name=f"{test_plan.name} - {project.name} Execution",
+                    test_plan=test_plan,
+                    project=project,
+                    version=test_plan.version,
+                    creator=test_plan.creator,
+                    assignee=test_plan.creator
+                )
+                existing_runs[project.id] = test_run
+            else:
+                test_run.name = f"{test_plan.name} - {project.name} Execution"
+                test_run.version = test_plan.version
+                test_run.save(update_fields=['name', 'version', 'updated_at'])
+
+            run_testcases = [testcase for testcase in testcase_queryset if testcase.project_id == project.id]
+            TestRunCase.objects.filter(test_run=test_run).exclude(
+                testcase_id__in=[testcase.id for testcase in run_testcases]
+            ).delete()
+
+            existing_case_ids = set(
+                TestRunCase.objects.filter(test_run=test_run).values_list('testcase_id', flat=True)
+            )
+            new_cases = [
+                TestRunCase(
+                    test_run=test_run,
+                    testcase=testcase,
+                    priority=testcase.priority
+                )
+                for testcase in run_testcases
+                if testcase.id not in existing_case_ids
+            ]
+            if new_cases:
+                TestRunCase.objects.bulk_create(new_cases)
+
+            test_run.testcases.set([testcase.id for testcase in run_testcases])
+
     def perform_create(self, serializer):
         # 在创建TestPlan时，设置creator并自动为每个项目创建TestRun和TestRunCase
         # 获取版本信息
@@ -34,44 +97,10 @@ class TestPlanViewSet(viewsets.ModelViewSet):
                 pass
         
         test_plan = serializer.save(creator=self.request.user, version=version)
-        
-        # 获取选中的项目和测试用例
+
         project_ids = self.request.data.get('projects', [])
         testcase_ids = self.request.data.get('testcases', [])
-        
-        if project_ids:
-            # 设置测试计划的项目关联
-            test_plan.projects.set(project_ids)
-            
-            # 为每个项目创建TestRun
-            for project_id in project_ids:
-                try:
-                    project = Project.objects.get(id=project_id)
-                    test_run = TestRun.objects.create(
-                        name=f"{test_plan.name} - {project.name} Execution",
-                        test_plan=test_plan,
-                        project=project,
-                        version=test_plan.version,
-                        creator=test_plan.creator,
-                        assignee=test_plan.creator  # 默认指派给自己
-                    )
-                    
-                    # 为TestRun关联测试用例
-                    if testcase_ids:
-                        test_run_cases = []
-                        for case_id in testcase_ids:
-                            try:
-                                testcase = TestCase.objects.get(id=case_id)
-                                test_run_cases.append(
-                                    TestRunCase(test_run=test_run, testcase=testcase)
-                                )
-                            except TestCase.DoesNotExist:
-                                continue
-                        TestRunCase.objects.bulk_create(test_run_cases)
-                        test_run.testcases.set(testcase_ids)
-                        
-                except Project.DoesNotExist:
-                    continue
+        self._sync_test_runs(test_plan, project_ids, testcase_ids)
 
     @action(detail=False, methods=['get'])
     def testcases_by_projects(self, request):
@@ -127,18 +156,18 @@ class TestPlanViewSet(viewsets.ModelViewSet):
             except Version.DoesNotExist:
                 pass
         
-        # 更新测试计划
-        test_plan = serializer.save(version=version)
-        
-        # 更新项目关联
-        project_ids = self.request.data.get('projects', [])
-        if project_ids:
-            test_plan.projects.set(project_ids)
-        
-        # 更新指派人员
-        assignee_ids = self.request.data.get('assignees', [])
-        if assignee_ids:
-            test_plan.assignees.set(assignee_ids)
+        with transaction.atomic():
+            test_plan = serializer.save(version=version)
+
+            project_ids = self.request.data.get('projects', [])
+            testcase_ids = self.request.data.get('testcases', [])
+            self._sync_test_runs(test_plan, project_ids, testcase_ids)
+
+            assignee_ids = self.request.data.get('assignees', [])
+            if assignee_ids:
+                test_plan.assignees.set(assignee_ids)
+            else:
+                test_plan.assignees.clear()
 
 
 class TestRunViewSet(viewsets.ModelViewSet):

@@ -209,6 +209,24 @@ class PromptConfigSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'prompt_type', 'prompt_type_display', 'content', 'is_active',
                  'created_by', 'created_by_name', 'created_at', 'updated_at']
         read_only_fields = ['created_by', 'created_by_name']
+
+    def validate(self, attrs):
+        prompt_type = attrs.get('prompt_type')
+        if prompt_type is None and self.instance:
+            prompt_type = self.instance.prompt_type
+
+        if prompt_type:
+            queryset = PromptConfig.objects.filter(prompt_type=prompt_type)
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+
+            if queryset.exists():
+                prompt_display = dict(PromptConfig.PROMPT_CHOICES).get(prompt_type, prompt_type)
+                raise serializers.ValidationError({
+                    'prompt_type': f'{prompt_display}已存在，请勿重复添加'
+                })
+
+        return attrs
     
     def create(self, validated_data):
         # 自动设置创建者

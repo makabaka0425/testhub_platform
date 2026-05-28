@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TestCase, TestCaseStep, TestCaseAttachment, TestCaseComment
+from .models import TestCase, TestCaseStep, TestCaseAttachment, TestCaseComment, TestCaseImportRecord
 from apps.users.serializers import UserSerializer
 from apps.versions.serializers import VersionSimpleSerializer
 
@@ -125,3 +125,30 @@ class TestCaseUpdateSerializer(serializers.ModelSerializer):
 
         return instance
 
+
+class TestCaseImportRecordListSerializer(serializers.ModelSerializer):
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+
+    class Meta:
+        model = TestCaseImportRecord
+        fields = [
+            'id', 'import_no', 'project', 'project_name', 'status', 'progress',
+            'total_rows', 'success_count', 'failed_count', 'skip_count',
+            'error_message', 'template_version', 'created_by_name',
+            'created_at', 'completed_at'
+        ]
+
+
+class TestCaseImportRecordDetailSerializer(TestCaseImportRecordListSerializer):
+    failure_report_url = serializers.SerializerMethodField()
+
+    class Meta(TestCaseImportRecordListSerializer.Meta):
+        fields = TestCaseImportRecordListSerializer.Meta.fields + [
+            'failure_details', 'failure_report_file', 'failure_report_url'
+        ]
+
+    def get_failure_report_url(self, obj):
+        if obj.failure_report_file:
+            return obj.failure_report_file.url
+        return None
