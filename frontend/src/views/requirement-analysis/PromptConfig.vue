@@ -276,6 +276,45 @@ export default {
   },
 
   methods: {
+    getPromptTypeLabel(promptType) {
+      return promptType === 'writer' ? this.$t('promptConfig.writerPrompt') : this.$t('promptConfig.reviewerPrompt')
+    },
+
+    getExistingPromptConfig(promptType, excludeId = null) {
+      return this.configs.find(config => config.prompt_type === promptType && config.id !== excludeId)
+    },
+
+    getMissingPromptTypes() {
+      return ['writer', 'reviewer'].filter(type => !this.getExistingPromptConfig(type))
+    },
+
+    formatApiError(error, fallbackText) {
+      const data = error?.response?.data
+      if (!data) {
+        return error?.message || fallbackText
+      }
+
+      if (typeof data.error === 'string') {
+        return data.error
+      }
+
+      if (Array.isArray(data.error) && data.error.length > 0) {
+        return data.error.join(', ')
+      }
+
+      if (Array.isArray(data.prompt_type) && data.prompt_type.length > 0) {
+        return data.prompt_type.join(', ')
+      }
+
+      if (typeof data.prompt_type === 'string') {
+        return data.prompt_type
+      }
+
+      return Object.keys(data)
+        .map(key => Array.isArray(data[key]) ? data[key].join(', ') : data[key])
+        .join('; ') || fallbackText
+    },
+
     openAddModal() {
       console.log('openAddModal clicked')
       this.resetForm()
@@ -318,6 +357,14 @@ export default {
 
     async loadDefaultPrompts() {
       console.log('loadDefaultPrompts clicked')
+      const missingTypes = this.getMissingPromptTypes()
+
+      if (missingTypes.length === 0) {
+        const existingTypes = ['writer', 'reviewer'].map(type => this.getPromptTypeLabel(type))
+        ElMessage.warning(this.$t('promptConfig.promptExists', { types: existingTypes.join('、') }))
+        return
+      }
+
       try {
         const response = await api.get('/requirement-analysis/prompts/load_defaults/')
         console.log('Default prompts response:', response.data)
@@ -334,8 +381,16 @@ export default {
       this.isLoadingDefaults = true
       
       try {
+        const missingTypes = this.getMissingPromptTypes()
+
+        if (missingTypes.length === 0) {
+          const existingTypes = ['writer', 'reviewer'].map(type => this.getPromptTypeLabel(type))
+          ElMessage.warning(this.$t('promptConfig.promptExists', { types: existingTypes.join('、') }))
+          return
+        }
+
         // 创建编写提示词配置
-        if (this.defaultPrompts.writer) {
+        if (missingTypes.includes('writer') && this.defaultPrompts.writer) {
           await api.post('/requirement-analysis/prompts/', {
             name: this.$t('promptConfig.defaultWriterName'),
             prompt_type: 'writer',
@@ -345,7 +400,7 @@ export default {
         }
 
         // 创建评审提示词配置
-        if (this.defaultPrompts.reviewer) {
+        if (missingTypes.includes('reviewer') && this.defaultPrompts.reviewer) {
           await api.post('/requirement-analysis/prompts/', {
             name: this.$t('promptConfig.defaultReviewerName'),
             prompt_type: 'reviewer',
@@ -359,7 +414,7 @@ export default {
         this.loadConfigs()
       } catch (error) {
         console.error(this.$t('promptConfig.loadDefaultsFailed'), error)
-        ElMessage.error(this.$t('promptConfig.loadFailed') + ': ' + (error.response?.data?.error || error.message))
+        ElMessage.error(this.$t('promptConfig.loadFailed') + ': ' + this.formatApiError(error, this.$t('promptConfig.loadFailed')))
       } finally{
         this.isLoadingDefaults = false
       }
@@ -395,6 +450,20 @@ export default {
       this.isSaving = true
       
       try {
+        const existingConfig = this.getExistingPromptConfig(
+          this.configForm.prompt_type,
+          this.isEditing ? this.editingConfigId : null
+        )
+
+        if (existingConfig) {
+          ElMessage.warning(
+            this.$t('promptConfig.promptTypeExists', {
+              type: this.getPromptTypeLabel(this.configForm.prompt_type)
+            })
+          )
+          return
+        }
+
         if (this.isEditing) {
           await api.patch(`/requirement-analysis/prompts/${this.editingConfigId}/`, this.configForm)
           ElMessage.success(this.$t('promptConfig.updateSuccess'))
@@ -407,7 +476,7 @@ export default {
         this.loadConfigs()
       } catch (error) {
         console.error(this.$t('promptConfig.saveConfigFailed'), error)
-        ElMessage.error(this.$t('promptConfig.saveFailed') + ': ' + (error.response?.data?.error || error.message))
+        ElMessage.error(this.$t('promptConfig.saveFailed') + ': ' + this.formatApiError(error, this.$t('promptConfig.saveFailed')))
       } finally {
         this.isSaving = false
       }
