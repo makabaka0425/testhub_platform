@@ -92,3 +92,58 @@ class TestCaseComment(models.Model):
         verbose_name = '测试用例评论'
         verbose_name_plural = '测试用例评论'
         ordering = ['-created_at']
+
+
+class TestCaseImportRecord(models.Model):
+    """测试用例 Excel 导入记录"""
+
+    STATUS_CHOICES = [
+        ('pending', '等待中'),
+        ('importing', '导入中'),
+        ('completed', '已完成'),
+        ('partial_success', '部分成功'),
+        ('failed', '失败'),
+    ]
+
+    import_no = models.CharField(max_length=50, unique=True, verbose_name='导入编号')
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='testcase_import_records',
+        verbose_name='关联项目'
+    )
+    import_file = models.FileField(upload_to='testcase_imports/', verbose_name='导入文件')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='状态')
+    progress = models.IntegerField(default=0, verbose_name='进度')
+    total_rows = models.IntegerField(default=0, verbose_name='总行数')
+    success_count = models.IntegerField(default=0, verbose_name='成功数')
+    failed_count = models.IntegerField(default=0, verbose_name='失败数')
+    skip_count = models.IntegerField(default=0, verbose_name='跳过数')
+    error_message = models.TextField(blank=True, verbose_name='错误信息')
+    failure_details = models.JSONField(default=list, blank=True, verbose_name='失败明细')
+    failure_report_file = models.FileField(
+        upload_to='testcase_import_failures/',
+        blank=True,
+        null=True,
+        verbose_name='失败明细文件'
+    )
+    template_version = models.CharField(max_length=20, default='v1', verbose_name='模板版本')
+    celery_task_id = models.CharField(max_length=100, blank=True, verbose_name='Celery任务ID')
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='testcase_import_records',
+        verbose_name='创建者'
+    )
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+    completed_at = models.DateTimeField(null=True, blank=True, verbose_name='完成时间')
+
+    class Meta:
+        db_table = 'testcase_import_records'
+        verbose_name = '测试用例导入记录'
+        verbose_name_plural = '测试用例导入记录'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.import_no

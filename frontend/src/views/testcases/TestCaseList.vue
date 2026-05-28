@@ -15,6 +15,17 @@
           <el-icon><Download /></el-icon>
           {{ $t('testcase.exportExcel') }}
         </el-button>
+        <el-button @click="downloadImportTemplate">
+          <el-icon><Download /></el-icon>
+          {{ $t('testcase.downloadImportTemplate') }}
+        </el-button>
+        <el-button type="warning" @click="openImportDialog">
+          <el-icon><Upload /></el-icon>
+          {{ $t('testcase.importCases') }}
+        </el-button>
+        <el-button @click="goToImportRecords">
+          {{ $t('testcase.importRecords') }}
+        </el-button>
         <el-button type="primary" @click="$router.push('/ai-generation/testcases/create')">
           <el-icon><Plus /></el-icon>
           {{ $t('testcase.newCase') }}
@@ -137,15 +148,80 @@
         />
       </div>
     </div>
+
+    <el-dialog
+      v-model="importDialogVisible"
+      :title="$t('testcase.importDialogTitle')"
+      width="560px"
+    >
+      <el-alert
+        :title="$t('testcase.uploadTip')"
+        type="info"
+        :closable="false"
+        show-icon
+        class="import-alert"
+      />
+
+      <el-form label-width="100px">
+        <el-form-item :label="$t('testcase.importProject')">
+          <el-select
+            v-model="importForm.projectId"
+            style="width: 100%"
+            :placeholder="$t('testcase.selectImportProject')"
+            filterable
+          >
+            <el-option
+              v-for="project in projects"
+              :key="project.id"
+              :label="project.name"
+              :value="project.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$t('testcase.selectImportFile')">
+          <el-upload
+            class="import-upload"
+            drag
+            action="#"
+            :auto-upload="false"
+            :limit="1"
+            accept=".xlsx"
+            :show-file-list="false"
+            :before-upload="beforeImportUpload"
+            :on-change="handleImportFileChange"
+          >
+            <el-icon class="el-icon--upload"><Upload /></el-icon>
+            <div class="el-upload__text">
+              {{ $t('testcase.chooseFile') }}
+            </div>
+            <template #tip>
+              <div class="el-upload__tip">
+                {{ $t('testcase.selectedFile') }}: {{ selectedImportFile?.name || '-' }}
+              </div>
+            </template>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="importDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+        <el-button @click="downloadImportTemplate">
+          {{ $t('testcase.downloadImportTemplate') }}
+        </el-button>
+        <el-button type="primary" :loading="isCreatingImport" @click="submitImport">
+          {{ isCreatingImport ? $t('testcase.uploading') : $t('common.confirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Download, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, Download, Delete, Upload } from '@element-plus/icons-vue'
 import api from '@/utils/api'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
@@ -163,6 +239,12 @@ const projectFilter = ref('')
 const priorityFilter = ref('')
 const selectedTestCases = ref([])
 const isDeleting = ref(false)
+const importDialogVisible = ref(false)
+const isCreatingImport = ref(false)
+const selectedImportFile = ref(null)
+const importForm = ref({
+  projectId: ''
+})
 
 const fetchTestCases = async () => {
   loading.value = true
@@ -469,6 +551,86 @@ const exportToExcel = async () => {
   }
 }
 
+const downloadBlob = (blob, fileName) => {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+}
+
+const downloadImportTemplate = async () => {
+  try {
+    const response = await api.get('/testcases/import/template/', {
+      responseType: 'blob'
+    })
+    downloadBlob(response.data, 'testcase_import_template_v1.xlsx')
+    ElMessage.success(t('testcase.downloadTemplateSuccess'))
+  } catch (error) {
+    console.error('Download import template failed:', error)
+    ElMessage.error(t('testcase.downloadTemplateFailed'))
+  }
+}
+
+const openImportDialog = () => {
+  importForm.value.projectId = projectFilter.value || ''
+  selectedImportFile.value = null
+  importDialogVisible.value = true
+}
+
+const beforeImportUpload = (file) => {
+  const isXlsx = file.name.toLowerCase().endsWith('.xlsx')
+  if (!isXlsx) {
+    ElMessage.error(t('testcase.invalidImportFile'))
+  }
+  return isXlsx
+}
+
+const handleImportFileChange = (uploadFile) => {
+  if (uploadFile?.raw) {
+    selectedImportFile.value = uploadFile.raw
+  }
+}
+
+const submitImport = async () => {
+  if (!importForm.value.projectId) {
+    ElMessage.warning(t('testcase.importProjectRequired'))
+    return
+  }
+  if (!selectedImportFile.value) {
+    ElMessage.warning(t('testcase.importFileRequired'))
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('project_id', importForm.value.projectId)
+  formData.append('file', selectedImportFile.value)
+
+  isCreatingImport.value = true
+  try {
+    await api.post('/testcases/import-records/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+    ElMessage.success(t('testcase.importCreated'))
+    importDialogVisible.value = false
+    goToImportRecords()
+  } catch (error) {
+    console.error('Create import record failed:', error)
+    ElMessage.error(error.response?.data?.error || t('testcase.importCreateFailed'))
+  } finally {
+    isCreatingImport.value = false
+  }
+}
+
+const goToImportRecords = () => {
+  router.push('/ai-generation/testcases/import-records')
+}
+
 const fetchProjects = async () => {
   try {
     const response = await api.get('/projects/')
@@ -551,6 +713,19 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.import-alert {
+  margin-bottom: 20px;
+}
+
+.import-upload {
+  width: 100%;
+
+  :deep(.el-upload),
+  :deep(.el-upload-dragger) {
+    width: 100%;
+  }
 }
 
 .priority-tag {
