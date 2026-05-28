@@ -139,19 +139,31 @@
           </el-select>
         </el-form-item>
         <el-form-item :label="$t('execution.testCases')" prop="testcases">
-          <el-select
-            v-model="newPlanForm.testcases"
-            multiple
-            :placeholder="loadingTestcases ? $t('execution.loadingTestcases') : (!newPlanForm.projects || newPlanForm.projects.length === 0 ? $t('execution.selectTestcasesDisabled') : $t('execution.selectTestcases'))"
-            style="width: 100%"
-            :disabled="!newPlanForm.projects || newPlanForm.projects.length === 0"
-            :loading="loadingTestcases"
-            @visible-change="handleTestcaseSelectOpen">
-            <el-option v-for="item in filteredTestcases" :key="item.id" :label="item.title" :value="item.id">
-              <span style="float: left">{{ item.title }}</span>
-              <span style="float: right; color: #8492a6; font-size: 13px">{{ item.project__name }}</span>
-            </el-option>
-          </el-select>
+          <div class="testcase-picker-trigger">
+            <el-button
+              type="primary"
+              plain
+              :disabled="!newPlanForm.projects || newPlanForm.projects.length === 0"
+              @click="openTestcaseSelector('create')"
+            >
+              {{ $t('execution.selectTestcasesButton') }}
+            </el-button>
+            <span class="testcase-selection-tip">
+              {{
+                newPlanForm.testcases.length > 0
+                  ? $t('execution.selectedTestcasesCount', { count: newPlanForm.testcases.length })
+                  : $t('execution.noTestcasesSelected')
+              }}
+            </span>
+            <el-button
+              v-if="newPlanForm.testcases.length > 0"
+              link
+              type="primary"
+              @click="openTestcaseSelector('create')"
+            >
+              {{ $t('execution.modifyTestcasesSelection') }}
+            </el-button>
+          </div>
         </el-form-item>
         <el-form-item :label="$t('execution.assignees')">
           <el-select v-model="newPlanForm.assignees" multiple :placeholder="$t('execution.selectAssignees')" style="width: 100%">
@@ -191,6 +203,33 @@
             <el-option v-for="item in versions" :key="item.id" :label="item.name" :value="item.id"></el-option>
           </el-select>
         </el-form-item>
+        <el-form-item :label="$t('execution.testCases')" prop="testcases">
+          <div class="testcase-picker-trigger">
+            <el-button
+              type="primary"
+              plain
+              :disabled="!editPlanForm.projects || editPlanForm.projects.length === 0"
+              @click="openTestcaseSelector('edit')"
+            >
+              {{ $t('execution.selectTestcasesButton') }}
+            </el-button>
+            <span class="testcase-selection-tip">
+              {{
+                editPlanForm.testcases.length > 0
+                  ? $t('execution.selectedTestcasesCount', { count: editPlanForm.testcases.length })
+                  : $t('execution.noTestcasesSelected')
+              }}
+            </span>
+            <el-button
+              v-if="editPlanForm.testcases.length > 0"
+              link
+              type="primary"
+              @click="openTestcaseSelector('edit')"
+            >
+              {{ $t('execution.modifyTestcasesSelection') }}
+            </el-button>
+          </div>
+        </el-form-item>
         <el-form-item :label="$t('execution.assignees')">
           <el-select v-model="editPlanForm.assignees" multiple :placeholder="$t('execution.selectAssignees')" style="width: 100%">
             <el-option v-for="item in users" :key="item.id" :label="item.username" :value="item.id"></el-option>
@@ -211,11 +250,93 @@
         </span>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="testcaseSelectorVisible"
+      :title="$t('execution.testcaseSelectorTitle')"
+      width="1100px"
+      :close-on-click-modal="false"
+    >
+      <div class="testcase-selector-container">
+        <div class="testcase-search-bar">
+          <el-form :inline="true">
+            <el-form-item :label="$t('execution.testcaseKeyword')">
+              <el-input
+                v-model="testcaseSelectorFilters.keyword"
+                :placeholder="$t('execution.testcaseKeywordPlaceholder')"
+                clearable
+                style="width: 220px"
+              />
+            </el-form-item>
+            <el-form-item :label="$t('execution.testcasePriority')">
+              <el-select v-model="testcaseSelectorFilters.priority" clearable style="width: 160px">
+                <el-option :label="$t('execution.allPriorities')" value="" />
+                <el-option :label="$t('testcase.low')" value="low" />
+                <el-option :label="$t('testcase.medium')" value="medium" />
+                <el-option :label="$t('testcase.high')" value="high" />
+                <el-option :label="$t('testcase.critical')" value="critical" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="$t('execution.testcaseType')">
+              <el-select v-model="testcaseSelectorFilters.test_type" clearable style="width: 180px">
+                <el-option :label="$t('execution.allTypes')" value="" />
+                <el-option :label="$t('testcase.functional')" value="functional" />
+                <el-option :label="$t('testcase.integration')" value="integration" />
+                <el-option :label="$t('testcase.api')" value="api" />
+                <el-option :label="$t('testcase.ui')" value="ui" />
+                <el-option :label="$t('testcase.performance')" value="performance" />
+                <el-option :label="$t('testcase.security')" value="security" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary">{{ $t('common.search') }}</el-button>
+              <el-button @click="resetTestcaseSelectorFilters">{{ $t('execution.resetSearch') }}</el-button>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <el-table
+          ref="testcaseSelectorTableRef"
+          :data="testcaseSelectorList"
+          v-loading="loadingTestcases"
+          @selection-change="handleTestcaseSelectorSelectionChange"
+          row-key="id"
+          max-height="420"
+        >
+          <el-table-column type="selection" width="55" :reserve-selection="true" />
+          <el-table-column :label="$t('execution.testcaseCode')" width="90">
+            <template #default="{ row }">
+              {{ row.id }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="title" :label="$t('execution.testcaseTitle')" min-width="420" show-overflow-tooltip />
+          <el-table-column prop="priority" :label="$t('execution.testcasePriority')" width="120">
+            <template #default="{ row }">
+              <el-tag :class="`priority-tag ${row.priority}`">{{ getTestcasePriorityText(row.priority) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="test_type" :label="$t('execution.testcaseType')" width="140">
+            <template #default="{ row }">
+              {{ getTestcaseTypeText(row.test_type) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="project__name" :label="$t('execution.testcaseProject')" width="180" show-overflow-tooltip />
+        </el-table>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="testcaseSelectorVisible = false">{{ $t('common.cancel') }}</el-button>
+          <el-button type="primary" @click="confirmTestcaseSelection">
+            {{ $t('execution.confirmSelectTestcases', { count: testcaseTempSelectedIds.length }) }}
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch, computed } from 'vue'
+import { ref, reactive, onMounted, watch, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -237,6 +358,16 @@ const loadingTestcases = ref(false)
 const users = ref([])
 const selectedPlans = ref([])
 const isDeleting = ref(false)
+const testcaseSelectorVisible = ref(false)
+const testcaseSelectorMode = ref('create')
+const testcaseSelectorTableRef = ref()
+const testcaseTempSelectedIds = ref([])
+const isSyncingTestcaseSelectorSelection = ref(false)
+const testcaseSelectorFilters = reactive({
+  keyword: '',
+  priority: '',
+  test_type: ''
+})
 
 // 分页
 const currentPage = ref(1)
@@ -270,6 +401,7 @@ const editPlanForm = reactive({
   description: '',
   projects: [],
   version: null,
+  testcases: [],
   assignees: [],
   is_active: true
 })
@@ -375,14 +507,6 @@ const loadTestcasesByProjects = async (projectIds) => {
   }
 }
 
-// 处理测试用例选择器打开事件
-const handleTestcaseSelectOpen = (visible) => {
-  if (visible && (!newPlanForm.projects || newPlanForm.projects.length === 0)) {
-    ElMessage.warning(t('execution.selectProjectFirst'))
-    return false
-  }
-}
-
 // 处理项目选择变化
 const handleProjectChange = (selectedProjects) => {
   // 清空已选择的测试用例
@@ -394,6 +518,101 @@ const handleProjectChange = (selectedProjects) => {
   } else {
     filteredTestcases.value = []
   }
+}
+
+const testcaseSelectorList = computed(() => {
+  return filteredTestcases.value.filter(item => {
+    const keyword = testcaseSelectorFilters.keyword.trim().toLowerCase()
+    const matchKeyword = !keyword || item.title?.toLowerCase().includes(keyword)
+    const matchPriority = !testcaseSelectorFilters.priority || item.priority === testcaseSelectorFilters.priority
+    const matchType = !testcaseSelectorFilters.test_type || item.test_type === testcaseSelectorFilters.test_type
+    return matchKeyword && matchPriority && matchType
+  })
+})
+
+const getCurrentPlanForm = () => (
+  testcaseSelectorMode.value === 'edit' ? editPlanForm : newPlanForm
+)
+
+const syncDialogTableSelection = async () => {
+  await nextTick()
+  if (!testcaseSelectorTableRef.value) return
+  isSyncingTestcaseSelectorSelection.value = true
+  try {
+    testcaseSelectorTableRef.value.clearSelection()
+    testcaseSelectorList.value.forEach(item => {
+      if (testcaseTempSelectedIds.value.includes(item.id)) {
+        testcaseSelectorTableRef.value.toggleRowSelection(item, true)
+      }
+    })
+    await nextTick()
+  } finally {
+    isSyncingTestcaseSelectorSelection.value = false
+  }
+}
+
+const openTestcaseSelector = async (mode) => {
+  testcaseSelectorMode.value = mode
+  const currentForm = getCurrentPlanForm()
+  if (!currentForm.projects || currentForm.projects.length === 0) {
+    ElMessage.warning(t('execution.selectProjectBeforeOpenTestcases'))
+    return
+  }
+
+  if (!filteredTestcases.value.length) {
+    await loadTestcasesByProjects(currentForm.projects)
+  }
+
+  testcaseTempSelectedIds.value = [...currentForm.testcases]
+  testcaseSelectorVisible.value = true
+  await syncDialogTableSelection()
+}
+
+const handleTestcaseSelectorSelectionChange = (selection) => {
+  if (isSyncingTestcaseSelectorSelection.value) {
+    return
+  }
+  const visibleIds = testcaseSelectorList.value.map(item => item.id)
+  const hiddenSelectedIds = testcaseTempSelectedIds.value.filter(id => !visibleIds.includes(id))
+  testcaseTempSelectedIds.value = [
+    ...hiddenSelectedIds,
+    ...selection.map(item => item.id)
+  ]
+}
+
+const confirmTestcaseSelection = () => {
+  const currentForm = getCurrentPlanForm()
+  currentForm.testcases = [...testcaseTempSelectedIds.value]
+  testcaseSelectorVisible.value = false
+}
+
+const resetTestcaseSelectorFilters = async () => {
+  testcaseSelectorFilters.keyword = ''
+  testcaseSelectorFilters.priority = ''
+  testcaseSelectorFilters.test_type = ''
+  await syncDialogTableSelection()
+}
+
+const getTestcasePriorityText = (priority) => {
+  const textMap = {
+    low: t('testcase.low'),
+    medium: t('testcase.medium'),
+    high: t('testcase.high'),
+    critical: t('testcase.critical')
+  }
+  return textMap[priority] || priority
+}
+
+const getTestcaseTypeText = (type) => {
+  const textMap = {
+    functional: t('testcase.functional'),
+    integration: t('testcase.integration'),
+    api: t('testcase.api'),
+    ui: t('testcase.ui'),
+    performance: t('testcase.performance'),
+    security: t('testcase.security')
+  }
+  return textMap[type] || type
 }
 
 const createPlan = async () => {
@@ -439,9 +658,14 @@ const editPlan = async (plan) => {
         return project ? project.id : p
       }) || [],
       version: planDetail.version ? versions.value.find(v => v.name === planDetail.version)?.id : null,
+      testcases: planDetail.testcases?.map(tc => tc.id) || [],
       assignees: planDetail.assignees || [],
       is_active: planDetail.is_active
     })
+
+    if (editPlanForm.projects.length > 0) {
+      await loadTestcasesByProjects(editPlanForm.projects)
+    }
 
     isEditPlanDialogOpen.value = true
   } catch (error) {
@@ -459,6 +683,7 @@ const updatePlan = async () => {
       description: editPlanForm.description,
       projects: editPlanForm.projects,
       version: editPlanForm.version,
+      testcases: editPlanForm.testcases,
       assignees: editPlanForm.assignees,
       is_active: editPlanForm.is_active
     }
@@ -484,6 +709,7 @@ const resetEditForm = () => {
     description: '',
     projects: [],
     version: null,
+    testcases: [],
     assignees: [],
     is_active: true
   })
@@ -628,7 +854,7 @@ const batchDeletePlans = async () => {
 // 监听项目选择变化
 watch(
   () => newPlanForm.projects,
-  (newProjects, oldProjects) => {
+  (newProjects) => {
     // 清空已选择的测试用例
     newPlanForm.testcases = []
     
@@ -641,6 +867,28 @@ watch(
   },
   { deep: true }
 )
+
+watch(
+  () => editPlanForm.projects,
+  (newProjects, oldProjects) => {
+    if (!isEditPlanDialogOpen.value) return
+    if (JSON.stringify(newProjects || []) === JSON.stringify(oldProjects || [])) return
+
+    editPlanForm.testcases = []
+    if (newProjects && newProjects.length > 0) {
+      loadTestcasesByProjects(newProjects)
+    } else {
+      filteredTestcases.value = []
+    }
+  },
+  { deep: true }
+)
+
+watch(testcaseSelectorList, () => {
+  if (testcaseSelectorVisible.value) {
+    syncDialogTableSelection()
+  }
+})
 
 onMounted(() => {
   fetchTestPlans()
@@ -676,6 +924,43 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: center;
+}
+
+.testcase-picker-trigger {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.testcase-selection-tip {
+  color: #606266;
+  font-size: 14px;
+}
+
+.testcase-selector-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.testcase-search-bar {
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.priority-tag.low {
+  color: #67c23a;
+}
+
+.priority-tag.medium {
+  color: #e6a23c;
+}
+
+.priority-tag.high,
+.priority-tag.critical {
+  color: #f56c6c;
 }
 
 .dialog-footer {

@@ -414,7 +414,9 @@ export default {
     loadDefaultsFailed: '加载默认提示词失败',
     loadConfigsFailed: '加载配置失败',
     loadFailed: '加载失败',
-    pleaseLogin: '请先登录'
+    pleaseLogin: '请先登录',
+    promptExists: '以下提示词已存在：{types}，请勿重复加载或添加',
+    promptTypeExists: '{type}已存在，请勿重复添加'
   },
   generationConfig: {
     // Page

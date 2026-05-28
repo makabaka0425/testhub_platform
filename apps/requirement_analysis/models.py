@@ -203,6 +203,8 @@ class AIModelConfig(models.Model):
         ('qwen', '通义千问'),
         ('siliconflow', '硅基流动'),
         ('zhipu', '智谱'),
+        ('xiaomi', '小米'),
+        ('xiaomi_coding_plan', '小米coding plan'),
         ('other', '其他'),
     ]
 
@@ -420,6 +422,35 @@ class AIModelService:
     """AI模型服务类"""
 
     @staticmethod
+    def get_openai_compatible_headers(api_key: str) -> Dict[str, str]:
+        """构建 OpenAI 兼容接口请求头，同时兼容部分厂商的 api-key 认证。"""
+        return {
+            'Authorization': f'Bearer {api_key}',
+            'api-key': api_key,
+            'Content-Type': 'application/json'
+        }
+
+    @staticmethod
+    def build_openai_compatible_url(base_url: str, endpoint: str) -> str:
+        """根据用户输入的 base_url 构建 OpenAI 兼容接口地址。"""
+        normalized_base_url = base_url.rstrip('/')
+
+        if normalized_base_url.endswith(endpoint):
+            return normalized_base_url
+
+        for known_endpoint in ('/chat/completions', '/models'):
+            if normalized_base_url.endswith(known_endpoint):
+                normalized_base_url = normalized_base_url[:-len(known_endpoint)]
+                break
+
+        import re
+        version_match = re.search(r'/v(\d+)/?$', normalized_base_url)
+        if version_match:
+            return f"{normalized_base_url}{endpoint}"
+
+        return f"{normalized_base_url}/v1{endpoint}"
+
+    @staticmethod
     async def call_openai_compatible_api(
             config: AIModelConfig,
             messages: List[Dict[str, str]],
@@ -436,10 +467,7 @@ class AIModelService:
         Returns:
             API响应字典
         """
-        headers = {
-            'Authorization': f'Bearer {config.api_key}',
-            'Content-Type': 'application/json'
-        }
+        headers = AIModelService.get_openai_compatible_headers(config.api_key)
 
         # 使用传入的max_tokens或默认使用config.max_tokens
         actual_max_tokens = max_tokens if max_tokens is not None else config.max_tokens
@@ -453,22 +481,7 @@ class AIModelService:
             'stream': False
         }
 
-        # 确保base_url不以/结尾
-        base_url = config.base_url.rstrip('/')
-        # 如果用户没有输入完整的/chat/completions路径，尝试智能补全
-        if not base_url.endswith('/chat/completions'):
-            # 检查是否已经包含版本号（如v1, v4等）
-            import re
-            version_match = re.search(r'/v(\d+)/?$', base_url)
-            if version_match:
-                # 如果已经以版本号结尾（如/v1, /v4），直接添加/chat/completions
-                url = f"{base_url}/chat/completions"
-            else:
-                # 默认假设是根路径，尝试添加 v1/chat/completions
-                # 但对于某些API（如DeepSeek），base_url可能已经是 https://api.deepseek.com
-                url = f"{base_url}/v1/chat/completions"
-        else:
-            url = base_url
+        url = AIModelService.build_openai_compatible_url(config.base_url, '/chat/completions')
 
         logger.info(f"=== API调用详情 ===")
         logger.info(f"原始base_url: {config.base_url}")
@@ -518,6 +531,57 @@ class AIModelService:
             # Use repr(e) to capture the full exception type and message, especially if str(e) is empty
             logger.error(f"{provider_name} API调用失败: {repr(e)}")
             raise Exception(f"{provider_name} API调用失败: {str(e) or repr(e)}")
+
+    @staticmethod
+    async def list_available_models(config: AIModelConfig) -> List[str]:
+        """获取当前配置下可用的模型列表。"""
+        headers = AIModelService.get_openai_compatible_headers(config.api_key)
+        url = AIModelService.build_openai_compatible_url(config.base_url, '/models')
+
+        timeout_config = httpx.Timeout(
+            connect=30.0,
+            read=60.0,
+            write=30.0,
+            pool=30.0
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_config, http2=False) as client:
+                logger.info(f"获取模型列表，URL: {url}")
+                response = await client.get(url, headers=headers)
+
+                if response.status_code != 200:
+                    error_detail = response.text
+                    logger.error(f"获取模型列表失败: Status={response.status_code}, Body={error_detail}")
+
+                response.raise_for_status()
+                payload = response.json()
+                raw_models = payload.get('data', []) if isinstance(payload, dict) else payload
+
+                model_ids = []
+                for item in raw_models or []:
+                    if isinstance(item, dict):
+                        model_id = item.get('id') or item.get('model') or item.get('name')
+                        if model_id:
+                            model_ids.append(str(model_id))
+                    elif isinstance(item, str):
+                        model_ids.append(item)
+
+                # 去重并保留原始顺序
+                unique_model_ids = list(dict.fromkeys(model_ids))
+                logger.info(f"获取模型列表成功，共{len(unique_model_ids)}个模型")
+                return unique_model_ids
+        except httpx.HTTPStatusError as e:
+            provider_name = config.get_model_type_display()
+            raise Exception(f"{provider_name} 获取模型列表失败 {e.response.status_code}: {e.response.text}")
+        except httpx.TimeoutException as e:
+            provider_name = config.get_model_type_display()
+            logger.error(f"{provider_name} 获取模型列表超时: {repr(e)}")
+            raise Exception(f"{provider_name} 获取模型列表超时，请检查网络连接或API地址是否正确")
+        except Exception as e:
+            provider_name = config.get_model_type_display()
+            logger.error(f"{provider_name} 获取模型列表失败: {repr(e)}")
+            raise Exception(f"{provider_name} 获取模型列表失败: {str(e) or repr(e)}")
 
     @staticmethod
     async def call_deepseek_api(config: AIModelConfig, messages: List[Dict[str, str]]) -> Dict[str, Any]:
