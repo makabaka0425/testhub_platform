@@ -54,10 +54,24 @@ class TestPlanDetailSerializer(serializers.ModelSerializer):
     creator = UserSimpleSerializer(read_only=True)
     projects = serializers.StringRelatedField(many=True, read_only=True)
     version = serializers.StringRelatedField()
+    testcases = serializers.SerializerMethodField()
 
     class Meta:
         model = TestPlan
         fields = '__all__'
+
+    def get_testcases(self, obj):
+        testcase_map = {}
+        for test_run in obj.test_runs.prefetch_related('testcases__project').all():
+            for testcase in test_run.testcases.all():
+                testcase_map[testcase.id] = {
+                    'id': testcase.id,
+                    'title': testcase.title,
+                    'priority': testcase.priority,
+                    'test_type': testcase.test_type,
+                    'project__name': testcase.project.name if testcase.project else ''
+                }
+        return list(testcase_map.values())
 
 class TestRunCaseSerializer(serializers.ModelSerializer):
     class Meta:
