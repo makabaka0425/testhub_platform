@@ -188,7 +188,7 @@ class ElementViewSet(viewsets.ModelViewSet):
         ).distinct()
         return Element.objects.filter(project__in=accessible_projects).select_related(
             'project', 'group', 'locator_strategy', 'created_by', 'parent_element'
-        ).prefetch_related('script_usages__script').order_by('page', 'name')
+        ).prefetch_related('script_usages__script').order_by('page', 'order', 'name')
 
     def filter_queryset(self, queryset):
         # 先应用默认的过滤器
