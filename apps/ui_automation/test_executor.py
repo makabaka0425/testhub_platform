@@ -182,6 +182,32 @@ class TestExecutor:
 
             return
 
+        from apps.ui_automation.playwright_engine import PlaywrightTestEngine
+
+        is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(self.browser)
+        if not is_ready:
+            print(f"❌ {error_msg}")
+
+            if self.execution:
+                self.update_execution_result(
+                    status='FAILED',
+                    failed=len(self.test_cases),
+                    error_msg=error_msg
+                )
+
+            for test_case in self.test_cases:
+                TestCaseExecution.objects.filter(
+                    test_case=test_case,
+                    test_suite=self.test_suite,
+                    status='pending'
+                ).update(
+                    status='failed',
+                    error_message=error_msg,
+                    finished_at=timezone.now()
+                )
+
+            return
+
         # 预先获取所有测试用例的步骤数据，避免在Playwright上下文中访问ORM
         test_cases_data = []
         for test_case in self.test_cases:
@@ -1559,9 +1585,9 @@ class TestExecutor:
         os.environ['WDM_LOG_LEVEL'] = '0'  # 减少日志输出
         os.environ['WDM_PRINT_FIRST_LINE'] = 'False'  # 不打印首行信息
 
-        # 检查浏览器是否可用
-        is_available, error_msg = SeleniumTestEngine.check_browser_available(self.browser)
-        if not is_available:
+        # 检查浏览器和驱动是否可用
+        is_ready, error_msg = SeleniumTestEngine.check_execution_environment(self.browser)
+        if not is_ready:
             # 提供安装建议
             install_tips = {
                 'chrome': 'brew install --cask google-chrome',

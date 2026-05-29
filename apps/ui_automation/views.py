@@ -779,6 +779,23 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         browser = request.data.get('browser', 'chrome')
         headless = request.data.get('headless', False)
 
+        if engine == 'selenium':
+            from .selenium_engine import SeleniumTestEngine
+            is_ready, error_msg = SeleniumTestEngine.check_execution_environment(browser)
+            if not is_ready:
+                return Response({
+                    'error': error_msg,
+                    'message': '浏览器驱动未就绪，请先安装后再执行测试套件'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        elif engine == 'playwright':
+            from .playwright_engine import PlaywrightTestEngine
+            is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(browser)
+            if not is_ready:
+                return Response({
+                    'error': error_msg,
+                    'message': 'Playwright 浏览器未就绪，请先安装后再执行测试套件'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         # 更新套件执行状态为运行中
         test_suite.execution_status = 'running'
         test_suite.save()
@@ -1259,15 +1276,21 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             if engine_type == 'selenium':
                 from .selenium_engine import SeleniumTestEngine
 
-                # Selenium 引擎需要预先检查浏览器是否可用
+                # Selenium 引擎需要预先检查浏览器和驱动是否可用
                 browser_type = request.data.get('browser', 'chrome')
-                is_available, error_msg = SeleniumTestEngine.check_browser_available(browser_type)
-                if not is_available:
-                    # 浏览器不可用，立即返回错误
-                    logger.error(f"Selenium 浏览器检查失败: {error_msg}")
+                is_ready, error_msg = SeleniumTestEngine.check_execution_environment(browser_type)
+                if not is_ready:
+                    # 浏览器环境不可用，立即返回错误
+                    logger.error(f"Selenium 执行环境检查失败: {error_msg}")
                     execution.status = 'failed'
                     execution.error_message = error_msg
-                    execution.execution_logs = f"浏览器检查失败\n\n{error_msg}\n\n建议：\n1. 请确认已安装 {browser_type.capitalize()} 浏览器\n2. 或者尝试使用其他浏览器（Chrome、Firefox、Edge）\n3. 或者使用 Playwright 引擎（支持自动下载浏览器）"
+                    execution.execution_logs = (
+                        f"浏览器环境检查失败\n\n{error_msg}\n\n建议：\n"
+                        f"1. 请确认已安装 {browser_type.capitalize()} 浏览器\n"
+                        f"2. 执行 `python manage.py download_webdrivers --browsers {browser_type}` 安装对应驱动\n"
+                        f"3. 或者尝试使用其他浏览器（Chrome、Firefox、Edge）\n"
+                        f"4. 或者使用 Playwright 引擎（支持自动下载浏览器）"
+                    )
                     execution.finished_at = timezone.now()
                     execution.save()
 
@@ -1277,18 +1300,48 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         'screenshots': [],
                         'execution_time': 0,
                         'errors': [{
-                            'message': f'{browser_type.capitalize()} 浏览器不可用',
+                            'message': f'{browser_type.capitalize()} 浏览器执行环境不可用',
                             'details': error_msg,
                             'step_number': None,
                             'action_type': '浏览器检查',
                             'element': '',
-                            'description': '执行前浏览器环境检查'
+                            'description': '执行前浏览器与驱动环境检查'
                         }]
                     }, status=status.HTTP_400_BAD_REQUEST)
             else:
                 import asyncio
                 import threading
                 from .playwright_engine import PlaywrightTestEngine
+
+                browser_type = request.data.get('browser', 'chrome')
+                is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(browser_type)
+                if not is_ready:
+                    logger.error(f"Playwright 执行环境检查失败: {error_msg}")
+                    execution.status = 'failed'
+                    execution.error_message = error_msg
+                    execution.execution_logs = (
+                        f"Playwright 浏览器环境检查失败\n\n{error_msg}\n\n建议：\n"
+                        f"1. 执行 `python -m playwright install` 或 `python -m playwright install {PlaywrightTestEngine.normalize_browser_type(browser_type)}` 安装浏览器\n"
+                        f"2. 如果 Playwright 模块未安装，请先执行 `pip install playwright`\n"
+                        f"3. 或者切换到 Selenium 引擎并安装对应浏览器驱动"
+                    )
+                    execution.finished_at = timezone.now()
+                    execution.save()
+
+                    return Response({
+                        'success': False,
+                        'logs': execution.execution_logs,
+                        'screenshots': [],
+                        'execution_time': 0,
+                        'errors': [{
+                            'message': f'{browser_type.capitalize()} Playwright 执行环境不可用',
+                            'details': error_msg,
+                            'step_number': None,
+                            'action_type': '浏览器检查',
+                            'element': '',
+                            'description': '执行前 Playwright 浏览器环境检查'
+                        }]
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
             start_time = time.time()
 
@@ -1552,7 +1605,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         browser_map = {
                             'chrome': 'chromium',
                             'firefox': 'firefox',
-                            'safari': 'webkit'
+                            'safari': 'webkit',
+                            'edge': 'chromium'
                         }
                         browser_type = browser_map.get(request.data.get('browser', 'chrome'), 'chromium')
                         headless = request.data.get('headless', False)
@@ -2058,6 +2112,15 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                         'error': '该测试套件未包含任何测试用例，无法执行'
                     }, status=status.HTTP_400_BAD_REQUEST)
 
+                if task.engine == 'playwright':
+                    from .playwright_engine import PlaywrightTestEngine
+                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
+                    if not is_ready:
+                        return Response({
+                            'error': error_msg,
+                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试套件任务'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
                 # 更新套件执行状态
                 test_suite.execution_status = 'running'
                 test_suite.save()
@@ -2131,6 +2194,15 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                         'error': '找不到配置的测试用例'
                     }, status=status.HTTP_400_BAD_REQUEST)
 
+                if task.engine == 'playwright':
+                    from .playwright_engine import PlaywrightTestEngine
+                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
+                    if not is_ready:
+                        return Response({
+                            'error': error_msg,
+                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试用例任务'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
                 # 在后台线程中执行测试用例
                 import threading
 
@@ -2199,15 +2271,15 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                 if task.engine == 'selenium':
                                     from .selenium_engine import SeleniumTestEngine
 
-                                    # 检查浏览器是否可用
-                                    is_available, error_msg = SeleniumTestEngine.check_browser_available(task.browser)
-                                    if not is_available:
+                                    # 检查浏览器和驱动是否可用
+                                    is_ready, error_msg = SeleniumTestEngine.check_execution_environment(task.browser)
+                                    if not is_ready:
                                         execution.status = 'failed'
                                         execution.error_message = error_msg
                                         execution.execution_logs = json.dumps([{
                                             'step_number': 0,
                                             'action_type': '浏览器检查',
-                                            'description': '执行前浏览器环境检查',
+                                            'description': '执行前浏览器与驱动环境检查',
                                             'success': False,
                                             'error': error_msg
                                         }], ensure_ascii=False)
@@ -2287,7 +2359,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                         browser_map = {
                                             'chrome': 'chromium',
                                             'firefox': 'firefox',
-                                            'safari': 'webkit'
+                                            'safari': 'webkit',
+                                            'edge': 'chromium'
                                         }
                                         browser_type = browser_map.get(task.browser, 'chromium')
 
