@@ -105,6 +105,61 @@ class SeleniumTestEngine:
             logger.error(f"检查浏览器可用性时出错: {str(e)}")
             return True, None  # 检查出错时跳过，让实际启动时处理
 
+    @staticmethod
+    def get_driver_install_command(browser_type='chrome'):
+        """返回浏览器驱动安装命令"""
+        command_map = {
+            'chrome': 'python manage.py download_webdrivers --browsers chrome',
+            'firefox': 'python manage.py download_webdrivers --browsers firefox',
+            'edge': 'python manage.py download_webdrivers --browsers edge',
+        }
+        return command_map.get(browser_type, 'python manage.py download_webdrivers')
+
+    @staticmethod
+    def check_webdriver_available(browser_type='chrome'):
+        """检查浏览器驱动是否已安装到本地缓存"""
+        try:
+            if browser_type == 'safari':
+                # Safari 使用系统自带 safaridriver，无需额外下载驱动
+                return True, None
+
+            manager_map = {
+                'chrome': ('Chrome', __import__('webdriver_manager.chrome', fromlist=['ChromeDriverManager']).ChromeDriverManager),
+                'firefox': ('Firefox', __import__('webdriver_manager.firefox', fromlist=['GeckoDriverManager']).GeckoDriverManager),
+                'edge': ('Edge', __import__('webdriver_manager.microsoft', fromlist=['EdgeChromiumDriverManager']).EdgeChromiumDriverManager),
+            }
+            browser_name, manager_class = manager_map.get(browser_type, ('Chrome', __import__('webdriver_manager.chrome', fromlist=['ChromeDriverManager']).ChromeDriverManager))
+            manager = manager_class()
+            driver_path = manager._cache_manager.find_driver(manager.driver)
+
+            if driver_path and os.path.exists(driver_path):
+                return True, None
+
+            install_cmd = SeleniumTestEngine.get_driver_install_command(browser_type)
+            return False, (
+                f"{browser_name} 浏览器驱动未安装。\n"
+                f"请先执行命令安装驱动：{install_cmd}"
+            )
+        except Exception as e:
+            logger.error(f"检查浏览器驱动时出错: {str(e)}")
+            return False, (
+                f"无法确认 {browser_type} 浏览器驱动是否已安装：{str(e)}\n"
+                f"请先执行命令安装驱动：{SeleniumTestEngine.get_driver_install_command(browser_type)}"
+            )
+
+    @staticmethod
+    def check_execution_environment(browser_type='chrome'):
+        """检查 Selenium 执行前所需的浏览器与驱动环境"""
+        is_available, browser_msg = SeleniumTestEngine.check_browser_available(browser_type)
+        if not is_available:
+            return False, browser_msg
+
+        is_driver_ready, driver_msg = SeleniumTestEngine.check_webdriver_available(browser_type)
+        if not is_driver_ready:
+            return False, driver_msg
+
+        return True, browser_msg
+
     def start(self):
         """启动浏览器"""
         try:
@@ -113,19 +168,21 @@ class SeleniumTestEngine:
             os.environ['WDM_LOG_LEVEL'] = '0'  # 减少日志输出
             os.environ['WDM_PRINT_FIRST_LINE'] = 'False'  # 不打印首行信息
             
-            # 先检查浏览器是否可用
-            is_available, error_msg = self.check_browser_available(self.browser_type)
-            if not is_available:
-                logger.error(f"浏览器不可用: {error_msg}")
-                # 提供安装建议
+            # 先检查执行环境是否可用
+            is_ready, error_msg = self.check_execution_environment(self.browser_type)
+            if not is_ready:
+                logger.error(f"Selenium 执行环境不可用: {error_msg}")
+                # 提供浏览器安装建议
                 install_tips = {
                     'chrome': 'brew install --cask google-chrome',
                     'firefox': 'brew install --cask firefox',
                     'edge': 'brew install --cask microsoft-edge',
                 }
                 tip = install_tips.get(self.browser_type, '')
-                full_error = f"{error_msg}\n\n💡 安装命令（macOS）：{tip}" if tip else error_msg
+                full_error = f"{error_msg}\n\n浏览器安装参考（macOS）：{tip}" if tip else error_msg
                 raise Exception(full_error)
+            if error_msg:
+                logger.info(f"Selenium 执行环境提示: {error_msg}")
             if self.browser_type == 'chrome':
                 from selenium.webdriver.chrome.options import Options
                 from selenium.webdriver.chrome.service import Service
