@@ -31,17 +31,116 @@ class PlaywrightTestEngine:
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
 
+    @staticmethod
+    def normalize_browser_type(browser_type='chromium'):
+        """统一浏览器类型名称"""
+        browser_map = {
+            'chrome': 'chromium',
+            'chromium': 'chromium',
+            'edge': 'chromium',
+            'firefox': 'firefox',
+            'safari': 'webkit',
+            'webkit': 'webkit',
+        }
+        return browser_map.get(browser_type, 'chromium')
+
+    @staticmethod
+    def get_browser_install_command(browser_type='chromium'):
+        """返回 Playwright 浏览器安装命令"""
+        normalized_browser = PlaywrightTestEngine.normalize_browser_type(browser_type)
+        return f"python -m playwright install {normalized_browser}"
+
+    @staticmethod
+    def _format_environment_error(browser_type, error_msg):
+        """格式化 Playwright 环境错误提示"""
+        normalized_browser = PlaywrightTestEngine.normalize_browser_type(browser_type)
+        browser_name_map = {
+            'chromium': 'Chromium/Chrome',
+            'firefox': 'Firefox',
+            'webkit': 'WebKit/Safari',
+        }
+        browser_name = browser_name_map.get(normalized_browser, normalized_browser.capitalize())
+        install_cmd = PlaywrightTestEngine.get_browser_install_command(normalized_browser)
+
+        if "Executable doesn't exist" in error_msg or 'Please run the following command' in error_msg:
+            return (
+                f"{browser_name} 浏览器未安装或 Playwright 浏览器二进制缺失。\n"
+                f"请先执行命令安装浏览器：{install_cmd}"
+            )
+
+        return (
+            f"{browser_name} 浏览器启动失败：{error_msg}\n"
+            f"如未安装 Playwright 浏览器，请先执行：{install_cmd}"
+        )
+
+    @staticmethod
+    def check_execution_environment_sync(browser_type='chromium'):
+        """同步检查 Playwright 执行环境"""
+        normalized_browser = PlaywrightTestEngine.normalize_browser_type(browser_type)
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as e:
+            return False, (
+                "Playwright 模块未安装。\n"
+                "请先执行命令安装：pip install playwright\n"
+                f"然后执行：{PlaywrightTestEngine.get_browser_install_command(normalized_browser)}\n"
+                f"详细错误：{str(e)}"
+            )
+
+        playwright = None
+        browser = None
+        try:
+            playwright = sync_playwright().start()
+            browser_launcher = getattr(playwright, normalized_browser)
+            browser = browser_launcher.launch(headless=True)
+            return True, None
+        except Exception as e:
+            logger.error(f"同步检查 Playwright 执行环境失败: {str(e)}")
+            return False, PlaywrightTestEngine._format_environment_error(normalized_browser, str(e))
+        finally:
+            try:
+                if browser:
+                    browser.close()
+            finally:
+                if playwright:
+                    playwright.stop()
+
+    @staticmethod
+    async def check_execution_environment(browser_type='chromium'):
+        """异步检查 Playwright 执行环境"""
+        normalized_browser = PlaywrightTestEngine.normalize_browser_type(browser_type)
+
+        playwright = None
+        browser = None
+        try:
+            playwright = await async_playwright().start()
+            browser_launcher = getattr(playwright, normalized_browser)
+            browser = await browser_launcher.launch(headless=True)
+            return True, None
+        except Exception as e:
+            logger.error(f"异步检查 Playwright 执行环境失败: {str(e)}")
+            return False, PlaywrightTestEngine._format_environment_error(normalized_browser, str(e))
+        finally:
+            try:
+                if browser:
+                    await browser.close()
+            finally:
+                if playwright:
+                    await playwright.stop()
+
     async def start(self):
         """启动浏览器"""
         try:
             self.playwright = await async_playwright().start()
 
             # 根据浏览器类型选择启动方式
-            if self.browser_type == 'chromium':
+            normalized_browser = self.normalize_browser_type(self.browser_type)
+            if normalized_browser == 'chromium':
                 browser_launcher = self.playwright.chromium
-            elif self.browser_type == 'firefox':
+            elif normalized_browser == 'firefox':
                 browser_launcher = self.playwright.firefox
-            elif self.browser_type == 'webkit':
+            elif normalized_browser == 'webkit':
                 browser_launcher = self.playwright.webkit
             else:
                 browser_launcher = self.playwright.chromium
