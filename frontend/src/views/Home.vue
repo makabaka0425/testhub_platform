@@ -94,6 +94,15 @@
           <p>{{ $t('home.uiAutomationDesc') }}</p>
         </div>
 
+        <!-- Bug缺陷管理 -->
+        <div class="nav-card" @click="handleNavigate('defects')" role="button" tabindex="0">
+          <div class="card-icon defects-icon">
+            <el-icon><Tickets /></el-icon>
+          </div>
+          <h3>{{ $t('home.defectManagement') }}</h3>
+          <p>{{ $t('home.defectManagementDesc') }}</p>
+        </div>
+
         <!-- 数据工厂 -->
         <div class="nav-card" @click="handleNavigate('data')" role="button" tabindex="0">
           <div class="card-icon data-icon">
@@ -108,8 +117,8 @@
           <div class="card-icon app-icon">
             <el-icon><Cellphone /></el-icon>
           </div>
-          <h3>APP自动化测试</h3>
-          <p>基于Airtest的Android APP自动化测试</p>
+          <h3>{{ $t('home.appAutomation') }}</h3>
+          <p>{{ $t('home.appAutomationDesc') }}</p>
         </div>
 
         <!-- AI 智能模式 -->
@@ -171,7 +180,7 @@ import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
 import { track } from '@/utils/tracker'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { MagicStick, Link, Monitor, DataLine, Cpu, Setting, ChatDotRound, UserFilled, ArrowDown, Cellphone } from '@element-plus/icons-vue'
+import { MagicStick, Link, Monitor, DataLine, Cpu, Setting, ChatDotRound, UserFilled, ArrowDown, Cellphone, Tickets } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -258,6 +267,7 @@ const handleNavigate = (type) => {
     'ai': '/ai-generation/requirement-analysis',
     'api': '/api-testing/dashboard',
     'ui': '/ui-automation/dashboard',
+    'defects': '/defects/dashboard',
     'app': '/app-automation/dashboard',
     'ai-intelligent': '/ai-intelligent-mode/testing',
     'assistant': '/ai-generation/assistant',
@@ -501,6 +511,11 @@ const handleNavigate = (type) => {
   &.data-icon {
     background: #e8f4ff;
     color: #409eff;
+  }
+
+  &.defects-icon {
+    background: #fef0f0;
+    color: #f56c6c;
   }
 
   &.app-icon {
