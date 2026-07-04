@@ -94,6 +94,8 @@ export default {
     defectManagementDesc: 'Defect submission, assignment, regression verification, closure and reporting',
     dataFactory: 'Data Factory',
     dataFactoryDesc: 'Flexible test data construction and management',
+    appAutomation: 'APP Automation',
+    appAutomationDesc: 'Android APP automation based on Airtest',
     aiIntelligentMode: 'AI Intelligent Mode',
     aiIntelligentModeDesc: 'Natural language-based intelligent test execution',
     aiEvaluator: 'AI Evaluator',
