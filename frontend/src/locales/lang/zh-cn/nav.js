@@ -9,6 +9,7 @@ export default {
     aiGeneration: 'AI用例生成',
     apiTesting: '接口测试',
     uiAutomation: 'UI自动化测试',
+    defects: 'Bug缺陷管理',
     aiIntelligentMode: 'AI 智能模式',
     configuration: '配置中心'
   },
@@ -35,6 +36,12 @@ export default {
     environmentManagement: '环境管理',
     scheduledTasks: '定时任务',
     notificationList: '通知列表',
+
+    // Bug缺陷管理
+    defectDashboard: '缺陷看板',
+    defectList: '缺陷列表',
+    defectCreate: '新建缺陷',
+    defectReport: '缺陷报表',
 
     // UI自动化
     elementManagement: '元素管理',

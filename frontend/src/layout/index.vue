@@ -94,6 +94,26 @@
             </el-menu-item>
           </template>
 
+          <!-- Bug缺陷管理模块菜单 -->
+          <template v-else-if="currentModule === 'defects'">
+            <el-menu-item index="/defects/dashboard">
+              <el-icon><Odometer /></el-icon>
+              <span>{{ $t('menu.defectDashboard') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/defects/list">
+              <el-icon><Tickets /></el-icon>
+              <span>{{ $t('menu.defectList') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/defects/create">
+              <el-icon><Plus /></el-icon>
+              <span>{{ $t('menu.defectCreate') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/defects/reports">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>{{ $t('menu.defectReport') }}</span>
+            </el-menu-item>
+          </template>
+
           <!-- UI自动化测试模块菜单 -->
           <template v-else-if="currentModule === 'ui-automation'">
             <el-menu-item index="/ui-automation/dashboard">
@@ -324,7 +344,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -355,6 +375,7 @@ const currentModule = computed(() => {
   if (route.path.startsWith('/ai-generation')) return 'ai-generation'
   if (route.path.startsWith('/api-testing')) return 'api-testing'
   if (route.path.startsWith('/ui-automation')) return 'ui-automation'
+  if (route.path.startsWith('/defects')) return 'defects'
   if (route.path.startsWith('/app-automation')) return 'app-automation'
   if (route.path.startsWith('/ai-intelligent-mode')) return 'ai-intelligent-mode'
   if (route.path.startsWith('/configuration')) return 'configuration'
@@ -366,6 +387,7 @@ const moduleName = computed(() => {
     'ai-generation': t('modules.aiGeneration'),
     'api-testing': t('modules.apiTesting'),
     'ui-automation': t('modules.uiAutomation'),
+    'defects': t('modules.defects'),
     'app-automation': 'APP自动化测试',
     'ai-intelligent-mode': t('modules.aiIntelligentMode'),
     'configuration': t('modules.configuration')
@@ -397,6 +419,12 @@ const breadcrumbTitle = computed(() => {
     '/api-testing/reports': t('menu.testReport'),
     '/api-testing/scheduled-tasks': t('menu.scheduledTasks'),
     '/api-testing/notification-logs': t('menu.notificationList'),
+
+    // Bug缺陷管理
+    '/defects/dashboard': t('menu.defectDashboard'),
+    '/defects/list': t('menu.defectList'),
+    '/defects/create': t('menu.defectCreate'),
+    '/defects/reports': t('menu.defectReport'),
 
     // UI自动化测试
     '/ui-automation/dashboard': t('menu.dashboard'),
