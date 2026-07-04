@@ -62,6 +62,7 @@ LOCAL_APPS = [
     'apps.reports',
     'apps.reviews',
     'apps.versions',
+    'apps.defects',
     'apps.assistant',
     'apps.requirement_analysis',
     'apps.api_testing',

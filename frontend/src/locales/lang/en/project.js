@@ -90,6 +90,8 @@ export default {
     apiTestingDesc: 'Efficient API automation testing and management',
     uiAutomation: 'UI Automation Testing',
     uiAutomationDesc: 'Visual Web/App UI automation testing',
+    defectManagement: 'Bug Management',
+    defectManagementDesc: 'Defect submission, assignment, regression verification, closure and reporting',
     dataFactory: 'Data Factory',
     dataFactoryDesc: 'Flexible test data construction and management',
     aiIntelligentMode: 'AI Intelligent Mode',
