@@ -36,6 +36,10 @@ media/ai_recording/*
 media/requirement_docs/*
 !media/requirement_docs/.gitkeep
 
+# 忽略缺陷附件上传的文件，但保留.gitkeep
+media/defect_attachments/*
+!media/defect_attachments/.gitkeep
+
 # 忽略用例导入文件
 media/testcase_imports
 media/testcase_import_failures

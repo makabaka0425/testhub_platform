@@ -9,6 +9,7 @@ export default {
     aiGeneration: 'AI Test Case Generation',
     apiTesting: 'API Testing',
     uiAutomation: 'UI Automation Testing',
+    defects: 'Bug Management',
     aiIntelligentMode: 'AI Intelligent Mode',
     configuration: 'Configuration Center'
   },
@@ -35,6 +36,12 @@ export default {
     environmentManagement: 'Environment Management',
     scheduledTasks: 'Scheduled Tasks',
     notificationList: 'Notification List',
+
+    // Bug Management
+    defectDashboard: 'Defect Dashboard',
+    defectList: 'Defect List',
+    defectCreate: 'New Defect',
+    defectReport: 'Defect Reports',
 
     // UI Automation
     elementManagement: 'Element Management',
