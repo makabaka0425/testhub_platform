@@ -339,6 +339,47 @@ const routes = [
         ]
     },
     {
+        path: '/defects',
+        component: Layout,
+        meta: { requiresAuth: true },
+        children: [
+            {
+                path: '',
+                redirect: 'dashboard'
+            },
+            {
+                path: 'dashboard',
+                name: 'DefectDashboard',
+                component: () => import('@/views/defects/DefectDashboard.vue')
+            },
+            {
+                path: 'list',
+                name: 'DefectList',
+                component: () => import('@/views/defects/DefectList.vue')
+            },
+            {
+                path: 'create',
+                name: 'DefectCreate',
+                component: () => import('@/views/defects/DefectForm.vue')
+            },
+            {
+                path: 'reports',
+                name: 'DefectReport',
+                component: () => import('@/views/defects/DefectReport.vue')
+            },
+            {
+                path: ':id',
+                name: 'DefectDetail',
+                component: () => import('@/views/defects/DefectDetail.vue')
+            },
+            {
+                path: ':id/edit',
+                name: 'DefectEdit',
+                component: () => import('@/views/defects/DefectForm.vue')
+            }
+        ]
+    },
+    {
         path: '/data-factory',
         name: 'DataFactory',
         component: DataFactory,
