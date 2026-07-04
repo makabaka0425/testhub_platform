@@ -94,6 +94,26 @@
             </el-menu-item>
           </template>
 
+          <!-- Bug缺陷管理模块菜单 -->
+          <template v-else-if="currentModule === 'defects'">
+            <el-menu-item index="/defects/dashboard">
+              <el-icon><Odometer /></el-icon>
+              <span>{{ $t('menu.defectDashboard') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/defects/list">
+              <el-icon><Tickets /></el-icon>
+              <span>{{ $t('menu.defectList') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/defects/create">
+              <el-icon><Plus /></el-icon>
+              <span>{{ $t('menu.defectCreate') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/defects/reports">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>{{ $t('menu.defectReport') }}</span>
+            </el-menu-item>
+          </template>
+
           <!-- UI自动化测试模块菜单 -->
           <template v-else-if="currentModule === 'ui-automation'">
             <el-menu-item index="/ui-automation/dashboard">
@@ -146,51 +166,51 @@
           <template v-else-if="currentModule === 'app-automation'">
             <el-menu-item index="/app-automation/dashboard">
               <el-icon><Odometer /></el-icon>
-              <span>Dashboard</span>
+              <span>{{ $t('menu.dashboard') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/projects">
               <el-icon><Folder /></el-icon>
-              <span>项目管理</span>
+              <span>{{ $t('menu.projectManagement') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/devices">
               <el-icon><Cellphone /></el-icon>
-              <span>设备管理</span>
+              <span>{{ $t('menu.deviceManagement') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/packages">
               <el-icon><Collection /></el-icon>
-              <span>包名管理</span>
+              <span>{{ $t('menu.packageManagement') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/elements">
               <el-icon><Aim /></el-icon>
-              <span>元素管理</span>
+              <span>{{ $t('menu.elementManagement') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/scene-builder">
               <el-icon><Connection /></el-icon>
-              <span>用例编排</span>
+              <span>{{ $t('menu.caseDesign') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/test-cases">
               <el-icon><Document /></el-icon>
-              <span>测试用例</span>
+              <span>{{ $t('menu.testCases') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/test-suites">
               <el-icon><FolderOpened /></el-icon>
-              <span>测试套件</span>
+              <span>{{ $t('menu.suiteManagement') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/executions">
               <el-icon><VideoPlay /></el-icon>
-              <span>执行记录</span>
+              <span>{{ $t('menu.executionRecords') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/reports">
               <el-icon><DataAnalysis /></el-icon>
-              <span>测试报告</span>
+              <span>{{ $t('menu.testReport') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/scheduled-tasks">
               <el-icon><AlarmClock /></el-icon>
-              <span>定时任务</span>
+              <span>{{ $t('menu.scheduledTasks') }}</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/notification-logs">
               <el-icon><Bell /></el-icon>
-              <span>通知列表</span>
+              <span>{{ $t('menu.notificationList') }}</span>
             </el-menu-item>
           </template>
 
@@ -324,7 +344,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -355,6 +375,7 @@ const currentModule = computed(() => {
   if (route.path.startsWith('/ai-generation')) return 'ai-generation'
   if (route.path.startsWith('/api-testing')) return 'api-testing'
   if (route.path.startsWith('/ui-automation')) return 'ui-automation'
+  if (route.path.startsWith('/defects')) return 'defects'
   if (route.path.startsWith('/app-automation')) return 'app-automation'
   if (route.path.startsWith('/ai-intelligent-mode')) return 'ai-intelligent-mode'
   if (route.path.startsWith('/configuration')) return 'configuration'
@@ -366,7 +387,8 @@ const moduleName = computed(() => {
     'ai-generation': t('modules.aiGeneration'),
     'api-testing': t('modules.apiTesting'),
     'ui-automation': t('modules.uiAutomation'),
-    'app-automation': 'APP自动化测试',
+    'defects': t('modules.defects'),
+    'app-automation': t('modules.appAutomation'),
     'ai-intelligent-mode': t('modules.aiIntelligentMode'),
     'configuration': t('modules.configuration')
   }
@@ -398,6 +420,12 @@ const breadcrumbTitle = computed(() => {
     '/api-testing/scheduled-tasks': t('menu.scheduledTasks'),
     '/api-testing/notification-logs': t('menu.notificationList'),
 
+    // Bug缺陷管理
+    '/defects/dashboard': t('menu.defectDashboard'),
+    '/defects/list': t('menu.defectList'),
+    '/defects/create': t('menu.defectCreate'),
+    '/defects/reports': t('menu.defectReport'),
+
     // UI自动化测试
     '/ui-automation/dashboard': t('menu.dashboard'),
     '/ui-automation/projects': t('menu.projectManagement'),
@@ -412,18 +440,18 @@ const breadcrumbTitle = computed(() => {
     '/ui-automation/notification-logs': t('menu.notificationList'),
 
     // APP自动化测试
-    '/app-automation/dashboard': 'Dashboard',
-    '/app-automation/projects': '项目管理',
-    '/app-automation/devices': '设备管理',
-    '/app-automation/packages': '包名管理',
-    '/app-automation/elements': '元素管理',
-    '/app-automation/scene-builder': '用例编排',
-    '/app-automation/test-cases': '测试用例',
-    '/app-automation/test-suites': '测试套件',
-    '/app-automation/scheduled-tasks': '定时任务',
-    '/app-automation/notification-logs': '通知列表',
-    '/app-automation/executions': '执行记录',
-    '/app-automation/reports': '测试报告',
+    '/app-automation/dashboard': t('menu.dashboard'),
+    '/app-automation/projects': t('menu.projectManagement'),
+    '/app-automation/devices': t('menu.deviceManagement'),
+    '/app-automation/packages': t('menu.packageManagement'),
+    '/app-automation/elements': t('menu.elementManagement'),
+    '/app-automation/scene-builder': t('menu.caseDesign'),
+    '/app-automation/test-cases': t('menu.testCases'),
+    '/app-automation/test-suites': t('menu.suiteManagement'),
+    '/app-automation/scheduled-tasks': t('menu.scheduledTasks'),
+    '/app-automation/notification-logs': t('menu.notificationList'),
+    '/app-automation/executions': t('menu.executionRecords'),
+    '/app-automation/reports': t('menu.testReport'),
 
     // AI 智能模式
     '/ai-intelligent-mode/testing': t('menu.aiIntelligentTesting'),
