@@ -121,6 +121,45 @@
           />
         </el-form-item>
 
+        <el-form-item label="附件">
+          <div class="attachment-section">
+            <el-upload
+              :show-file-list="false"
+              :auto-upload="false"
+              multiple
+              :accept="allowedAttachmentExtensions.join(',')"
+              :on-change="handleFileChange"
+            >
+              <el-button>
+                <el-icon><Upload /></el-icon>
+                选择附件
+              </el-button>
+              <template #tip>
+                <div class="upload-tip">
+                  支持 {{ allowedAttachmentExtensions.join('、') }} 等格式，单个文件不超过 10MB；保存缺陷后自动上传
+                </div>
+              </template>
+            </el-upload>
+
+            <el-table v-if="attachmentRows.length" :data="attachmentRows" size="small" border class="attachment-table">
+              <el-table-column label="文件名" prop="name" show-overflow-tooltip />
+              <el-table-column label="大小" width="110" prop="sizeText" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag v-if="row.existing" size="small" type="info">已上传</el-tag>
+                  <el-tag v-else size="small" type="warning">待上传</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="120" align="center">
+                <template #default="{ row }">
+                  <el-link v-if="row.existing" :href="row.url" type="primary" target="_blank" :underline="false">查看</el-link>
+                  <el-button v-else link type="danger" @click="removePendingFile(row.uid)">移除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-form-item>
+
         <div class="form-actions">
           <el-button @click="router.back()">取消</el-button>
           <el-button type="primary" :loading="submitting" @click="submitForm">保存</el-button>
@@ -134,9 +173,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Back } from '@element-plus/icons-vue'
+import { Back, Upload } from '@element-plus/icons-vue'
 import api from '@/utils/api'
-import { createDefect, getDefect, updateDefect } from '@/api/defects'
+import { createDefect, getDefect, updateDefect, uploadDefectAttachment } from '@/api/defects'
 import {
   defectTypeOptions,
   priorityOptions,
@@ -152,6 +191,12 @@ const projects = ref([])
 const versions = ref([])
 const users = ref([])
 const isEdit = computed(() => Boolean(route.params.id))
+
+const pendingFiles = ref([])
+const existingAttachments = ref([])
+
+const maxAttachmentSize = 10 * 1024 * 1024
+const allowedAttachmentExtensions = ['.txt', '.log', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.doc', '.docx', '.xls', '.xlsx', '.zip']
 
 const nullableFields = ['project_id', 'version_id', 'assignee_id', 'due_at']
 
@@ -240,6 +285,7 @@ const loadDefect = async () => {
     form.source = data.source || 'manual'
     form.assignee_id = data.assignee?.id || ''
     form.due_at = data.due_at || ''
+    existingAttachments.value = data.attachments || []
     await fetchVersions(data.project?.id || '')
   } catch (error) {
     ElMessage.error('加载缺陷详情失败')
@@ -256,6 +302,86 @@ const buildPayload = () => {
   })
 
   return payload
+}
+
+const formatSize = (size) => {
+  if (size == null) return '-'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+const validateAttachment = (file) => {
+  const fileName = file.name || ''
+  const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')).toLowerCase() : ''
+  if (!allowedAttachmentExtensions.includes(ext)) {
+    ElMessage.warning(`仅支持 ${allowedAttachmentExtensions.join('、')} 格式的附件`)
+    return false
+  }
+  if (file.size > maxAttachmentSize) {
+    ElMessage.warning('附件大小不能超过 10MB')
+    return false
+  }
+  return true
+}
+
+const attachmentRows = computed(() => [
+  ...existingAttachments.value.map((item) => ({
+    uid: `existing-${item.id}`,
+    name: item.name,
+    sizeText: '-',
+    existing: true,
+    url: item.file
+  })),
+  ...pendingFiles.value.map((item) => ({
+    uid: item.uid,
+    name: item.name,
+    sizeText: item.sizeText,
+    existing: false
+  }))
+])
+
+const handleFileChange = (uploadFile) => {
+  const file = uploadFile?.raw
+  if (!file) return
+  if (!validateAttachment(file)) return
+  const duplicated = pendingFiles.value.some(
+    (item) => item.uid === uploadFile.uid || (item.name === file.name && item.size === file.size)
+  )
+  if (duplicated) {
+    ElMessage.warning('该附件已添加')
+    return
+  }
+  pendingFiles.value.push({
+    uid: uploadFile.uid,
+    name: file.name,
+    size: file.size,
+    sizeText: formatSize(file.size),
+    raw: file
+  })
+}
+
+const removePendingFile = (uid) => {
+  const index = pendingFiles.value.findIndex((item) => item.uid === uid)
+  if (index !== -1) pendingFiles.value.splice(index, 1)
+}
+
+const uploadPendingAttachments = async (defectId) => {
+  if (!defectId || !pendingFiles.value.length) return
+  const failed = []
+  for (const item of pendingFiles.value) {
+    const formData = new FormData()
+    formData.append('file', item.raw)
+    formData.append('name', item.name)
+    try {
+      await uploadDefectAttachment(defectId, formData)
+    } catch (error) {
+      failed.push(item.name)
+    }
+  }
+  if (failed.length) {
+    ElMessage.warning(`部分附件上传失败：${failed.join('、')}`)
+  }
 }
 
 const extractErrorMessage = (errorData) => {
@@ -280,11 +406,14 @@ const submitForm = async () => {
     if (isEdit.value) {
       await updateDefect(route.params.id, payload)
       ElMessage.success('缺陷已更新')
+      await uploadPendingAttachments(route.params.id)
       router.push(`/defects/${route.params.id}`)
     } else {
       const response = await createDefect(payload)
+      const defectId = response.data?.id
       ElMessage.success('缺陷已创建')
-      router.push(`/defects/${response.data?.id || 'list'}`)
+      await uploadPendingAttachments(defectId)
+      router.push(`/defects/${defectId || 'list'}`)
     }
   } catch (error) {
     if (error?.response) {
@@ -312,5 +441,20 @@ onMounted(async () => {
   justify-content: flex-end;
   gap: 10px;
   padding-top: 12px;
+}
+
+.attachment-section {
+  width: 100%;
+}
+
+.attachment-table {
+  margin-top: 10px;
+}
+
+.upload-tip {
+  margin-top: 4px;
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

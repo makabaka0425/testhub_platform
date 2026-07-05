@@ -145,6 +145,14 @@ class DefectTransition(models.Model):
     from_status = models.CharField(max_length=30, blank=True, verbose_name='原状态')
     to_status = models.CharField(max_length=30, verbose_name='目标状态')
     operator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='defect_transitions', verbose_name='操作人')
+    target_user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='defect_transition_targets',
+        verbose_name='目标处理人',
+    )
     comment = models.TextField(blank=True, verbose_name='流转说明')
     created_at = models.DateTimeField(default=timezone.now, verbose_name='操作时间')
 
