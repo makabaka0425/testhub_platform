@@ -143,8 +143,17 @@
               :key="item.id || item.created_at"
               :timestamp="formatDate(item.created_at)"
             >
-              {{ getOptionLabel(statusOptions, item.from_status) }} -> {{ getOptionLabel(statusOptions, item.to_status) }}
-              <div class="timeline-comment">{{ item.comment }}</div>
+              <div class="transition-row">
+                <strong class="transition-operator">{{ getName(item.operator) }}</strong>
+                <span class="transition-status">
+                  <template v-if="item.from_status && item.from_status !== item.to_status">{{ getOptionLabel(statusOptions, item.from_status) }} →</template>
+                  {{ getOptionLabel(statusOptions, item.to_status) }}
+                </span>
+                <el-tag v-if="item.target_user" size="small" type="primary" effect="plain" class="transition-target">
+                  指派给 {{ getName(item.target_user) }}
+                </el-tag>
+              </div>
+              <div v-if="item.comment" class="timeline-comment">{{ item.comment }}</div>
             </el-timeline-item>
           </el-timeline>
           <el-empty v-else description="暂无流转记录" />
@@ -294,7 +303,7 @@ const submitAction = async () => {
     actionDialogVisible.value = false
     loadDefect()
   } catch (error) {
-    ElMessage.error('状态操作失败')
+    ElMessage.error(error?.response?.data?.error || '状态操作失败')
   } finally {
     submittingAction.value = false
   }
@@ -405,6 +414,21 @@ onMounted(() => {
   margin-top: 4px;
   color: #909399;
   font-size: 12px;
+}
+
+.transition-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.transition-operator {
+  color: #303133;
+}
+
+.transition-status {
+  color: #606266;
 }
 
 .comment-list,
