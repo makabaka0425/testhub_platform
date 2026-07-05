@@ -85,6 +85,41 @@ class DefectViewSet(viewsets.ModelViewSet):
         'due_at',
     ]
     ordering = ['-created_at']
+    # 缺陷状态流转规则：每个状态可流转到的目标状态集合。
+    # 幂等流转（from == to，如对“修复中”缺陷再次“开始修复”、对已指派缺陷重新指派）单独判定为合法。
+    TRANSITION_MAP = {
+        'new': {'assigned', 'rejected'},
+        'assigned': {'in_progress', 'resolved', 'rejected'},
+        'in_progress': {'assigned', 'resolved', 'rejected'},
+        'resolved': {'verified', 'reopened'},
+        'verified': {'closed', 'reopened'},
+        'rejected': {'reopened', 'closed'},
+        'reopened': {'assigned', 'in_progress', 'resolved', 'rejected'},
+        'closed': {'reopened'},
+    }
+    # 目标状态 -> 用户操作名称（用于友好提示）
+    STATUS_ACTION_LABELS = {
+        'assigned': '指派',
+        'in_progress': '开始修复',
+        'resolved': '提交修复',
+        'verified': '回归通过',
+        'rejected': '驳回',
+        'reopened': '重新打开',
+        'closed': '关闭',
+    }
+    # 非项目成员凭"自我角色"执行流转/协作动作的范围。
+    # assignee=当前处理人, reporter=提交人；verify 仅放行 reporter，避免处理人自验自己的修复。
+    ACTION_SELF_ROLES = {
+        'assign': {'assignee', 'reporter'},
+        'start_progress': {'assignee'},
+        'resolve': {'assignee'},
+        'reject': {'assignee'},
+        'verify': {'reporter'},
+        'reopen': {'assignee', 'reporter'},
+        'close': {'assignee', 'reporter'},
+        'add_comment': {'assignee', 'reporter'},
+        'upload_attachment': {'assignee', 'reporter'},
+    }
 
     def get_serializer_class(self):
         if self.action in ('create', 'update', 'partial_update'):
@@ -96,7 +131,15 @@ class DefectViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         accessible_projects = self.get_user_accessible_projects(user)
-        queryset = Defect.objects.filter(project__in=accessible_projects).select_related(
+        # 可见范围：我能访问的项目内的缺陷 + 我个人参与的缺陷
+        # （作为提交人/处理人/验证人/修复人）。这样被指派给我但不在我项目里的缺陷也能看到与处理。
+        queryset = Defect.objects.filter(
+            models.Q(project__in=accessible_projects)
+            | models.Q(reporter=user)
+            | models.Q(assignee=user)
+            | models.Q(verifier=user)
+            | models.Q(resolver=user)
+        ).select_related(
             'project',
             'version',
             'reporter',
@@ -104,7 +147,13 @@ class DefectViewSet(viewsets.ModelViewSet):
             'verifier',
             'resolver',
             'related_testcase',
-        ).prefetch_related('transitions', 'comments', 'attachments').distinct()
+        ).prefetch_related(
+            'transitions',
+            'transitions__operator',
+            'transitions__target_user',
+            'comments',
+            'attachments',
+        ).distinct()
         return self.apply_query_filters(queryset)
 
     def perform_create(self, serializer):
@@ -114,6 +163,7 @@ class DefectViewSet(viewsets.ModelViewSet):
             from_status='',
             to_status=defect.status,
             operator=self.request.user,
+            target_user=defect.assignee,
             comment='创建缺陷',
         )
 
@@ -170,6 +220,21 @@ class DefectViewSet(viewsets.ModelViewSet):
             return Response({'error': '无权执行该操作'}, status=status.HTTP_403_FORBIDDEN)
         return None
 
+    def ensure_defect_action_permission(self, defect, allowed_roles, self_roles=None):
+        """流转/协作动作权限：项目成员按角色放行；否则若用户是该缺陷的处理人/提交人且该动作允许自我角色，也放行。"""
+        user = self.request.user
+        if self.get_project_role(defect.project, user) in allowed_roles:
+            return None
+        if self_roles:
+            if 'assignee' in self_roles and defect.assignee_id == user.id:
+                return None
+            if 'reporter' in self_roles and defect.reporter_id == user.id:
+                return None
+        return Response(
+            {'error': '无权执行该操作：需为项目成员，或该缺陷的处理人/提交人'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -210,7 +275,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'tester'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'tester'}, self_roles=self.ACTION_SELF_ROLES['assign'])
         if role_error:
             return role_error
         serializer = DefectActionSerializer(data=request.data)
@@ -228,7 +293,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'developer'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'developer'}, self_roles=self.ACTION_SELF_ROLES['resolve'])
         if role_error:
             return role_error
         serializer = DefectActionSerializer(data=request.data)
@@ -244,7 +309,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='start-progress')
     def start_progress(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'developer'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'developer'}, self_roles=self.ACTION_SELF_ROLES['start_progress'])
         if role_error:
             return role_error
         serializer = DefectActionSerializer(data=request.data)
@@ -259,7 +324,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'tester'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'tester'}, self_roles=self.ACTION_SELF_ROLES['verify'])
         if role_error:
             return role_error
         serializer = DefectActionSerializer(data=request.data)
@@ -274,7 +339,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'developer'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'developer'}, self_roles=self.ACTION_SELF_ROLES['reject'])
         if role_error:
             return role_error
         serializer = DefectActionSerializer(data=request.data)
@@ -289,7 +354,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def reopen(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'tester', 'developer'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'tester', 'developer'}, self_roles=self.ACTION_SELF_ROLES['reopen'])
         if role_error:
             return role_error
         serializer = DefectActionSerializer(data=request.data)
@@ -305,7 +370,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def close(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'tester'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'tester'}, self_roles=self.ACTION_SELF_ROLES['close'])
         if role_error:
             return role_error
         serializer = DefectActionSerializer(data=request.data)
@@ -320,7 +385,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='comments')
     def add_comment(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'developer', 'tester'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'developer', 'tester'}, self_roles=self.ACTION_SELF_ROLES['add_comment'])
         if role_error:
             return role_error
         serializer = DefectCommentSerializer(data=request.data)
@@ -336,7 +401,7 @@ class DefectViewSet(viewsets.ModelViewSet):
     )
     def upload_attachment(self, request, pk=None):
         defect = self.get_object()
-        role_error = self.ensure_project_role(defect.project, {'owner', 'admin', 'developer', 'tester'})
+        role_error = self.ensure_defect_action_permission(defect, {'owner', 'admin', 'developer', 'tester'}, self_roles=self.ACTION_SELF_ROLES['upload_attachment'])
         if role_error:
             return role_error
         upload_file = request.FILES.get('file')
@@ -467,7 +532,7 @@ class DefectViewSet(viewsets.ModelViewSet):
         from_status = defect.status
         if not self.is_transition_allowed(from_status, to_status):
             return Response(
-                {'error': f'状态不允许从 {from_status} 流转到 {to_status}'},
+                {'error': self.get_transition_error(from_status, to_status)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         for field_name, value in updates.items():
@@ -479,22 +544,33 @@ class DefectViewSet(viewsets.ModelViewSet):
             from_status=from_status,
             to_status=to_status,
             operator=self.request.user,
+            target_user=updates.get('assignee'),
             comment=comment,
         )
         return Response(DefectDetailSerializer(defect).data)
 
     def is_transition_allowed(self, from_status, to_status):
-        transitions = {
-            'new': {'assigned', 'rejected'},
-            'assigned': {'in_progress', 'resolved', 'rejected'},
-            'in_progress': {'resolved', 'rejected'},
-            'resolved': {'verified', 'reopened'},
-            'verified': {'closed', 'reopened'},
-            'rejected': {'reopened', 'closed'},
-            'reopened': {'assigned', 'in_progress', 'resolved', 'rejected'},
-            'closed': {'reopened'},
-        }
-        return to_status in transitions.get(from_status, set())
+        # 幂等流转（重复点击同一动作、对已指派缺陷重新指派等）视为合法
+        if from_status == to_status:
+            return True
+        return to_status in self.TRANSITION_MAP.get(from_status, set())
+
+    def get_transition_error(self, from_status, to_status):
+        """生成友好的状态流转失败提示：点明当前状态与所尝试操作，并列出可执行操作。"""
+        status_labels = dict(Defect.STATUS_CHOICES)
+        from_label = status_labels.get(from_status, from_status)
+        attempted = self.STATUS_ACTION_LABELS.get(to_status) or status_labels.get(to_status, to_status)
+        allowed = self.TRANSITION_MAP.get(from_status, set())
+        # 按 STATUS_CHOICES 既定顺序列出可执行操作，排除自身态与无对应按钮的目标态
+        allowed_actions = [
+            self.STATUS_ACTION_LABELS[s]
+            for s in status_labels
+            if s in allowed and s != from_status and s in self.STATUS_ACTION_LABELS
+        ]
+        hint = f'当前状态「{from_label}」无法执行「{attempted}」操作'
+        if allowed_actions:
+            hint += f'，可执行：{"、".join(allowed_actions)}'
+        return hint
 
     def get_user(self, user_id, required=False):
         if not user_id:

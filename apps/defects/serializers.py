@@ -28,10 +28,11 @@ class TestCaseSimpleSerializer(serializers.ModelSerializer):
 
 class DefectTransitionSerializer(serializers.ModelSerializer):
     operator = UserSimpleSerializer(read_only=True)
+    target_user = UserSimpleSerializer(read_only=True)
 
     class Meta:
         model = DefectTransition
-        fields = ('id', 'from_status', 'to_status', 'operator', 'comment', 'created_at')
+        fields = ('id', 'from_status', 'to_status', 'operator', 'target_user', 'comment', 'created_at')
         read_only_fields = fields
 
 
