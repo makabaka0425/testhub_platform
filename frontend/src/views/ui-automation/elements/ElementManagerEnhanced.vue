@@ -19,6 +19,9 @@
             <el-button type="success" size="small" @click="createEmptyElement" :title="$t('uiAutomation.element.addElement')">
               <el-icon><Plus /></el-icon>
             </el-button>
+            <el-button type="warning" size="small" @click="showAiExtractDialog = true" title="AI智能提取">
+              <el-icon><MagicStick /></el-icon>
+            </el-button>
           </div>
         </div>
 
@@ -73,7 +76,12 @@
       <div class="main-content">
         <div v-if="!selectedElement" class="empty-state">
           <el-empty :description="$t('uiAutomation.element.emptyElementTip')">
-            <el-button type="primary" @click="createEmptyElement">{{ $t('uiAutomation.element.createNewElement') }}</el-button>
+            <div style="display: flex; gap: 12px; justify-content: center;">
+              <el-button type="primary" @click="createEmptyElement">{{ $t('uiAutomation.element.createNewElement') }}</el-button>
+              <el-button type="warning" @click="showAiExtractDialog = true">
+                <el-icon style="margin-right: 4px;"><MagicStick /></el-icon>AI 智能提取
+              </el-button>
+            </div>
           </el-empty>
         </div>
 
@@ -267,6 +275,100 @@
         <el-button type="primary" @click="updatePage">{{ $t('uiAutomation.common.save') }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- AI智能提取 - 输入对话框 -->
+    <el-dialog v-model="showAiExtractDialog" title="AI 智能提取元素" width="550px" :close-on-click-modal="false">
+      <el-form label-width="100px">
+        <el-form-item label="目标页面URL" required>
+          <el-input v-model="aiExtractForm.url" placeholder="输入页面URL，如 https://example.com/user/list" />
+        </el-form-item>
+        <el-form-item label="登录配置">
+          <el-select v-model="aiExtractForm.login_config_id" placeholder="可选，需登录的页面选择" clearable style="width: 100%">
+            <el-option v-for="cfg in loginConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="页面名称">
+          <el-input v-model="aiExtractForm.page_name" placeholder="可选，如 用户管理页" />
+        </el-form-item>
+      </el-form>
+      <div v-if="aiExtractLoading" style="text-align: center; padding: 20px 0;">
+        <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+        <p style="margin-top: 10px; color: #909399;">{{ aiExtractProgress }}</p>
+      </div>
+      <template #footer>
+        <el-button @click="showAiExtractDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleAiExtract" :loading="aiExtractLoading">开始提取</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- AI智能提取 - 结果预览对话框 -->
+    <el-dialog v-model="showAiResultDialog" title="AI 提取结果预览" width="900px" :close-on-click-modal="false" top="5vh">
+      <div style="margin-bottom: 12px; color: #606266;">
+        页面: {{ aiResultInfo.url }}
+        <span v-if="aiResultInfo.page_title" style="margin-left: 10px;">标题: {{ aiResultInfo.page_title }}</span>
+        <span style="margin-left: 10px;">共 {{ aiExtractResults.length }} 个元素</span>
+      </div>
+      <el-table ref="aiResultTableRef" :data="aiExtractResults" max-height="500" style="width: 100%"
+        @selection-change="handleAiResultSelectionChange">
+        <el-table-column type="selection" width="45" />
+        <el-table-column label="元素名称" min-width="130">
+          <template #default="{ row }">
+            <el-input v-model="row.name" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="110">
+          <template #default="{ row }">
+            <el-select v-model="row.element_type" size="small">
+              <el-option label="输入框" value="INPUT" />
+              <el-option label="按钮" value="BUTTON" />
+              <el-option label="链接" value="LINK" />
+              <el-option label="下拉框" value="DROPDOWN" />
+              <el-option label="复选框" value="CHECKBOX" />
+              <el-option label="单选框" value="RADIO" />
+              <el-option label="文本" value="TEXT" />
+              <el-option label="图片" value="IMAGE" />
+              <el-option label="表格" value="TABLE" />
+              <el-option label="容器" value="CONTAINER" />
+              <el-option label="表单" value="FORM" />
+              <el-option label="弹窗" value="MODAL" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="定位策略" width="100">
+          <template #default="{ row }">
+            <el-select v-model="row.locator_strategy" size="small">
+              <el-option label="ID" value="ID" />
+              <el-option label="CSS" value="CSS" />
+              <el-option label="XPath" value="XPath" />
+              <el-option label="name" value="name" />
+              <el-option label="class" value="class" />
+              <el-option label="text" value="text" />
+              <el-option label="placeholder" value="placeholder" />
+              <el-option label="role" value="role" />
+              <el-option label="label" value="label" />
+              <el-option label="title" value="title" />
+              <el-option label="test-id" value="test-id" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="定位表达式" min-width="180">
+          <template #default="{ row }">
+            <el-input v-model="row.locator_value" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="描述" min-width="130">
+          <template #default="{ row }">
+            <el-input v-model="row.description" size="small" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="showAiResultDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleBatchImport" :loading="batchImportLoading">
+          确认导入({{ selectedAiResults.length }}个元素)
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -276,7 +378,8 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, FolderAdd, Document, Search, Edit, Delete,
-  Folder, Document as DocumentIcon, Operation, DocumentCopy, ArrowDown
+  Folder, Document as DocumentIcon, Operation, DocumentCopy, ArrowDown,
+  MagicStick, Loading
 } from '@element-plus/icons-vue'
 import {
   getUiProjects,
@@ -293,7 +396,9 @@ import {
   deleteElementGroup,
   getLocatorStrategies,
   validateElementLocator,
-  generateElementSuggestions
+  generateElementSuggestions,
+  aiExtractElements,
+  getLoginConfigs
 } from '@/api/ui_automation'
 
 // 国际化
@@ -320,6 +425,23 @@ const elementHeaderFormRef = ref(null)
 // 对话框控制
 const showCreatePageDialog = ref(false)
 const showEditPageDialog = ref(false)
+
+// AI智能提取相关
+const showAiExtractDialog = ref(false)
+const showAiResultDialog = ref(false)
+const aiExtractLoading = ref(false)
+const aiExtractProgress = ref('')
+const aiExtractResults = ref([])
+const selectedAiResults = ref([])
+const batchImportLoading = ref(false)
+const loginConfigs = ref([])
+const aiResultTableRef = ref(null)
+const aiResultInfo = reactive({ url: '', page_title: '' })
+const aiExtractForm = reactive({
+  url: '',
+  login_config_id: null,
+  page_name: ''
+})
 
 // 右键菜单
 const showContextMenu = ref(false)
@@ -477,6 +599,135 @@ const exposeToWindow = () => {
 }
 
 // 组件挂载
+// ========== AI智能提取相关方法 ==========
+
+const loadLoginConfigs = async () => {
+  if (!selectedProject.value) {
+    loginConfigs.value = []
+    return
+  }
+  try {
+    const response = await getLoginConfigs({ project: selectedProject.value, page_size: 100 })
+    loginConfigs.value = response.data.results || response.data
+  } catch (error) {
+    console.error('获取登录配置失败:', error)
+    loginConfigs.value = []
+  }
+}
+
+const handleAiExtract = async () => {
+  if (!aiExtractForm.url) {
+    ElMessage.warning('请输入目标页面URL')
+    return
+  }
+  if (!selectedProject.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+
+  aiExtractLoading.value = true
+  aiExtractProgress.value = '正在打开页面...'
+
+  try {
+    const data = {
+      project_id: selectedProject.value,
+      url: aiExtractForm.url,
+      login_config_id: aiExtractForm.login_config_id || undefined,
+      page_name: aiExtractForm.page_name || undefined
+    }
+
+    aiExtractProgress.value = '正在分析DOM结构...'
+
+    const response = await aiExtractElements(data)
+
+    aiExtractProgress.value = '正在AI智能识别...'
+
+    const result = response.data
+    aiExtractResults.value = (result.elements || []).map((elem, index) => ({
+      ...elem,
+      _id: index
+    }))
+    aiResultInfo.url = result.url || aiExtractForm.url
+    aiResultInfo.page_title = result.page_title || ''
+
+    if (aiExtractResults.value.length === 0) {
+      ElMessage.warning('未提取到可交互元素')
+      return
+    }
+
+    showAiExtractDialog.value = false
+    showAiResultDialog.value = true
+    ElMessage.success(`成功提取 ${aiExtractResults.value.length} 个元素`)
+
+    // 默认全选所有提取的元素
+    await nextTick()
+    if (aiResultTableRef.value) {
+      aiResultTableRef.value.toggleAllSelection()
+    }
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '提取失败'
+    ElMessage.error(errMsg)
+    console.error('AI提取失败:', error)
+  } finally {
+    aiExtractLoading.value = false
+    aiExtractProgress.value = ''
+  }
+}
+
+const handleAiResultSelectionChange = (selection) => {
+  selectedAiResults.value = selection
+}
+
+const handleBatchImport = async () => {
+  if (selectedAiResults.value.length === 0) {
+    ElMessage.warning('请至少选择一个元素')
+    return
+  }
+
+  batchImportLoading.value = true
+  let successCount = 0
+  let failCount = 0
+
+  try {
+    for (const elem of selectedAiResults.value) {
+      try {
+        const strategyObj = locatorStrategies.value.find(s => s.name === elem.locator_strategy)
+        const apiData = {
+          name: elem.name,
+          page: elem.page || aiExtractForm.page_name || '',
+          description: elem.description || '',
+          locator_value: elem.locator_value,
+          project_id: selectedProject.value,
+          locator_strategy_id: strategyObj ? strategyObj.id : locatorStrategies.value[0]?.id,
+          element_type: elem.element_type,
+          is_unique: false,
+          wait_timeout: 5
+        }
+        if (elem.backup_locators && elem.backup_locators.length > 0) {
+          apiData.backup_locators = elem.backup_locators
+        }
+
+        await createElement(apiData)
+        successCount++
+      } catch (err) {
+        failCount++
+        console.error(`导入元素"${elem.name}"失败:`, err)
+      }
+    }
+
+    if (successCount > 0) {
+      ElMessage.success(`成功导入 ${successCount} 个元素${failCount > 0 ? `，${failCount} 个失败` : ''}`)
+      showAiResultDialog.value = false
+      // 刷新元素树
+      await onProjectChange()
+    } else {
+      ElMessage.error('所有元素导入失败')
+    }
+  } finally {
+    batchImportLoading.value = false
+  }
+}
+
 onMounted(async () => {
   console.log('=== 组件挂载开始 ===')
 
@@ -722,7 +973,8 @@ const onProjectChange = async () => {
 
   await Promise.all([
     loadPages(),
-    loadElementTree()
+    loadElementTree(),
+    loadLoginConfigs()
   ])
 
   console.log('项目切换完成，检查treeData:', treeData.value)
