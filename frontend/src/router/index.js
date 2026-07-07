@@ -291,6 +291,12 @@ const routes = [
                 component: UiSuiteList
             },
             {
+                path: 'login-configs',
+                name: 'UiLoginConfigs',
+                component: () => import('@/views/ui-automation/login-configs/LoginConfigList.vue'),
+                meta: { title: '登录配置' }
+            },
+            {
                 path: 'executions',
                 name: 'UiExecutions',
                 component: UiExecutionList

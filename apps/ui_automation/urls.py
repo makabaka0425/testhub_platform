@@ -21,7 +21,8 @@ from .views import (
     AICaseViewSet,
     UiNotificationLogViewSet,
     OperationRecordViewSet,
-    UiDashboardViewSet
+    UiDashboardViewSet,
+    LoginConfigViewSet
 )
 from .views_config import EnvironmentConfigViewSet, AIIntelligentModeConfigViewSet
 
@@ -46,6 +47,7 @@ router.register(r'ai-cases', AICaseViewSet, basename='ai-cases')
 router.register(r'ai-case-generation', AICaseViewSet, basename='ai-case-generation')
 router.register(r'notification-logs', UiNotificationLogViewSet)
 router.register(r'operation-records', OperationRecordViewSet)
+router.register(r'login-configs', LoginConfigViewSet, basename='login-configs')
 
 
 # Configuration Center APIs

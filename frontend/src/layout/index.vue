@@ -144,6 +144,10 @@
               <el-icon><Collection /></el-icon>
               <span>{{ $t('menu.suiteManagement') }}</span>
             </el-menu-item>
+            <el-menu-item index="/ui-automation/login-configs">
+              <el-icon><Key /></el-icon>
+              <span>{{ $t('menu.loginConfig') }}</span>
+            </el-menu-item>
             <el-menu-item index="/ui-automation/executions">
               <el-icon><VideoPlay /></el-icon>
               <span>{{ $t('menu.executionRecords') }}</span>
@@ -344,7 +348,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -434,6 +438,7 @@ const breadcrumbTitle = computed(() => {
     '/ui-automation/scripts-enhanced': t('menu.scriptGeneration'),
     '/ui-automation/scripts': t('menu.scriptList'),
     '/ui-automation/suites': t('menu.suiteManagement'),
+    '/ui-automation/login-configs': t('menu.loginConfig'),
     '/ui-automation/executions': t('menu.executionRecords'),
     '/ui-automation/reports': t('menu.testReport'),
     '/ui-automation/scheduled-tasks': t('menu.scheduledTasks'),

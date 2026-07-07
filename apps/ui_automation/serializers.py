@@ -6,7 +6,7 @@ from .models import (
     ElementGroup, PageObject, PageObjectElement, ScriptStep, ScriptElementUsage,
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
-    AICase, AIExecutionRecord
+    AICase, AIExecutionRecord, LoginConfig
 )
 from django.contrib.auth import get_user_model
 
@@ -175,6 +175,78 @@ class TestSuiteTestCaseSerializer(serializers.ModelSerializer):
         }
 
 
+# ==================== 登录配置序列化器 ====================
+
+class LoginConfigSerializer(serializers.ModelSerializer):
+    """登录配置 - 读取序列化器"""
+    project = UiProjectSerializer(read_only=True)
+    username_element_name = serializers.CharField(source='username_element.name', read_only=True, default='')
+    password_element_name = serializers.CharField(source='password_element.name', read_only=True, default='')
+    login_button_element_name = serializers.CharField(source='login_button_element.name', read_only=True, default='')
+    verify_element_name = serializers.CharField(source='verify_element.name', read_only=True, default='')
+    verify_type_display = serializers.CharField(source='get_verify_type_display', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True, default='')
+    project_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = LoginConfig
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at', 'created_by')
+
+    def validate_project_id(self, value):
+        try:
+            UiProject.objects.get(id=value)
+        except UiProject.DoesNotExist:
+            raise serializers.ValidationError("项目不存在")
+        return value
+
+
+class LoginConfigCreateSerializer(serializers.ModelSerializer):
+    """登录配置 - 创建序列化器"""
+    project_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = LoginConfig
+        fields = (
+            'project_id', 'name', 'description',
+            'login_url',
+            'username_element', 'username_value',
+            'password_element', 'password_value',
+            'login_button_element',
+            'verify_type', 'verify_element', 'verify_value', 'verify_wait_time',
+            'pre_login_steps',
+        )
+
+    def validate_project_id(self, value):
+        try:
+            UiProject.objects.get(id=value)
+        except UiProject.DoesNotExist:
+            raise serializers.ValidationError("项目不存在")
+        return value
+
+    def create(self, validated_data):
+        project_id = validated_data.pop('project_id')
+        validated_data['project'] = UiProject.objects.get(id=project_id)
+        validated_data['created_by'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class LoginConfigUpdateSerializer(serializers.ModelSerializer):
+    """登录配置 - 更新序列化器"""
+
+    class Meta:
+        model = LoginConfig
+        fields = (
+            'name', 'description',
+            'login_url',
+            'username_element', 'username_value',
+            'password_element', 'password_value',
+            'login_button_element',
+            'verify_type', 'verify_element', 'verify_value', 'verify_wait_time',
+            'pre_login_steps',
+        )
+
+
 class TestSuiteSerializer(serializers.ModelSerializer):
     project = UiProjectSerializer(read_only=True)
     scripts = TestScriptSerializer(many=True, read_only=True)
@@ -183,6 +255,8 @@ class TestSuiteSerializer(serializers.ModelSerializer):
     suite_scripts = TestSuiteScriptSerializer(many=True, read_only=True)
     suite_test_cases = TestSuiteTestCaseSerializer(many=True, read_only=True)
     test_case_count = serializers.SerializerMethodField()
+    login_config_name = serializers.CharField(source='login_config.name', read_only=True, default='')
+    execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
 
     class Meta:
         model = TestSuite
@@ -201,14 +275,14 @@ class TestSuiteSerializer(serializers.ModelSerializer):
 class TestSuiteCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSuite
-        fields = ('id', 'project', 'name', 'description')
+        fields = ('id', 'project', 'name', 'description', 'login_config', 'execution_mode')
         read_only_fields = ('id',)
 
 
 class TestSuiteUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSuite
-        fields = ('name', 'description')
+        fields = ('name', 'description', 'login_config', 'execution_mode')
 
 
 class TestSuiteWithScriptsSerializer(serializers.ModelSerializer):

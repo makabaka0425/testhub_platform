@@ -50,6 +50,7 @@ export default {
     scriptGeneration: '脚本生成',
     scriptList: '脚本列表',
     suiteManagement: '套件管理',
+    loginConfig: '登录配置',
     executionRecords: '执行记录',
 
     // APP自动化

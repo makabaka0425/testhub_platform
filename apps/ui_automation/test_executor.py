@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 
 from .models import (
     TestSuite, TestExecution, TestCase, TestCaseStep,
-    TestCaseExecution, Element
+    TestCaseExecution, Element, LoginConfig
 )
 from .variable_resolver import resolve_variables
 
@@ -255,147 +255,288 @@ class TestExecutor:
             )
             case_executions[case_data['id']] = case_execution
 
-        # 执行每个测试用例，为每个用例单独启动和关闭浏览器
+        # 执行每个测试用例
         print(f"准备执行 {len(test_cases_data)} 个测试用例")
 
-        with sync_playwright() as p:
-            for i, case_data in enumerate(test_cases_data, 1):
-                print(f"\n{'=' * 60}")
-                print(f"正在执行第 {i}/{len(test_cases_data)} 个用例: {case_data['name']}")
-                print(f"{'=' * 60}")
+        # 根据执行模式选择执行方式
+        execution_mode = getattr(self.test_suite, 'execution_mode', 'per_case')
+        login_config = getattr(self.test_suite, 'login_config', None)
 
-                # 记录用例实际开始执行时间
-                case_execution = case_executions[case_data['id']]
-                case_execution.started_at = timezone.now()
-                case_execution.status = 'running'
-                case_execution.save()
-
-                # 为每个测试用例启动新的浏览器实例
+        if execution_mode == 'shared_session' and login_config:
+            # ============ 共享会话模式：登录一次，所有用例共享浏览器 ============
+            print(f"[共享会话模式] 使用共享浏览器会话执行测试")
+            with sync_playwright() as p:
+                browser = None
                 try:
-                    # 公共浏览器参数
+                    # 启动一个浏览器
                     common_args = [
-                        '--disable-blink-features=AutomationControlled',  # 避免被检测
-                        '--ignore-certificate-errors',  # 忽略证书错误
-                        '--allow-insecure-localhost',  # 允许不安全localhost
-                        '--disable-web-security',  # 禁用web安全限制（跨域）
+                        '--disable-blink-features=AutomationControlled',
+                        '--ignore-certificate-errors',
+                        '--allow-insecure-localhost',
+                        '--disable-web-security',
                     ]
-                    # 选择浏览器
                     if self.browser == 'firefox':
                         browser = p.firefox.launch(headless=self.headless, args=common_args)
                     elif self.browser == 'safari':
                         browser = p.webkit.launch(headless=self.headless, args=common_args)
-                    else:  # chrome or edge
-                        # 添加防检测参数
-                        browser = p.chromium.launch(
-                            headless=self.headless,
-                            args=common_args
-                        )
+                    else:
+                        browser = p.chromium.launch(headless=self.headless, args=common_args)
+                    print(f"✓ 浏览器已启动（共享模式）")
 
-                    print(f"✓ 浏览器已启动")
-
-                    # 配置上下文（User Agent 和 Viewport）
+                    # 创建共享上下文
                     self.context = browser.new_context(
                         viewport={'width': 1920, 'height': 1080},
                         user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
                     )
                     self.current_page = self.context.new_page()
 
-                    # 导航到项目基础URL
-                    if self.test_suite.project.base_url:
+                    # 执行登录
+                    login_success = self._perform_login(login_config)
+                    if not login_success:
+                        error_msg = "共享会话模式：登录失败，终止套件执行"
+                        for case_data in test_cases_data:
+                            case_execution = case_executions[case_data['id']]
+                            case_execution.status = 'failed'
+                            case_execution.error_message = error_msg
+                            case_execution.started_at = timezone.now()
+                            case_execution.finished_at = timezone.now()
+                            case_execution.save()
+                            failed += 1
+                        browser.close()
+                        duration = time.time() - start_time
+                        self.update_execution_result('FAILED', passed, failed, skipped, duration, error_msg)
+                        return
+
+                    print(f"✓ 登录成功，开始执行 {len(test_cases_data)} 个测试用例")
+
+                    # 执行每个测试用例（共享同一个浏览器上下文）
+                    for i, case_data in enumerate(test_cases_data, 1):
+                        print(f"\n{'=' * 60}")
+                        print(f"[共享会话] 正在执行第 {i}/{len(test_cases_data)} 个用例: {case_data['name']}")
+                        print(f"{'=' * 60}")
+
+                        case_execution = case_executions[case_data['id']]
+                        case_execution.started_at = timezone.now()
+                        case_execution.status = 'running'
+                        case_execution.save()
+
                         try:
-                            print(f"正在导航到: {self.test_suite.project.base_url}")
+                            # 导航到项目基础URL（共享会话模式下重新导航到起始页面）
+                            if self.test_suite.project.base_url:
+                                try:
+                                    self.current_page.goto(self.test_suite.project.base_url, wait_until='networkidle', timeout=30000)
+                                    time.sleep(2)
+                                except Exception as e:
+                                    print(f"✗ 导航失败: {str(e)}")
+                                    self.results.append({
+                                        'test_case_id': case_data['id'],
+                                        'test_case_name': case_data['name'],
+                                        'status': 'failed',
+                                        'steps': [],
+                                        'error': f"导航到基础URL失败: {str(e)}",
+                                        'start_time': datetime.now().isoformat(),
+                                        'end_time': datetime.now().isoformat(),
+                                        'screenshots': []
+                                    })
+                                    failed += 1
+                                    case_execution.status = 'failed'
+                                    case_execution.finished_at = timezone.now()
+                                    case_execution.error_message = f"导航失败: {str(e)}"
+                                    case_execution.save()
+                                    continue
 
-                            # 检测是否在Linux服务器环境
-                            import platform
-                            is_linux = platform.system() == 'Linux'
+                            # 执行测试用例
+                            case_result = self.execute_test_case_playwright_no_db(case_data)
+                            self.results.append(case_result)
+                            print(f"✓ 用例执行完成，状态: {case_result['status']}")
 
-                            # 使用 networkidle 等待页面加载完成
-                            self.current_page.goto(self.test_suite.project.base_url, wait_until='networkidle',
-                                                   timeout=30000)
+                            # 更新执行记录
+                            case_execution.status = case_result['status']
+                            case_execution.finished_at = timezone.now()
+                            case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
+                            case_execution.execution_logs = json.dumps(case_result['steps'], ensure_ascii=False)
+                            if case_result['error']:
+                                case_execution.error_message = case_result['error']
+                            if case_result.get('screenshots'):
+                                case_execution.screenshots = case_result['screenshots']
+                            case_execution.save()
 
-                            # 额外等待，确保动态内容加载（Vue/React等SPA应用）
-                            # 服务器无头模式需要更长的等待时间
-                            extra_wait = 3 if is_linux else 2
-                            time.sleep(extra_wait)
+                            print(f"⏱️  执行时长: {case_execution.execution_time:.2f}秒")
 
-                            print(
-                                f"✓ 成功导航到: {self.test_suite.project.base_url} (已等待页面加载完成，额外{extra_wait}秒)")
+                            if case_result['status'] == 'passed':
+                                passed += 1
+                            elif case_result['status'] == 'failed':
+                                failed += 1
+                            else:
+                                skipped += 1
+
                         except Exception as e:
-                            print(f"✗ 导航失败: {str(e)}")
-                            # 导航失败，记录错误并继续下一个用例
+                            print(f"✗ 用例执行出现异常: {str(e)}")
                             self.results.append({
                                 'test_case_id': case_data['id'],
                                 'test_case_name': case_data['name'],
                                 'status': 'failed',
                                 'steps': [],
-                                'error': f"导航到基础URL失败: {str(e)}",
+                                'error': f"用例执行异常: {str(e)}",
                                 'start_time': datetime.now().isoformat(),
                                 'end_time': datetime.now().isoformat(),
                                 'screenshots': []
                             })
                             failed += 1
-                            browser.close()
-                            print(f"✓ 浏览器已关闭")
-                            continue
-
-                    # 执行测试用例（不再传递page参数，使用self.current_page）
-                    case_result = self.execute_test_case_playwright_no_db(case_data)
-                    self.results.append(case_result)
-                    print(f"✓ 用例执行完成，状态: {case_result['status']}")
-
-                    # 立即更新该用例的执行记录（包含准确的执行时间）
-                    case_execution = case_executions[case_data['id']]
-                    case_execution.status = case_result['status']
-                    case_execution.finished_at = timezone.now()
-                    case_execution.execution_time = (
-                                case_execution.finished_at - case_execution.started_at).total_seconds()
-                    case_execution.execution_logs = json.dumps(case_result['steps'], ensure_ascii=False)
-                    if case_result['error']:
-                        case_execution.error_message = case_result['error']
-                    if case_result.get('screenshots'):
-                        case_execution.screenshots = case_result['screenshots']
-                    case_execution.save()
-
-                    print(f"⏱️  执行时长: {case_execution.execution_time:.2f}秒")
-
-                    if case_result['status'] == 'passed':
-                        passed += 1
-                    elif case_result['status'] == 'failed':
-                        failed += 1
-                    else:
-                        skipped += 1
-
-                except Exception as e:
-                    print(f"✗ 用例执行出现异常: {str(e)}")
-                    # 记录异常
-                    self.results.append({
-                        'test_case_id': case_data['id'],
-                        'test_case_name': case_data['name'],
-                        'status': 'failed',
-                        'steps': [],
-                        'error': f"用例执行异常: {str(e)}",
-                        'start_time': datetime.now().isoformat(),
-                        'end_time': datetime.now().isoformat(),
-                        'screenshots': []
-                    })
-                    failed += 1
-
-                    # 更新执行记录
-                    case_execution = case_executions[case_data['id']]
-                    case_execution.status = 'failed'
-                    case_execution.finished_at = timezone.now()
-                    case_execution.execution_time = (
-                                case_execution.finished_at - case_execution.started_at).total_seconds()
-                    case_execution.error_message = f"用例执行异常: {str(e)}"
-                    case_execution.save()
+                            case_execution.status = 'failed'
+                            case_execution.finished_at = timezone.now()
+                            case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
+                            case_execution.error_message = f"用例执行异常: {str(e)}"
+                            case_execution.save()
 
                 finally:
-                    # 确保每个用例执行后都关闭浏览器
+                    if browser:
+                        try:
+                            browser.close()
+                            print(f"✓ 浏览器已关闭（共享模式）\n")
+                        except:
+                            pass
+
+        else:
+            # ============ 独立模式：每个用例单独启动和关闭浏览器 ============
+            with sync_playwright() as p:
+                for i, case_data in enumerate(test_cases_data, 1):
+                    print(f"\n{'=' * 60}")
+                    print(f"正在执行第 {i}/{len(test_cases_data)} 个用例: {case_data['name']}")
+                    print(f"{'=' * 60}")
+
+                    # 记录用例实际开始执行时间
+                    case_execution = case_executions[case_data['id']]
+                    case_execution.started_at = timezone.now()
+                    case_execution.status = 'running'
+                    case_execution.save()
+
+                    # 为每个测试用例启动新的浏览器实例
                     try:
-                        browser.close()
-                        print(f"✓ 浏览器已关闭\n")
-                    except:
-                        pass
+                        # 公共浏览器参数
+                        common_args = [
+                            '--disable-blink-features=AutomationControlled',  # 避免被检测
+                            '--ignore-certificate-errors',  # 忽略证书错误
+                            '--allow-insecure-localhost',  # 允许不安全localhost
+                            '--disable-web-security',  # 禁用web安全限制（跨域）
+                        ]
+                        # 选择浏览器
+                        if self.browser == 'firefox':
+                            browser = p.firefox.launch(headless=self.headless, args=common_args)
+                        elif self.browser == 'safari':
+                            browser = p.webkit.launch(headless=self.headless, args=common_args)
+                        else:  # chrome or edge
+                            # 添加防检测参数
+                            browser = p.chromium.launch(
+                                headless=self.headless,
+                                args=common_args
+                            )
+
+                        print(f"✓ 浏览器已启动")
+
+                        # 配置上下文（User Agent 和 Viewport）
+                        self.context = browser.new_context(
+                            viewport={'width': 1920, 'height': 1080},
+                            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                        )
+                        self.current_page = self.context.new_page()
+
+                        # 导航到项目基础URL
+                        if self.test_suite.project.base_url:
+                            try:
+                                print(f"正在导航到: {self.test_suite.project.base_url}")
+
+                                # 检测是否在Linux服务器环境
+                                import platform
+                                is_linux = platform.system() == 'Linux'
+
+                                # 使用 networkidle 等待页面加载完成
+                                self.current_page.goto(self.test_suite.project.base_url, wait_until='networkidle',
+                                                       timeout=30000)
+
+                                # 额外等待，确保动态内容加载（Vue/React等SPA应用）
+                                # 服务器无头模式需要更长的等待时间
+                                extra_wait = 3 if is_linux else 2
+                                time.sleep(extra_wait)
+
+                                print(
+                                    f"✓ 成功导航到: {self.test_suite.project.base_url} (已等待页面加载完成，额外{extra_wait}秒)")
+                            except Exception as e:
+                                print(f"✗ 导航失败: {str(e)}")
+                                # 导航失败，记录错误并继续下一个用例
+                                self.results.append({
+                                    'test_case_id': case_data['id'],
+                                    'test_case_name': case_data['name'],
+                                    'status': 'failed',
+                                    'steps': [],
+                                    'error': f"导航到基础URL失败: {str(e)}",
+                                    'start_time': datetime.now().isoformat(),
+                                    'end_time': datetime.now().isoformat(),
+                                    'screenshots': []
+                                })
+                                failed += 1
+                                browser.close()
+                                print(f"✓ 浏览器已关闭")
+                                continue
+
+                        # 执行测试用例（不再传递page参数，使用self.current_page）
+                        case_result = self.execute_test_case_playwright_no_db(case_data)
+                        self.results.append(case_result)
+                        print(f"✓ 用例执行完成，状态: {case_result['status']}")
+
+                        # 立即更新该用例的执行记录（包含准确的执行时间）
+                        case_execution = case_executions[case_data['id']]
+                        case_execution.status = case_result['status']
+                        case_execution.finished_at = timezone.now()
+                        case_execution.execution_time = (
+                                    case_execution.finished_at - case_execution.started_at).total_seconds()
+                        case_execution.execution_logs = json.dumps(case_result['steps'], ensure_ascii=False)
+                        if case_result['error']:
+                            case_execution.error_message = case_result['error']
+                        if case_result.get('screenshots'):
+                            case_execution.screenshots = case_result['screenshots']
+                        case_execution.save()
+
+                        print(f"⏱️  执行时长: {case_execution.execution_time:.2f}秒")
+
+                        if case_result['status'] == 'passed':
+                            passed += 1
+                        elif case_result['status'] == 'failed':
+                            failed += 1
+                        else:
+                            skipped += 1
+
+                    except Exception as e:
+                        print(f"✗ 用例执行出现异常: {str(e)}")
+                        # 记录异常
+                        self.results.append({
+                            'test_case_id': case_data['id'],
+                            'test_case_name': case_data['name'],
+                            'status': 'failed',
+                            'steps': [],
+                            'error': f"用例执行异常: {str(e)}",
+                            'start_time': datetime.now().isoformat(),
+                            'end_time': datetime.now().isoformat(),
+                            'screenshots': []
+                        })
+                        failed += 1
+
+                        # 更新执行记录
+                        case_execution = case_executions[case_data['id']]
+                        case_execution.status = 'failed'
+                        case_execution.finished_at = timezone.now()
+                        case_execution.execution_time = (
+                                    case_execution.finished_at - case_execution.started_at).total_seconds()
+                        case_execution.error_message = f"用例执行异常: {str(e)}"
+                        case_execution.save()
+
+                    finally:
+                        # 确保每个用例执行后都关闭浏览器
+                        try:
+                            browser.close()
+                            print(f"✓ 浏览器已关闭\n")
+                        except:
+                            pass
 
         # 注意：每个用例的执行记录已在执行过程中实时更新，不需要在这里统一更新
 
@@ -403,12 +544,153 @@ class TestExecutor:
         status = 'SUCCESS' if failed == 0 else 'FAILED'
         self.update_execution_result(status, passed, failed, skipped, duration)
 
+    def _perform_login(self, login_config):
+        """执行登录操作（共享会话模式用）
+
+        Args:
+            login_config: LoginConfig ORM对象
+
+        Returns:
+            bool: 登录是否成功
+        """
+        try:
+            # 预先获取所有元素信息
+            username_el = {
+                'locator_value': login_config.username_element.locator_value,
+                'locator_strategy': login_config.username_element.locator_strategy.name.lower()
+            } if login_config.username_element else None
+
+            password_el = {
+                'locator_value': login_config.password_element.locator_value,
+                'locator_strategy': login_config.password_element.locator_strategy.name.lower()
+            } if login_config.password_element else None
+
+            button_el = {
+                'locator_value': login_config.login_button_element.locator_value,
+                'locator_strategy': login_config.login_button_element.locator_strategy.name.lower()
+            } if login_config.login_button_element else None
+
+            verify_el = {
+                'locator_value': login_config.verify_element.locator_value,
+                'locator_strategy': login_config.verify_element.locator_strategy.name.lower()
+            } if login_config.verify_element else None
+
+            def _build_selector(element_data):
+                if not element_data:
+                    return None
+                strategy = element_data['locator_strategy']
+                value = element_data['locator_value']
+                if strategy in ['css', 'css selector']:
+                    return value
+                elif strategy == 'xpath':
+                    return f'xpath={value}'
+                elif strategy == 'id':
+                    return f'#{value}'
+                elif strategy == 'name':
+                    return f'[name="{value}"]'
+                elif strategy == 'text':
+                    return f'text={value}'
+                return value
+
+            # 1. 导航到登录页
+            print(f"[登录] 正在导航到登录页: {login_config.login_url}")
+            self.current_page.goto(login_config.login_url, wait_until='networkidle', timeout=30000)
+            time.sleep(2)
+            print(f"[登录] 登录页加载完成")
+
+            # 2. 执行登录前步骤
+            if login_config.pre_login_steps:
+                for step in login_config.pre_login_steps:
+                    step_element_id = step.get('element_id')
+                    step_action = step.get('action', 'click')
+                    step_value = step.get('input_value', '')
+                    try:
+                        element_obj = Element.objects.get(id=step_element_id)
+                        step_selector = _build_selector({
+                            'locator_value': element_obj.locator_value,
+                            'locator_strategy': element_obj.locator_strategy.name.lower()
+                        })
+                        if step_action == 'click':
+                            self.current_page.click(step_selector, timeout=5000)
+                        elif step_action == 'fill':
+                            self.current_page.fill(step_selector, step_value, timeout=5000)
+                        time.sleep(0.5)
+                    except Exception as e:
+                        print(f"[登录] 登录前步骤执行失败: {str(e)}")
+                        return False
+
+            # 3. 输入用户名
+            if username_el:
+                selector = _build_selector(username_el)
+                print(f"[登录] 输入用户名")
+                self.current_page.fill(selector, login_config.username_value, timeout=10000)
+
+            # 4. 输入密码
+            if password_el:
+                selector = _build_selector(password_el)
+                print(f"[登录] 输入密码")
+                self.current_page.fill(selector, login_config.password_value, timeout=10000)
+
+            # 5. 点击登录按钮
+            if button_el:
+                selector = _build_selector(button_el)
+                print(f"[登录] 点击登录按钮")
+                self.current_page.click(selector, timeout=10000)
+
+            # 6. 验证登录结果
+            verify_type = login_config.verify_type
+            print(f"[登录] 等待验证 (方式: {verify_type}, 等待: {login_config.verify_wait_time}ms)")
+            time.sleep(login_config.verify_wait_time / 1000)
+
+            if verify_type == 'url_contains':
+                current_url = self.current_page.url
+                if login_config.verify_value and login_config.verify_value in current_url:
+                    print(f"[登录] 验证通过: URL包含'{login_config.verify_value}'")
+                    return True
+                else:
+                    print(f"[登录] 验证失败: 当前URL={current_url}, 期望包含'{login_config.verify_value}'")
+                    return False
+            elif verify_type == 'element_visible':
+                if verify_el:
+                    selector = _build_selector(verify_el)
+                    is_visible = self.current_page.is_visible(selector)
+                    print(f"[登录] 元素可见性验证: {'通过' if is_visible else '失败'}")
+                    return is_visible
+            elif verify_type == 'element_exists':
+                if verify_el:
+                    selector = _build_selector(verify_el)
+                    count = self.current_page.locator(selector).count()
+                    print(f"[登录] 元素存在性验证: {'通过' if count > 0 else '失败'}")
+                    return count > 0
+            elif verify_type == 'cookie_exists':
+                cookies = self.context.cookies()
+                cookie_names = [c['name'] for c in cookies]
+                if login_config.verify_value in cookie_names:
+                    print(f"[登录] Cookie验证通过")
+                    return True
+                else:
+                    print(f"[登录] Cookie验证失败: 未找到'{login_config.verify_value}'")
+                    return False
+            elif verify_type == 'wait_time':
+                print(f"[登录] 仅等待模式，默认验证通过")
+                return True
+
+            # 如果没有验证条件，默认登录成功
+            print(f"[登录] 无验证条件，默认登录成功")
+            return True
+
+        except Exception as e:
+            print(f"[登录] 登录过程异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def execute_test_case_playwright_no_db(self, case_data):
         """使用 Playwright 执行单个测试用例（不访问数据库）
 
         Args:
             case_data: 预先准备的用例数据字典，包含id, name, project_id, steps等
-            
+
         Note:
             使用 self.current_page 作为当前活动页面，switchTab会更新这个实例变量
         """

@@ -22,7 +22,7 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
-    AICase, AIExecutionRecord
+    AICase, AIExecutionRecord, LoginConfig
 )
 from .serializers import (
     UiProjectSerializer, UiProjectCreateSerializer, UiProjectUpdateSerializer,
@@ -40,7 +40,8 @@ from .serializers import (
     TestCaseSerializer, TestCaseStepSerializer, TestCaseExecutionSerializer, TestCaseRunSerializer,
     OperationRecordSerializer,
     UiScheduledTaskSerializer, UiNotificationLogSerializer, UiTaskNotificationSettingSerializer,
-    AICaseSerializer, AIExecutionRecordSerializer
+    AICaseSerializer, AIExecutionRecordSerializer,
+    LoginConfigSerializer, LoginConfigCreateSerializer, LoginConfigUpdateSerializer
 )
 from .operation_logger import log_operation
 
@@ -627,6 +628,189 @@ class TestScriptViewSet(viewsets.ModelViewSet):
             models.Q(owner=user) | models.Q(members=user)
         ).distinct()
         return TestScript.objects.filter(project__in=accessible_projects)
+
+
+class LoginConfigViewSet(viewsets.ModelViewSet):
+    """登录配置视图集"""
+    queryset = LoginConfig.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['project']
+    search_fields = ['name', 'description']
+    ordering = ['-created_at']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return LoginConfigCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return LoginConfigUpdateSerializer
+        return LoginConfigSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        accessible_projects = UiProject.objects.filter(
+            models.Q(owner=user) | models.Q(members=user)
+        ).distinct()
+        return LoginConfig.objects.filter(
+            project__in=accessible_projects
+        ).select_related('project', 'username_element', 'password_element',
+                         'login_button_element', 'verify_element', 'created_by')
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def test_login(self, request, pk=None):
+        """测试登录配置是否可用"""
+        login_config = self.get_object()
+
+        try:
+            import os
+            os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+
+            from playwright.sync_api import sync_playwright
+
+            # 预先获取元素信息，避免在Playwright上下文中访问ORM
+            username_el = {
+                'locator_value': login_config.username_element.locator_value,
+                'locator_strategy': login_config.username_element.locator_strategy.name.lower()
+            } if login_config.username_element else None
+
+            password_el = {
+                'locator_value': login_config.password_element.locator_value,
+                'locator_strategy': login_config.password_element.locator_strategy.name.lower()
+            } if login_config.password_element else None
+
+            button_el = {
+                'locator_value': login_config.login_button_element.locator_value,
+                'locator_strategy': login_config.login_button_element.locator_strategy.name.lower()
+            } if login_config.login_button_element else None
+
+            verify_el = {
+                'locator_value': login_config.verify_element.locator_value,
+                'locator_strategy': login_config.verify_element.locator_strategy.name.lower()
+            } if login_config.verify_element else None
+
+            def _build_selector(element_data):
+                if not element_data:
+                    return None
+                strategy = element_data['locator_strategy']
+                value = element_data['locator_value']
+                if strategy in ['css', 'css selector']:
+                    return value
+                elif strategy == 'xpath':
+                    return f'xpath={value}'
+                elif strategy == 'id':
+                    return f'#{value}'
+                elif strategy == 'name':
+                    return f'[name="{value}"]'
+                elif strategy == 'text':
+                    return f'text={value}'
+                return value
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=False)
+                context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+                page = context.new_page()
+
+                # 1. 导航到登录页
+                page.goto(login_config.login_url, wait_until='networkidle', timeout=30000)
+                time.sleep(2)
+
+                # 2. 执行登录前步骤（如有）
+                if login_config.pre_login_steps:
+                    for step in login_config.pre_login_steps:
+                        step_element_id = step.get('element_id')
+                        step_action = step.get('action', 'click')
+                        step_value = step.get('input_value', '')
+                        try:
+                            element_obj = Element.objects.get(id=step_element_id)
+                            step_selector = _build_selector({
+                                'locator_value': element_obj.locator_value,
+                                'locator_strategy': element_obj.locator_strategy.name.lower()
+                            })
+                            if step_action == 'click':
+                                page.click(step_selector, timeout=5000)
+                            elif step_action == 'fill':
+                                page.fill(step_selector, step_value, timeout=5000)
+                            time.sleep(0.5)
+                        except Exception as step_err:
+                            browser.close()
+                            return Response({
+                                'success': False,
+                                'message': f'登录前步骤执行失败: {str(step_err)}'
+                            }, status=status.HTTP_400_BAD_REQUEST)
+
+                # 3. 输入用户名
+                if username_el:
+                    selector = _build_selector(username_el)
+                    page.fill(selector, login_config.username_value, timeout=10000)
+
+                # 4. 输入密码
+                if password_el:
+                    selector = _build_selector(password_el)
+                    page.fill(selector, login_config.password_value, timeout=10000)
+
+                # 5. 点击登录按钮
+                if button_el:
+                    selector = _build_selector(button_el)
+                    page.click(selector, timeout=10000)
+
+                # 6. 验证登录结果
+                verify_type = login_config.verify_type
+                verify_success = False
+                verify_message = ''
+
+                time.sleep(login_config.verify_wait_time / 1000)
+
+                if verify_type == 'url_contains':
+                    current_url = page.url
+                    if login_config.verify_value and login_config.verify_value in current_url:
+                        verify_success = True
+                    else:
+                        verify_message = f'URL不包含"{login_config.verify_value}", 当前URL: {current_url}'
+                elif verify_type == 'element_visible':
+                    if verify_el:
+                        selector = _build_selector(verify_el)
+                        verify_success = page.is_visible(selector)
+                        if not verify_success:
+                            verify_message = f'验证元素不可见'
+                elif verify_type == 'element_exists':
+                    if verify_el:
+                        selector = _build_selector(verify_el)
+                        count = page.locator(selector).count()
+                        verify_success = count > 0
+                        if not verify_success:
+                            verify_message = '验证元素不存在'
+                elif verify_type == 'cookie_exists':
+                    cookies = context.cookies()
+                    cookie_names = [c['name'] for c in cookies]
+                    if login_config.verify_value in cookie_names:
+                        verify_success = True
+                    else:
+                        verify_message = f'未找到Cookie: {login_config.verify_value}'
+                elif verify_type == 'wait_time':
+                    verify_success = True
+
+                browser.close()
+
+            if verify_success:
+                return Response({
+                    'success': True,
+                    'message': '登录测试成功'
+                })
+            else:
+                return Response({
+                    'success': False,
+                    'message': f'登录验证失败: {verify_message}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            import traceback
+            return Response({
+                'success': False,
+                'message': f'登录测试异常: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class TestSuiteViewSet(viewsets.ModelViewSet):
