@@ -653,16 +653,21 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
         ).distinct()
         return LoginConfig.objects.filter(
             project__in=accessible_projects
-        ).select_related('project', 'username_element', 'password_element',
-                         'login_button_element', 'verify_element', 'created_by')
+        ).select_related('project', 'login_test_case', 'created_by')
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=['post'])
     def test_login(self, request, pk=None):
-        """测试登录配置是否可用"""
+        """测试登录配置是否可用 — 执行关联的登录测试用例"""
         login_config = self.get_object()
+
+        if not login_config.login_test_case:
+            return Response({
+                'success': False,
+                'message': '未关联登录测试用例'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             import os
@@ -670,140 +675,108 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
 
             from playwright.sync_api import sync_playwright
 
-            # 预先获取元素信息，避免在Playwright上下文中访问ORM
-            username_el = {
-                'locator_value': login_config.username_element.locator_value,
-                'locator_strategy': login_config.username_element.locator_strategy.name.lower()
-            } if login_config.username_element else None
+            test_case = login_config.login_test_case
 
-            password_el = {
-                'locator_value': login_config.password_element.locator_value,
-                'locator_strategy': login_config.password_element.locator_strategy.name.lower()
-            } if login_config.password_element else None
-
-            button_el = {
-                'locator_value': login_config.login_button_element.locator_value,
-                'locator_strategy': login_config.login_button_element.locator_strategy.name.lower()
-            } if login_config.login_button_element else None
-
-            verify_el = {
-                'locator_value': login_config.verify_element.locator_value,
-                'locator_strategy': login_config.verify_element.locator_strategy.name.lower()
-            } if login_config.verify_element else None
-
-            def _build_selector(element_data):
-                if not element_data:
-                    return None
-                strategy = element_data['locator_strategy']
-                value = element_data['locator_value']
-                if strategy in ['css', 'css selector']:
-                    return value
-                elif strategy == 'xpath':
-                    return f'xpath={value}'
-                elif strategy == 'id':
-                    return f'#{value}'
-                elif strategy == 'name':
-                    return f'[name="{value}"]'
-                elif strategy == 'text':
-                    return f'text={value}'
-                return value
+            # 预先获取步骤数据，避免在Playwright上下文中访问ORM
+            steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+            case_data = {
+                'id': test_case.id,
+                'name': test_case.name,
+                'steps': []
+            }
+            for step in steps:
+                step_data = {
+                    'id': step.id,
+                    'step_number': step.step_number,
+                    'action_type': step.action_type,
+                    'description': step.description,
+                    'input_value': step.input_value,
+                    'wait_time': step.wait_time,
+                    'assert_type': step.assert_type,
+                    'assert_value': step.assert_value,
+                    'element': None
+                }
+                if step.element:
+                    step_data['element'] = {
+                        'id': step.element.id,
+                        'name': step.element.name,
+                        'locator_value': step.element.locator_value,
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                    }
+                case_data['steps'].append(step_data)
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=False)
                 context = browser.new_context(viewport={'width': 1920, 'height': 1080})
                 page = context.new_page()
 
-                # 1. 导航到登录页
-                page.goto(login_config.login_url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                # 导航到登录页（优先使用login_config的login_url，否则使用项目基础URL）
+                start_url = login_config.login_url or login_config.project.base_url
+                if start_url:
+                    page.goto(start_url, wait_until='networkidle', timeout=30000)
+                    time.sleep(2)
 
-                # 2. 执行登录前步骤（如有）
-                if login_config.pre_login_steps:
-                    for step in login_config.pre_login_steps:
-                        step_element_id = step.get('element_id')
-                        step_action = step.get('action', 'click')
-                        step_value = step.get('input_value', '')
-                        try:
-                            element_obj = Element.objects.get(id=step_element_id)
-                            step_selector = _build_selector({
-                                'locator_value': element_obj.locator_value,
-                                'locator_strategy': element_obj.locator_strategy.name.lower()
-                            })
-                            if step_action == 'click':
-                                page.click(step_selector, timeout=5000)
-                            elif step_action == 'fill':
-                                page.fill(step_selector, step_value, timeout=5000)
-                            time.sleep(0.5)
-                        except Exception as step_err:
-                            browser.close()
-                            return Response({
-                                'success': False,
-                                'message': f'登录前步骤执行失败: {str(step_err)}'
-                            }, status=status.HTTP_400_BAD_REQUEST)
+                # 执行登录用例的每个步骤
+                step_errors = []
+                for step_data in case_data['steps']:
+                    try:
+                        # 构造选择器
+                        selector = None
+                        element_info = step_data.get('element')
+                        if element_info:
+                            locator_value = element_info['locator_value']
+                            locator_strategy = element_info['locator_strategy'].lower()
+                            if locator_strategy in ['css', 'css selector']:
+                                selector = locator_value
+                            elif locator_strategy == 'xpath':
+                                selector = f'xpath={locator_value}'
+                            elif locator_strategy == 'id':
+                                selector = f'#{locator_value}'
+                            elif locator_strategy == 'name':
+                                selector = f'[name="{locator_value}"]'
+                            elif locator_strategy == 'text':
+                                selector = f'text={locator_value}'
+                            else:
+                                selector = locator_value
 
-                # 3. 输入用户名
-                if username_el:
-                    selector = _build_selector(username_el)
-                    page.fill(selector, login_config.username_value, timeout=10000)
+                        action = step_data['action_type']
 
-                # 4. 输入密码
-                if password_el:
-                    selector = _build_selector(password_el)
-                    page.fill(selector, login_config.password_value, timeout=10000)
-
-                # 5. 点击登录按钮
-                if button_el:
-                    selector = _build_selector(button_el)
-                    page.click(selector, timeout=10000)
-
-                # 6. 验证登录结果
-                verify_type = login_config.verify_type
-                verify_success = False
-                verify_message = ''
-
-                time.sleep(login_config.verify_wait_time / 1000)
-
-                if verify_type == 'url_contains':
-                    current_url = page.url
-                    if login_config.verify_value and login_config.verify_value in current_url:
-                        verify_success = True
-                    else:
-                        verify_message = f'URL不包含"{login_config.verify_value}", 当前URL: {current_url}'
-                elif verify_type == 'element_visible':
-                    if verify_el:
-                        selector = _build_selector(verify_el)
-                        verify_success = page.is_visible(selector)
-                        if not verify_success:
-                            verify_message = f'验证元素不可见'
-                elif verify_type == 'element_exists':
-                    if verify_el:
-                        selector = _build_selector(verify_el)
-                        count = page.locator(selector).count()
-                        verify_success = count > 0
-                        if not verify_success:
-                            verify_message = '验证元素不存在'
-                elif verify_type == 'cookie_exists':
-                    cookies = context.cookies()
-                    cookie_names = [c['name'] for c in cookies]
-                    if login_config.verify_value in cookie_names:
-                        verify_success = True
-                    else:
-                        verify_message = f'未找到Cookie: {login_config.verify_value}'
-                elif verify_type == 'wait_time':
-                    verify_success = True
+                        if action == 'click' and selector:
+                            page.click(selector, timeout=10000)
+                        elif action == 'fill' and selector:
+                            page.fill(selector, step_data['input_value'], timeout=10000)
+                        elif action == 'wait':
+                            time.sleep(step_data['wait_time'] / 1000)
+                        elif action == 'waitFor' and selector:
+                            page.wait_for_selector(selector, timeout=step_data['wait_time'])
+                        elif action == 'hover' and selector:
+                            page.hover(selector, timeout=10000)
+                        elif action == 'assert':
+                            if step_data['assert_type'] == 'isVisible' and selector:
+                                if not page.is_visible(selector):
+                                    step_errors.append(f"步骤{step_data['step_number']}: 元素不可见")
+                            elif step_data['assert_type'] == 'textContains' and selector:
+                                text = page.locator(selector).text_content(timeout=5000) or ''
+                                if step_data['assert_value'] not in text:
+                                    step_errors.append(f"步骤{step_data['step_number']}: 文本不包含'{step_data['assert_value']}'")
+                        
+                        time.sleep(0.5)
+                    except Exception as step_err:
+                        step_errors.append(f"步骤{step_data['step_number']}执行失败: {str(step_err)}")
+                        break
 
                 browser.close()
 
-            if verify_success:
-                return Response({
-                    'success': True,
-                    'message': '登录测试成功'
-                })
-            else:
+            if step_errors:
                 return Response({
                     'success': False,
-                    'message': f'登录验证失败: {verify_message}'
+                    'message': f'登录测试失败: {"; ".join(step_errors)}'
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({
+                'success': True,
+                'message': '登录测试成功'
+            })
 
         except Exception as e:
             import traceback

@@ -399,14 +399,7 @@ class ScriptElementUsage(models.Model):
 
 
 class LoginConfig(models.Model):
-    """登录配置模型"""
-    VERIFY_TYPE_CHOICES = [
-        ('url_contains', 'URL包含指定字符串'),
-        ('element_visible', '指定元素可见'),
-        ('element_exists', '指定元素存在'),
-        ('cookie_exists', '指定Cookie存在'),
-        ('wait_time', '仅等待固定时间'),
-    ]
+    """登录配置模型 — 方案C：关联测试用例定义登录流程"""
 
     # 基本信息
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE,
@@ -414,35 +407,14 @@ class LoginConfig(models.Model):
     name = models.CharField(max_length=200, verbose_name='配置名称')
     description = models.TextField(blank=True, verbose_name='描述')
 
-    # 登录页配置
-    login_url = models.URLField(verbose_name='登录页URL')
+    # 登录页配置（可选，覆盖项目默认URL）
+    login_url = models.URLField(blank=True, default='', verbose_name='登录页URL',
+                                help_text='可选，留空则使用项目基础URL')
 
-    # 用户名输入配置
-    username_element = models.ForeignKey(Element, on_delete=models.CASCADE,
-                                         related_name='login_username_configs', verbose_name='用户名元素')
-    username_value = models.TextField(verbose_name='用户名')
-
-    # 密码输入配置
-    password_element = models.ForeignKey(Element, on_delete=models.CASCADE,
-                                         related_name='login_password_configs', verbose_name='密码元素')
-    password_value = models.TextField(verbose_name='密码')
-
-    # 登录按钮配置
-    login_button_element = models.ForeignKey(Element, on_delete=models.CASCADE,
-                                              related_name='login_button_configs', verbose_name='登录按钮元素')
-
-    # 登录成功验证
-    verify_type = models.CharField(max_length=30, choices=VERIFY_TYPE_CHOICES,
-                                   default='element_visible', verbose_name='验证方式')
-    verify_element = models.ForeignKey(Element, on_delete=models.CASCADE, null=True, blank=True,
-                                       related_name='login_verify_configs', verbose_name='验证元素')
-    verify_value = models.TextField(blank=True, verbose_name='验证值',
-                                    help_text='URL包含的字符串/Cookie名称等')
-    verify_wait_time = models.IntegerField(default=5000, verbose_name='验证等待时间(ms)')
-
-    # 登录前额外操作
-    pre_login_steps = models.JSONField(default=list, blank=True, verbose_name='登录前额外步骤',
-        help_text='格式: [{"element_id": 1, "action": "click", "input_value": ""}, ...]')
+    # 关联的登录测试用例 — 登录流程由测试用例的步骤来定义
+    login_test_case = models.ForeignKey('TestCase', on_delete=models.CASCADE,
+                                        related_name='login_configs', verbose_name='登录测试用例',
+                                        help_text='定义登录操作步骤的测试用例')
 
     # 通用配置
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='创建人')

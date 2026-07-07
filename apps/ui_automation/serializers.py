@@ -180,11 +180,7 @@ class TestSuiteTestCaseSerializer(serializers.ModelSerializer):
 class LoginConfigSerializer(serializers.ModelSerializer):
     """登录配置 - 读取序列化器"""
     project = UiProjectSerializer(read_only=True)
-    username_element_name = serializers.CharField(source='username_element.name', read_only=True, default='')
-    password_element_name = serializers.CharField(source='password_element.name', read_only=True, default='')
-    login_button_element_name = serializers.CharField(source='login_button_element.name', read_only=True, default='')
-    verify_element_name = serializers.CharField(source='verify_element.name', read_only=True, default='')
-    verify_type_display = serializers.CharField(source='get_verify_type_display', read_only=True)
+    login_test_case_name = serializers.CharField(source='login_test_case.name', read_only=True, default='')
     created_by_name = serializers.CharField(source='created_by.username', read_only=True, default='')
     project_id = serializers.IntegerField(write_only=True)
 
@@ -209,12 +205,7 @@ class LoginConfigCreateSerializer(serializers.ModelSerializer):
         model = LoginConfig
         fields = (
             'project_id', 'name', 'description',
-            'login_url',
-            'username_element', 'username_value',
-            'password_element', 'password_value',
-            'login_button_element',
-            'verify_type', 'verify_element', 'verify_value', 'verify_wait_time',
-            'pre_login_steps',
+            'login_url', 'login_test_case',
         )
 
     def validate_project_id(self, value):
@@ -222,6 +213,17 @@ class LoginConfigCreateSerializer(serializers.ModelSerializer):
             UiProject.objects.get(id=value)
         except UiProject.DoesNotExist:
             raise serializers.ValidationError("项目不存在")
+        return value
+
+    def validate_login_test_case(self, value):
+        if value:
+            if value.status == 'draft':
+                # 草稿用例仅警告，不阻止（方便开发调试）
+                pass
+            elif value.status not in ('ready', 'passed', 'draft'):
+                raise serializers.ValidationError(
+                    f"登录用例当前状态为「{value.get_status_display()}」，建议使用「就绪」或「通过」状态的用例"
+                )
         return value
 
     def create(self, validated_data):
@@ -238,12 +240,7 @@ class LoginConfigUpdateSerializer(serializers.ModelSerializer):
         model = LoginConfig
         fields = (
             'name', 'description',
-            'login_url',
-            'username_element', 'username_value',
-            'password_element', 'password_value',
-            'login_button_element',
-            'verify_type', 'verify_element', 'verify_value', 'verify_wait_time',
-            'pre_login_steps',
+            'login_url', 'login_test_case',
         )
 
 

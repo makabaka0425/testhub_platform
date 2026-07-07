@@ -40,12 +40,17 @@
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="login_url" label="登录页URL" min-width="200" show-overflow-tooltip />
-        <el-table-column label="验证方式" width="130">
+        <el-table-column prop="login_url" label="登录页URL" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-tag size="small" :type="getVerifyTypeTag(row.verify_type)">
-              {{ getVerifyTypeText(row.verify_type) }}
+            {{ row.login_url || '使用项目默认URL' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="登录用例" min-width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.login_test_case_name" size="small" type="success">
+              {{ row.login_test_case_name }}
             </el-tag>
+            <span v-else style="color: #909399;">未关联</span>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
@@ -75,7 +80,7 @@
     <el-dialog
       v-model="showCreateDialog"
       :title="isEditing ? '编辑登录配置' : '新建登录配置'"
-      width="700px"
+      width="600px"
       :close-on-click-modal="false"
     >
       <el-form ref="createFormRef" :model="createForm" :rules="formRules" label-width="120px">
@@ -85,58 +90,35 @@
         <el-form-item label="描述" prop="description">
           <el-input v-model="createForm.description" type="textarea" placeholder="请输入描述" />
         </el-form-item>
+
+        <el-divider content-position="left">登录页配置</el-divider>
         <el-form-item label="登录页URL" prop="login_url">
-          <el-input v-model="createForm.login_url" placeholder="请输入登录页URL，如 https://example.com/login" />
+          <el-input v-model="createForm.login_url" placeholder="可选，留空则使用项目基础URL" />
         </el-form-item>
 
-        <el-divider content-position="left">用户名配置</el-divider>
-        <el-form-item label="用户名元素" prop="username_element">
-          <el-select v-model="createForm.username_element" placeholder="请选择用户名输入框元素" filterable clearable style="width: 100%">
-            <el-option v-for="el in elements" :key="el.id" :label="el.name" :value="el.id" />
+        <el-divider content-position="left">登录用例</el-divider>
+        <el-form-item label="登录测试用例" prop="login_test_case">
+          <el-select
+            v-model="createForm.login_test_case"
+            placeholder="请选择登录测试用例"
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="tc in testCases"
+              :key="tc.id"
+              :label="tc.name"
+              :value="tc.id"
+            >
+              <span>{{ tc.name }}</span>
+              <el-tag size="small" :type="getStatusTag(tc.status)" style="margin-left: 8px;">
+                {{ getStatusText(tc.status) }}
+              </el-tag>
+            </el-option>
           </el-select>
-        </el-form-item>
-        <el-form-item label="用户名值" prop="username_value">
-          <el-input v-model="createForm.username_value" placeholder="请输入用户名" />
-        </el-form-item>
-
-        <el-divider content-position="left">密码配置</el-divider>
-        <el-form-item label="密码元素" prop="password_element">
-          <el-select v-model="createForm.password_element" placeholder="请选择密码输入框元素" filterable clearable style="width: 100%">
-            <el-option v-for="el in elements" :key="el.id" :label="el.name" :value="el.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="密码值" prop="password_value">
-          <el-input v-model="createForm.password_value" type="password" show-password placeholder="请输入密码" />
-        </el-form-item>
-
-        <el-divider content-position="left">登录按钮配置</el-divider>
-        <el-form-item label="登录按钮元素" prop="login_button_element">
-          <el-select v-model="createForm.login_button_element" placeholder="请选择登录按钮元素" filterable clearable style="width: 100%">
-            <el-option v-for="el in elements" :key="el.id" :label="el.name" :value="el.id" />
-          </el-select>
-        </el-form-item>
-
-        <el-divider content-position="left">登录验证配置</el-divider>
-        <el-form-item label="验证方式" prop="verify_type">
-          <el-select v-model="createForm.verify_type" placeholder="请选择验证方式" style="width: 100%">
-            <el-option label="URL包含指定字符串" value="url_contains" />
-            <el-option label="指定元素可见" value="element_visible" />
-            <el-option label="指定元素存在" value="element_exists" />
-            <el-option label="指定Cookie存在" value="cookie_exists" />
-            <el-option label="仅等待固定时间" value="wait_time" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="needsVerifyElement" label="验证元素" prop="verify_element">
-          <el-select v-model="createForm.verify_element" placeholder="请选择验证元素" filterable clearable style="width: 100%">
-            <el-option v-for="el in elements" :key="el.id" :label="el.name" :value="el.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="needsVerifyValue" label="验证值" prop="verify_value">
-          <el-input v-model="createForm.verify_value" :placeholder="getVerifyValuePlaceholder()" />
-        </el-form-item>
-        <el-form-item label="验证等待时间" prop="verify_wait_time">
-          <el-input-number v-model="createForm.verify_wait_time" :min="0" :max="60" :step="1" />
-          <span style="margin-left: 10px; color: #909399; font-size: 12px;">秒</span>
+          <div v-if="!testCases.length" style="color: #909399; font-size: 12px; margin-top: 4px;">
+            当前项目暂无测试用例，请先在用例管理中创建登录用例
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -150,25 +132,25 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import {
   getUiProjects,
-  getElements,
   getLoginConfigs,
   createLoginConfig,
   getLoginConfigDetail,
   updateLoginConfig,
   deleteLoginConfig,
-  testLoginConfig
+  testLoginConfig,
+  getTestCases
 } from '@/api/ui_automation'
 
 // 响应式数据
 const projects = ref([])
 const projectId = ref('')
 const loginConfigs = ref([])
-const elements = ref([])
+const testCases = ref([])
 const loading = ref(false)
 const searchText = ref('')
 const total = ref(0)
@@ -190,36 +172,14 @@ const createForm = reactive({
   name: '',
   description: '',
   login_url: '',
-  username_element: null,
-  username_value: '',
-  password_element: null,
-  password_value: '',
-  login_button_element: null,
-  verify_type: 'element_visible',
-  verify_element: null,
-  verify_value: '',
-  verify_wait_time: 5  // 前端显示秒，提交时转为毫秒
+  login_test_case: null
 })
 
 // 表单验证规则
 const formRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  login_url: [{ required: true, message: '请输入登录页URL', trigger: 'blur' }],
-  username_element: [{ required: true, message: '请选择用户名元素', trigger: 'change' }],
-  password_element: [{ required: true, message: '请选择密码元素', trigger: 'change' }],
-  login_button_element: [{ required: true, message: '请选择登录按钮元素', trigger: 'change' }],
-  verify_type: [{ required: true, message: '请选择验证方式', trigger: 'change' }]
+  login_test_case: [{ required: true, message: '请选择登录测试用例', trigger: 'change' }]
 }
-
-// 计算属性 - 是否需要验证元素 (element_visible / element_exists)
-const needsVerifyElement = computed(() => {
-  return ['element_visible', 'element_exists'].includes(createForm.verify_type)
-})
-
-// 计算属性 - 是否需要验证值 (url_contains / cookie_exists)
-const needsVerifyValue = computed(() => {
-  return ['url_contains', 'cookie_exists'].includes(createForm.verify_type)
-})
 
 // 加载项目列表
 const loadProjects = async () => {
@@ -232,21 +192,21 @@ const loadProjects = async () => {
   }
 }
 
-// 加载元素列表
-const loadElements = async () => {
+// 加载测试用例列表（当前项目下的）
+const loadTestCases = async () => {
   if (!projectId.value) {
-    elements.value = []
+    testCases.value = []
     return
   }
   try {
-    const response = await getElements({
+    const response = await getTestCases({
       project: projectId.value,
-      page_size: 1000
+      page_size: 200
     })
-    elements.value = response.data.results || response.data
+    testCases.value = response.data.results || response.data
   } catch (error) {
-    console.error('获取元素列表失败:', error)
-    ElMessage.error('获取元素列表失败')
+    console.error('获取测试用例列表失败:', error)
+    ElMessage.error('获取测试用例列表失败')
   }
 }
 
@@ -285,7 +245,7 @@ const loadLoginConfigs = async () => {
 // 项目切换
 const onProjectChange = async () => {
   pagination.currentPage = 1
-  await Promise.all([loadElements(), loadLoginConfigs()])
+  await Promise.all([loadTestCases(), loadLoginConfigs()])
 }
 
 // 搜索处理
@@ -309,15 +269,7 @@ const resetForm = () => {
   createForm.name = ''
   createForm.description = ''
   createForm.login_url = ''
-  createForm.username_element = null
-  createForm.username_value = ''
-  createForm.password_element = null
-  createForm.password_value = ''
-  createForm.login_button_element = null
-  createForm.verify_type = 'element_visible'
-  createForm.verify_element = null
-  createForm.verify_value = ''
-  createForm.verify_wait_time = 5
+  createForm.login_test_case = null
   isEditing.value = false
   currentConfigId.value = null
 }
@@ -329,14 +281,14 @@ const handleNewConfig = async () => {
     return
   }
   resetForm()
-  await loadElements()
+  await loadTestCases()
   showCreateDialog.value = true
 }
 
 // 编辑登录配置
 const editConfig = async (id) => {
   try {
-    await loadElements()
+    await loadTestCases()
     const response = await getLoginConfigDetail(id)
     const data = response.data
     currentConfigId.value = id
@@ -344,16 +296,7 @@ const editConfig = async (id) => {
     createForm.name = data.name || ''
     createForm.description = data.description || ''
     createForm.login_url = data.login_url || ''
-    createForm.username_element = data.username_element || null
-    createForm.username_value = data.username_value || ''
-    createForm.password_element = data.password_element || null
-    createForm.password_value = data.password_value || ''
-    createForm.login_button_element = data.login_button_element || null
-    createForm.verify_type = data.verify_type || 'element_visible'
-    createForm.verify_element = data.verify_element || null
-    createForm.verify_value = data.verify_value || ''
-    // 后端存毫秒，前端显示秒
-    createForm.verify_wait_time = data.verify_wait_time ? Math.round(data.verify_wait_time / 1000) : 5
+    createForm.login_test_case = data.login_test_case || null
     showCreateDialog.value = true
   } catch (error) {
     console.error('加载登录配置详情失败:', error)
@@ -376,23 +319,16 @@ const handleCreate = async () => {
     saving.value = true
     try {
       const configData = {
-        project: projectId.value,
+        project_id: projectId.value,
         name: createForm.name,
         description: createForm.description,
         login_url: createForm.login_url,
-        username_element: createForm.username_element,
-        username_value: createForm.username_value,
-        password_element: createForm.password_element,
-        password_value: createForm.password_value,
-        login_button_element: createForm.login_button_element,
-        verify_type: createForm.verify_type,
-        verify_element: needsVerifyElement.value ? createForm.verify_element : null,
-        verify_value: needsVerifyValue.value ? createForm.verify_value : '',
-        // 前端秒 → 后端毫秒
-        verify_wait_time: createForm.verify_wait_time * 1000
+        login_test_case: createForm.login_test_case
       }
 
       if (isEditing.value) {
+        // 更新时不发送 project_id
+        delete configData.project_id
         await updateLoginConfig(currentConfigId.value, configData)
         ElMessage.success('更新登录配置成功')
       } else {
@@ -465,34 +401,14 @@ const formatDate = (row, column, cellValue) => {
   return new Date(cellValue).toLocaleString()
 }
 
-const getVerifyTypeText = (type) => {
-  const typeMap = {
-    'url_contains': 'URL包含',
-    'element_visible': '元素可见',
-    'element_exists': '元素存在',
-    'cookie_exists': 'Cookie存在',
-    'wait_time': '等待时间'
-  }
-  return typeMap[type] || type || '未知'
+const getStatusText = (status) => {
+  const map = { draft: '草稿', ready: '就绪', running: '执行中', passed: '通过', failed: '失败' }
+  return map[status] || status
 }
 
-const getVerifyTypeTag = (type) => {
-  const tagMap = {
-    'url_contains': 'primary',
-    'element_visible': 'success',
-    'element_exists': 'warning',
-    'cookie_exists': 'info',
-    'wait_time': 'info'
-  }
-  return tagMap[type] || 'info'
-}
-
-const getVerifyValuePlaceholder = () => {
-  const placeholderMap = {
-    'url_contains': '请输入期望包含的URL片段',
-    'cookie_exists': '请输入Cookie名称'
-  }
-  return placeholderMap[createForm.verify_type] || '请输入验证值'
+const getStatusTag = (status) => {
+  const map = { draft: 'info', ready: 'success', running: 'warning', passed: 'success', failed: 'danger' }
+  return map[status] || 'info'
 }
 
 // 初始化
@@ -500,7 +416,7 @@ onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
     projectId.value = projects.value[0].id
-    await Promise.all([loadElements(), loadLoginConfigs()])
+    await Promise.all([loadTestCases(), loadLoginConfigs()])
   }
 })
 </script>
