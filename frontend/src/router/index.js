@@ -146,7 +146,7 @@ const routes = [
             {
                 path: 'testsuites',
                 name: 'TestSuites',
-                component: () => import('@/views/testsuites/TestSuiteList.vue')
+                component: () => import('@/views/ui-automation/suites/SuiteList.vue')
             },
             {
                 path: 'executions',
