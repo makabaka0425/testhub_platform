@@ -545,7 +545,7 @@ class TestExecutor:
         self.update_execution_result(status, passed, failed, skipped, duration)
 
     def _perform_login(self, login_config):
-        """执行登录操作（共享会话模式用）
+        """执行登录操作（共享会话模式用）— 通过执行关联的登录测试用例
 
         Args:
             login_config: LoginConfig ORM对象
@@ -554,130 +554,58 @@ class TestExecutor:
             bool: 登录是否成功
         """
         try:
-            # 预先获取所有元素信息
-            username_el = {
-                'locator_value': login_config.username_element.locator_value,
-                'locator_strategy': login_config.username_element.locator_strategy.name.lower()
-            } if login_config.username_element else None
-
-            password_el = {
-                'locator_value': login_config.password_element.locator_value,
-                'locator_strategy': login_config.password_element.locator_strategy.name.lower()
-            } if login_config.password_element else None
-
-            button_el = {
-                'locator_value': login_config.login_button_element.locator_value,
-                'locator_strategy': login_config.login_button_element.locator_strategy.name.lower()
-            } if login_config.login_button_element else None
-
-            verify_el = {
-                'locator_value': login_config.verify_element.locator_value,
-                'locator_strategy': login_config.verify_element.locator_strategy.name.lower()
-            } if login_config.verify_element else None
-
-            def _build_selector(element_data):
-                if not element_data:
-                    return None
-                strategy = element_data['locator_strategy']
-                value = element_data['locator_value']
-                if strategy in ['css', 'css selector']:
-                    return value
-                elif strategy == 'xpath':
-                    return f'xpath={value}'
-                elif strategy == 'id':
-                    return f'#{value}'
-                elif strategy == 'name':
-                    return f'[name="{value}"]'
-                elif strategy == 'text':
-                    return f'text={value}'
-                return value
-
-            # 1. 导航到登录页
-            print(f"[登录] 正在导航到登录页: {login_config.login_url}")
-            self.current_page.goto(login_config.login_url, wait_until='networkidle', timeout=30000)
-            time.sleep(2)
-            print(f"[登录] 登录页加载完成")
-
-            # 2. 执行登录前步骤
-            if login_config.pre_login_steps:
-                for step in login_config.pre_login_steps:
-                    step_element_id = step.get('element_id')
-                    step_action = step.get('action', 'click')
-                    step_value = step.get('input_value', '')
-                    try:
-                        element_obj = Element.objects.get(id=step_element_id)
-                        step_selector = _build_selector({
-                            'locator_value': element_obj.locator_value,
-                            'locator_strategy': element_obj.locator_strategy.name.lower()
-                        })
-                        if step_action == 'click':
-                            self.current_page.click(step_selector, timeout=5000)
-                        elif step_action == 'fill':
-                            self.current_page.fill(step_selector, step_value, timeout=5000)
-                        time.sleep(0.5)
-                    except Exception as e:
-                        print(f"[登录] 登录前步骤执行失败: {str(e)}")
-                        return False
-
-            # 3. 输入用户名
-            if username_el:
-                selector = _build_selector(username_el)
-                print(f"[登录] 输入用户名")
-                self.current_page.fill(selector, login_config.username_value, timeout=10000)
-
-            # 4. 输入密码
-            if password_el:
-                selector = _build_selector(password_el)
-                print(f"[登录] 输入密码")
-                self.current_page.fill(selector, login_config.password_value, timeout=10000)
-
-            # 5. 点击登录按钮
-            if button_el:
-                selector = _build_selector(button_el)
-                print(f"[登录] 点击登录按钮")
-                self.current_page.click(selector, timeout=10000)
-
-            # 6. 验证登录结果
-            verify_type = login_config.verify_type
-            print(f"[登录] 等待验证 (方式: {verify_type}, 等待: {login_config.verify_wait_time}ms)")
-            time.sleep(login_config.verify_wait_time / 1000)
-
-            if verify_type == 'url_contains':
-                current_url = self.current_page.url
-                if login_config.verify_value and login_config.verify_value in current_url:
-                    print(f"[登录] 验证通过: URL包含'{login_config.verify_value}'")
-                    return True
-                else:
-                    print(f"[登录] 验证失败: 当前URL={current_url}, 期望包含'{login_config.verify_value}'")
-                    return False
-            elif verify_type == 'element_visible':
-                if verify_el:
-                    selector = _build_selector(verify_el)
-                    is_visible = self.current_page.is_visible(selector)
-                    print(f"[登录] 元素可见性验证: {'通过' if is_visible else '失败'}")
-                    return is_visible
-            elif verify_type == 'element_exists':
-                if verify_el:
-                    selector = _build_selector(verify_el)
-                    count = self.current_page.locator(selector).count()
-                    print(f"[登录] 元素存在性验证: {'通过' if count > 0 else '失败'}")
-                    return count > 0
-            elif verify_type == 'cookie_exists':
-                cookies = self.context.cookies()
-                cookie_names = [c['name'] for c in cookies]
-                if login_config.verify_value in cookie_names:
-                    print(f"[登录] Cookie验证通过")
-                    return True
-                else:
-                    print(f"[登录] Cookie验证失败: 未找到'{login_config.verify_value}'")
-                    return False
-            elif verify_type == 'wait_time':
-                print(f"[登录] 仅等待模式，默认验证通过")
+            test_case = login_config.login_test_case
+            if not test_case:
+                print(f"[登录] 未关联登录测试用例，跳过登录")
                 return True
 
-            # 如果没有验证条件，默认登录成功
-            print(f"[登录] 无验证条件，默认登录成功")
-            return True
+            # 预先获取步骤数据，避免在Playwright上下文中访问ORM
+            steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+            login_case_data = {
+                'id': test_case.id,
+                'name': test_case.name,
+                'steps': []
+            }
+            for step in steps:
+                step_data = {
+                    'id': step.id,
+                    'step_number': step.step_number,
+                    'action_type': step.action_type,
+                    'description': step.description,
+                    'input_value': step.input_value,
+                    'wait_time': step.wait_time,
+                    'assert_type': step.assert_type,
+                    'assert_value': step.assert_value,
+                    'element': None
+                }
+                if step.element:
+                    step_data['element'] = {
+                        'id': step.element.id,
+                        'name': step.element.name,
+                        'locator_value': step.element.locator_value,
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                    }
+                login_case_data['steps'].append(step_data)
+
+            # 导航到登录页（优先使用login_config的login_url，否则使用项目基础URL）
+            start_url = login_config.login_url or self.test_suite.project.base_url
+            if start_url:
+                print(f"[登录] 正在导航到登录页: {start_url}")
+                self.current_page.goto(start_url, wait_until='networkidle', timeout=30000)
+                time.sleep(2)
+                print(f"[登录] 登录页加载完成")
+
+            print(f"[登录] 执行登录用例「{test_case.name}」({len(login_case_data['steps'])}个步骤)")
+
+            # 使用已有的步骤执行器来执行登录用例的步骤
+            case_result = self.execute_test_case_playwright_no_db(login_case_data)
+
+            if case_result['status'] == 'passed':
+                print(f"[登录] 登录用例执行成功")
+                return True
+            else:
+                print(f"[登录] 登录用例执行失败: {case_result.get('error', '未知错误')}")
+                return False
 
         except Exception as e:
             print(f"[登录] 登录过程异常: {str(e)}")
