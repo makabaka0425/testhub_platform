@@ -321,29 +321,11 @@ class TestExecutor:
                         case_execution.save()
 
                         try:
-                            # 导航到项目基础URL（共享会话模式下重新导航到起始页面）
-                            if self.test_suite.project.base_url:
-                                try:
-                                    self.current_page.goto(self.test_suite.project.base_url, wait_until='networkidle', timeout=30000)
-                                    time.sleep(2)
-                                except Exception as e:
-                                    print(f"✗ 导航失败: {str(e)}")
-                                    self.results.append({
-                                        'test_case_id': case_data['id'],
-                                        'test_case_name': case_data['name'],
-                                        'status': 'failed',
-                                        'steps': [],
-                                        'error': f"导航到基础URL失败: {str(e)}",
-                                        'start_time': datetime.now().isoformat(),
-                                        'end_time': datetime.now().isoformat(),
-                                        'screenshots': []
-                                    })
-                                    failed += 1
-                                    case_execution.status = 'failed'
-                                    case_execution.finished_at = timezone.now()
-                                    case_execution.error_message = f"导航失败: {str(e)}"
-                                    case_execution.save()
-                                    continue
+                            # 共享会话模式下，登录后应保持当前页面状态直接执行用例
+                            # 不再导航回 base_url（那通常是登录页，会覆盖已登录的会话）
+                            # 如果用例需要从特定页面开始，应在用例步骤中自行导航
+                            current_url = self.current_page.url
+                            print(f"[共享会话] 当前页面URL: {current_url}")
 
                             # 执行测试用例
                             case_result = self.execute_test_case_playwright_no_db(case_data)
@@ -601,7 +583,19 @@ class TestExecutor:
             case_result = self.execute_test_case_playwright_no_db(login_case_data)
 
             if case_result['status'] == 'passed':
-                print(f"[登录] 登录用例执行成功")
+                print(f"[登录] 登录用例步骤执行成功")
+                # 登录步骤执行完后，等待页面跳转完成
+                # 很多登录操作会触发页面跳转/重定向，需要等待导航完成
+                print(f"[登录] 等待页面跳转/稳定...")
+                try:
+                    # 等待网络请求完成，确保页面跳转到位
+                    self.current_page.wait_for_load_state('networkidle', timeout=10000)
+                except Exception as e:
+                    print(f"[登录] 等待networkidle超时（可能页面还在加载），继续执行: {str(e)}")
+                # 额外等待确保页面渲染完成
+                time.sleep(2)
+                print(f"[登录] 登录完成，当前页面URL: {self.current_page.url}")
+                print(f"[登录] 当前页面标题: {self.current_page.title()}")
                 return True
             else:
                 print(f"[登录] 登录用例执行失败: {case_result.get('error', '未知错误')}")
