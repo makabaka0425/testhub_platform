@@ -39,6 +39,19 @@
           </template>
         </el-table-column>
         <el-table-column prop="description" :label="$t('uiAutomation.common.description')" min-width="200" show-overflow-tooltip />
+        <el-table-column :label="$t('uiAutomation.suite.executionMode')" width="130">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.execution_mode === 'shared_session' ? 'success' : 'info'">
+              {{ row.execution_mode === 'shared_session' ? '共享会话' : '用例独立' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="登录配置" width="150">
+          <template #default="{ row }">
+            <span v-if="row.login_config_name">{{ row.login_config_name }}</span>
+            <span v-else style="color: #909399;">未配置</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="$t('uiAutomation.suite.testCaseCount')" width="120">
           <template #default="{ row }">
             {{ row.test_case_count || 0 }}
@@ -98,6 +111,24 @@
         </el-form-item>
         <el-form-item :label="$t('uiAutomation.common.description')" prop="description">
           <el-input v-model="createForm.description" type="textarea" :placeholder="$t('uiAutomation.common.description')" />
+        </el-form-item>
+        <el-form-item label="执行模式" prop="execution_mode">
+          <el-radio-group v-model="createForm.execution_mode">
+            <el-radio label="per_case">用例独立模式</el-radio>
+            <el-radio label="shared_session">共享会话模式</el-radio>
+          </el-radio-group>
+          <div class="mode-description">
+            <span class="description-text" v-if="createForm.execution_mode === 'per_case'">每个用例独立启动浏览器，互不影响</span>
+            <span class="description-text" v-else>所有用例共享同一浏览器会话，仅需登录一次</span>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="createForm.execution_mode === 'shared_session'" label="登录配置" prop="login_config">
+          <el-select v-model="createForm.login_config" placeholder="请选择登录配置" clearable filterable style="width: 100%">
+            <el-option v-for="cfg in loginConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.id" />
+          </el-select>
+          <div class="mode-description">
+            <span class="description-text">共享会话模式下，执行前会先按登录配置自动登录</span>
+          </div>
         </el-form-item>
         <el-form-item :label="$t('uiAutomation.suite.testCases')">
           <div class="test-case-selector">
@@ -266,7 +297,8 @@ import {
   addTestCaseToTestSuite,
   removeTestCaseFromTestSuite,
   updateTestCaseOrder,
-  runTestSuite
+  runTestSuite,
+  getLoginConfigs
 } from '@/api/ui_automation'
 import { useI18n } from 'vue-i18n'
 
@@ -276,6 +308,7 @@ const { t } = useI18n()
 const projects = ref([])
 const projectId = ref('')
 const suites = ref([])
+const loginConfigs = ref([])
 const loading = ref(false)
 const searchText = ref('')
 const total = ref(0)
@@ -295,7 +328,9 @@ const running = ref(false)
 // 表单数据
 const createForm = reactive({
   name: '',
-  description: ''
+  description: '',
+  execution_mode: 'per_case',
+  login_config: null
 })
 
 // 表单验证规则 - 使用 computed 实现动态国际化
@@ -386,6 +421,23 @@ const loadAvailableTestCases = async () => {
   }
 }
 
+// 加载登录配置列表
+const loadLoginConfigs = async () => {
+  if (!projectId.value) {
+    loginConfigs.value = []
+    return
+  }
+  try {
+    const response = await getLoginConfigs({
+      project: projectId.value,
+      page_size: 1000
+    })
+    loginConfigs.value = response.data.results || response.data
+  } catch (error) {
+    console.error('获取登录配置列表失败:', error)
+  }
+}
+
 // 项目切换
 const onProjectChange = async () => {
   pagination.currentPage = 1
@@ -425,7 +477,9 @@ const handleCreate = async () => {
     const suiteData = {
       project: projectId.value,
       name: createForm.name,
-      description: createForm.description
+      description: createForm.description,
+      execution_mode: createForm.execution_mode,
+      login_config: createForm.execution_mode === 'shared_session' ? createForm.login_config : null
     }
 
     let suiteId
@@ -482,13 +536,15 @@ const editSuite = async (id) => {
     isEditing.value = true
     createForm.name = suites_data.name
     createForm.description = suites_data.description
+    createForm.execution_mode = suites_data.execution_mode || 'per_case'
+    createForm.login_config = suites_data.login_config || null
 
     // 加载已选测试用例
     const response = await getTestSuiteTestCases(id)
     selectedTestCases.value = response.data.map(item => item.test_case).sort((a, b) => a.order - b.order)
 
-    // 加载可用测试用例
-    await loadAvailableTestCases()
+    // 加载可用测试用例和登录配置
+    await Promise.all([loadAvailableTestCases(), loadLoginConfigs()])
 
     showCreateDialog.value = true
   } catch (error) {
@@ -644,6 +700,8 @@ const moveDown = (index) => {
 const resetForm = () => {
   createForm.name = ''
   createForm.description = ''
+  createForm.execution_mode = 'per_case'
+  createForm.login_config = null
   selectedTestCases.value = []
   testCaseSearchText.value = ''
   isEditing.value = false
@@ -749,7 +807,7 @@ const openCreateDialog = async () => {
 // 修改新增套件按钮点击事件
 const handleNewSuite = async () => {
   resetForm()
-  await loadAvailableTestCases()
+  await Promise.all([loadAvailableTestCases(), loadLoginConfigs()])
   showCreateDialog.value = true
 }
 </script>

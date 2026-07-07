@@ -50,6 +50,7 @@ export default {
     scriptGeneration: 'Script Generation',
     scriptList: 'Script List',
     suiteManagement: 'Suite Management',
+    loginConfig: 'Login Configuration',
     executionRecords: 'Execution Records',
 
     // APP Automation

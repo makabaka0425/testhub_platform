@@ -398,6 +398,39 @@ class ScriptElementUsage(models.Model):
         return f'{self.script.name} uses {self.element.name} ({self.usage_type})'
 
 
+class LoginConfig(models.Model):
+    """登录配置模型 — 方案C：关联测试用例定义登录流程"""
+
+    # 基本信息
+    project = models.ForeignKey(UiProject, on_delete=models.CASCADE,
+                                related_name='login_configs', verbose_name='所属项目')
+    name = models.CharField(max_length=200, verbose_name='配置名称')
+    description = models.TextField(blank=True, verbose_name='描述')
+
+    # 登录页配置（可选，覆盖项目默认URL）
+    login_url = models.URLField(blank=True, default='', verbose_name='登录页URL',
+                                help_text='可选，留空则使用项目基础URL')
+
+    # 关联的登录测试用例 — 登录流程由测试用例的步骤来定义
+    login_test_case = models.ForeignKey('TestCase', on_delete=models.CASCADE,
+                                        related_name='login_configs', verbose_name='登录测试用例',
+                                        help_text='定义登录操作步骤的测试用例')
+
+    # 通用配置
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='创建人')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_login_configs'
+        verbose_name = '登录配置'
+        verbose_name_plural = '登录配置'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
 class TestSuite(models.Model):
     """测试套件模型"""
     EXECUTION_STATUS_CHOICES = [
@@ -417,6 +450,17 @@ class TestSuite(models.Model):
     execution_status = models.CharField(max_length=20, choices=EXECUTION_STATUS_CHOICES, default='not_run', verbose_name='执行状态')
     passed_count = models.IntegerField(default=0, verbose_name='通过数')
     failed_count = models.IntegerField(default=0, verbose_name='失败数')
+
+    # 登录配置和执行模式
+    login_config = models.ForeignKey('LoginConfig', on_delete=models.SET_NULL,
+                                     null=True, blank=True,
+                                     related_name='test_suites', verbose_name='登录配置')
+    EXECUTION_MODE_CHOICES = [
+        ('per_case', '用例独立模式'),
+        ('shared_session', '共享会话模式'),
+    ]
+    execution_mode = models.CharField(max_length=20, choices=EXECUTION_MODE_CHOICES,
+                                      default='per_case', verbose_name='执行模式')
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')

@@ -22,7 +22,7 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
-    AICase, AIExecutionRecord
+    AICase, AIExecutionRecord, LoginConfig
 )
 from .serializers import (
     UiProjectSerializer, UiProjectCreateSerializer, UiProjectUpdateSerializer,
@@ -40,7 +40,8 @@ from .serializers import (
     TestCaseSerializer, TestCaseStepSerializer, TestCaseExecutionSerializer, TestCaseRunSerializer,
     OperationRecordSerializer,
     UiScheduledTaskSerializer, UiNotificationLogSerializer, UiTaskNotificationSettingSerializer,
-    AICaseSerializer, AIExecutionRecordSerializer
+    AICaseSerializer, AIExecutionRecordSerializer,
+    LoginConfigSerializer, LoginConfigCreateSerializer, LoginConfigUpdateSerializer
 )
 from .operation_logger import log_operation
 
@@ -627,6 +628,162 @@ class TestScriptViewSet(viewsets.ModelViewSet):
             models.Q(owner=user) | models.Q(members=user)
         ).distinct()
         return TestScript.objects.filter(project__in=accessible_projects)
+
+
+class LoginConfigViewSet(viewsets.ModelViewSet):
+    """登录配置视图集"""
+    queryset = LoginConfig.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['project']
+    search_fields = ['name', 'description']
+    ordering = ['-created_at']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return LoginConfigCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return LoginConfigUpdateSerializer
+        return LoginConfigSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        accessible_projects = UiProject.objects.filter(
+            models.Q(owner=user) | models.Q(members=user)
+        ).distinct()
+        return LoginConfig.objects.filter(
+            project__in=accessible_projects
+        ).select_related('project', 'login_test_case', 'created_by')
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def test_login(self, request, pk=None):
+        """测试登录配置是否可用 — 执行关联的登录测试用例"""
+        login_config = self.get_object()
+
+        if not login_config.login_test_case:
+            return Response({
+                'success': False,
+                'message': '未关联登录测试用例'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            import os
+            os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+
+            from playwright.sync_api import sync_playwright
+
+            test_case = login_config.login_test_case
+
+            # 预先获取步骤数据，避免在Playwright上下文中访问ORM
+            steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+            case_data = {
+                'id': test_case.id,
+                'name': test_case.name,
+                'steps': []
+            }
+            for step in steps:
+                step_data = {
+                    'id': step.id,
+                    'step_number': step.step_number,
+                    'action_type': step.action_type,
+                    'description': step.description,
+                    'input_value': step.input_value,
+                    'wait_time': step.wait_time,
+                    'assert_type': step.assert_type,
+                    'assert_value': step.assert_value,
+                    'element': None
+                }
+                if step.element:
+                    step_data['element'] = {
+                        'id': step.element.id,
+                        'name': step.element.name,
+                        'locator_value': step.element.locator_value,
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                    }
+                case_data['steps'].append(step_data)
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=False)
+                context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+                page = context.new_page()
+
+                # 导航到登录页（优先使用login_config的login_url，否则使用项目基础URL）
+                start_url = login_config.login_url or login_config.project.base_url
+                if start_url:
+                    page.goto(start_url, wait_until='networkidle', timeout=30000)
+                    time.sleep(2)
+
+                # 执行登录用例的每个步骤
+                step_errors = []
+                for step_data in case_data['steps']:
+                    try:
+                        # 构造选择器
+                        selector = None
+                        element_info = step_data.get('element')
+                        if element_info:
+                            locator_value = element_info['locator_value']
+                            locator_strategy = element_info['locator_strategy'].lower()
+                            if locator_strategy in ['css', 'css selector']:
+                                selector = locator_value
+                            elif locator_strategy == 'xpath':
+                                selector = f'xpath={locator_value}'
+                            elif locator_strategy == 'id':
+                                selector = f'#{locator_value}'
+                            elif locator_strategy == 'name':
+                                selector = f'[name="{locator_value}"]'
+                            elif locator_strategy == 'text':
+                                selector = f'text={locator_value}'
+                            else:
+                                selector = locator_value
+
+                        action = step_data['action_type']
+
+                        if action == 'click' and selector:
+                            page.click(selector, timeout=10000)
+                        elif action == 'fill' and selector:
+                            page.fill(selector, step_data['input_value'], timeout=10000)
+                        elif action == 'wait':
+                            time.sleep(step_data['wait_time'] / 1000)
+                        elif action == 'waitFor' and selector:
+                            page.wait_for_selector(selector, timeout=step_data['wait_time'])
+                        elif action == 'hover' and selector:
+                            page.hover(selector, timeout=10000)
+                        elif action == 'assert':
+                            if step_data['assert_type'] == 'isVisible' and selector:
+                                if not page.is_visible(selector):
+                                    step_errors.append(f"步骤{step_data['step_number']}: 元素不可见")
+                            elif step_data['assert_type'] == 'textContains' and selector:
+                                text = page.locator(selector).text_content(timeout=5000) or ''
+                                if step_data['assert_value'] not in text:
+                                    step_errors.append(f"步骤{step_data['step_number']}: 文本不包含'{step_data['assert_value']}'")
+                        
+                        time.sleep(0.5)
+                    except Exception as step_err:
+                        step_errors.append(f"步骤{step_data['step_number']}执行失败: {str(step_err)}")
+                        break
+
+                browser.close()
+
+            if step_errors:
+                return Response({
+                    'success': False,
+                    'message': f'登录测试失败: {"; ".join(step_errors)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({
+                'success': True,
+                'message': '登录测试成功'
+            })
+
+        except Exception as e:
+            import traceback
+            return Response({
+                'success': False,
+                'message': f'登录测试异常: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class TestSuiteViewSet(viewsets.ModelViewSet):
