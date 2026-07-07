@@ -105,10 +105,9 @@
             {{ formatDuration(row.execution_time) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="150" fixed="right" align="center">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right" align="center">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="viewExecutionDetail(row)">
-              <el-icon><View /></el-icon>
               {{ $t('uiAutomation.common.details') }}
             </el-button>
             <el-button
@@ -118,7 +117,6 @@
               link
               @click="showRerunDialog(row)"
             >
-              <el-icon><Refresh /></el-icon>
               {{ $t('uiAutomation.common.rerun') }}
             </el-button>
             <el-button
