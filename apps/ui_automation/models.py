@@ -398,6 +398,67 @@ class ScriptElementUsage(models.Model):
         return f'{self.script.name} uses {self.element.name} ({self.usage_type})'
 
 
+class LoginConfig(models.Model):
+    """登录配置模型"""
+    VERIFY_TYPE_CHOICES = [
+        ('url_contains', 'URL包含指定字符串'),
+        ('element_visible', '指定元素可见'),
+        ('element_exists', '指定元素存在'),
+        ('cookie_exists', '指定Cookie存在'),
+        ('wait_time', '仅等待固定时间'),
+    ]
+
+    # 基本信息
+    project = models.ForeignKey(UiProject, on_delete=models.CASCADE,
+                                related_name='login_configs', verbose_name='所属项目')
+    name = models.CharField(max_length=200, verbose_name='配置名称')
+    description = models.TextField(blank=True, verbose_name='描述')
+
+    # 登录页配置
+    login_url = models.URLField(verbose_name='登录页URL')
+
+    # 用户名输入配置
+    username_element = models.ForeignKey(Element, on_delete=models.CASCADE,
+                                         related_name='login_username_configs', verbose_name='用户名元素')
+    username_value = models.TextField(verbose_name='用户名')
+
+    # 密码输入配置
+    password_element = models.ForeignKey(Element, on_delete=models.CASCADE,
+                                         related_name='login_password_configs', verbose_name='密码元素')
+    password_value = models.TextField(verbose_name='密码')
+
+    # 登录按钮配置
+    login_button_element = models.ForeignKey(Element, on_delete=models.CASCADE,
+                                              related_name='login_button_configs', verbose_name='登录按钮元素')
+
+    # 登录成功验证
+    verify_type = models.CharField(max_length=30, choices=VERIFY_TYPE_CHOICES,
+                                   default='element_visible', verbose_name='验证方式')
+    verify_element = models.ForeignKey(Element, on_delete=models.CASCADE, null=True, blank=True,
+                                       related_name='login_verify_configs', verbose_name='验证元素')
+    verify_value = models.TextField(blank=True, verbose_name='验证值',
+                                    help_text='URL包含的字符串/Cookie名称等')
+    verify_wait_time = models.IntegerField(default=5000, verbose_name='验证等待时间(ms)')
+
+    # 登录前额外操作
+    pre_login_steps = models.JSONField(default=list, blank=True, verbose_name='登录前额外步骤',
+        help_text='格式: [{"element_id": 1, "action": "click", "input_value": ""}, ...]')
+
+    # 通用配置
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='创建人')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_login_configs'
+        verbose_name = '登录配置'
+        verbose_name_plural = '登录配置'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
 class TestSuite(models.Model):
     """测试套件模型"""
     EXECUTION_STATUS_CHOICES = [
@@ -417,6 +478,17 @@ class TestSuite(models.Model):
     execution_status = models.CharField(max_length=20, choices=EXECUTION_STATUS_CHOICES, default='not_run', verbose_name='执行状态')
     passed_count = models.IntegerField(default=0, verbose_name='通过数')
     failed_count = models.IntegerField(default=0, verbose_name='失败数')
+
+    # 登录配置和执行模式
+    login_config = models.ForeignKey('LoginConfig', on_delete=models.SET_NULL,
+                                     null=True, blank=True,
+                                     related_name='test_suites', verbose_name='登录配置')
+    EXECUTION_MODE_CHOICES = [
+        ('per_case', '用例独立模式'),
+        ('shared_session', '共享会话模式'),
+    ]
+    execution_mode = models.CharField(max_length=20, choices=EXECUTION_MODE_CHOICES,
+                                      default='per_case', verbose_name='执行模式')
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')

@@ -1058,3 +1058,57 @@ export function exportAIExecutionReportPDF(id, params = {}) {
     responseType: 'blob'
   })
 }
+
+// ==================== 登录配置相关API ====================
+
+// 获取登录配置列表
+export function getLoginConfigs(params) {
+  return request({
+    url: '/ui-automation/login-configs/',
+    method: 'get',
+    params
+  })
+}
+
+// 创建登录配置
+export function createLoginConfig(data) {
+  return request({
+    url: '/ui-automation/login-configs/',
+    method: 'post',
+    data
+  })
+}
+
+// 获取登录配置详情
+export function getLoginConfigDetail(id) {
+  return request({
+    url: `/ui-automation/login-configs/${id}/`,
+    method: 'get'
+  })
+}
+
+// 更新登录配置
+export function updateLoginConfig(id, data) {
+  return request({
+    url: `/ui-automation/login-configs/${id}/`,
+    method: 'patch',
+    data
+  })
+}
+
+// 删除登录配置
+export function deleteLoginConfig(id) {
+  return request({
+    url: `/ui-automation/login-configs/${id}/`,
+    method: 'delete'
+  })
+}
+
+// 测试登录配置
+export function testLoginConfig(id) {
+  return request({
+    url: `/ui-automation/login-configs/${id}/test_login/`,
+    method: 'post',
+    timeout: 60000
+  })
+}
