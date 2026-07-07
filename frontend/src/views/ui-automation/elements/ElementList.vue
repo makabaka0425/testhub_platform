@@ -9,6 +9,9 @@
         <el-icon><Plus /></el-icon>
         {{ $t('uiAutomation.element.newElement') }}
       </el-button>
+      <el-button type="success" @click="showAiExtractDialog = true">
+        AI 智能提取
+      </el-button>
     </div>
     
     <div class="card-container">
@@ -211,13 +214,100 @@
         </span>
       </template>
     </el-dialog>
+
+    <!-- AI智能提取 - 输入对话框 -->
+    <el-dialog v-model="showAiExtractDialog" title="AI 智能提取元素" width="550px" :close-on-click-modal="false">
+      <el-form label-width="100px">
+        <el-form-item label="目标页面URL" required>
+          <el-input v-model="aiExtractForm.url" placeholder="输入页面URL，如 https://example.com/user/list" />
+        </el-form-item>
+        <el-form-item label="登录配置">
+          <el-select v-model="aiExtractForm.login_config_id" placeholder="可选，需登录的页面选择" clearable style="width: 100%">
+            <el-option v-for="cfg in loginConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="页面名称">
+          <el-input v-model="aiExtractForm.page_name" placeholder="可选，如 用户管理页" />
+        </el-form-item>
+      </el-form>
+      <div v-if="aiExtractLoading" style="text-align: center; padding: 20px 0;">
+        <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+        <p style="margin-top: 10px; color: #909399;">{{ aiExtractProgress }}</p>
+      </div>
+      <template #footer>
+        <el-button @click="showAiExtractDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleAiExtract" :loading="aiExtractLoading">开始提取</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- AI智能提取 - 结果预览对话框 -->
+    <el-dialog v-model="showAiResultDialog" title="AI 提取结果预览" width="900px" :close-on-click-modal="false" top="5vh">
+      <div style="margin-bottom: 12px; color: #606266;">
+        页面: {{ aiResultInfo.url }}
+        <span v-if="aiResultInfo.page_title" style="margin-left: 10px;">标题: {{ aiResultInfo.page_title }}</span>
+        <span style="margin-left: 10px;">共 {{ aiExtractResults.length }} 个元素</span>
+        <el-button size="small" type="primary" link @click="toggleSelectAll" style="margin-left: 10px;">
+          {{ isAllSelected ? '取消全选' : '全选' }}
+        </el-button>
+      </div>
+      <el-table :data="aiExtractResults" max-height="500" style="width: 100%"
+        @selection-change="handleAiResultSelectionChange">
+        <el-table-column type="selection" width="45" />
+        <el-table-column label="元素名称" min-width="130">
+          <template #default="{ row }">
+            <el-input v-model="row.name" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="110">
+          <template #default="{ row }">
+            <el-select v-model="row.element_type" size="small">
+              <el-option label="输入框" value="INPUT" />
+              <el-option label="按钮" value="BUTTON" />
+              <el-option label="链接" value="LINK" />
+              <el-option label="下拉框" value="DROPDOWN" />
+              <el-option label="复选框" value="CHECKBOX" />
+              <el-option label="单选框" value="RADIO" />
+              <el-option label="文本" value="TEXT" />
+              <el-option label="图片" value="IMAGE" />
+              <el-option label="表格" value="TABLE" />
+              <el-option label="容器" value="CONTAINER" />
+              <el-option label="表单" value="FORM" />
+              <el-option label="弹窗" value="MODAL" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="定位策略" width="100">
+          <template #default="{ row }">
+            <el-select v-model="row.locator_strategy" size="small">
+              <el-option v-for="s in strategies" :key="s.name" :label="s.name" :value="s.name" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="定位表达式" min-width="180">
+          <template #default="{ row }">
+            <el-input v-model="row.locator_value" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="描述" min-width="130">
+          <template #default="{ row }">
+            <el-input v-model="row.description" size="small" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="showAiResultDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleBatchImport" :loading="batchImportLoading">
+          确认导入({{ selectedAiResults.length }}个元素)
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, View, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, View, Edit, Delete, Loading } from '@element-plus/icons-vue'
 import {
   getUiProjects,
   getElements,
@@ -225,7 +315,9 @@ import {
   updateElement,
   deleteElement,
   getElementDetail,
-  getLocatorStrategies
+  getLocatorStrategies,
+  aiExtractElements,
+  getLoginConfigs
 } from '@/api/ui_automation'
 import { useI18n } from 'vue-i18n'
 
@@ -259,6 +351,25 @@ const createFormRef = ref(null)
 const editFormRef = ref(null)
 const currentEditId = ref(null)
 const currentElementDetail = ref({})
+
+// AI智能提取相关
+const showAiExtractDialog = ref(false)
+const showAiResultDialog = ref(false)
+const aiExtractLoading = ref(false)
+const aiExtractProgress = ref('')
+const aiExtractResults = ref([])
+const selectedAiResults = ref([])
+const batchImportLoading = ref(false)
+const loginConfigs = ref([])
+const aiResultInfo = reactive({ url: '', page_title: '' })
+const aiExtractForm = reactive({
+  url: '',
+  login_config_id: null,
+  page_name: ''
+})
+const isAllSelected = computed(() => {
+  return aiExtractResults.value.length > 0 && selectedAiResults.value.length === aiExtractResults.value.length
+})
 
 // 表单数据
 const createForm = reactive({
@@ -398,6 +509,7 @@ const onProjectChange = () => {
   
   // 重新加载元素
   loadElements()
+  loadLoginConfigs()
 }
 
 // 搜索处理
@@ -489,6 +601,147 @@ const onStrategyChange = () => {
 
 const onEditStrategyChange = () => {
   // 可以根据定位策略类型提供不同的输入提示或验证
+}
+
+// ========== AI智能提取相关方法 ==========
+
+// 加载登录配置列表
+const loadLoginConfigs = async () => {
+  if (!projectId.value) {
+    loginConfigs.value = []
+    return
+  }
+  try {
+    const response = await getLoginConfigs({ project: projectId.value, page_size: 100 })
+    loginConfigs.value = response.data.results || response.data
+  } catch (error) {
+    console.error('获取登录配置失败:', error)
+    loginConfigs.value = []
+  }
+}
+
+// 执行AI提取
+const handleAiExtract = async () => {
+  if (!aiExtractForm.url) {
+    ElMessage.warning('请输入目标页面URL')
+    return
+  }
+  if (!projectId.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+
+  aiExtractLoading.value = true
+  aiExtractProgress.value = '正在打开页面...'
+
+  try {
+    const data = {
+      project_id: projectId.value,
+      url: aiExtractForm.url,
+      login_config_id: aiExtractForm.login_config_id || undefined,
+      page_name: aiExtractForm.page_name || undefined
+    }
+
+    aiExtractProgress.value = '正在分析DOM结构...'
+
+    const response = await aiExtractElements(data)
+
+    aiExtractProgress.value = '正在AI智能识别...'
+
+    const result = response.data
+    aiExtractResults.value = (result.elements || []).map((elem, index) => ({
+      ...elem,
+      _id: index,
+      selected: true
+    }))
+    aiResultInfo.url = result.url || aiExtractForm.url
+    aiResultInfo.page_title = result.page_title || ''
+
+    if (aiExtractResults.value.length === 0) {
+      ElMessage.warning('未提取到可交互元素')
+      return
+    }
+
+    showAiExtractDialog.value = false
+    showAiResultDialog.value = true
+    ElMessage.success(`成功提取 ${aiExtractResults.value.length} 个元素`)
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '提取失败'
+    ElMessage.error(errMsg)
+    console.error('AI提取失败:', error)
+  } finally {
+    aiExtractLoading.value = false
+    aiExtractProgress.value = ''
+  }
+}
+
+// 结果选择变更
+const handleAiResultSelectionChange = (selection) => {
+  selectedAiResults.value = selection
+}
+
+// 全选/取消全选
+const toggleSelectAll = () => {
+  const tableRef = document.querySelector('.ai-result-table')
+  // 使用 Element Plus table toggleAllSelection 需要更复杂处理
+  // 简化实现：直接标记
+  if (isAllSelected.value) {
+    selectedAiResults.value = []
+  } else {
+    selectedAiResults.value = [...aiExtractResults.value]
+  }
+}
+
+// 批量导入元素
+const handleBatchImport = async () => {
+  if (selectedAiResults.value.length === 0) {
+    ElMessage.warning('请至少选择一个元素')
+    return
+  }
+
+  batchImportLoading.value = true
+  let successCount = 0
+  let failCount = 0
+
+  try {
+    for (const elem of selectedAiResults.value) {
+      try {
+        // 查找定位策略的ID
+        const strategyObj = strategies.value.find(s => s.name === elem.locator_strategy)
+        const apiData = {
+          name: elem.name,
+          page: elem.page || aiExtractForm.page_name || '',
+          description: elem.description || '',
+          locator_value: elem.locator_value,
+          project_id: projectId.value,
+          locator_strategy_id: strategyObj ? strategyObj.id : strategies.value[0]?.id,
+          element_type: elem.element_type,
+          is_unique: false,
+          wait_timeout: 5
+        }
+        // 备用定位器
+        if (elem.backup_locators && elem.backup_locators.length > 0) {
+          apiData.backup_locators = elem.backup_locators
+        }
+
+        await createElement(apiData)
+        successCount++
+      } catch (err) {
+        failCount++
+        console.error(`导入元素"${elem.name}"失败:`, err)
+      }
+    }
+
+    if (successCount > 0) {
+      ElMessage.success(`成功导入 ${successCount} 个元素${failCount > 0 ? `，${failCount} 个失败` : ''}`)
+      showAiResultDialog.value = false
+      loadElements()
+    } else {
+      ElMessage.error('所有元素导入失败')
+    }
+  } finally {
+    batchImportLoading.value = false
+  }
 }
 
 // 处理创建元素
@@ -594,6 +847,7 @@ onMounted(async () => {
     projectId.value = projects.value[0].id
     createForm.project = projectId.value
     await loadElements()
+    await loadLoginConfigs()
   }
 })
 </script>
