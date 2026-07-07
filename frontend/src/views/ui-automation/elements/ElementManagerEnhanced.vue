@@ -240,12 +240,17 @@
       <li v-if="rightClickedNode && rightClickedNode.type === 'page' && rightClickedNode.id !== 'unassigned'" @click="addSubPage">
         {{ $t('uiAutomation.element.contextMenu.addSubPage') }}
       </li>
-      <!-- "未关联页面"节点不显示编辑和删除选项 -->
+      <!-- "未关联页面"节点不显示编辑选项 -->
       <li v-if="rightClickedNode && rightClickedNode.id !== 'unassigned'" @click="editNode">
         {{ $t('uiAutomation.element.contextMenu.edit') }}
       </li>
+      <!-- 普通节点删除 -->
       <li v-if="rightClickedNode && rightClickedNode.id !== 'unassigned'" @click="deleteNode">
         {{ $t('uiAutomation.element.contextMenu.delete') }}
+      </li>
+      <!-- "未关联页面"节点：清空所有未关联元素 -->
+      <li v-if="rightClickedNode && rightClickedNode.id === 'unassigned'" @click="deleteUnassignedElements" style="color: #f56c6c;">
+        清空未关联元素
       </li>
     </ul>
 
@@ -1519,6 +1524,70 @@ const deleteNode = async () => {
     if (error !== 'cancel') {
       console.error('删除失败:', error)
       ElMessage.error(t('uiAutomation.element.messages.deleteFailed'))
+    }
+  }
+}
+
+// 清空未关联页面下的所有元素
+const deleteUnassignedElements = async () => {
+  showContextMenu.value = false
+
+  if (!rightClickedNode.value || rightClickedNode.value.id !== 'unassigned') return
+
+  const children = rightClickedNode.value.children || []
+  if (children.length === 0) {
+    ElMessage.info('当前没有未关联的元素')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要清空所有未关联元素吗？共 ${children.length} 个元素将被删除，此操作不可恢复。`,
+      '清空未关联元素',
+      {
+        type: 'warning',
+        confirmButtonText: t('uiAutomation.common.confirm'),
+        cancelButtonText: t('uiAutomation.common.cancel')
+      }
+    )
+
+    // 逐个删除所有子元素
+    let successCount = 0
+    let failCount = 0
+    for (const child of children) {
+      try {
+        await deleteElement(child.id)
+        successCount++
+      } catch (err) {
+        console.error(`删除元素 ${child.id} 失败:`, err)
+        failCount++
+      }
+    }
+
+    if (failCount === 0) {
+      ElMessage.success(`已成功清空 ${successCount} 个未关联元素`)
+    } else {
+      ElMessage.warning(`已删除 ${successCount} 个元素，${failCount} 个删除失败`)
+    }
+
+    // 如果当前选中的元素在删除列表中，清空选中
+    if (selectedElement.value) {
+      const deletedIds = children.map(c => c.id)
+      if (deletedIds.includes(selectedElement.value.id)) {
+        selectedElement.value = null
+      }
+    }
+
+    // 重新加载数据
+    await Promise.all([
+      loadPages(),
+      loadElementTree()
+    ])
+    treeKey.value += 1
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('清空未关联元素失败:', error)
+      ElMessage.error('清空未关联元素失败')
     }
   }
 }
