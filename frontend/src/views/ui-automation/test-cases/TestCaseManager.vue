@@ -157,6 +157,7 @@
                             <el-option :label="t('uiAutomation.testCase.actionAssert')" value="assert" />
                             <el-option :label="t('uiAutomation.testCase.actionWait')" value="wait" />
                             <el-option :label="t('uiAutomation.testCase.actionSwitchTab')" value="switchTab" />
+                            <el-option label="路由跳转" value="navigate" />
                           </el-select>
                           <el-select
                             v-if="needsElement(element.action_type)"
@@ -198,7 +199,7 @@
                           <div style="display: flex; gap: 5px; flex: 1">
                             <el-input
                               v-model="element.input_value"
-                              :placeholder="element.action_type === 'switchTab' ? t('uiAutomation.testCase.switchTabPlaceholder') : t('uiAutomation.testCase.inputPlaceholder')"
+                              :placeholder="element.action_type === 'switchTab' ? t('uiAutomation.testCase.switchTabPlaceholder') : element.action_type === 'navigate' ? '输入路由路径，如 /user/list' : t('uiAutomation.testCase.inputPlaceholder')"
                               size="small"
                             >
                               <template #append>
@@ -211,7 +212,7 @@
                                 />
                               </template>
                             </el-input>
-                            <el-tooltip :content="t('uiAutomation.testCase.insertVariable')" placement="top" v-if="element.action_type !== 'switchTab'">
+                            <el-tooltip :content="t('uiAutomation.testCase.insertVariable')" placement="top" v-if="!['switchTab', 'navigate'].includes(element.action_type)">
                               <el-button size="small" @click="openVariableHelper(element, 'input_value')" class="variable-helper-btn">
                                 <el-icon><MagicStick /></el-icon>
                               </el-button>
@@ -683,7 +684,7 @@ const onStepsReorder = () => {
 
 const onActionTypeChange = (step) => {
   // 根据操作类型重置相关参数
-  if (step.action_type !== 'fill') {
+  if (!['fill', 'navigate'].includes(step.action_type)) {
     step.input_value = ''
   }
   if (step.action_type !== 'wait') {
@@ -692,6 +693,10 @@ const onActionTypeChange = (step) => {
   if (step.action_type !== 'assert') {
     step.assert_type = 'textContains'
     step.assert_value = ''
+  }
+  // navigate 不需要元素
+  if (step.action_type === 'navigate') {
+    step.element_id = null
   }
 }
 
@@ -704,7 +709,7 @@ const onElementChange = (step) => {
 }
 
 const needsInputValue = (actionType) => {
-  return ['fill', 'switchTab'].includes(actionType)
+  return ['fill', 'switchTab', 'navigate'].includes(actionType)
 }
 
 const needsWaitTime = (actionType) => {
@@ -712,7 +717,7 @@ const needsWaitTime = (actionType) => {
 }
 
 const needsElement = (actionType) => {
-  return !['wait', 'switchTab', 'screenshot'].includes(actionType)
+  return !['wait', 'switchTab', 'screenshot', 'navigate'].includes(actionType)
 }
 
 const expandAllSteps = () => {
@@ -1143,7 +1148,8 @@ const getActionTypeText = (actionType) => {
     'scroll': t('uiAutomation.testCase.actionType.scroll'),
     'screenshot': t('uiAutomation.testCase.actionType.screenshot'),
     'assert': t('uiAutomation.testCase.actionType.assert'),
-    'wait': t('uiAutomation.testCase.actionType.wait')
+    'wait': t('uiAutomation.testCase.actionType.wait'),
+    'navigate': '路由跳转'
   }
   return textMap[actionType] || actionType
 }
@@ -1165,7 +1171,8 @@ const getActionText = (actionType) => {
     'scroll': t('uiAutomation.testCase.actionText.scroll'),
     'screenshot': t('uiAutomation.testCase.actionText.screenshot'),
     'assert': t('uiAutomation.testCase.actionText.assert'),
-    'wait': t('uiAutomation.testCase.actionText.wait')
+    'wait': t('uiAutomation.testCase.actionText.wait'),
+    'navigate': '跳转到'
   }
   return actionMap[actionType] || actionType
 }
