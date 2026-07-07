@@ -1307,11 +1307,33 @@ class TestExecutor:
                     print(f"  - 页面标题: {self.current_page.title()}")
                     print(f"  - self.current_page已更新为新页面")
 
+                elif step_data['action_type'] == 'navigate':
+                    # 路由跳转 - 不需要元素定位，直接通过URL导航
+                    uri = step_data.get('input_value', '').strip()
+                    if not uri:
+                        raise Exception('路由跳转需要输入目标路径（input_value）')
+                    # 判断是完整URL还是相对路径
+                    if uri.startswith('http://') or uri.startswith('https://'):
+                        full_url = uri
+                    else:
+                        base_url = getattr(self.test_suite.project, 'base_url', '').rstrip('/')
+                        if not base_url:
+                            raise Exception('项目未设置基础URL，无法拼接相对路径')
+                        # 确保相对路径以 / 开头
+                        if not uri.startswith('/'):
+                            uri = '/' + uri
+                        full_url = base_url + uri
+                    print(f"[路由跳转] 导航到: {full_url}")
+                    self.current_page.goto(full_url, wait_until='networkidle', timeout=30000)
+                    time.sleep(2)
+                    print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
+                    step_result['success'] = True
+
                 else:
                     step_result['error'] = f'⚠ 未知的操作类型: {step_data["action_type"]}'
 
             else:
-                # 没有元素的步骤（如等待、切换标签页）
+                # 没有元素的步骤（如等待、切换标签页、路由跳转）
                 if step_data['action_type'] == 'wait':
                     self.current_page.wait_for_timeout(step_data['wait_time'])
                     step_result['success'] = True
@@ -1430,6 +1452,27 @@ class TestExecutor:
                     print(f"  - 目标索引: {final_target_index}")
                     print(f"  - 页面标题: {self.current_page.title()}")
                     print(f"  - self.current_page已更新为新页面")
+
+                elif step_data['action_type'] == 'navigate':
+                    # 路由跳转 - 不需要元素定位，直接通过URL导航
+                    uri = step_data.get('input_value', '').strip()
+                    if not uri:
+                        raise Exception('路由跳转需要输入目标路径（input_value）')
+                    # 判断是完整URL还是相对路径
+                    if uri.startswith('http://') or uri.startswith('https://'):
+                        full_url = uri
+                    else:
+                        base_url = getattr(self.test_suite.project, 'base_url', '').rstrip('/')
+                        if not base_url:
+                            raise Exception('项目未设置基础URL，无法拼接相对路径')
+                        if not uri.startswith('/'):
+                            uri = '/' + uri
+                        full_url = base_url + uri
+                    print(f"[路由跳转] 导航到: {full_url}")
+                    self.current_page.goto(full_url, wait_until='networkidle', timeout=30000)
+                    time.sleep(2)
+                    print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
+                    step_result['success'] = True
 
         except Exception as e:
             # 格式化为详细的错误信息，与playwright_engine.py保持一致
@@ -2473,6 +2516,26 @@ class TestExecutor:
                     except Exception as e:
                         step_result['error'] = f"切换标签页失败: {str(e)}"
                         step_result['success'] = False
+
+                elif step_data['action_type'] == 'navigate':
+                    # 路由跳转 - Selenium版
+                    uri = step_data.get('input_value', '').strip()
+                    if not uri:
+                        raise Exception('路由跳转需要输入目标路径（input_value）')
+                    if uri.startswith('http://') or uri.startswith('https://'):
+                        full_url = uri
+                    else:
+                        base_url = getattr(self.test_suite.project, 'base_url', '').rstrip('/')
+                        if not base_url:
+                            raise Exception('项目未设置基础URL，无法拼接相对路径')
+                        if not uri.startswith('/'):
+                            uri = '/' + uri
+                        full_url = base_url + uri
+                    print(f"[路由跳转] 导航到: {full_url}")
+                    driver.get(full_url)
+                    time.sleep(2)
+                    print(f"[路由跳转] 页面加载完成，当前URL: {driver.current_url}")
+                    step_result['success'] = True
 
         except TimeoutException as e:
             # 格式化为详细的错误信息，与selenium_engine.py保持一致
