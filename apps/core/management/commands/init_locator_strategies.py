@@ -74,17 +74,16 @@ class Command(BaseCommand):
             )
 
             if created:
-                self.stdout.write(self.style.SUCCESS(f'  ✓ 创建策略: {strategy.name}'))
+                self.stdout.write(self.style.SUCCESS(f'  [+] 创建策略: {strategy.name}'))
                 created_count += 1
             else:
-                # 更新描述
                 if strategy.description != strategy_data['description']:
                     strategy.description = strategy_data['description']
                     strategy.save()
-                    self.stdout.write(self.style.WARNING(f'  ↻ 更新策略: {strategy.name}'))
+                    self.stdout.write(self.style.WARNING(f'  [*] 更新策略: {strategy.name}'))
                     updated_count += 1
                 else:
-                    self.stdout.write(f'  - 策略已存在: {strategy.name}')
+                    self.stdout.write(f'  [-] 策略已存在: {strategy.name}')
 
         self.stdout.write('\n' + '='*60)
         self.stdout.write(self.style.SUCCESS(f'初始化完成！'))

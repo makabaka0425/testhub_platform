@@ -53,18 +53,9 @@
         <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
         <el-table-column :label="$t('uiAutomation.common.operation')" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" @click="goToProjectDetail(row.id)">
-              <el-icon><View /></el-icon>
-              {{ $t('uiAutomation.common.view') }}
-            </el-button>
-            <el-button size="small" @click="editProject(row)">
-              <el-icon><Edit /></el-icon>
-              {{ $t('uiAutomation.common.edit') }}
-            </el-button>
-            <el-button size="small" type="danger" @click="deleteProject(row.id)">
-              <el-icon><Delete /></el-icon>
-              {{ $t('uiAutomation.common.delete') }}
-            </el-button>
+            <el-button link type="primary" @click="goToProjectDetail(row.id)">{{ $t('uiAutomation.common.view') }}</el-button>
+            <el-button link @click="editProject(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
+            <el-button link type="danger" @click="deleteProject(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>

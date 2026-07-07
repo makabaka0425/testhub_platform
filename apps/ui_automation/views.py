@@ -163,7 +163,7 @@ class UiProjectViewSet(viewsets.ModelViewSet):
 
 class LocatorStrategyViewSet(viewsets.ModelViewSet):
     queryset = LocatorStrategy.objects.all()
-    permission_classes = [IsAuthenticated]
+    permission_classes = []
     serializer_class = LocatorStrategySerializer
     ordering = ['id']
 

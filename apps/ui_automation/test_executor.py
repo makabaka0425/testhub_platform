@@ -8,14 +8,6 @@ from datetime import datetime
 from django.utils import timezone
 from django.db import connection
 from playwright.sync_api import sync_playwright
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.safari.options import Options as SafariOptions
-from selenium.webdriver.edge.options import Options as EdgeOptions
 
 from .models import (
     TestSuite, TestExecution, TestCase, TestCaseStep,
@@ -1291,6 +1283,15 @@ class TestExecutor:
 
     def run_with_selenium(self):
         """使用 Selenium 执行测试"""
+        from selenium import webdriver
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.chrome.options import Options as ChromeOptions
+        from selenium.webdriver.firefox.options import Options as FirefoxOptions
+        from selenium.webdriver.safari.options import Options as SafariOptions
+        from selenium.webdriver.edge.options import Options as EdgeOptions
+
         start_time = time.time()
         passed = 0
         failed = 0
