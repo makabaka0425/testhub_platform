@@ -19,6 +19,9 @@
             <el-button type="success" size="small" @click="createEmptyElement" :title="$t('uiAutomation.element.addElement')">
               <el-icon><Plus /></el-icon>
             </el-button>
+            <el-button type="warning" size="small" @click="showAiExtractDialog = true" title="AI智能提取">
+              <el-icon><MagicStick /></el-icon>
+            </el-button>
           </div>
         </div>
 
@@ -73,7 +76,12 @@
       <div class="main-content">
         <div v-if="!selectedElement" class="empty-state">
           <el-empty :description="$t('uiAutomation.element.emptyElementTip')">
-            <el-button type="primary" @click="createEmptyElement">{{ $t('uiAutomation.element.createNewElement') }}</el-button>
+            <div style="display: flex; gap: 12px; justify-content: center;">
+              <el-button type="primary" @click="createEmptyElement">{{ $t('uiAutomation.element.createNewElement') }}</el-button>
+              <el-button type="warning" @click="showAiExtractDialog = true">
+                <el-icon style="margin-right: 4px;"><MagicStick /></el-icon>AI 智能提取
+              </el-button>
+            </div>
           </el-empty>
         </div>
 
@@ -232,12 +240,17 @@
       <li v-if="rightClickedNode && rightClickedNode.type === 'page' && rightClickedNode.id !== 'unassigned'" @click="addSubPage">
         {{ $t('uiAutomation.element.contextMenu.addSubPage') }}
       </li>
-      <!-- "未关联页面"节点不显示编辑和删除选项 -->
+      <!-- "未关联页面"节点不显示编辑选项 -->
       <li v-if="rightClickedNode && rightClickedNode.id !== 'unassigned'" @click="editNode">
         {{ $t('uiAutomation.element.contextMenu.edit') }}
       </li>
+      <!-- 普通节点删除 -->
       <li v-if="rightClickedNode && rightClickedNode.id !== 'unassigned'" @click="deleteNode">
         {{ $t('uiAutomation.element.contextMenu.delete') }}
+      </li>
+      <!-- "未关联页面"节点：清空所有未关联元素 -->
+      <li v-if="rightClickedNode && rightClickedNode.id === 'unassigned'" @click="deleteUnassignedElements" style="color: #f56c6c;">
+        清空未关联元素
       </li>
     </ul>
 
@@ -267,6 +280,103 @@
         <el-button type="primary" @click="updatePage">{{ $t('uiAutomation.common.save') }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- AI智能提取 - 输入对话框 -->
+    <el-dialog v-model="showAiExtractDialog" title="AI 智能提取元素" width="550px" :close-on-click-modal="false">
+      <el-form label-width="130px">
+        <el-form-item label="目标页面URL" required>
+          <el-input v-model="aiExtractForm.url" placeholder="输入页面URL，如 https://example.com/user/list" />
+        </el-form-item>
+        <el-form-item label="登录配置">
+          <el-select v-model="aiExtractForm.login_config_id" placeholder="可选，需登录的页面选择" clearable style="width: 100%">
+            <el-option v-for="cfg in loginConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="页面名称">
+          <el-input v-model="aiExtractForm.page_name" placeholder="可选，如 用户管理页" />
+        </el-form-item>
+      </el-form>
+      <div v-if="aiExtractLoading" style="text-align: center; padding: 20px 0;">
+        <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+        <p style="margin-top: 10px; color: #909399;">{{ aiExtractProgress }}</p>
+      </div>
+      <template #footer>
+        <el-button @click="showAiExtractDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleAiExtract" :loading="aiExtractLoading">开始提取</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- AI智能提取 - 结果预览对话框 -->
+    <el-dialog v-model="showAiResultDialog" title="AI 提取结果预览" width="900px" :close-on-click-modal="false" top="5vh">
+      <div style="margin-bottom: 12px; color: #606266;">
+        页面: {{ aiResultInfo.url }}
+        <span v-if="aiResultInfo.final_url && aiResultInfo.final_url !== aiResultInfo.url" style="margin-left: 10px; color: #E6A23C;">
+          (实际跳转: {{ aiResultInfo.final_url }})
+        </span>
+        <span v-if="aiResultInfo.page_title" style="margin-left: 10px;">标题: {{ aiResultInfo.page_title }}</span>
+        <span style="margin-left: 10px;">共 {{ aiExtractResults.length }} 个元素</span>
+      </div>
+      <el-table ref="aiResultTableRef" :data="aiExtractResults" max-height="500" style="width: 100%"
+        @selection-change="handleAiResultSelectionChange">
+        <el-table-column type="selection" width="45" />
+        <el-table-column label="元素名称" min-width="130">
+          <template #default="{ row }">
+            <el-input v-model="row.name" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="110">
+          <template #default="{ row }">
+            <el-select v-model="row.element_type" size="small">
+              <el-option label="输入框" value="INPUT" />
+              <el-option label="按钮" value="BUTTON" />
+              <el-option label="链接" value="LINK" />
+              <el-option label="下拉框" value="DROPDOWN" />
+              <el-option label="复选框" value="CHECKBOX" />
+              <el-option label="单选框" value="RADIO" />
+              <el-option label="文本" value="TEXT" />
+              <el-option label="图片" value="IMAGE" />
+              <el-option label="表格" value="TABLE" />
+              <el-option label="容器" value="CONTAINER" />
+              <el-option label="表单" value="FORM" />
+              <el-option label="弹窗" value="MODAL" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="定位策略" width="100">
+          <template #default="{ row }">
+            <el-select v-model="row.locator_strategy" size="small">
+              <el-option label="ID" value="ID" />
+              <el-option label="CSS" value="CSS" />
+              <el-option label="XPath" value="XPath" />
+              <el-option label="name" value="name" />
+              <el-option label="class" value="class" />
+              <el-option label="text" value="text" />
+              <el-option label="placeholder" value="placeholder" />
+              <el-option label="role" value="role" />
+              <el-option label="label" value="label" />
+              <el-option label="title" value="title" />
+              <el-option label="test-id" value="test-id" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="定位表达式" min-width="180">
+          <template #default="{ row }">
+            <el-input v-model="row.locator_value" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="描述" min-width="130">
+          <template #default="{ row }">
+            <el-input v-model="row.description" size="small" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="showAiResultDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleBatchImport" :loading="batchImportLoading">
+          确认导入({{ selectedAiResults.length }}个元素)
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -276,7 +386,8 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, FolderAdd, Document, Search, Edit, Delete,
-  Folder, Document as DocumentIcon, Operation, DocumentCopy, ArrowDown
+  Folder, Document as DocumentIcon, Operation, DocumentCopy, ArrowDown,
+  MagicStick, Loading
 } from '@element-plus/icons-vue'
 import {
   getUiProjects,
@@ -293,7 +404,9 @@ import {
   deleteElementGroup,
   getLocatorStrategies,
   validateElementLocator,
-  generateElementSuggestions
+  generateElementSuggestions,
+  aiExtractElements,
+  getLoginConfigs
 } from '@/api/ui_automation'
 
 // 国际化
@@ -320,6 +433,23 @@ const elementHeaderFormRef = ref(null)
 // 对话框控制
 const showCreatePageDialog = ref(false)
 const showEditPageDialog = ref(false)
+
+// AI智能提取相关
+const showAiExtractDialog = ref(false)
+const showAiResultDialog = ref(false)
+const aiExtractLoading = ref(false)
+const aiExtractProgress = ref('')
+const aiExtractResults = ref([])
+const selectedAiResults = ref([])
+const batchImportLoading = ref(false)
+const loginConfigs = ref([])
+const aiResultTableRef = ref(null)
+const aiResultInfo = reactive({ url: '', page_title: '' })
+const aiExtractForm = reactive({
+  url: '',
+  login_config_id: null,
+  page_name: ''
+})
 
 // 右键菜单
 const showContextMenu = ref(false)
@@ -400,7 +530,7 @@ const getAllPages = () => {
     nodes.forEach(node => {
       if (node.type === 'page') {
         allPages.push({
-          id: node.id,
+          id: node._originalId || node.id,
           name: node.name
         })
       }
@@ -420,9 +550,10 @@ const getAllPagesExceptCurrent = (currentId) => {
 
   const traverse = (nodes) => {
     nodes.forEach(node => {
-      if (node.type === 'page' && node.id !== currentId) {
+      const nodeOriginalId = node._originalId || node.id
+      if (node.type === 'page' && nodeOriginalId !== currentId) {
         allPages.push({
-          id: node.id,
+          id: nodeOriginalId,
           name: node.name
         })
       }
@@ -477,6 +608,175 @@ const exposeToWindow = () => {
 }
 
 // 组件挂载
+// ========== AI智能提取相关方法 ==========
+
+const loadLoginConfigs = async () => {
+  if (!selectedProject.value) {
+    loginConfigs.value = []
+    return
+  }
+  try {
+    const response = await getLoginConfigs({ project: selectedProject.value, page_size: 100 })
+    loginConfigs.value = response.data.results || response.data
+  } catch (error) {
+    console.error('获取登录配置失败:', error)
+    loginConfigs.value = []
+  }
+}
+
+const handleAiExtract = async () => {
+  if (!aiExtractForm.url) {
+    ElMessage.warning('请输入目标页面URL')
+    return
+  }
+  if (!selectedProject.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+
+  aiExtractLoading.value = true
+  aiExtractProgress.value = '正在打开页面...'
+
+  try {
+    const data = {
+      project_id: selectedProject.value,
+      url: aiExtractForm.url,
+      login_config_id: aiExtractForm.login_config_id || undefined,
+      page_name: aiExtractForm.page_name || undefined
+    }
+
+    aiExtractProgress.value = '正在分析DOM结构...'
+
+    const response = await aiExtractElements(data)
+
+    aiExtractProgress.value = '正在AI智能识别...'
+
+    const result = response.data
+    aiExtractResults.value = (result.elements || []).map((elem, index) => ({
+      ...elem,
+      _id: index
+    }))
+    aiResultInfo.url = result.url || aiExtractForm.url
+    aiResultInfo.page_title = result.page_title || ''
+    if (result.final_url) {
+      aiResultInfo.final_url = result.final_url
+    }
+
+    // 检测重定向警告
+    if (result.redirect_warning) {
+      ElMessage.warning({ message: result.redirect_warning, duration: 5000 })
+    }
+
+    if (aiExtractResults.value.length === 0) {
+      ElMessage.warning('未提取到可交互元素')
+      return
+    }
+
+    showAiExtractDialog.value = false
+    showAiResultDialog.value = true
+    ElMessage.success(`成功提取 ${aiExtractResults.value.length} 个元素`)
+
+    // 默认全选所有提取的元素
+    await nextTick()
+    if (aiResultTableRef.value) {
+      aiResultTableRef.value.toggleAllSelection()
+    }
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '提取失败'
+    ElMessage.error(errMsg)
+    console.error('AI提取失败:', error)
+  } finally {
+    aiExtractLoading.value = false
+    aiExtractProgress.value = ''
+  }
+}
+
+const handleAiResultSelectionChange = (selection) => {
+  selectedAiResults.value = selection
+}
+
+const handleBatchImport = async () => {
+  if (selectedAiResults.value.length === 0) {
+    ElMessage.warning('请至少选择一个元素')
+    return
+  }
+
+  batchImportLoading.value = true
+  let successCount = 0
+  let failCount = 0
+
+  try {
+    // 如果用户填了页面名称，先查找或创建对应的页面分组
+    let targetGroupId = null
+    const pageName = aiExtractForm.page_name?.trim()
+    if (pageName) {
+      try {
+        // 查找当前项目下是否已有同名页面
+        const groupsResponse = await getElementGroups({ project: selectedProject.value })
+        const existingGroups = groupsResponse.data?.results || groupsResponse.data || []
+        const match = existingGroups.find(g => g.name === pageName)
+        if (match) {
+          targetGroupId = match.id
+          console.log(`[批量导入] 找到已有页面: ${pageName}, id=${targetGroupId}`)
+        } else {
+          // 创建新页面
+          const createResponse = await createElementGroup({
+            name: pageName,
+            project: selectedProject.value
+          })
+          targetGroupId = createResponse.data?.id
+          console.log(`[批量导入] 创建新页面: ${pageName}, id=${targetGroupId}`)
+        }
+      } catch (err) {
+        console.error('[批量导入] 查找/创建页面失败:', err)
+        ElMessage.warning(`页面"${pageName}"查找/创建失败，元素将导入到未关联页面`)
+      }
+    }
+
+    for (const elem of selectedAiResults.value) {
+      try {
+        const strategyObj = locatorStrategies.value.find(s => s.name === elem.locator_strategy)
+        const apiData = {
+          name: elem.name,
+          page: elem.page || pageName || '',
+          description: elem.description || '',
+          locator_value: elem.locator_value,
+          project_id: selectedProject.value,
+          locator_strategy_id: strategyObj ? strategyObj.id : locatorStrategies.value[0]?.id,
+          element_type: elem.element_type,
+          is_unique: false,
+          wait_timeout: 5
+        }
+        // 设置页面分组ID
+        if (targetGroupId) {
+          apiData.group_id = targetGroupId
+        }
+        console.log(`[批量导入] 创建元素: name=${elem.name}, group_id=${apiData.group_id}, targetGroupId=${targetGroupId}, apiData=`, apiData)
+        if (elem.backup_locators && elem.backup_locators.length > 0) {
+          apiData.backup_locators = elem.backup_locators
+        }
+
+        await createElement(apiData)
+        successCount++
+      } catch (err) {
+        failCount++
+        console.error(`导入元素"${elem.name}"失败:`, err)
+      }
+    }
+
+    if (successCount > 0) {
+      ElMessage.success(`成功导入 ${successCount} 个元素${failCount > 0 ? `，${failCount} 个失败` : ''}${targetGroupId ? ` 到页面"${pageName}"` : ''}`)
+      showAiResultDialog.value = false
+      // 刷新元素树
+      await onProjectChange()
+    } else {
+      ElMessage.error('所有元素导入失败')
+    }
+  } finally {
+    batchImportLoading.value = false
+  }
+}
+
 onMounted(async () => {
   console.log('=== 组件挂载开始 ===')
 
@@ -607,10 +907,12 @@ const loadElementTree = async () => {
       getElementTree({ project: selectedProject.value })
     ])
 
-    // 构建完整的树形结构
+    // 构建完整的树形结构 — 页面节点id加'page-'前缀，避免与元素id冲突
     const buildTree = (groups) => {
       return groups.map(group => ({
         ...group,
+        id: `page-${group.id}`,
+        _originalId: group.id,
         type: 'page',
         children: group.children ? buildTree(group.children) : []
       }))
@@ -639,13 +941,20 @@ const loadElementTree = async () => {
     const attachElementsToPages = (pages) => {
       pages.forEach(page => {
         // 找到属于当前页面的元素
-        const pageElements = elements.filter(element => element.group_id === page.id)
-        console.log(`页面 ${page.name} (ID: ${page.id}) 找到 ${pageElements.length} 个关联元素`, pageElements)
+        // 后端 tree 接口直接返回 group_id（整数），也兼容 list 接口返回的 group.id
+        const pageOriginalId = page._originalId
+        const pageElements = elements.filter(element => {
+          const elemGroupId = element.group_id ?? (element.group && element.group.id) ?? null
+          return parseInt(elemGroupId) === pageOriginalId
+        })
+        console.log(`页面 ${page.name} (ID: ${page.id}, originalId: ${pageOriginalId}) 找到 ${pageElements.length} 个关联元素`, pageElements.map(e => ({id: e.id, name: e.name, group_id: e.group_id})))
 
         const elementNodes = pageElements.map(element => {
           attachedElementIds.add(element.id)
           return {
             ...element,
+            id: `elem-${element.id}`,
+            _originalId: element.id,
             type: 'element'
           }
         })
@@ -664,14 +973,15 @@ const loadElementTree = async () => {
     attachElementsToPages(pageNodes)
 
     // 添加未关联页面的元素到"未关联页面"节点
-    // 包括：1. group_id 为 null/undefined 的元素
-    //       2. group_id 指向的页面不存在的元素
+    // 包括：1. group 为 null 的元素
+    //       2. group 指向的页面不存在的元素
     const unassignedElements = elements.filter(element => {
-      // 如果没有group_id，肯定是未关联的
-      if (!element.group_id) {
+      // 从 group_id 或 group.id 获取分组ID
+      const elemGroupId = element.group_id ?? (element.group && element.group.id) ?? null
+      if (!elemGroupId) {
         return true
       }
-      // 如果有group_id但没有被添加到任何页面（页面不存在），也算未关联
+      // 如果有分组ID但没有被添加到任何页面（页面不存在），也算未关联
       return !attachedElementIds.has(element.id)
     })
 
@@ -680,10 +990,13 @@ const loadElementTree = async () => {
     if (unassignedElements.length > 0) {
       const unassignedPage = {
         id: 'unassigned',
+        _originalId: null,
         name: '未关联页面',
         type: 'page',
         children: unassignedElements.map(element => ({
           ...element,
+          id: `elem-${element.id}`,
+          _originalId: element.id,
           type: 'element'
         }))
       }
@@ -722,7 +1035,8 @@ const onProjectChange = async () => {
 
   await Promise.all([
     loadPages(),
-    loadElementTree()
+    loadElementTree(),
+    loadLoginConfigs()
   ])
 
   console.log('项目切换完成，检查treeData:', treeData.value)
@@ -835,7 +1149,7 @@ const createPage = async () => {
 const onNodeClick = async (data) => {
   if (data.type === 'element') {
     try {
-      const response = await getElementDetail(data.id)
+      const response = await getElementDetail(data._originalId || data.id)
       selectedElement.value = response.data
 
       // 强制刷新表单，确保下拉框正确显示
@@ -930,11 +1244,11 @@ const saveElement = async () => {
       if (selectedElement.value.page) {
         console.log('更新元素 - 元素关联页面名称:', selectedElement.value.page)
 
-        // 通过遍历树形结构查找对应的页面ID
+        // 通过遍历树形结构查找对应的页面ID（返回原始ID用于API）
         const findPageIdByName = (nodes, pageName) => {
           for (const node of nodes) {
             if (node.type === 'page' && node.name === pageName) {
-              return node.id
+              return node._originalId || node.id
             }
             if (node.children) {
               const foundId = findPageIdByName(node.children, pageName)
@@ -985,14 +1299,15 @@ const saveElement = async () => {
         console.log('元素关联页面名称:', selectedElement.value.page)
         console.log('当前treeData结构:', treeData.value)
 
-        // 通过遍历树形结构查找对应的页面ID
+        // 通过遍历树形结构查找对应的页面ID（返回原始ID用于API）
         const findPageIdByName = (nodes, pageName) => {
           console.log(`在 ${nodes.length} 个节点中查找页面名称: ${pageName}`)
           for (const node of nodes) {
-            console.log(`检查节点: ${node.name} (ID: ${node.id}, type: ${node.type})`)
+            console.log(`检查节点: ${node.name} (ID: ${node.id}, originalId: ${node._originalId}, type: ${node.type})`)
             if (node.type === 'page' && node.name === pageName) {
-              console.log(`找到页面! ID: ${node.id}`)
-              return node.id
+              const originalId = node._originalId || node.id
+              console.log(`找到页面! 原始ID: ${originalId}`)
+              return originalId
             }
             if (node.children) {
               console.log(`检查子节点:`, node.children.map(c => c.name))
@@ -1053,11 +1368,12 @@ const saveElement = async () => {
       console.log('nextTick - 检查treeData:', treeData.value)
       console.log('treeRef:', treeRef.value)
 
-      // 展开新创建元素所在的页面节点
+      // 展开新创建元素所在的页面节点（group_id需加page-前缀匹配树节点id）
       if (selectedElement.value && selectedElement.value.group_id) {
-        console.log('展开元素所在页面:', selectedElement.value.group_id)
-        if (!expandedKeys.value.includes(selectedElement.value.group_id)) {
-          expandedKeys.value.push(selectedElement.value.group_id)
+        const pageKey = `page-${selectedElement.value.group_id}`
+        console.log('展开元素所在页面:', pageKey)
+        if (!expandedKeys.value.includes(pageKey)) {
+          expandedKeys.value.push(pageKey)
         }
       }
 
@@ -1136,8 +1452,8 @@ const addContextElement = () => {
 
     if (selectedElement.value) {
       selectedElement.value.page = rightClickedNode.value.name
-      // 同时设置group_id，确保元素能正确关联到页面
-      selectedElement.value.group_id = rightClickedNode.value.id
+      // 同时设置group_id，确保元素能正确关联到页面（用原始ID）
+      selectedElement.value.group_id = rightClickedNode.value._originalId || rightClickedNode.value.id
     }
   }
 }
@@ -1155,9 +1471,9 @@ const addSubPage = () => {
 
   showCreatePageDialog.value = true
 
-  // 如果右键点击的是页面节点，设置父页面
+  // 如果右键点击的是页面节点，设置父页面（用原始ID）
   if (rightClickedNode.value && rightClickedNode.value.type === 'page') {
-    pageForm.parent_page = rightClickedNode.value.id
+    pageForm.parent_page = rightClickedNode.value._originalId || rightClickedNode.value.id
   }
 }
 
@@ -1183,7 +1499,7 @@ const editNode = async () => {
   if (rightClickedNode.value.type === 'page') {
     // 编辑页面
     console.log('Editing page node')
-    editPageForm.id = rightClickedNode.value.id
+    editPageForm.id = rightClickedNode.value._originalId || rightClickedNode.value.id
     editPageForm.name = rightClickedNode.value.name
     editPageForm.description = rightClickedNode.value.description || ''
     editPageForm.parent_page = rightClickedNode.value.parent_group || null
@@ -1195,7 +1511,7 @@ const editNode = async () => {
     console.log('Editing element node')
     // 编辑元素 - 通过API获取完整的元素详情，避免使用树节点的复杂数据
     try {
-      const response = await getElementDetail(rightClickedNode.value.id)
+      const response = await getElementDetail(rightClickedNode.value._originalId || rightClickedNode.value.id)
       selectedElement.value = response.data
       console.log('Set selected element for editing via API:', selectedElement.value)
 
@@ -1238,17 +1554,19 @@ const deleteNode = async () => {
     console.log('Deleting node:', rightClickedNode.value)
 
     if (rightClickedNode.value.type === 'page') {
-      // 删除页面（分组）
-      console.log('Calling deleteElementGroup with id:', rightClickedNode.value.id)
-      await deleteElementGroup(rightClickedNode.value.id)
+      // 删除页面（分组）— 用原始ID
+      const originalId = rightClickedNode.value._originalId || rightClickedNode.value.id
+      console.log('Calling deleteElementGroup with id:', originalId)
+      await deleteElementGroup(originalId)
       ElMessage.success(t('uiAutomation.element.messages.pageDeleteSuccess'))
     } else if (rightClickedNode.value.type === 'element') {
-      // 删除元素
-      console.log('Calling deleteElement with id:', rightClickedNode.value.id)
-      await deleteElement(rightClickedNode.value.id)
+      // 删除元素 — 用原始ID
+      const originalId = rightClickedNode.value._originalId || rightClickedNode.value.id
+      console.log('Calling deleteElement with id:', originalId)
+      await deleteElement(originalId)
       ElMessage.success(t('uiAutomation.element.messages.deleteSuccess'))
       // 如果当前选中的是被删除的元素，清空选中
-      if (selectedElement.value && selectedElement.value.id === rightClickedNode.value.id) {
+      if (selectedElement.value && selectedElement.value.id === originalId) {
         selectedElement.value = null
       }
     }
@@ -1267,6 +1585,70 @@ const deleteNode = async () => {
     if (error !== 'cancel') {
       console.error('删除失败:', error)
       ElMessage.error(t('uiAutomation.element.messages.deleteFailed'))
+    }
+  }
+}
+
+// 清空未关联页面下的所有元素
+const deleteUnassignedElements = async () => {
+  showContextMenu.value = false
+
+  if (!rightClickedNode.value || rightClickedNode.value.id !== 'unassigned') return
+
+  const children = rightClickedNode.value.children || []
+  if (children.length === 0) {
+    ElMessage.info('当前没有未关联的元素')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要清空所有未关联元素吗？共 ${children.length} 个元素将被删除，此操作不可恢复。`,
+      '清空未关联元素',
+      {
+        type: 'warning',
+        confirmButtonText: t('uiAutomation.common.confirm'),
+        cancelButtonText: t('uiAutomation.common.cancel')
+      }
+    )
+
+    // 逐个删除所有子元素（用原始ID调API）
+    let successCount = 0
+    let failCount = 0
+    for (const child of children) {
+      try {
+        await deleteElement(child._originalId || child.id)
+        successCount++
+      } catch (err) {
+        console.error(`删除元素 ${child._originalId || child.id} 失败:`, err)
+        failCount++
+      }
+    }
+
+    if (failCount === 0) {
+      ElMessage.success(`已成功清空 ${successCount} 个未关联元素`)
+    } else {
+      ElMessage.warning(`已删除 ${successCount} 个元素，${failCount} 个删除失败`)
+    }
+
+    // 如果当前选中的元素在删除列表中，清空选中
+    if (selectedElement.value) {
+      const deletedIds = children.map(c => c._originalId || c.id)
+      if (deletedIds.includes(selectedElement.value.id)) {
+        selectedElement.value = null
+      }
+    }
+
+    // 重新加载数据
+    await Promise.all([
+      loadPages(),
+      loadElementTree()
+    ])
+    treeKey.value += 1
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('清空未关联元素失败:', error)
+      ElMessage.error('清空未关联元素失败')
     }
   }
 }

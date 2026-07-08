@@ -473,6 +473,16 @@ export function generateElementSuggestions(id) {
   })
 }
 
+// AI智能提取元素
+export function aiExtractElements(data) {
+  return request({
+    url: '/ui-automation/elements/ai_extract/',
+    method: 'post',
+    data,
+    timeout: 120000
+  })
+}
+
 // 页面对象相关API
 export function getPageObjects(params) {
   return request({

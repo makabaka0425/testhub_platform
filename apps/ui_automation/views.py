@@ -309,6 +309,696 @@ class ElementViewSet(viewsets.ModelViewSet):
                 'suggestions': []
             }
 
+    @action(detail=False, methods=['post'])
+    def ai_extract(self, request):
+        """AI智能提取页面元素 — Playwright DOM提取 + LLM分析"""
+        import os
+        os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+
+        project_id = request.data.get('project_id')
+        url = request.data.get('url', '').strip()
+        login_config_id = request.data.get('login_config_id')
+        page_name = request.data.get('page_name', '').strip()
+
+        if not project_id or not url:
+            return Response({'error': 'project_id 和 url 为必填项'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 验证项目
+        try:
+            project = UiProject.objects.get(id=project_id)
+        except UiProject.DoesNotExist:
+            return Response({'error': '项目不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 验证登录配置
+        login_config = None
+        if login_config_id:
+            try:
+                login_config = LoginConfig.objects.get(id=login_config_id, project=project)
+            except LoginConfig.DoesNotExist:
+                return Response({'error': '登录配置不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 预先获取登录配置数据，避免在Playwright上下文中访问ORM
+        login_steps_data = None
+        login_start_url = ''
+        if login_config:
+            login_start_url = login_config.login_url or ''
+            if not login_start_url and login_config.project:
+                login_start_url = login_config.project.base_url or ''
+            test_case = login_config.login_test_case
+            if test_case:
+                steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+                login_steps_data = []
+                for step in steps:
+                    step_data = {
+                        'action_type': step.action_type,
+                        'input_value': step.input_value or '',
+                        'wait_time': step.wait_time or 1000,
+                        'element': None
+                    }
+                    if step.element:
+                        step_data['element'] = {
+                            'locator_value': step.element.locator_value,
+                            'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                        }
+                    login_steps_data.append(step_data)
+
+        # Step 1: Playwright DOM 提取
+        try:
+            extract_result = self._playwright_extract_elements(url, login_start_url, login_steps_data)
+            dom_elements = extract_result.get('elements', [])
+            final_url = extract_result.get('final_url', url)
+            redirect_warning = extract_result.get('redirect_warning', '')
+        except Exception as e:
+            import traceback
+            error_detail = f'{str(e)}\n{traceback.format_exc()}'
+            print(f'[AI提取] DOM提取失败: {error_detail}')
+            return Response({'error': f'页面DOM提取失败: {str(e) or type(e).__name__}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not dom_elements:
+            return Response({'error': '未在页面上找到可交互元素'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Step 2: AI 分析与分类
+        try:
+            ai_elements = self._ai_analyze_elements(dom_elements)
+        except Exception as e:
+            # AI 分析失败时回退到规则引擎
+            print(f'[AI提取] AI分析失败，回退到规则引擎: {str(e)}')
+            ai_elements = self._rule_based_classify(dom_elements)
+
+        # 填充 page_name
+        for elem in ai_elements:
+            if page_name:
+                elem['page'] = page_name
+
+        # Step 3: 去重定位值，确保每个元素的定位尽量唯一
+        ai_elements = self._deduplicate_locators(ai_elements)
+
+        response_data = {
+            'page_title': dom_elements[0].get('page_title', '') if dom_elements else '',
+            'url': url,
+            'final_url': final_url,
+            'elements': ai_elements
+        }
+        if redirect_warning:
+            response_data['redirect_warning'] = redirect_warning
+
+        return Response(response_data)
+
+    def _playwright_extract_elements(self, url, login_start_url='', login_steps_data=None):
+        """使用 Playwright 打开页面并提取 DOM 元素"""
+        from playwright.sync_api import sync_playwright
+        import time
+
+        dom_elements = []
+        final_url = url
+        redirect_warning = ''
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+            page = context.new_page()
+
+            # 如有登录配置，先登录
+            if login_start_url and login_steps_data:
+                print(f'[AI提取] 开始登录流程: login_start_url={login_start_url}')
+                page.goto(login_start_url, wait_until='networkidle', timeout=30000)
+                time.sleep(2)
+                print(f'[AI提取] 已打开登录页面: {page.url}')
+
+                # 执行登录用例步骤
+                for i, step_data in enumerate(login_steps_data):
+                    print(f'[AI提取] 执行登录步骤 {i+1}/{len(login_steps_data)}: action={step_data.get("action_type")}, element={step_data.get("element")}, input_value={step_data.get("input_value", "")}')
+                    self._execute_login_step(page, step_data)
+
+                # 等待登录跳转
+                try:
+                    page.wait_for_load_state('networkidle', timeout=10000)
+                except Exception:
+                    pass
+                time.sleep(2)
+                print(f'[AI提取] 登录步骤执行完毕, 当前URL: {page.url}')
+
+            # 导航到目标页面
+            print(f'[AI提取] 导航到目标页面: {url}')
+            page.goto(url, wait_until='networkidle', timeout=30000)
+            time.sleep(2)
+            final_url = page.url
+            print(f'[AI提取] 导航完成, 最终URL: {final_url}')
+
+            # 检测是否被重定向到登录页（目标URL和最终URL差异过大时给出警告）
+            redirect_warning = ''
+            if login_start_url and final_url != url:
+                redirect_warning = f'页面可能被重定向: 期望={url}, 实际={final_url}'
+                print(f'[AI提取] ⚠ {redirect_warning}')
+
+            # 获取页面标题
+            page_title = page.title()
+
+            # 注入 JS 脚本提取 DOM 元素
+            js_script = """
+            () => {
+                const results = [];
+                const interactiveSelectors = [
+                    'input', 'button', 'a[href]', 'select', 'textarea',
+                    '[role="button"]', '[role="link"]', '[role="tab"]',
+                    '[role="menuitem"]', '[role="option"]', '[role="switch"]',
+                    '[onclick]', '[contenteditable="true"]',
+                    // Element Plus
+                    '.el-button', '.el-input__inner', '.el-select',
+                    '.el-checkbox', '.el-radio', '.el-switch',
+                    '.el-pagination', '.el-table'
+                ];
+
+                const seen = new Set();
+
+                interactiveSelectors.forEach(selector => {
+                    try {
+                        document.querySelectorAll(selector).forEach(el => {
+                            // 跳过不可见元素
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width === 0 && rect.height === 0) return;
+                            const style = window.getComputedStyle(el);
+                            if (style.display === 'none' || style.visibility === 'hidden') return;
+
+                            // 去重
+                            const key = el.tagName + '|' + (el.id||'') + '|' + el.className + '|' + rect.x + '|' + rect.y;
+                            if (seen.has(key)) return;
+                            seen.add(key);
+
+                            results.push({
+                                tag: el.tagName.toLowerCase(),
+                                id: el.id || '',
+                                name: el.name || '',
+                                className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
+                                type: el.type || '',
+                                placeholder: el.placeholder || '',
+                                value: (el.value || '').substring(0, 50),
+                                href: el.href || '',
+                                role: el.getAttribute('role') || '',
+                                ariaLabel: el.getAttribute('aria-label') || '',
+                                dataTestId: el.getAttribute('data-testid') || '',
+                                text: (el.textContent || '').trim().substring(0, 80),
+                                title: el.title || '',
+                                visible: true,
+                                rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) }
+                            });
+                        });
+                    } catch(e) {}
+                });
+
+                return { elements: results.slice(0, 80) };
+            }
+            """
+
+            extract_result = page.evaluate(js_script)
+            raw_elements = extract_result.get('elements', [])
+
+            # 为每个元素计算 CSS Selector 和 XPath
+            for i, elem in enumerate(raw_elements):
+                elem['page_title'] = page_title
+                # 计算 CSS Selector
+                css_selector = self._compute_css_selector(elem)
+                xpath = self._compute_xpath(elem)
+                elem['auto_css'] = css_selector
+                elem['auto_xpath'] = xpath
+                dom_elements.append(elem)
+
+            browser.close()
+
+        return {
+            'elements': dom_elements,
+            'final_url': final_url,
+            'redirect_warning': redirect_warning
+        }
+
+    def _execute_login_step(self, page, step_data):
+        """在页面上执行单个登录步骤"""
+        import time
+        try:
+            action = step_data.get('action_type')
+            element_info = step_data.get('element')
+            input_value = step_data.get('input_value', '')
+
+            if not element_info:
+                print(f'[登录步骤] 跳过: 无元素信息, action={action}')
+                return
+
+            strategy = element_info.get('locator_strategy', 'css')
+            locator_value = element_info.get('locator_value', '')
+
+            if not locator_value:
+                print(f'[登录步骤] 跳过: 定位值为空, action={action}')
+                return
+
+            # 定位元素
+            if strategy in ['id', 'ID']:
+                locator = f'#{locator_value}'
+            elif strategy in ['css', 'CSS']:
+                locator = locator_value
+            elif strategy in ['xpath', 'XPath']:
+                locator = f'xpath={locator_value}'
+            elif strategy == 'name':
+                locator = f'[name="{locator_value}"]'
+            else:
+                locator = locator_value
+
+            el = page.locator(locator).first
+            if not el.is_visible():
+                print(f'[登录步骤] ⚠ 元素不可见, locator={locator}, action={action}')
+                # 尝试等待元素出现
+                try:
+                    el.wait_for(state='visible', timeout=5000)
+                except Exception:
+                    print(f'[登录步骤] 元素等待超时仍未可见, 跳过此步骤')
+                    return
+
+            if action == 'click':
+                el.click()
+                time.sleep(0.5)
+                print(f'[登录步骤] ✅ click 成功, locator={locator}')
+            elif action == 'fill':
+                el.fill(input_value)
+                print(f'[登录步骤] ✅ fill 成功, locator={locator}, value={input_value}')
+            elif action == 'navigate':
+                page.goto(input_value, wait_until='networkidle', timeout=30000)
+                print(f'[登录步骤] ✅ navigate 成功, url={input_value}')
+            else:
+                print(f'[登录步骤] 未知action类型: {action}')
+        except Exception as e:
+            print(f'[登录步骤] ❌ 执行失败: action={step_data.get("action_type")}, locator={locator_value}, 错误={str(e)}')
+
+    def _compute_css_selector(self, elem):
+        """根据原始 DOM 信息计算最优 CSS Selector"""
+        # 优先级：id > name > data-testid > placeholder > class组合 > tag+text
+        if elem.get('id'):
+            return f'#{elem["id"]}'
+        if elem.get('name'):
+            return f'[name="{elem["name"]}"]'
+        if elem.get('dataTestId'):
+            return f'[data-testid="{elem["dataTestId"]}"]'
+        if elem.get('type') and elem.get('tag') == 'input':
+            type_val = elem['type']
+            if elem.get('placeholder'):
+                return f'input[type="{type_val}"][placeholder="{elem["placeholder"]}"]'
+            return f'input[type="{type_val}"]'
+        if elem.get('placeholder'):
+            return f'[placeholder="{elem["placeholder"]}"]'
+        if elem.get('role'):
+            return f'[role="{elem["role"]}"]'
+        if elem.get('ariaLabel'):
+            return f'[aria-label="{elem["ariaLabel"]}"]'
+        # 用 tag + class（取第一个有意义的 class）
+        tag = elem.get('tag', 'div')
+        if elem.get('className'):
+            first_class = elem['className'].split()[0]
+            if first_class and not first_class.startswith('__'):
+                return f'{tag}.{first_class}'
+        return tag
+
+    def _compute_xpath(self, elem):
+        """根据原始 DOM 信息计算 XPath"""
+        if elem.get('id'):
+            return f'//*[@id="{elem["id"]}"]'
+        if elem.get('name'):
+            return f'//*[@name="{elem["name"]}"]'
+        tag = elem.get('tag', '*')
+        text = elem.get('text', '')
+        if text and len(text) < 30:
+            return f'//{tag}[contains(text(),"{text}")]'
+        if elem.get('placeholder'):
+            return f'//{tag}[@placeholder="{elem["placeholder"]}"]'
+        return f'//{tag}'
+
+    def _enhance_css_selector(self, elem):
+        """当基础CSS选择器不唯一时，尝试生成更精确的选择器"""
+        tag = elem.get('tag', '')
+        text = elem.get('text', '').strip()
+        class_name = elem.get('className', '')
+        placeholder = elem.get('placeholder', '')
+        aria_label = elem.get('ariaLabel', '')
+        elem_type = elem.get('type', '')
+        name = elem.get('name', '')
+        title_attr = elem.get('title', '')
+        elem_id = elem.get('id', '')
+
+        # 1. id 一定唯一
+        if elem_id:
+            return 'CSS', f'#{elem_id}'
+
+        # 2. name 属性
+        if name:
+            return 'CSS', f'[name="{name}"]'
+
+        # 3. aria-label
+        if aria_label:
+            base = f'{tag}[aria-label="{aria_label}"]' if tag else f'[aria-label="{aria_label}"]'
+            return 'CSS', base
+
+        # 4. placeholder
+        if placeholder:
+            if tag == 'input' and elem_type:
+                return 'CSS', f'input[type="{elem_type}"][placeholder="{placeholder}"]'
+            return 'CSS', f'[placeholder="{placeholder}"]'
+
+        # 5. title 属性
+        if title_attr:
+            base = f'{tag}[title="{title_attr}"]' if tag else f'[title="{title_attr}"]'
+            return 'CSS', base
+
+        # 6. 有短文本的按钮/链接 → 用 tag + class + text 的 XPath
+        if text and len(text) <= 30 and tag in ('button', 'a', 'span', 'label', 'div'):
+            # 按钮等元素用 XPath text() 更可靠
+            escaped_text = text.replace('"', "'")
+            return 'XPath', f'//{tag}[contains(text(),"{escaped_text}")]'
+
+        # 7. 多class组合：取前2个有意义的class
+        if class_name:
+            classes = [c for c in class_name.split() if c and not c.startswith('__') and not c.startswith('v-')]
+            if len(classes) >= 2:
+                combined = '.'.join(classes[:2])
+                return 'CSS', f'{tag}.{combined}'
+
+        # 8. type 属性
+        if elem_type and tag == 'input':
+            return 'CSS', f'input[type="{elem_type}"]'
+
+        return None, None
+
+    def _deduplicate_locators(self, elements):
+        """检测并修复重复的定位值，确保每个元素的定位尽量唯一"""
+        # 按 (locator_strategy, locator_value) 分组找重复
+        from collections import defaultdict
+        locator_groups = defaultdict(list)
+        for i, elem in enumerate(elements):
+            key = (elem.get('locator_strategy', ''), elem.get('locator_value', ''))
+            locator_groups[key].append(i)
+
+        # 找出有重复的组
+        duplicates = {k: indices for k, indices in locator_groups.items() if len(indices) > 1}
+
+        if not duplicates:
+            return elements
+
+        print(f'[AI提取] 发现 {len(duplicates)} 组重复定位值，正在去重...')
+
+        for (strategy, value), indices in duplicates.items():
+            print(f'[AI提取] 重复组: strategy={strategy}, value={value}, 共{len(indices)}个元素')
+
+            enhanced_count = 0
+            still_duplicate = []
+
+            # 第一轮：尝试用 _enhance_css_selector 增强
+            new_values = {}
+            for idx in indices:
+                elem = elements[idx]
+                new_strategy, new_value = self._enhance_css_selector(elem)
+                if new_strategy and new_value and (new_strategy, new_value) != (strategy, value):
+                    new_values[idx] = (new_strategy, new_value)
+
+            # 检查增强后的值之间是否还有重复
+            enhanced_groups = defaultdict(list)
+            for idx, (ns, nv) in new_values.items():
+                enhanced_groups[(ns, nv)].append(idx)
+
+            for idx in indices:
+                if idx in new_values:
+                    ns, nv = new_values[idx]
+                    group = enhanced_groups[(ns, nv)]
+                    if len(group) == 1:
+                        # 增强后唯一，直接使用
+                        elements[idx]['locator_strategy'] = ns
+                        elements[idx]['locator_value'] = nv
+                        enhanced_count += 1
+                    else:
+                        still_duplicate.append(idx)
+                else:
+                    still_duplicate.append(idx)
+
+            # 第二轮：仍有重复的，追加 nth-child 或位置信息
+            if still_duplicate:
+                # 再按增强后的值分组
+                sub_groups = defaultdict(list)
+                for idx in still_duplicate:
+                    key = (elements[idx].get('locator_strategy', ''), elements[idx].get('locator_value', ''))
+                    sub_groups[key].append(idx)
+
+                for (s, v), sub_indices in sub_groups.items():
+                    if len(sub_indices) <= 1:
+                        continue
+                    # 尝试按文本区分
+                    text_used = False
+                    text_groups = defaultdict(list)
+                    for idx in sub_indices:
+                        t = elements[idx].get('name', '') or elements[idx].get('description', '') or ''
+                        text_groups[t].append(idx)
+
+                    if len(text_groups) > 1:
+                        # 文本能区分部分，用XPath contains(text())
+                        for t, t_indices in text_groups.items():
+                            if len(t_indices) == 1 and t:
+                                idx = t_indices[0]
+                                tag = elements[idx].get('element_type', 'button')
+                                tag_map = {'输入框': 'input', '按钮': 'button', '链接': 'a', '下拉框': 'select', '复选框': 'input', '文本域': 'textarea'}
+                                html_tag = tag_map.get(tag, 'button')
+                                escaped = t.replace('"', "'")
+                                elements[idx]['locator_strategy'] = 'XPath'
+                                elements[idx]['locator_value'] = f'//{html_tag}[contains(text(),"{escaped}")]'
+                                enhanced_count += 1
+                                text_used = True
+
+                    # 最后兜底：用 nth-child
+                    remaining = [idx for idx in sub_indices if
+                                 (elements[idx].get('locator_strategy'), elements[idx].get('locator_value')) == (s, v)]
+                    if len(remaining) > 1:
+                        for seq, idx in enumerate(remaining, 1):
+                            current_value = elements[idx]['locator_value']
+                            if elements[idx]['locator_strategy'] == 'CSS':
+                                elements[idx]['locator_value'] = f'{current_value}:nth-child({seq})'
+                            else:
+                                # XPath 用 position
+                                elements[idx]['locator_value'] = f'({current_value})[{seq}]'
+                            enhanced_count += 1
+
+            print(f'[AI提取] 重复组处理完成: 增强了{enhanced_count}个元素的定位值')
+
+        return elements
+
+    def _ai_analyze_elements(self, dom_elements):
+        """使用 LLM 分析 DOM 元素，返回结构化元素列表"""
+        from langchain_openai import ChatOpenAI
+        from apps.requirement_analysis.models import AIModelConfig
+        import asyncio
+
+        # 获取 AI 配置
+        config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+        if not config_obj:
+            raise Exception('未找到可用的AI模型配置')
+
+        api_key = config_obj.api_key
+        base_url = config_obj.base_url
+        model_name = config_obj.model_name
+
+        if not api_key:
+            raise Exception('AI模型API Key未配置')
+
+        llm = ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=0.1,
+            max_tokens=4000
+        )
+
+        # 精简 DOM 数据发给 LLM
+        simplified = []
+        for elem in dom_elements:
+            simplified.append({
+                'tag': elem.get('tag', ''),
+                'id': elem.get('id', ''),
+                'name': elem.get('name', ''),
+                'type': elem.get('type', ''),
+                'placeholder': elem.get('placeholder', ''),
+                'text': elem.get('text', '')[:50],
+                'role': elem.get('role', ''),
+                'ariaLabel': elem.get('ariaLabel', ''),
+                'auto_css': elem.get('auto_css', ''),
+                'auto_xpath': elem.get('auto_xpath', ''),
+            })
+
+        prompt = f"""你是一个UI元素分析专家。以下是某个网页的可交互元素DOM数据，请为每个元素：
+1. 生成简洁准确的中文名称（如"用户名输入框"、"查询按钮"、"新增链接"）
+2. 推荐最佳定位策略（优先级：id > name > placeholder > CSS > XPath），选择最稳定、最不容易随页面改版而失效的方式
+3. 分类元素类型，必须是以下之一：INPUT, BUTTON, LINK, DROPDOWN, CHECKBOX, RADIO, TEXT, IMAGE, CONTAINER, TABLE, FORM, MODAL
+4. 去除无实际测试意义的元素（纯装饰性图标容器、空div等）
+5. 合并功能相同的重复元素
+
+元素类型映射规则：
+- input/textarea → INPUT
+- button/role=button → BUTTON
+- a[href] → LINK
+- select → DROPDOWN
+- checkbox → CHECKBOX
+- radio → RADIO
+- 普通文本 → TEXT
+- img → IMAGE
+- 表格/container → TABLE 或 CONTAINER
+- 弹窗 → MODAL
+
+定位策略必须是以下之一：ID, CSS, XPath, name, class, text, placeholder, role, label, title, test-id
+
+请严格按以下JSON数组格式返回，不要添加任何其他文字：
+[{{"name": "元素名称", "element_type": "INPUT", "locator_strategy": "CSS", "locator_value": "#username", "backup_locators": [{{"strategy": "XPath", "value": "//*[@id='username']"}}], "description": "简短描述", "is_visible": true}}]
+
+DOM数据：
+{json.dumps(simplified, ensure_ascii=False)}"""
+
+        # 同步调用 LLM（使用线程安全方式，兼容 Django 已有事件循环的情况）
+        import concurrent.futures
+        def call_llm():
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(llm.ainvoke(prompt))
+            finally:
+                loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(call_llm)
+            response = future.result(timeout=120)
+        content = response.content
+
+        # 解析 LLM 返回的 JSON
+        # 尝试提取 JSON 数组
+        json_match = re.search(r'(\[.*\])', content, re.DOTALL)
+        if json_match:
+            try:
+                ai_elements = json.loads(json_match.group(1))
+                return ai_elements
+            except json.JSONDecodeError:
+                pass
+
+        # 如果解析失败，尝试修复常见的 JSON 格式问题
+        try:
+            # 移除 markdown 代码块标记
+            cleaned = content.replace('```json', '').replace('```', '').strip()
+            ai_elements = json.loads(cleaned)
+            return ai_elements
+        except json.JSONDecodeError:
+            raise Exception(f'AI返回结果解析失败: {content[:200]}')
+
+    def _rule_based_classify(self, dom_elements):
+        """规则引擎分类 — AI 分析失败时的兜底方案"""
+        result = []
+        for elem in dom_elements:
+            tag = elem.get('tag', '')
+            # 推断元素类型
+            element_type = self._infer_element_type(elem)
+            # 推断定位策略和值
+            strategy, value = self._infer_best_locator(elem)
+            # 推断名称
+            name = self._infer_element_name(elem)
+
+            if not name or not value:
+                continue
+
+            backup = []
+            css_sel = elem.get('auto_css', '')
+            xpath = elem.get('auto_xpath', '')
+            if css_sel and css_sel != value:
+                backup.append({'strategy': 'CSS', 'value': css_sel})
+            if xpath and xpath != value:
+                backup.append({'strategy': 'XPath', 'value': xpath})
+
+            result.append({
+                'name': name,
+                'element_type': element_type,
+                'locator_strategy': strategy,
+                'locator_value': value,
+                'backup_locators': backup,
+                'description': f'{name}（{tag}标签）',
+                'is_visible': elem.get('visible', True)
+            })
+        return result
+
+    def _infer_element_type(self, elem):
+        """根据 DOM 信息推断元素类型"""
+        tag = elem.get('tag', '')
+        role = elem.get('role', '')
+        input_type = elem.get('type', '')
+
+        if tag == 'input':
+            if input_type in ['checkbox']:
+                return 'CHECKBOX'
+            if input_type in ['radio']:
+                return 'RADIO'
+            return 'INPUT'
+        if tag == 'textarea':
+            return 'INPUT'
+        if tag == 'button' or role == 'button':
+            return 'BUTTON'
+        if tag == 'a':
+            return 'LINK'
+        if tag == 'select' or role == 'listbox':
+            return 'DROPDOWN'
+        if tag == 'img':
+            return 'IMAGE'
+        if 'table' in tag or 'el-table' in elem.get('className', ''):
+            return 'TABLE'
+        if role == 'dialog':
+            return 'MODAL'
+        return 'BUTTON'  # 默认
+
+    def _infer_best_locator(self, elem):
+        """推断最佳定位策略和值"""
+        if elem.get('id'):
+            return 'ID', f'#{elem["id"]}'
+        if elem.get('name'):
+            return 'name', f'[name="{elem["name"]}"]'
+        if elem.get('dataTestId'):
+            return 'test-id', f'[data-testid="{elem["dataTestId"]}"]'
+        if elem.get('placeholder'):
+            return 'placeholder', f'[placeholder="{elem["placeholder"]}"]'
+        if elem.get('role') and elem.get('ariaLabel'):
+            return 'role', f'[role="{elem["role"]}"]'
+        if elem.get('ariaLabel'):
+            return 'label', f'[aria-label="{elem["ariaLabel"]}"]'
+        # 回退到 CSS
+        css = elem.get('auto_css', '')
+        if css:
+            return 'CSS', css
+        xpath = elem.get('auto_xpath', '')
+        if xpath:
+            return 'XPath', xpath
+        return '', ''
+
+    def _infer_element_name(self, elem):
+        """推断元素名称"""
+        # 优先使用 aria-label
+        if elem.get('ariaLabel'):
+            return elem['ariaLabel']
+        # placeholder
+        if elem.get('placeholder'):
+            return elem['placeholder']
+        # label 关联的文字
+        if elem.get('title'):
+            return elem['title']
+        # 按钮文字
+        text = elem.get('text', '').strip()
+        if text and len(text) <= 20:
+            return text
+        # name 属性
+        if elem.get('name'):
+            return elem['name']
+        # tag + type
+        tag = elem.get('tag', '')
+        input_type = elem.get('type', '')
+        if tag == 'input' and input_type:
+            return f'{input_type}输入框'
+        if tag == 'button':
+            return '按钮'
+        if tag == 'a':
+            return '链接'
+        return ''
+
     def _build_element_tree(self, elements):
         """构建元素树形结构 - 返回元素列表而不是页面分组，因为前端会自己处理页面关联"""
         element_data_list = []
