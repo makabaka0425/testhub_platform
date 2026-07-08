@@ -368,7 +368,8 @@ class ElementGroupSerializer(serializers.ModelSerializer):
 class ElementGroupCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ElementGroup
-        fields = ('project', 'name', 'description', 'parent_group', 'order')
+        fields = ('id', 'project', 'name', 'description', 'parent_group', 'order')
+        read_only_fields = ('id',)
 
 
 class ElementEnhancedSerializer(serializers.ModelSerializer):
