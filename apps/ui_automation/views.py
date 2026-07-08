@@ -390,6 +390,37 @@ class ElementViewSet(viewsets.ModelViewSet):
             if page_name:
                 elem['page'] = page_name
 
+        # 将 dom_elements 中的验证状态关联到 ai_elements
+        # 构建验证状态索引：按 locator_value 和 auto_css/auto_xpath 匹配
+        validation_map = {}
+        for dom_elem in dom_elements:
+            v_status = dom_elem.get('validation_status', '')
+            v_details = dom_elem.get('validation_details', '')
+            if not v_status:
+                continue
+            # 用 auto_css 和 auto_xpath 作为 key 建立索引
+            auto_css = dom_elem.get('auto_css', '')
+            auto_xpath = dom_elem.get('auto_xpath', '')
+            if auto_css:
+                validation_map[auto_css] = (v_status, v_details)
+            if auto_xpath:
+                validation_map[auto_xpath] = (v_status, v_details)
+        
+        # 为 ai_elements 匹配验证状态
+        for ai_elem in ai_elements:
+            if ai_elem.get('validation_status'):
+                continue  # 规则引擎已经设置了
+            locator_value = ai_elem.get('locator_value', '')
+            if locator_value in validation_map:
+                ai_elem['validation_status'], ai_elem['validation_details'] = validation_map[locator_value]
+            else:
+                # 尝试匹配 backup_locators
+                for bl in ai_elem.get('backup_locators', []):
+                    bv = bl.get('value', '')
+                    if bv in validation_map:
+                        ai_elem['validation_status'], ai_elem['validation_details'] = validation_map[bv]
+                        break
+
         # Step 3: 去重定位值，确保每个元素的定位尽量唯一
         ai_elements = self._deduplicate_locators(ai_elements)
 
@@ -513,15 +544,35 @@ class ElementViewSet(viewsets.ModelViewSet):
             extract_result = page.evaluate(js_script)
             raw_elements = extract_result.get('elements', [])
 
-            # 为每个元素计算 CSS Selector 和 XPath
+            # 为每个元素计算 CSS Selector 和 XPath，并进行即时验证
+            validation_stats = {'valid': 0, 'partial': 0, 'invalid': 0}
             for i, elem in enumerate(raw_elements):
                 elem['page_title'] = page_title
                 # 计算 CSS Selector
                 css_selector = self._compute_css_selector(elem)
                 xpath = self._compute_xpath(elem)
-                elem['auto_css'] = css_selector
-                elem['auto_xpath'] = xpath
+                
+                # 即时验证：在浏览器仍然打开时，验证定位策略是否有效
+                validation = self._validate_locators(page, elem, css_selector, xpath)
+                
+                # 使用验证后的（可能被回退替换的）选择器
+                elem['auto_css'] = validation['css_selector']
+                elem['auto_xpath'] = validation['xpath']
+                elem['validation_status'] = validation['validation_status']
+                elem['validation_details'] = validation['validation_details']
+                
+                # 统计验证结果
+                status = validation['validation_status']
+                if status == 'VALID':
+                    validation_stats['valid'] += 1
+                elif status == 'PARTIAL':
+                    validation_stats['partial'] += 1
+                else:
+                    validation_stats['invalid'] += 1
+                
                 dom_elements.append(elem)
+            
+            print(f'[AI提取] 定位策略验证结果: 有效={validation_stats["valid"]}, 部分有效={validation_stats["partial"]}, 无效={validation_stats["invalid"]}')
 
             browser.close()
 
@@ -586,6 +637,233 @@ class ElementViewSet(viewsets.ModelViewSet):
                 print(f'[登录步骤] 未知action类型: {action}')
         except Exception as e:
             print(f'[登录步骤] ❌ 执行失败: action={step_data.get("action_type")}, locator={locator_value}, 错误={str(e)}')
+
+    def _validate_locators(self, page, elem, css_selector, xpath):
+        """在浏览器页面上即时验证定位策略是否有效，失败时尝试回退策略
+        
+        Args:
+            page: Playwright page 对象（仍存活）
+            elem: 元素字典（包含 tag, name, id, className, text, placeholder 等）
+            css_selector: 计算出的 CSS 选择器
+            xpath: 计算出的 XPath
+        
+        Returns:
+            dict: {
+                'css_selector': 最终CSS选择器（可能被替换）,
+                'xpath': 最终XPath（可能被替换）,
+                'css_valid': bool,
+                'xpath_valid': bool,
+                'validation_status': 'VALID'|'PARTIAL'|'INVALID',
+                'validation_details': 验证详情字符串
+            }
+        """
+        import re
+        
+        result = {
+            'css_selector': css_selector,
+            'xpath': xpath,
+            'css_valid': False,
+            'xpath_valid': False,
+            'validation_status': 'INVALID',
+            'validation_details': ''
+        }
+        
+        details = []
+        
+        # === 1. 验证 CSS Selector ===
+        css_count = 0
+        try:
+            css_count = page.locator(css_selector).count()
+        except Exception as e:
+            details.append(f'CSS异常: {str(e)[:60]}')
+        
+        if css_count >= 1:
+            result['css_valid'] = True
+            if css_count == 1:
+                details.append(f'CSS有效(1个匹配)')
+            else:
+                details.append(f'CSS有效但多个匹配({css_count}个)')
+        else:
+            details.append(f'CSS无效(0匹配)')
+            # 尝试 CSS 回退策略
+            fallback_css = self._try_css_fallbacks(page, elem, css_selector)
+            if fallback_css:
+                result['css_selector'] = fallback_css
+                result['css_valid'] = True
+                details.append(f'CSS回退成功: {fallback_css}')
+            else:
+                details.append('CSS回退失败')
+        
+        # === 2. 验证 XPath ===
+        xpath_count = 0
+        try:
+            xpath_count = page.locator(f'xpath={xpath}').count()
+        except Exception as e:
+            details.append(f'XPath异常: {str(e)[:60]}')
+        
+        if xpath_count >= 1:
+            result['xpath_valid'] = True
+            if xpath_count == 1:
+                details.append(f'XPath有效(1个匹配)')
+            else:
+                details.append(f'XPath有效但多个匹配({xpath_count}个)')
+        else:
+            details.append(f'XPath无效(0匹配)')
+            # 尝试 XPath 回退策略
+            fallback_xpath = self._try_xpath_fallbacks(page, elem, xpath)
+            if fallback_xpath:
+                result['xpath'] = fallback_xpath
+                result['xpath_valid'] = True
+                details.append(f'XPath回退成功: {fallback_xpath}')
+            else:
+                details.append('XPath回退失败')
+        
+        # === 3. 综合判定 ===
+        if result['css_valid'] and result['xpath_valid']:
+            result['validation_status'] = 'VALID'
+        elif result['css_valid'] or result['xpath_valid']:
+            result['validation_status'] = 'PARTIAL'
+        else:
+            result['validation_status'] = 'INVALID'
+        
+        result['validation_details'] = '; '.join(details)
+        return result
+
+    def _try_css_fallbacks(self, page, elem, original_css):
+        """CSS选择器验证失败时，尝试回退策略生成有效的选择器
+        
+        策略优先级：
+        1. 跳过含空格的name属性，改用其他属性
+        2. 使用 tag + aria-label
+        3. 使用 tag + className组合
+        4. 使用 tag + placeholder
+        5. 使用 tag + title
+        6. 使用 tag + text（通过CSS无法直接实现，跳过）
+        """
+        tag = elem.get('tag', '')
+        name = elem.get('name', '')
+        aria_label = elem.get('ariaLabel', '')
+        class_name = elem.get('className', '')
+        placeholder = elem.get('placeholder', '')
+        title_attr = elem.get('title', '')
+        elem_id = elem.get('id', '')
+        data_testid = elem.get('dataTestId', '')
+        
+        candidates = []
+        
+        # 如果原始选择器基于 name 且含空格（如 [name="查 询"]），跳过name，用其他属性
+        if name and ' ' in name:
+            # name含空格不可靠，跳过name，尝试其他属性
+            if elem_id:
+                candidates.append(f'#{elem_id}')
+            if data_testid:
+                candidates.append(f'[data-testid="{data_testid}"]')
+            if aria_label:
+                base = f'{tag}[aria-label="{aria_label}"]' if tag else f'[aria-label="{aria_label}"]'
+                candidates.append(base)
+            if placeholder:
+                base = f'{tag}[placeholder="{placeholder}"]' if tag else f'[placeholder="{placeholder}"]'
+                candidates.append(base)
+            if title_attr:
+                base = f'{tag}[title="{title_attr}"]' if tag else f'[title="{title_attr}"]'
+                candidates.append(base)
+            # className组合
+            if class_name:
+                classes = [c for c in class_name.split() if c and not c.startswith('__') and not c.startswith('v-')]
+                if len(classes) >= 1 and tag:
+                    candidates.append(f'{tag}.{classes[0]}')
+                if len(classes) >= 2 and tag:
+                    candidates.append(f'{tag}.{classes[0]}.{classes[1]}')
+        
+        # 如果原始选择器不是基于name含空格的，仍尝试其他回退
+        if not candidates:
+            if aria_label and tag:
+                candidates.append(f'{tag}[aria-label="{aria_label}"]')
+            if class_name and tag:
+                classes = [c for c in class_name.split() if c and not c.startswith('__') and not c.startswith('v-')]
+                if len(classes) >= 1:
+                    candidates.append(f'{tag}.{classes[0]}')
+                if len(classes) >= 2:
+                    candidates.append(f'{tag}.{classes[0]}.{classes[1]}')
+            if placeholder and tag:
+                candidates.append(f'{tag}[placeholder="{placeholder}"]')
+        
+        # 逐个验证候选选择器
+        for candidate in candidates:
+            if candidate == original_css:
+                continue  # 跳过和原始相同的
+            try:
+                count = page.locator(candidate).count()
+                if count >= 1:
+                    return candidate
+            except Exception:
+                continue
+        
+        return None
+
+    def _try_xpath_fallbacks(self, page, elem, original_xpath):
+        """XPath验证失败时，尝试回退策略生成有效的XPath
+        
+        策略优先级：
+        1. 使用 tag + text contains（短文本）
+        2. 使用 tag + 含空格name的text回退
+        3. 使用 tag + aria-label
+        4. 使用 tag + placeholder
+        5. 使用 tag + className
+        """
+        tag = elem.get('tag', '*')
+        name = elem.get('name', '')
+        text = elem.get('text', '').strip()
+        aria_label = elem.get('ariaLabel', '')
+        placeholder = elem.get('placeholder', '')
+        class_name = elem.get('className', '')
+        elem_id = elem.get('id', '')
+        
+        candidates = []
+        
+        # text-based XPath（最可靠，尤其是按钮）
+        if text and len(text) <= 50:
+            escaped_text = text.replace('"', "'")
+            candidates.append(f'//{tag}[contains(text(),"{escaped_text}")]')
+            # 也试试 normalize-space 处理空格
+            if ' ' in text:
+                candidates.append(f'//{tag}[contains(normalize-space(text()),"{escaped_text}")]')
+        
+        # name含空格时，用text代替
+        if name and ' ' in name and text:
+            escaped_text = text.replace('"', "'")
+            candidates.append(f'//{tag}[contains(text(),"{escaped_text}")]')
+        
+        # aria-label
+        if aria_label:
+            candidates.append(f'//{tag}[@aria-label="{aria_label}"]')
+        
+        # placeholder
+        if placeholder:
+            candidates.append(f'//{tag}[@placeholder="{placeholder}"]')
+        
+        # id
+        if elem_id:
+            candidates.append(f'//*[@id="{elem_id}"]')
+        
+        # className-based XPath
+        if class_name and tag != '*':
+            classes = [c for c in class_name.split() if c and not c.startswith('__') and not c.startswith('v-')]
+            if len(classes) >= 1:
+                candidates.append(f'//{tag}[contains(@class,"{classes[0]}")]')
+        
+        # 逐个验证候选XPath
+        for candidate in candidates:
+            if candidate == original_xpath:
+                continue
+            try:
+                count = page.locator(f'xpath={candidate}').count()
+                if count >= 1:
+                    return candidate
+            except Exception:
+                continue
+        
+        return None
 
     def _compute_css_selector(self, elem):
         """根据原始 DOM 信息计算最优 CSS Selector"""
@@ -915,7 +1193,9 @@ DOM数据：
                 'locator_value': value,
                 'backup_locators': backup,
                 'description': f'{name}（{tag}标签）',
-                'is_visible': elem.get('visible', True)
+                'is_visible': elem.get('visible', True),
+                'validation_status': elem.get('validation_status', ''),
+                'validation_details': elem.get('validation_details', ''),
             })
         return result
 

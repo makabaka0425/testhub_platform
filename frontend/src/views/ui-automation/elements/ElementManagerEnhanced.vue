@@ -364,6 +364,16 @@
             <el-input v-model="row.locator_value" size="small" />
           </template>
         </el-table-column>
+        <el-table-column label="验证" width="80" align="center">
+          <template #default="{ row }">
+            <el-tooltip v-if="row.validation_status" :content="row.validation_details || ''" placement="top" :show-after="300">
+              <el-tag v-if="row.validation_status === 'VALID'" type="success" size="small" effect="dark">有效</el-tag>
+              <el-tag v-else-if="row.validation_status === 'PARTIAL'" type="warning" size="small" effect="dark">部分</el-tag>
+              <el-tag v-else type="danger" size="small" effect="dark">无效</el-tag>
+            </el-tooltip>
+            <span v-else style="color: #c0c4cc; font-size: 12px;">未验证</span>
+          </template>
+        </el-table-column>
         <el-table-column label="描述" min-width="130">
           <template #default="{ row }">
             <el-input v-model="row.description" size="small" />
