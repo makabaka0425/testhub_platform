@@ -393,6 +393,8 @@ class ElementViewSet(viewsets.ModelViewSet):
         # 将 dom_elements 中的验证状态关联到 ai_elements
         # 构建验证状态索引：按 locator_value 和 auto_css/auto_xpath 匹配
         validation_map = {}
+        # 同时记录所有DOM提取阶段验证过的定位值集合（仅这些值经过了浏览器验证）
+        dom_validated_values = set()
         for dom_elem in dom_elements:
             v_status = dom_elem.get('validation_status', '')
             v_details = dom_elem.get('validation_details', '')
@@ -403,23 +405,34 @@ class ElementViewSet(viewsets.ModelViewSet):
             auto_xpath = dom_elem.get('auto_xpath', '')
             if auto_css:
                 validation_map[auto_css] = (v_status, v_details)
+                dom_validated_values.add(auto_css)
             if auto_xpath:
                 validation_map[auto_xpath] = (v_status, v_details)
+                dom_validated_values.add(auto_xpath)
         
         # 为 ai_elements 匹配验证状态
+        # 关键修复：仅当 locator_value 在 dom_validated_values 中（即经过浏览器验证的）才信任 validation_map
+        # LLM 可能修改了定位值，这些值未经浏览器验证，必须走二次验证
+        # 同时，PARTIAL状态（匹配不唯一）的元素也需要二次验证，尝试找到更精确的定位
         for ai_elem in ai_elements:
             if ai_elem.get('validation_status'):
                 continue  # 规则引擎已经设置了
             locator_value = ai_elem.get('locator_value', '')
-            if locator_value in validation_map:
+            if locator_value and locator_value in dom_validated_values:
+                # 该定位值确实在DOM提取阶段经过浏览器验证，可以信任
                 ai_elem['validation_status'], ai_elem['validation_details'] = validation_map[locator_value]
-            else:
-                # 尝试匹配 backup_locators
-                for bl in ai_elem.get('backup_locators', []):
-                    bv = bl.get('value', '')
-                    if bv in validation_map:
-                        ai_elem['validation_status'], ai_elem['validation_details'] = validation_map[bv]
-                        break
+            # 其他情况（LLM修改了值、值不在DOM验证集合中）留空，由 _revalidate_locators 二次验证
+
+        # Step 2.5: 对LLM生成的locator_value进行二次验证
+        # LLM可能修改了定位值（如去掉空格、改写选择器），需要重新在浏览器中验证
+        # 同时，PARTIAL状态（匹配多个元素，不精确）的也需要二次验证以找到更精确的定位
+        needs_revalidation = [
+            e for e in ai_elements 
+            if not e.get('validation_status') or e.get('validation_status') in ('', 'PARTIAL')
+        ]
+        if needs_revalidation:
+            print(f'[AI提取] 有{len(needs_revalidation)}个元素需要二次验证（未验证或PARTIAL），开始二次验证...')
+            self._revalidate_locators(url, login_start_url, login_steps_data, needs_revalidation)
 
         # Step 3: 去重定位值，确保每个元素的定位尽量唯一
         ai_elements = self._deduplicate_locators(ai_elements)
@@ -519,7 +532,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                             results.push({
                                 tag: el.tagName.toLowerCase(),
                                 id: el.id || '',
-                                name: el.name || '',
+                                name: el.getAttribute('name') || '',
                                 className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
                                 type: el.type || '',
                                 placeholder: el.placeholder || '',
@@ -638,6 +651,235 @@ class ElementViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f'[登录步骤] ❌ 执行失败: action={step_data.get("action_type")}, locator={locator_value}, 错误={str(e)}')
 
+    def _revalidate_locators(self, url, login_start_url, login_steps_data, ai_elements):
+        """重新打开页面，验证LLM生成的locator_value是否有效
+        
+        LLM可能会修改定位值（如去掉空格、改写选择器），这些值未经浏览器验证。
+        此方法重新打开页面进行验证，对于无效的定位值尝试回退替换。
+        """
+        from playwright.sync_api import sync_playwright
+        import time
+        
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+                page = context.new_page()
+                
+                # 如有登录配置，先登录
+                if login_start_url and login_steps_data:
+                    page.goto(login_start_url, wait_until='networkidle', timeout=30000)
+                    time.sleep(2)
+                    for step_data in login_steps_data:
+                        self._execute_login_step(page, step_data)
+                    time.sleep(2)
+                
+                # 导航到目标页面
+                page.goto(url, wait_until='networkidle', timeout=30000)
+                time.sleep(2)
+                
+                # 逐个验证未验证的元素
+                validated_count = 0
+                replaced_count = 0
+                for ai_elem in ai_elements:
+                    locator_strategy = ai_elem.get('locator_strategy', '')
+                    locator_value = ai_elem.get('locator_value', '')
+                    
+                    if not locator_value:
+                        ai_elem['validation_status'] = 'INVALID'
+                        ai_elem['validation_details'] = '定位值为空'
+                        continue
+                    
+                    # 根据策略类型构造Playwright locator
+                    locator = None
+                    try:
+                        if locator_strategy in ('CSS', 'css', 'name', 'class', 'placeholder', 'role', 'label', 'title', 'test-id'):
+                            locator = page.locator(locator_value)
+                        elif locator_strategy in ('XPath', 'xpath'):
+                            locator = page.locator(f'xpath={locator_value}')
+                        elif locator_strategy == 'ID':
+                            locator = page.locator(locator_value)
+                        else:
+                            # 未知策略，尝试作为CSS
+                            locator = page.locator(locator_value)
+                    except Exception as e:
+                        ai_elem['validation_status'] = 'INVALID'
+                        ai_elem['validation_details'] = f'定位表达式异常: {str(e)[:60]}'
+                        validated_count += 1
+                        continue
+                    
+                    # 验证匹配数
+                    try:
+                        count = locator.count()
+                    except Exception as e:
+                        ai_elem['validation_status'] = 'INVALID'
+                        ai_elem['validation_details'] = f'验证异常: {str(e)[:60]}'
+                        validated_count += 1
+                        continue
+                    
+                    if count == 1:
+                        # 精确匹配1个，标记为VALID
+                        ai_elem['validation_status'] = 'VALID'
+                        ai_elem['validation_details'] = f'二次验证有效(1个匹配)'
+                        validated_count += 1
+                    elif count > 1:
+                        # 匹配多个，不精确，尝试用backup_locators替换为更精确的定位
+                        replaced = False
+                        for bl in ai_elem.get('backup_locators', []):
+                            bl_strategy = bl.get('strategy', '')
+                            bl_value = bl.get('value', '')
+                            if not bl_value:
+                                continue
+                            try:
+                                if bl_strategy in ('XPath', 'xpath'):
+                                    bl_count = page.locator(f'xpath={bl_value}').count()
+                                else:
+                                    bl_count = page.locator(bl_value).count()
+                                if bl_count == 1:
+                                    # 用精确匹配1个的backup替换
+                                    ai_elem['locator_strategy'] = bl_strategy
+                                    ai_elem['locator_value'] = bl_value
+                                    ai_elem['validation_status'] = 'VALID'
+                                    ai_elem['validation_details'] = f'原定位匹配{count}个不精确，替换为精确backup({bl_strategy}): {bl_value}'
+                                    replaced = True
+                                    replaced_count += 1
+                                    validated_count += 1
+                                    break
+                            except Exception:
+                                continue
+                        if not replaced:
+                            # backup也没有精确匹配的，尝试Ant Design按钮子span模式
+                            # 如 <button><span>新增</span></button>，用 //button[.//span[contains(text(),"新增")]]
+                            # 注意：Ant Design的letter-spacing会在文本中插入空格（"查 询"、"重 置"），
+                            # 需要同时尝试带空格和不带空格的版本
+                            elem_name = ai_elem.get('name', '')
+                            elem_texts = []
+                            if elem_name:
+                                elem_texts.append(elem_name)  # 带空格的原始文本（如"查 询"）
+                                compact = elem_name.replace(' ', '')
+                                if compact != elem_name:
+                                    elem_texts.append(compact)  # 去掉空格（如"查询"）
+                            if not elem_texts:
+                                desc = ai_elem.get('description', '')
+                                if desc:
+                                    elem_texts.append(desc)
+                                    compact = desc.replace(' ', '')
+                                    if compact != desc:
+                                        elem_texts.append(compact)
+                            for elem_text in elem_texts:
+                                if not elem_text:
+                                    continue
+                                # 尝试多种Ant Design按钮XPath模式
+                                ant_xpaths = [
+                                    f'//button[.//span[text()="{elem_text}"]]',
+                                    f'//button[.//span[contains(text(),"{elem_text}")]]',
+                                ]
+                                for ant_xpath in ant_xpaths:
+                                    try:
+                                        ant_count = page.locator(f'xpath={ant_xpath}').count()
+                                        if ant_count == 1:
+                                            ai_elem['locator_strategy'] = 'XPath'
+                                            ai_elem['locator_value'] = ant_xpath
+                                            ai_elem['validation_status'] = 'VALID'
+                                            ai_elem['validation_details'] = f'原定位匹配{count}个不精确，Ant Design按钮XPath精确匹配(1个): {ant_xpath}'
+                                            replaced = True
+                                            replaced_count += 1
+                                            validated_count += 1
+                                            break
+                                    except Exception:
+                                        pass
+                                if replaced:
+                                    break
+                            if not replaced:
+                                ai_elem['validation_status'] = 'PARTIAL'
+                                ai_elem['validation_details'] = f'二次验证匹配{count}个(不精确)，backup也无精确匹配'
+                                validated_count += 1
+                    else:
+                        # 定位无效，尝试用backup_locators替换
+                        replaced = False
+                        for bl in ai_elem.get('backup_locators', []):
+                            bl_strategy = bl.get('strategy', '')
+                            bl_value = bl.get('value', '')
+                            if not bl_value:
+                                continue
+                            try:
+                                if bl_strategy in ('XPath', 'xpath'):
+                                    bl_count = page.locator(f'xpath={bl_value}').count()
+                                else:
+                                    bl_count = page.locator(bl_value).count()
+                                if bl_count >= 1:
+                                    # 用有效的backup替换主定位
+                                    ai_elem['locator_strategy'] = bl_strategy
+                                    ai_elem['locator_value'] = bl_value
+                                    ai_elem['validation_status'] = 'VALID'
+                                    ai_elem['validation_details'] = f'原定位无效，已替换为backup({bl_strategy}): {bl_value}'
+                                    replaced = True
+                                    replaced_count += 1
+                                    validated_count += 1
+                                    break
+                            except Exception:
+                                continue
+                        
+                        if not replaced:
+                            # 最后兜底：尝试 Ant Design 按钮子span模式
+                            # 如 <button><span>新增</span></button>，用 //button[.//span[contains(text(),"新增")]]
+                            # 注意：Ant Design的letter-spacing会在文本中插入空格（"查 询"、"重 置"），
+                            # 需要同时尝试带空格和不带空格的版本
+                            elem_name = ai_elem.get('name', '')
+                            elem_texts = []
+                            if elem_name:
+                                elem_texts.append(elem_name)
+                                compact = elem_name.replace(' ', '')
+                                if compact != elem_name:
+                                    elem_texts.append(compact)
+                            if not elem_texts:
+                                desc = ai_elem.get('description', '')
+                                if desc:
+                                    elem_texts.append(desc)
+                                    compact = desc.replace(' ', '')
+                                    if compact != desc:
+                                        elem_texts.append(compact)
+                            for elem_text in elem_texts:
+                                if not elem_text:
+                                    continue
+                                ant_xpaths = [
+                                    f'//button[.//span[text()="{elem_text}"]]',
+                                    f'//button[.//span[contains(text(),"{elem_text}")]]',
+                                ]
+                                for ant_xpath in ant_xpaths:
+                                    try:
+                                        ant_count = page.locator(f'xpath={ant_xpath}').count()
+                                        if ant_count >= 1:
+                                            ai_elem['locator_strategy'] = 'XPath'
+                                            ai_elem['locator_value'] = ant_xpath
+                                            v_st = 'VALID' if ant_count == 1 else 'PARTIAL'
+                                            ai_elem['validation_status'] = v_st
+                                            ai_elem['validation_details'] = f'原定位无效，Ant Design按钮XPath回退({ant_count}个匹配): {ant_xpath}'
+                                            replaced = True
+                                            replaced_count += 1
+                                            validated_count += 1
+                                            break
+                                    except Exception:
+                                        pass
+                                if replaced:
+                                    break
+                            
+                            if not replaced:
+                                ai_elem['validation_status'] = 'INVALID'
+                                ai_elem['validation_details'] = f'二次验证无效(0匹配)，backup也无有效定位'
+                                validated_count += 1
+                
+                browser.close()
+                print(f'[AI提取] 二次验证完成: 验证{validated_count}个, 替换{replaced_count}个')
+        
+        except Exception as e:
+            # 二次验证失败不应阻断整个流程，标记为UNVALIDATED
+            print(f'[AI提取] 二次验证失败(不阻断): {str(e)[:100]}')
+            for ai_elem in ai_elements:
+                if not ai_elem.get('validation_status'):
+                    ai_elem['validation_status'] = 'UNVALIDATED'
+                    ai_elem['validation_details'] = '二次验证未执行'
+
     def _validate_locators(self, page, elem, css_selector, xpath):
         """在浏览器页面上即时验证定位策略是否有效，失败时尝试回退策略
         
@@ -719,7 +961,13 @@ class ElementViewSet(viewsets.ModelViewSet):
                 details.append('XPath回退失败')
         
         # === 3. 综合判定 ===
-        if result['css_valid'] and result['xpath_valid']:
+        # VALID: CSS和XPath都精确匹配(仅1个)
+        # PARTIAL: 匹配到元素但不精确(多个匹配)，或仅CSS/XPath之一有效
+        # INVALID: CSS和XPath都无效
+        css_precise = result['css_valid'] and css_count == 1
+        xpath_precise = result['xpath_valid'] and xpath_count == 1
+        
+        if css_precise and xpath_precise:
             result['validation_status'] = 'VALID'
         elif result['css_valid'] or result['xpath_valid']:
             result['validation_status'] = 'PARTIAL'
@@ -828,6 +1076,14 @@ class ElementViewSet(viewsets.ModelViewSet):
             # 也试试 normalize-space 处理空格
             if ' ' in text:
                 candidates.append(f'//{tag}[contains(normalize-space(text()),"{escaped_text}")]')
+            # Ant Design按钮模式：文本在子<span>中，如 <button><span>新增</span></button>
+            # 使用 .//span[contains(text(),"新增")] 可以匹配到子元素中的文本
+            if tag in ('button', 'a', 'div', 'span'):
+                compact = text.replace(' ', '')
+                if compact:
+                    candidates.append(f'//{tag}[.//span[contains(text(),"{compact}")]]')
+                    if compact != escaped_text:
+                        candidates.append(f'//{tag}[.//span[text()="{compact}"]]')
         
         # name含空格时，用text代替
         if name and ' ' in name and text:
@@ -867,13 +1123,16 @@ class ElementViewSet(viewsets.ModelViewSet):
 
     def _compute_css_selector(self, elem):
         """根据原始 DOM 信息计算最优 CSS Selector"""
-        # 优先级：id > name > data-testid > placeholder > class组合 > tag+text
+        # 优先级：id > data-testid > name(无空格) > placeholder > class组合 > tag+text
         if elem.get('id'):
             return f'#{elem["id"]}'
-        if elem.get('name'):
-            return f'[name="{elem["name"]}"]'
         if elem.get('dataTestId'):
             return f'[data-testid="{elem["dataTestId"]}"]'
+        # name属性：如果值含空格（Ant Design的letter-spacing导致的"查 询"、"新 增"等），
+        # CSS选择器[name="查 询"]虽然语法合法但极易失效，跳过name改用其他策略
+        name_val = elem.get('name', '')
+        if name_val and ' ' not in name_val:
+            return f'[name="{name_val}"]'
         if elem.get('type') and elem.get('tag') == 'input':
             type_val = elem['type']
             if elem.get('placeholder'):
@@ -897,10 +1156,17 @@ class ElementViewSet(viewsets.ModelViewSet):
         """根据原始 DOM 信息计算 XPath"""
         if elem.get('id'):
             return f'//*[@id="{elem["id"]}"]'
-        if elem.get('name'):
-            return f'//*[@name="{elem["name"]}"]'
+        # name含空格时不可靠，跳过name改用text
+        name_val = elem.get('name', '')
+        if name_val and ' ' not in name_val:
+            return f'//*[@name="{name_val}"]'
         tag = elem.get('tag', '*')
         text = elem.get('text', '')
+        # name含空格时，优先用text（去掉空格后的文本更准确）
+        if name_val and ' ' in name_val:
+            compact_text = name_val.replace(' ', '')
+            if compact_text:
+                return f'//{tag}[contains(text(),"{compact_text}")]'
         if text and len(text) < 30:
             return f'//{tag}[contains(text(),"{text}")]'
         if elem.get('placeholder'):
@@ -923,8 +1189,8 @@ class ElementViewSet(viewsets.ModelViewSet):
         if elem_id:
             return 'CSS', f'#{elem_id}'
 
-        # 2. name 属性
-        if name:
+        # 2. name 属性（跳过含空格的name，不可靠）
+        if name and ' ' not in name:
             return 'CSS', f'[name="{name}"]'
 
         # 3. aria-label
@@ -1231,8 +1497,16 @@ DOM数据：
         """推断最佳定位策略和值"""
         if elem.get('id'):
             return 'ID', f'#{elem["id"]}'
-        if elem.get('name'):
-            return 'name', f'[name="{elem["name"]}"]'
+        # name含空格时不可靠，跳过
+        name_val = elem.get('name', '')
+        if name_val and ' ' not in name_val:
+            return 'name', f'[name="{name_val}"]'
+        # name含空格时，如果有text，用XPath text更可靠
+        tag = elem.get('tag', 'button')
+        if name_val and ' ' in name_val:
+            compact_text = name_val.replace(' ', '')
+            if compact_text:
+                return 'XPath', f'//{tag}[contains(text(),"{compact_text}")]'
         if elem.get('dataTestId'):
             return 'test-id', f'[data-testid="{elem["dataTestId"]}"]'
         if elem.get('placeholder'):
