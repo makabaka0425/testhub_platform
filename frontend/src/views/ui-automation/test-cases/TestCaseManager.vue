@@ -764,14 +764,10 @@ const onActionTypeChange = (step) => {
 }
 
 const onElementChange = (step) => {
-  // 元素变化时的处理：优先使用元素描述，否则回退到"操作类型+元素名"
+  // 元素变化时始终更新步骤描述：优先使用元素描述，否则回退到"操作类型+元素名"
   const element = availableElements.value.find(e => e.id === step.element_id)
   if (element) {
-    if (element.description) {
-      step.description = element.description
-    } else if (!step.description) {
-      step.description = `${getActionTypeText(step.action_type)}${element.name}`
-    }
+    step.description = element.description || `${getActionTypeText(step.action_type)}${element.name}`
   }
 }
 
