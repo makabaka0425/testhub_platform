@@ -618,7 +618,7 @@ const loadElements = async () => {
   }
 
   try {
-    const response = await getElements({ project: projectId.value })
+    const response = await getElements({ project: projectId.value, page_size: 500 })
     availableElements.value = response.data.results || response.data
   } catch (error) {
     console.error('获取元素列表失败:', error)
@@ -701,10 +701,14 @@ const onActionTypeChange = (step) => {
 }
 
 const onElementChange = (step) => {
-  // 元素变化时的处理
+  // 元素变化时的处理：优先使用元素描述，否则回退到"操作类型+元素名"
   const element = availableElements.value.find(e => e.id === step.element_id)
-  if (element && !step.description) {
-    step.description = `${getActionTypeText(step.action_type)}${element.name}`
+  if (element) {
+    if (element.description) {
+      step.description = element.description
+    } else if (!step.description) {
+      step.description = `${getActionTypeText(step.action_type)}${element.name}`
+    }
   }
 }
 
