@@ -218,7 +218,7 @@ export default {
     descriptionPlaceholder: '请输入元素描述',
     debugInfo: '调试',
     currentValue: '当前值',
-    emptyElementTip: '请选择一个元素查看详情，或点击上方绿色按钮创建新元素',
+    emptyElementTip: '请选择一个元素查看详情，或创建新元素',
     createNewElement: '创建新元素',
     elementType: '元素类型',
     elementNamePlaceholder: '元素名称',
