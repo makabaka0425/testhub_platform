@@ -364,7 +364,10 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         # Step 1: Playwright DOM 提取
         try:
-            dom_elements = self._playwright_extract_elements(url, login_start_url, login_steps_data)
+            extract_result = self._playwright_extract_elements(url, login_start_url, login_steps_data)
+            dom_elements = extract_result.get('elements', [])
+            final_url = extract_result.get('final_url', url)
+            redirect_warning = extract_result.get('redirect_warning', '')
         except Exception as e:
             import traceback
             error_detail = f'{str(e)}\n{traceback.format_exc()}'
@@ -387,11 +390,19 @@ class ElementViewSet(viewsets.ModelViewSet):
             if page_name:
                 elem['page'] = page_name
 
-        return Response({
+        # Step 3: 去重定位值，确保每个元素的定位尽量唯一
+        ai_elements = self._deduplicate_locators(ai_elements)
+
+        response_data = {
             'page_title': dom_elements[0].get('page_title', '') if dom_elements else '',
             'url': url,
+            'final_url': final_url,
             'elements': ai_elements
-        })
+        }
+        if redirect_warning:
+            response_data['redirect_warning'] = redirect_warning
+
+        return Response(response_data)
 
     def _playwright_extract_elements(self, url, login_start_url='', login_steps_data=None):
         """使用 Playwright 打开页面并提取 DOM 元素"""
@@ -399,6 +410,8 @@ class ElementViewSet(viewsets.ModelViewSet):
         import time
 
         dom_elements = []
+        final_url = url
+        redirect_warning = ''
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -407,11 +420,14 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             # 如有登录配置，先登录
             if login_start_url and login_steps_data:
+                print(f'[AI提取] 开始登录流程: login_start_url={login_start_url}')
                 page.goto(login_start_url, wait_until='networkidle', timeout=30000)
                 time.sleep(2)
+                print(f'[AI提取] 已打开登录页面: {page.url}')
 
                 # 执行登录用例步骤
-                for step_data in login_steps_data:
+                for i, step_data in enumerate(login_steps_data):
+                    print(f'[AI提取] 执行登录步骤 {i+1}/{len(login_steps_data)}: action={step_data.get("action_type")}, element={step_data.get("element")}, input_value={step_data.get("input_value", "")}')
                     self._execute_login_step(page, step_data)
 
                 # 等待登录跳转
@@ -420,10 +436,20 @@ class ElementViewSet(viewsets.ModelViewSet):
                 except Exception:
                     pass
                 time.sleep(2)
+                print(f'[AI提取] 登录步骤执行完毕, 当前URL: {page.url}')
 
             # 导航到目标页面
+            print(f'[AI提取] 导航到目标页面: {url}')
             page.goto(url, wait_until='networkidle', timeout=30000)
             time.sleep(2)
+            final_url = page.url
+            print(f'[AI提取] 导航完成, 最终URL: {final_url}')
+
+            # 检测是否被重定向到登录页（目标URL和最终URL差异过大时给出警告）
+            redirect_warning = ''
+            if login_start_url and final_url != url:
+                redirect_warning = f'页面可能被重定向: 期望={url}, 实际={final_url}'
+                print(f'[AI提取] ⚠ {redirect_warning}')
 
             # 获取页面标题
             page_title = page.title()
@@ -499,7 +525,11 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             browser.close()
 
-        return dom_elements
+        return {
+            'elements': dom_elements,
+            'final_url': final_url,
+            'redirect_warning': redirect_warning
+        }
 
     def _execute_login_step(self, page, step_data):
         """在页面上执行单个登录步骤"""
@@ -510,12 +540,14 @@ class ElementViewSet(viewsets.ModelViewSet):
             input_value = step_data.get('input_value', '')
 
             if not element_info:
+                print(f'[登录步骤] 跳过: 无元素信息, action={action}')
                 return
 
             strategy = element_info.get('locator_strategy', 'css')
             locator_value = element_info.get('locator_value', '')
 
             if not locator_value:
+                print(f'[登录步骤] 跳过: 定位值为空, action={action}')
                 return
 
             # 定位元素
@@ -532,17 +564,28 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             el = page.locator(locator).first
             if not el.is_visible():
-                return
+                print(f'[登录步骤] ⚠ 元素不可见, locator={locator}, action={action}')
+                # 尝试等待元素出现
+                try:
+                    el.wait_for(state='visible', timeout=5000)
+                except Exception:
+                    print(f'[登录步骤] 元素等待超时仍未可见, 跳过此步骤')
+                    return
 
             if action == 'click':
                 el.click()
                 time.sleep(0.5)
+                print(f'[登录步骤] ✅ click 成功, locator={locator}')
             elif action == 'fill':
                 el.fill(input_value)
+                print(f'[登录步骤] ✅ fill 成功, locator={locator}, value={input_value}')
             elif action == 'navigate':
                 page.goto(input_value, wait_until='networkidle', timeout=30000)
+                print(f'[登录步骤] ✅ navigate 成功, url={input_value}')
+            else:
+                print(f'[登录步骤] 未知action类型: {action}')
         except Exception as e:
-            print(f'[登录步骤] 执行失败: {str(e)}')
+            print(f'[登录步骤] ❌ 执行失败: action={step_data.get("action_type")}, locator={locator_value}, 错误={str(e)}')
 
     def _compute_css_selector(self, elem):
         """根据原始 DOM 信息计算最优 CSS Selector"""
@@ -585,6 +628,160 @@ class ElementViewSet(viewsets.ModelViewSet):
         if elem.get('placeholder'):
             return f'//{tag}[@placeholder="{elem["placeholder"]}"]'
         return f'//{tag}'
+
+    def _enhance_css_selector(self, elem):
+        """当基础CSS选择器不唯一时，尝试生成更精确的选择器"""
+        tag = elem.get('tag', '')
+        text = elem.get('text', '').strip()
+        class_name = elem.get('className', '')
+        placeholder = elem.get('placeholder', '')
+        aria_label = elem.get('ariaLabel', '')
+        elem_type = elem.get('type', '')
+        name = elem.get('name', '')
+        title_attr = elem.get('title', '')
+        elem_id = elem.get('id', '')
+
+        # 1. id 一定唯一
+        if elem_id:
+            return 'CSS', f'#{elem_id}'
+
+        # 2. name 属性
+        if name:
+            return 'CSS', f'[name="{name}"]'
+
+        # 3. aria-label
+        if aria_label:
+            base = f'{tag}[aria-label="{aria_label}"]' if tag else f'[aria-label="{aria_label}"]'
+            return 'CSS', base
+
+        # 4. placeholder
+        if placeholder:
+            if tag == 'input' and elem_type:
+                return 'CSS', f'input[type="{elem_type}"][placeholder="{placeholder}"]'
+            return 'CSS', f'[placeholder="{placeholder}"]'
+
+        # 5. title 属性
+        if title_attr:
+            base = f'{tag}[title="{title_attr}"]' if tag else f'[title="{title_attr}"]'
+            return 'CSS', base
+
+        # 6. 有短文本的按钮/链接 → 用 tag + class + text 的 XPath
+        if text and len(text) <= 30 and tag in ('button', 'a', 'span', 'label', 'div'):
+            # 按钮等元素用 XPath text() 更可靠
+            escaped_text = text.replace('"', "'")
+            return 'XPath', f'//{tag}[contains(text(),"{escaped_text}")]'
+
+        # 7. 多class组合：取前2个有意义的class
+        if class_name:
+            classes = [c for c in class_name.split() if c and not c.startswith('__') and not c.startswith('v-')]
+            if len(classes) >= 2:
+                combined = '.'.join(classes[:2])
+                return 'CSS', f'{tag}.{combined}'
+
+        # 8. type 属性
+        if elem_type and tag == 'input':
+            return 'CSS', f'input[type="{elem_type}"]'
+
+        return None, None
+
+    def _deduplicate_locators(self, elements):
+        """检测并修复重复的定位值，确保每个元素的定位尽量唯一"""
+        # 按 (locator_strategy, locator_value) 分组找重复
+        from collections import defaultdict
+        locator_groups = defaultdict(list)
+        for i, elem in enumerate(elements):
+            key = (elem.get('locator_strategy', ''), elem.get('locator_value', ''))
+            locator_groups[key].append(i)
+
+        # 找出有重复的组
+        duplicates = {k: indices for k, indices in locator_groups.items() if len(indices) > 1}
+
+        if not duplicates:
+            return elements
+
+        print(f'[AI提取] 发现 {len(duplicates)} 组重复定位值，正在去重...')
+
+        for (strategy, value), indices in duplicates.items():
+            print(f'[AI提取] 重复组: strategy={strategy}, value={value}, 共{len(indices)}个元素')
+
+            enhanced_count = 0
+            still_duplicate = []
+
+            # 第一轮：尝试用 _enhance_css_selector 增强
+            new_values = {}
+            for idx in indices:
+                elem = elements[idx]
+                new_strategy, new_value = self._enhance_css_selector(elem)
+                if new_strategy and new_value and (new_strategy, new_value) != (strategy, value):
+                    new_values[idx] = (new_strategy, new_value)
+
+            # 检查增强后的值之间是否还有重复
+            enhanced_groups = defaultdict(list)
+            for idx, (ns, nv) in new_values.items():
+                enhanced_groups[(ns, nv)].append(idx)
+
+            for idx in indices:
+                if idx in new_values:
+                    ns, nv = new_values[idx]
+                    group = enhanced_groups[(ns, nv)]
+                    if len(group) == 1:
+                        # 增强后唯一，直接使用
+                        elements[idx]['locator_strategy'] = ns
+                        elements[idx]['locator_value'] = nv
+                        enhanced_count += 1
+                    else:
+                        still_duplicate.append(idx)
+                else:
+                    still_duplicate.append(idx)
+
+            # 第二轮：仍有重复的，追加 nth-child 或位置信息
+            if still_duplicate:
+                # 再按增强后的值分组
+                sub_groups = defaultdict(list)
+                for idx in still_duplicate:
+                    key = (elements[idx].get('locator_strategy', ''), elements[idx].get('locator_value', ''))
+                    sub_groups[key].append(idx)
+
+                for (s, v), sub_indices in sub_groups.items():
+                    if len(sub_indices) <= 1:
+                        continue
+                    # 尝试按文本区分
+                    text_used = False
+                    text_groups = defaultdict(list)
+                    for idx in sub_indices:
+                        t = elements[idx].get('name', '') or elements[idx].get('description', '') or ''
+                        text_groups[t].append(idx)
+
+                    if len(text_groups) > 1:
+                        # 文本能区分部分，用XPath contains(text())
+                        for t, t_indices in text_groups.items():
+                            if len(t_indices) == 1 and t:
+                                idx = t_indices[0]
+                                tag = elements[idx].get('element_type', 'button')
+                                tag_map = {'输入框': 'input', '按钮': 'button', '链接': 'a', '下拉框': 'select', '复选框': 'input', '文本域': 'textarea'}
+                                html_tag = tag_map.get(tag, 'button')
+                                escaped = t.replace('"', "'")
+                                elements[idx]['locator_strategy'] = 'XPath'
+                                elements[idx]['locator_value'] = f'//{html_tag}[contains(text(),"{escaped}")]'
+                                enhanced_count += 1
+                                text_used = True
+
+                    # 最后兜底：用 nth-child
+                    remaining = [idx for idx in sub_indices if
+                                 (elements[idx].get('locator_strategy'), elements[idx].get('locator_value')) == (s, v)]
+                    if len(remaining) > 1:
+                        for seq, idx in enumerate(remaining, 1):
+                            current_value = elements[idx]['locator_value']
+                            if elements[idx]['locator_strategy'] == 'CSS':
+                                elements[idx]['locator_value'] = f'{current_value}:nth-child({seq})'
+                            else:
+                                # XPath 用 position
+                                elements[idx]['locator_value'] = f'({current_value})[{seq}]'
+                            enhanced_count += 1
+
+            print(f'[AI提取] 重复组处理完成: 增强了{enhanced_count}个元素的定位值')
+
+        return elements
 
     def _ai_analyze_elements(self, dom_elements):
         """使用 LLM 分析 DOM 元素，返回结构化元素列表"""

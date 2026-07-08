@@ -283,7 +283,7 @@
 
     <!-- AI智能提取 - 输入对话框 -->
     <el-dialog v-model="showAiExtractDialog" title="AI 智能提取元素" width="550px" :close-on-click-modal="false">
-      <el-form label-width="100px">
+      <el-form label-width="130px">
         <el-form-item label="目标页面URL" required>
           <el-input v-model="aiExtractForm.url" placeholder="输入页面URL，如 https://example.com/user/list" />
         </el-form-item>
@@ -310,6 +310,9 @@
     <el-dialog v-model="showAiResultDialog" title="AI 提取结果预览" width="900px" :close-on-click-modal="false" top="5vh">
       <div style="margin-bottom: 12px; color: #606266;">
         页面: {{ aiResultInfo.url }}
+        <span v-if="aiResultInfo.final_url && aiResultInfo.final_url !== aiResultInfo.url" style="margin-left: 10px; color: #E6A23C;">
+          (实际跳转: {{ aiResultInfo.final_url }})
+        </span>
         <span v-if="aiResultInfo.page_title" style="margin-left: 10px;">标题: {{ aiResultInfo.page_title }}</span>
         <span style="margin-left: 10px;">共 {{ aiExtractResults.length }} 个元素</span>
       </div>
@@ -527,7 +530,7 @@ const getAllPages = () => {
     nodes.forEach(node => {
       if (node.type === 'page') {
         allPages.push({
-          id: node.id,
+          id: node._originalId || node.id,
           name: node.name
         })
       }
@@ -547,9 +550,10 @@ const getAllPagesExceptCurrent = (currentId) => {
 
   const traverse = (nodes) => {
     nodes.forEach(node => {
-      if (node.type === 'page' && node.id !== currentId) {
+      const nodeOriginalId = node._originalId || node.id
+      if (node.type === 'page' && nodeOriginalId !== currentId) {
         allPages.push({
-          id: node.id,
+          id: nodeOriginalId,
           name: node.name
         })
       }
@@ -654,6 +658,14 @@ const handleAiExtract = async () => {
     }))
     aiResultInfo.url = result.url || aiExtractForm.url
     aiResultInfo.page_title = result.page_title || ''
+    if (result.final_url) {
+      aiResultInfo.final_url = result.final_url
+    }
+
+    // 检测重定向警告
+    if (result.redirect_warning) {
+      ElMessage.warning({ message: result.redirect_warning, duration: 5000 })
+    }
 
     if (aiExtractResults.value.length === 0) {
       ElMessage.warning('未提取到可交互元素')
@@ -694,12 +706,39 @@ const handleBatchImport = async () => {
   let failCount = 0
 
   try {
+    // 如果用户填了页面名称，先查找或创建对应的页面分组
+    let targetGroupId = null
+    const pageName = aiExtractForm.page_name?.trim()
+    if (pageName) {
+      try {
+        // 查找当前项目下是否已有同名页面
+        const groupsResponse = await getElementGroups({ project: selectedProject.value })
+        const existingGroups = groupsResponse.data?.results || groupsResponse.data || []
+        const match = existingGroups.find(g => g.name === pageName)
+        if (match) {
+          targetGroupId = match.id
+          console.log(`[批量导入] 找到已有页面: ${pageName}, id=${targetGroupId}`)
+        } else {
+          // 创建新页面
+          const createResponse = await createElementGroup({
+            name: pageName,
+            project: selectedProject.value
+          })
+          targetGroupId = createResponse.data?.id
+          console.log(`[批量导入] 创建新页面: ${pageName}, id=${targetGroupId}`)
+        }
+      } catch (err) {
+        console.error('[批量导入] 查找/创建页面失败:', err)
+        ElMessage.warning(`页面"${pageName}"查找/创建失败，元素将导入到未关联页面`)
+      }
+    }
+
     for (const elem of selectedAiResults.value) {
       try {
         const strategyObj = locatorStrategies.value.find(s => s.name === elem.locator_strategy)
         const apiData = {
           name: elem.name,
-          page: elem.page || aiExtractForm.page_name || '',
+          page: elem.page || pageName || '',
           description: elem.description || '',
           locator_value: elem.locator_value,
           project_id: selectedProject.value,
@@ -708,6 +747,11 @@ const handleBatchImport = async () => {
           is_unique: false,
           wait_timeout: 5
         }
+        // 设置页面分组ID
+        if (targetGroupId) {
+          apiData.group_id = targetGroupId
+        }
+        console.log(`[批量导入] 创建元素: name=${elem.name}, group_id=${apiData.group_id}, targetGroupId=${targetGroupId}, apiData=`, apiData)
         if (elem.backup_locators && elem.backup_locators.length > 0) {
           apiData.backup_locators = elem.backup_locators
         }
@@ -721,7 +765,7 @@ const handleBatchImport = async () => {
     }
 
     if (successCount > 0) {
-      ElMessage.success(`成功导入 ${successCount} 个元素${failCount > 0 ? `，${failCount} 个失败` : ''}`)
+      ElMessage.success(`成功导入 ${successCount} 个元素${failCount > 0 ? `，${failCount} 个失败` : ''}${targetGroupId ? ` 到页面"${pageName}"` : ''}`)
       showAiResultDialog.value = false
       // 刷新元素树
       await onProjectChange()
@@ -863,10 +907,12 @@ const loadElementTree = async () => {
       getElementTree({ project: selectedProject.value })
     ])
 
-    // 构建完整的树形结构
+    // 构建完整的树形结构 — 页面节点id加'page-'前缀，避免与元素id冲突
     const buildTree = (groups) => {
       return groups.map(group => ({
         ...group,
+        id: `page-${group.id}`,
+        _originalId: group.id,
         type: 'page',
         children: group.children ? buildTree(group.children) : []
       }))
@@ -895,13 +941,20 @@ const loadElementTree = async () => {
     const attachElementsToPages = (pages) => {
       pages.forEach(page => {
         // 找到属于当前页面的元素
-        const pageElements = elements.filter(element => element.group_id === page.id)
-        console.log(`页面 ${page.name} (ID: ${page.id}) 找到 ${pageElements.length} 个关联元素`, pageElements)
+        // 后端 tree 接口直接返回 group_id（整数），也兼容 list 接口返回的 group.id
+        const pageOriginalId = page._originalId
+        const pageElements = elements.filter(element => {
+          const elemGroupId = element.group_id ?? (element.group && element.group.id) ?? null
+          return parseInt(elemGroupId) === pageOriginalId
+        })
+        console.log(`页面 ${page.name} (ID: ${page.id}, originalId: ${pageOriginalId}) 找到 ${pageElements.length} 个关联元素`, pageElements.map(e => ({id: e.id, name: e.name, group_id: e.group_id})))
 
         const elementNodes = pageElements.map(element => {
           attachedElementIds.add(element.id)
           return {
             ...element,
+            id: `elem-${element.id}`,
+            _originalId: element.id,
             type: 'element'
           }
         })
@@ -920,14 +973,15 @@ const loadElementTree = async () => {
     attachElementsToPages(pageNodes)
 
     // 添加未关联页面的元素到"未关联页面"节点
-    // 包括：1. group_id 为 null/undefined 的元素
-    //       2. group_id 指向的页面不存在的元素
+    // 包括：1. group 为 null 的元素
+    //       2. group 指向的页面不存在的元素
     const unassignedElements = elements.filter(element => {
-      // 如果没有group_id，肯定是未关联的
-      if (!element.group_id) {
+      // 从 group_id 或 group.id 获取分组ID
+      const elemGroupId = element.group_id ?? (element.group && element.group.id) ?? null
+      if (!elemGroupId) {
         return true
       }
-      // 如果有group_id但没有被添加到任何页面（页面不存在），也算未关联
+      // 如果有分组ID但没有被添加到任何页面（页面不存在），也算未关联
       return !attachedElementIds.has(element.id)
     })
 
@@ -936,10 +990,13 @@ const loadElementTree = async () => {
     if (unassignedElements.length > 0) {
       const unassignedPage = {
         id: 'unassigned',
+        _originalId: null,
         name: '未关联页面',
         type: 'page',
         children: unassignedElements.map(element => ({
           ...element,
+          id: `elem-${element.id}`,
+          _originalId: element.id,
           type: 'element'
         }))
       }
@@ -1092,7 +1149,7 @@ const createPage = async () => {
 const onNodeClick = async (data) => {
   if (data.type === 'element') {
     try {
-      const response = await getElementDetail(data.id)
+      const response = await getElementDetail(data._originalId || data.id)
       selectedElement.value = response.data
 
       // 强制刷新表单，确保下拉框正确显示
@@ -1187,11 +1244,11 @@ const saveElement = async () => {
       if (selectedElement.value.page) {
         console.log('更新元素 - 元素关联页面名称:', selectedElement.value.page)
 
-        // 通过遍历树形结构查找对应的页面ID
+        // 通过遍历树形结构查找对应的页面ID（返回原始ID用于API）
         const findPageIdByName = (nodes, pageName) => {
           for (const node of nodes) {
             if (node.type === 'page' && node.name === pageName) {
-              return node.id
+              return node._originalId || node.id
             }
             if (node.children) {
               const foundId = findPageIdByName(node.children, pageName)
@@ -1242,14 +1299,15 @@ const saveElement = async () => {
         console.log('元素关联页面名称:', selectedElement.value.page)
         console.log('当前treeData结构:', treeData.value)
 
-        // 通过遍历树形结构查找对应的页面ID
+        // 通过遍历树形结构查找对应的页面ID（返回原始ID用于API）
         const findPageIdByName = (nodes, pageName) => {
           console.log(`在 ${nodes.length} 个节点中查找页面名称: ${pageName}`)
           for (const node of nodes) {
-            console.log(`检查节点: ${node.name} (ID: ${node.id}, type: ${node.type})`)
+            console.log(`检查节点: ${node.name} (ID: ${node.id}, originalId: ${node._originalId}, type: ${node.type})`)
             if (node.type === 'page' && node.name === pageName) {
-              console.log(`找到页面! ID: ${node.id}`)
-              return node.id
+              const originalId = node._originalId || node.id
+              console.log(`找到页面! 原始ID: ${originalId}`)
+              return originalId
             }
             if (node.children) {
               console.log(`检查子节点:`, node.children.map(c => c.name))
@@ -1310,11 +1368,12 @@ const saveElement = async () => {
       console.log('nextTick - 检查treeData:', treeData.value)
       console.log('treeRef:', treeRef.value)
 
-      // 展开新创建元素所在的页面节点
+      // 展开新创建元素所在的页面节点（group_id需加page-前缀匹配树节点id）
       if (selectedElement.value && selectedElement.value.group_id) {
-        console.log('展开元素所在页面:', selectedElement.value.group_id)
-        if (!expandedKeys.value.includes(selectedElement.value.group_id)) {
-          expandedKeys.value.push(selectedElement.value.group_id)
+        const pageKey = `page-${selectedElement.value.group_id}`
+        console.log('展开元素所在页面:', pageKey)
+        if (!expandedKeys.value.includes(pageKey)) {
+          expandedKeys.value.push(pageKey)
         }
       }
 
@@ -1393,8 +1452,8 @@ const addContextElement = () => {
 
     if (selectedElement.value) {
       selectedElement.value.page = rightClickedNode.value.name
-      // 同时设置group_id，确保元素能正确关联到页面
-      selectedElement.value.group_id = rightClickedNode.value.id
+      // 同时设置group_id，确保元素能正确关联到页面（用原始ID）
+      selectedElement.value.group_id = rightClickedNode.value._originalId || rightClickedNode.value.id
     }
   }
 }
@@ -1412,9 +1471,9 @@ const addSubPage = () => {
 
   showCreatePageDialog.value = true
 
-  // 如果右键点击的是页面节点，设置父页面
+  // 如果右键点击的是页面节点，设置父页面（用原始ID）
   if (rightClickedNode.value && rightClickedNode.value.type === 'page') {
-    pageForm.parent_page = rightClickedNode.value.id
+    pageForm.parent_page = rightClickedNode.value._originalId || rightClickedNode.value.id
   }
 }
 
@@ -1440,7 +1499,7 @@ const editNode = async () => {
   if (rightClickedNode.value.type === 'page') {
     // 编辑页面
     console.log('Editing page node')
-    editPageForm.id = rightClickedNode.value.id
+    editPageForm.id = rightClickedNode.value._originalId || rightClickedNode.value.id
     editPageForm.name = rightClickedNode.value.name
     editPageForm.description = rightClickedNode.value.description || ''
     editPageForm.parent_page = rightClickedNode.value.parent_group || null
@@ -1452,7 +1511,7 @@ const editNode = async () => {
     console.log('Editing element node')
     // 编辑元素 - 通过API获取完整的元素详情，避免使用树节点的复杂数据
     try {
-      const response = await getElementDetail(rightClickedNode.value.id)
+      const response = await getElementDetail(rightClickedNode.value._originalId || rightClickedNode.value.id)
       selectedElement.value = response.data
       console.log('Set selected element for editing via API:', selectedElement.value)
 
@@ -1495,17 +1554,19 @@ const deleteNode = async () => {
     console.log('Deleting node:', rightClickedNode.value)
 
     if (rightClickedNode.value.type === 'page') {
-      // 删除页面（分组）
-      console.log('Calling deleteElementGroup with id:', rightClickedNode.value.id)
-      await deleteElementGroup(rightClickedNode.value.id)
+      // 删除页面（分组）— 用原始ID
+      const originalId = rightClickedNode.value._originalId || rightClickedNode.value.id
+      console.log('Calling deleteElementGroup with id:', originalId)
+      await deleteElementGroup(originalId)
       ElMessage.success(t('uiAutomation.element.messages.pageDeleteSuccess'))
     } else if (rightClickedNode.value.type === 'element') {
-      // 删除元素
-      console.log('Calling deleteElement with id:', rightClickedNode.value.id)
-      await deleteElement(rightClickedNode.value.id)
+      // 删除元素 — 用原始ID
+      const originalId = rightClickedNode.value._originalId || rightClickedNode.value.id
+      console.log('Calling deleteElement with id:', originalId)
+      await deleteElement(originalId)
       ElMessage.success(t('uiAutomation.element.messages.deleteSuccess'))
       // 如果当前选中的是被删除的元素，清空选中
-      if (selectedElement.value && selectedElement.value.id === rightClickedNode.value.id) {
+      if (selectedElement.value && selectedElement.value.id === originalId) {
         selectedElement.value = null
       }
     }
@@ -1551,15 +1612,15 @@ const deleteUnassignedElements = async () => {
       }
     )
 
-    // 逐个删除所有子元素
+    // 逐个删除所有子元素（用原始ID调API）
     let successCount = 0
     let failCount = 0
     for (const child of children) {
       try {
-        await deleteElement(child.id)
+        await deleteElement(child._originalId || child.id)
         successCount++
       } catch (err) {
-        console.error(`删除元素 ${child.id} 失败:`, err)
+        console.error(`删除元素 ${child._originalId || child.id} 失败:`, err)
         failCount++
       }
     }
@@ -1572,7 +1633,7 @@ const deleteUnassignedElements = async () => {
 
     // 如果当前选中的元素在删除列表中，清空选中
     if (selectedElement.value) {
-      const deletedIds = children.map(c => c.id)
+      const deletedIds = children.map(c => c._originalId || c.id)
       if (deletedIds.includes(selectedElement.value.id)) {
         selectedElement.value = null
       }

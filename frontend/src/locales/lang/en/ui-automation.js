@@ -218,7 +218,7 @@ export default {
     descriptionPlaceholder: 'Please enter element description',
     debugInfo: 'Debug',
     currentValue: 'Current Value',
-    emptyElementTip: 'Select an element to view details, or click the green button above to create a new element',
+    emptyElementTip: 'Select an element to view details, or create a new element',
     createNewElement: 'Create New Element',
     elementType: 'Element Type',
     elementNamePlaceholder: 'Element Name',
