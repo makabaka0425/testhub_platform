@@ -159,22 +159,30 @@
                             <el-option :label="t('uiAutomation.testCase.actionSwitchTab')" value="switchTab" />
                             <el-option label="路由跳转" value="navigate" />
                           </el-select>
-                          <el-select
+                          <el-tree-select
                             v-if="needsElement(element.action_type)"
                             v-model="element.element_id"
+                            :data="elementTreeData"
+                            :props="elementTreeProps"
+                            node-key="id"
                             :placeholder="t('uiAutomation.testCase.selectElement')"
                             size="small"
-                            style="width: 200px"
+                            style="width: 260px"
                             filterable
+                            check-strictly
+                            :render-after-expand="false"
+                            default-expand-all
                             @change="onElementChange(element)"
                           >
-                            <el-option
-                              v-for="elem in availableElements"
-                              :key="elem.id"
-                              :label="`${elem.name} (${elem.locator_value})`"
-                              :value="elem.id"
-                            />
-                          </el-select>
+                            <template #default="{ node, data }">
+                              <div class="element-tree-node">
+                                <span class="element-tree-node-label">{{ node.label }}</span>
+                                <span v-if="data.type === 'element'" class="element-type-tag" :class="data.element_type?.toLowerCase()">
+                                  {{ getElementTypeLabel(data.element_type) }}
+                                </span>
+                              </div>
+                            </template>
+                          </el-tree-select>
                         </div>
                         <div class="step-right">
                           <el-button
@@ -516,6 +524,8 @@ const { t } = useI18n()
 import {
   getUiProjects,
   getElements,
+  getElementGroupTree,
+  getElementTree,
   createTestCase,
   updateTestCase,
   deleteTestCase as deleteTestCaseApi,
@@ -533,6 +543,7 @@ const testCases = ref([])
 const selectedTestCase = ref(null)
 const currentSteps = ref([])
 const availableElements = ref([])
+const elementTreeData = ref([])
 const searchKeyword = ref('')
 const showCreateDialog = ref(false)
 const editingTestCase = ref(null)
@@ -614,12 +625,64 @@ const loadTestCases = async () => {
 const loadElements = async () => {
   if (!projectId.value) {
     availableElements.value = []
+    elementTreeData.value = []
     return
   }
 
   try {
-    const response = await getElements({ project: projectId.value, page_size: 500 })
-    availableElements.value = response.data.results || response.data
+    // 并行加载：平铺列表（用于onElementChange查找）+ 树形数据
+    const [elementsResponse, pageTreeResponse, treeElementsResponse] = await Promise.all([
+      getElements({ project: projectId.value, page_size: 500 }),
+      getElementGroupTree({ project: projectId.value }),
+      getElementTree({ project: projectId.value })
+    ])
+
+    // 平铺列表保留，供 onElementChange 等逻辑使用
+    availableElements.value = elementsResponse.data.results || elementsResponse.data
+
+    // 构建树形结构
+    const buildTree = (groups) => {
+      return groups.map(group => ({
+        ...group,
+        type: 'page',
+        children: group.children ? buildTree(group.children) : []
+      }))
+    }
+    const pageNodes = buildTree(pageTreeResponse.data || [])
+    const treeElements = treeElementsResponse.data?.results || treeElementsResponse.data || []
+
+    // 将元素挂载到对应页面节点下
+    const attachedElementIds = new Set()
+    const attachElementsToPages = (pages) => {
+      pages.forEach(page => {
+        const pageElements = treeElements.filter(element => element.group_id === page.id)
+        const elementNodes = pageElements.map(element => {
+          attachedElementIds.add(element.id)
+          return { ...element, type: 'element' }
+        })
+        page.children = page.children ? [...page.children, ...elementNodes] : [...elementNodes]
+        if (page.children) {
+          attachElementsToPages(page.children.filter(child => child.type === 'page'))
+        }
+      })
+    }
+    attachElementsToPages(pageNodes)
+
+    // 未关联页面元素
+    const unassignedElements = treeElements.filter(element => {
+      if (!element.group_id) return true
+      return !attachedElementIds.has(element.id)
+    })
+    if (unassignedElements.length > 0) {
+      pageNodes.unshift({
+        id: 'unassigned',
+        name: '未关联页面',
+        type: 'page',
+        children: unassignedElements.map(element => ({ ...element, type: 'element' }))
+      })
+    }
+
+    elementTreeData.value = pageNodes
   } catch (error) {
     console.error('获取元素列表失败:', error)
   }
@@ -722,6 +785,25 @@ const needsWaitTime = (actionType) => {
 
 const needsElement = (actionType) => {
   return !['wait', 'switchTab', 'screenshot', 'navigate'].includes(actionType)
+}
+
+// 元素树形下拉 props
+const elementTreeProps = {
+  children: 'children',
+  label: 'name',
+  value: 'id',
+  isLeaf: (data) => data.type === 'element'
+}
+
+// 元素类型标签映射
+const getElementTypeLabel = (type) => {
+  const typeMap = {
+    'button': '按钮', 'input': '输入框', 'link': '链接',
+    'dropdown': '下拉框', 'checkbox': '复选框', 'radio': '单选框',
+    'text': '文本', 'image': '图片', 'table': '表格',
+    'form': '表单', 'modal': '弹窗'
+  }
+  return typeMap[type?.toLowerCase()] || type
 }
 
 const expandAllSteps = () => {
@@ -1221,6 +1303,29 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 元素树形下拉节点样式 */
+.element-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  overflow: hidden;
+}
+.element-tree-node-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.element-type-tag {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background-color: #ecf5ff;
+  color: #409eff;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .test-case-manager {
   height: 100vh;
   display: flex;
