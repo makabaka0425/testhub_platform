@@ -1491,8 +1491,11 @@ class TestExecutor:
 
                     # 执行断言
                     if step_data['assert_type'] == 'textContains':
-                        text = self.current_page.text_content(selector, timeout=step_data['wait_time'])
-                        if resolved_assert_value in text:
+                        text = self.current_page.text_content(selector, timeout=max(step_data['wait_time'], 5000))
+                        if text and resolved_assert_value in text:
+                            step_result['success'] = True
+                        elif not resolved_assert_value:
+                            # assert_value 为空时跳过文本比较
                             step_result['success'] = True
                         else:
                             # 格式化为详细的错误信息，与playwright_engine.py保持一致
@@ -1500,8 +1503,8 @@ class TestExecutor:
                             log += f"  - 实际文本: '{text}'"
                             step_result['error'] = log
                     elif step_data['assert_type'] == 'textEquals':
-                        text = self.current_page.text_content(selector, timeout=step_data['wait_time'])
-                        if text == resolved_assert_value:
+                        text = self.current_page.text_content(selector, timeout=max(step_data['wait_time'], 5000))
+                        if text and text.strip() == resolved_assert_value:
                             step_result['success'] = True
                         else:
                             # 格式化为详细的错误信息
