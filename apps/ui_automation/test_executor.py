@@ -1167,6 +1167,199 @@ class TestExecutor:
                         step_result['resolved_value'] = resolved_value
                         print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
 
+                elif step_data['action_type'] == 'select':
+                    # 选择下拉选项：input_value 填选项文本，多个选项用英文逗号分隔
+                    # 支持 Ant Design 和 Element Plus 下拉组件
+                    # 匹配方式：模糊匹配（contains）
+                    import re as _re
+                    
+                    resolved_value = resolve_variables(step_data['input_value'])
+                    # 拆分多个选项（逗号分隔）
+                    option_texts = [t.strip() for t in resolved_value.split(',') if t.strip()]
+                    is_multi = len(option_texts) > 1
+                    
+                    print(f"[select] 下拉选择: 元素={selector}, 选项={option_texts}, 多选={is_multi}")
+                    
+                    # Step 1: 点击下拉框触发器，打开下拉面板
+                    # 先检测是否是 UI 框架下拉框容器，如果是则点击内部触发器
+                    select_opened = False
+                    
+                    # 尝试 Ant Design / Element Plus 检测
+                    try:
+                        js_open = f"""
+                            (() => {{
+                                document.querySelectorAll('[data-pw-select-mark]').forEach(el => el.removeAttribute('data-pw-select-mark'));
+                                const el = document.querySelector({repr(selector)}) ||
+                                           document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                                if (!el) return {{ opened: false, reason: 'element-not-found' }};
+                                // Ant Design
+                                const antSelect = (el.classList && el.classList.contains('ant-select')) ? el : (el.closest ? el.closest('.ant-select') : null);
+                                if (antSelect) {{
+                                    const trigger = antSelect.querySelector('.ant-select-selector');
+                                    if (trigger) {{
+                                        antSelect.setAttribute('data-pw-select-mark', '1');
+                                        return {{ opened: true, framework: 'antd', triggerSelector: '[data-pw-select-mark="1"] .ant-select-selector', dropdownSelector: '.ant-select-dropdown', optionSelector: '.ant-select-item-option' }};
+                                    }}
+                                }}
+                                // Element Plus
+                                const elSelect = (el.classList && el.classList.contains('el-select')) ? el : (el.closest ? el.closest('.el-select') : null);
+                                if (elSelect) {{
+                                    const trigger = elSelect.querySelector('.el-select__wrapper') || elSelect.querySelector('.el-input__inner');
+                                    if (trigger) {{
+                                        elSelect.setAttribute('data-pw-select-mark', '1');
+                                        return {{ opened: true, framework: 'element-plus', triggerSelector: '[data-pw-select-mark="1"] .el-select__wrapper', dropdownSelector: '.el-select-dropdown', optionSelector: '.el-select-dropdown__item' }};
+                                    }}
+                                }}
+                                // 非 UI 框架下拉框，直接点击元素本身
+                                return {{ opened: false, reason: 'not-select-component', fallbackSelector: {repr(selector)} }};
+                            }})()
+                        """
+                        open_result = self.current_page.evaluate(js_open)
+                        
+                        if open_result.get('opened'):
+                            # UI 框架下拉框：Playwright click 触发器
+                            trigger_sel = open_result['triggerSelector']
+                            self.current_page.locator(trigger_sel).first.scroll_into_view_if_needed(timeout=3000)
+                            self.current_page.locator(trigger_sel).first.click(timeout=step_data['wait_time'])
+                            self.current_page.wait_for_timeout(800)
+                            select_opened = True
+                            framework = open_result.get('framework', '')
+                            dropdown_sel = open_result.get('dropdownSelector', '')
+                            option_sel = open_result.get('optionSelector', '')
+                            print(f"[select] 检测到{framework}下拉框，已打开")
+                        else:
+                            # 非 UI 框架下拉框，直接 click 元素
+                            self.current_page.click(selector, timeout=step_data['wait_time'])
+                            self.current_page.wait_for_timeout(800)
+                            select_opened = True
+                            framework = 'native'
+                            dropdown_sel = ''
+                            option_sel = ''
+                            print(f"[select] 非 UI 框架下拉框，直接点击元素")
+                    except Exception as e:
+                        print(f"[select] 下拉框打开异常: {str(e)[:100]}")
+                        step_result['error'] = f'下拉框打开失败: {str(e)[:80]}'
+                    
+                    # Step 2: 在下拉面板中选择选项
+                    if select_opened:
+                        selected_options = []
+                        select_errors = []
+                        
+                        for opt_idx, opt_text in enumerate(option_texts):
+                            opt_selected = False
+                            
+                            # 尝试在下拉面板中模糊匹配选项
+                            try:
+                                if framework == 'antd':
+                                    # Ant Design: 在 .ant-select-dropdown 中找 .ant-select-item-option
+                                    # 模糊匹配：选项文本包含目标文本
+                                    js_match = f"""
+                                        (() => {{
+                                            const dropdowns = document.querySelectorAll('.ant-select-dropdown');
+                                            for (const dd of dropdowns) {{
+                                                if (dd.style.display !== 'none' && dd.offsetParent !== null) {{
+                                                    const items = dd.querySelectorAll('.ant-select-item-option');
+                                                    for (const item of items) {{
+                                                        const text = (item.textContent || '').trim();
+                                                        if (text.includes({repr(opt_text)})) {{
+                                                            item.setAttribute('data-pw-opt-mark', '1');
+                                                            return {{ found: true, text: text, selector: '.ant-select-dropdown:not([style*="display: none"]) .ant-select-item-option[data-pw-opt-mark="1"]' }};
+                                                        }}
+                                                    }}
+                                                }}
+                                            }}
+                                            return {{ found: false }};
+                                        }})()
+                                    """
+                                elif framework == 'element-plus':
+                                    # Element Plus: 在 .el-select-dropdown 中找 .el-select-dropdown__item
+                                    js_match = f"""
+                                        (() => {{
+                                            const dropdowns = document.querySelectorAll('.el-select-dropdown');
+                                            for (const dd of dropdowns) {{
+                                                if (dd.style.display !== 'none' && dd.offsetParent !== null) {{
+                                                    const items = dd.querySelectorAll('.el-select-dropdown__item');
+                                                    for (const item of items) {{
+                                                        const text = (item.textContent || '').trim();
+                                                        if (text.includes({repr(opt_text)})) {{
+                                                            item.setAttribute('data-pw-opt-mark', '1');
+                                                            return {{ found: true, text: text, selector: '.el-select-dropdown:not([style*="display: none"]) .el-select-dropdown__item[data-pw-opt-mark="1"]' }};
+                                                        }}
+                                                    }}
+                                                }}
+                                            }}
+                                            return {{ found: false }};
+                                        }})()
+                                    """
+                                else:
+                                    # 原生 select 或其他：尝试用 text 定位
+                                    js_match = f"""
+                                        (() => {{
+                                            // 查找所有可见的 li 或 option 元素
+                                            const items = document.querySelectorAll('li[role="option"], .ant-select-item-option, .el-select-dropdown__item');
+                                            for (const item of items) {{
+                                                if (item.offsetParent === null) continue;
+                                                const text = (item.textContent || '').trim();
+                                                if (text.includes({repr(opt_text)})) {{
+                                                    item.setAttribute('data-pw-opt-mark', '1');
+                                                    return {{ found: true, text: text, selector: '[data-pw-opt-mark="1"]' }};
+                                                }}
+                                            }}
+                                            return {{ found: false }};
+                                        }})()
+                                    """
+                                
+                                match_result = self.current_page.evaluate(js_match)
+                                
+                                if match_result.get('found'):
+                                    opt_selector = match_result['selector']
+                                    matched_text = match_result.get('text', '')
+                                    # Playwright 原生 click 选项
+                                    opt_locator = self.current_page.locator(opt_selector).first
+                                    opt_locator.click(timeout=3000)
+                                    self.current_page.wait_for_timeout(500)
+                                    opt_selected = True
+                                    selected_options.append(matched_text)
+                                    print(f"[select] 选中选项: '{matched_text}' (匹配'{opt_text}')")
+                                    
+                                    # 清除临时标记
+                                    try:
+                                        self.current_page.evaluate("document.querySelectorAll('[data-pw-opt-mark]').forEach(el => el.removeAttribute('data-pw-opt-mark'))")
+                                    except:
+                                        pass
+                                    
+                                    # 多选时：如果不是最后一个选项，需要重新打开下拉
+                                    if is_multi and opt_idx < len(option_texts) - 1:
+                                        self.current_page.wait_for_timeout(300)
+                                        # 重新点击触发器打开下拉
+                                        if framework == 'antd':
+                                            try:
+                                                self.current_page.locator(trigger_sel).first.click(timeout=3000)
+                                                self.current_page.wait_for_timeout(500)
+                                            except:
+                                                pass
+                                        elif framework == 'element-plus':
+                                            try:
+                                                self.current_page.locator(trigger_sel).first.click(timeout=3000)
+                                                self.current_page.wait_for_timeout(500)
+                                            except:
+                                                pass
+                                else:
+                                    select_errors.append(f'未找到匹配"{opt_text}"的选项')
+                                    print(f"[select] 未找到匹配'{opt_text}'的选项")
+                                    
+                            except Exception as e:
+                                select_errors.append(f'选择"{opt_text}"异常: {str(e)[:60]}')
+                                print(f"[select] 选择选项异常: {str(e)[:80]}")
+                        
+                        if selected_options:
+                            step_result['success'] = True
+                            step_result['selected_options'] = selected_options
+                            if select_errors:
+                                step_result['warning'] = '; '.join(select_errors)
+                        else:
+                            step_result['error'] = f'选择下拉选项失败: {"; ".join(select_errors)}'
+
 
                 elif step_data['action_type'] == 'getText':
                     text = self.current_page.text_content(selector, timeout=step_data['wait_time'])
