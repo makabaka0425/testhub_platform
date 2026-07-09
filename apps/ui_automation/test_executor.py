@@ -1834,6 +1834,87 @@ class TestExecutor:
                     print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
                     step_result['success'] = True
 
+                elif step_data['action_type'] == 'assert':
+                    # 表格断言类型不需要元素定位器，在无元素分支处理
+                    resolved_assert_value = resolve_variables(step_data['assert_value'])
+                    if resolved_assert_value != step_data['assert_value']:
+                        print(f"  ✓ 断言变量解析: {step_data['assert_value']} -> {resolved_assert_value}")
+
+                    if step_data['assert_type'] in ('tableContains', 'tableNotContains'):
+                        try:
+                            js_table_check = f"""
+                                (() => {{
+                                    const tbl = document.querySelector('.ant-table') ||
+                                                document.querySelector('.el-table') ||
+                                                document.querySelector('table');
+                                    if (!tbl) return {{ found: false, reason: 'no-table' }};
+
+                                    const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
+                                    const matchingRows = [];
+                                    for (const row of rows) {{
+                                        const text = (row.textContent || '').trim();
+                                        if (text.includes({repr(resolved_assert_value)})) {{
+                                            matchingRows.push(text.substring(0, 100));
+                                        }}
+                                    }}
+                                    return {{ found: true, totalRows: rows.length, matchingCount: matchingRows.length, matchedText: matchingRows[0] || '' }};
+                                }})()
+                            """
+                            table_result = self.current_page.evaluate(js_table_check)
+
+                            if not table_result.get('found'):
+                                step_result['error'] = "✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
+                            elif step_data['assert_type'] == 'tableContains':
+                                if table_result.get('matchingCount', 0) > 0:
+                                    step_result['success'] = True
+                                    step_result['assert_detail'] = f"表格共{table_result.get('totalRows', 0)}行，找到{table_result['matchingCount']}行包含'{resolved_assert_value}'"
+                                else:
+                                    total = table_result.get('totalRows', 0)
+                                    step_result['error'] = f"✗ 断言失败: 表格共{total}行，未找到包含'{resolved_assert_value}'的行"
+                            else:  # tableNotContains
+                                if table_result.get('matchingCount', 0) == 0:
+                                    step_result['success'] = True
+                                    step_result['assert_detail'] = f"表格共{table_result.get('totalRows', 0)}行，未找到包含'{resolved_assert_value}'的行"
+                                else:
+                                    total = table_result.get('totalRows', 0)
+                                    step_result['error'] = f"✗ 断言失败: 表格共{total}行，找到{table_result['matchingCount']}行包含'{resolved_assert_value}'，期望不包含"
+                        except Exception as e:
+                            step_result['error'] = f"✗ 表格断言异常: {str(e)[:80]}"
+
+                    elif step_data['assert_type'] == 'tableEmpty':
+                        try:
+                            js_empty_check = """
+                                (() => {
+                                    const tbl = document.querySelector('.ant-table') ||
+                                                document.querySelector('.el-table') ||
+                                                document.querySelector('table');
+                                    if (!tbl) return { found: false, reason: 'no-table' };
+
+                                    const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
+                                    const dataRows = Array.from(rows).filter(r => !r.classList.contains('ant-table-placeholder') && (r.textContent || '').trim().length > 0);
+
+                                    const emptyHints = tbl.querySelectorAll('.ant-table-placeholder, .ant-empty, .el-table__empty-block, .el-table__empty-text');
+                                    const hasEmptyHint = Array.from(emptyHints).some(h => h.offsetParent !== null);
+
+                                    return { found: true, dataRows: dataRows.length, hasEmptyHint: hasEmptyHint, isEmpty: dataRows.length === 0 || hasEmptyHint };
+                                })()
+                            """
+                            empty_result = self.current_page.evaluate(js_empty_check)
+
+                            if not empty_result.get('found'):
+                                step_result['error'] = "✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
+                            elif empty_result.get('isEmpty', False):
+                                step_result['success'] = True
+                                step_result['assert_detail'] = "表格为空"
+                            else:
+                                rows = empty_result.get('dataRows', 0)
+                                step_result['error'] = f"✗ 断言失败: 表格不为空，共{rows}行数据"
+                        except Exception as e:
+                            step_result['error'] = f"✗ 表格为空断言异常: {str(e)[:80]}"
+
+                    else:
+                        step_result['error'] = f"⚠ 断言类型 '{step_data.get('assert_type', '')}' 需要关联元素"
+
         except Exception as e:
             # 格式化为详细的错误信息，与playwright_engine.py保持一致
             execution_time = round(time.time() - start_time, 2)
@@ -2964,6 +3045,75 @@ class TestExecutor:
                     time.sleep(2)
                     print(f"[路由跳转] 页面加载完成，当前URL: {driver.current_url}")
                     step_result['success'] = True
+
+                elif step_data['action_type'] == 'assert':
+                    # 表格断言类型不需要元素定位器，在无元素分支处理
+                    resolved_assert_value = resolve_variables(step_data['assert_value'])
+                    if resolved_assert_value != step_data['assert_value']:
+                        print(f"  ✓ 断言变量解析: {step_data['assert_value']} -> {resolved_assert_value}")
+
+                    if step_data['assert_type'] in ('tableContains', 'tableNotContains'):
+                        try:
+                            table = None
+                            for sel in ['.ant-table', '.el-table', 'table']:
+                                try:
+                                    table = driver.find_element(By.CSS_SELECTOR, sel)
+                                    if table:
+                                        break
+                                except:
+                                    continue
+                            if not table:
+                                step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
+                            elif step_data['assert_type'] == 'tableContains':
+                                text = table.text
+                                if resolved_assert_value in text:
+                                    step_result['success'] = True
+                                else:
+                                    step_result['error'] = f"✗ 断言失败: 表格文本不包含 '{resolved_assert_value}'"
+                            else:  # tableNotContains
+                                text = table.text
+                                if resolved_assert_value not in text:
+                                    step_result['success'] = True
+                                else:
+                                    step_result['error'] = f"✗ 断言失败: 表格文本包含 '{resolved_assert_value}'，期望不包含"
+                        except Exception as e:
+                            step_result['error'] = f"✗ 表格断言异常: {str(e)[:80]}"
+
+                    elif step_data['assert_type'] == 'tableEmpty':
+                        try:
+                            table = None
+                            for sel in ['.ant-table', '.el-table', 'table']:
+                                try:
+                                    table = driver.find_element(By.CSS_SELECTOR, sel)
+                                    if table:
+                                        break
+                                except:
+                                    continue
+                            if not table:
+                                step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
+                            else:
+                                # 检查空态提示
+                                has_empty_hint = False
+                                for hint_sel in ['.ant-table-placeholder', '.ant-empty', '.el-table__empty-block']:
+                                    try:
+                                        hint = table.find_element(By.CSS_SELECTOR, hint_sel)
+                                        if hint and hint.is_displayed():
+                                            has_empty_hint = True
+                                            break
+                                    except:
+                                        continue
+                                rows = table.find_elements(By.CSS_SELECTOR, '.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr')
+                                data_rows = [r for r in rows if r.text.strip()]
+                                if len(data_rows) == 0 or has_empty_hint:
+                                    step_result['success'] = True
+                                    step_result['assert_detail'] = "表格为空"
+                                else:
+                                    step_result['error'] = f"✗ 断言失败: 表格不为空，共{len(data_rows)}行数据"
+                        except Exception as e:
+                            step_result['error'] = f"✗ 表格为空断言异常: {str(e)[:80]}"
+
+                    else:
+                        step_result['error'] = f"⚠ 断言类型 '{step_data.get('assert_type', '')}' 需要关联元素"
 
         except TimeoutException as e:
             # 格式化为详细的错误信息，与selenium_engine.py保持一致
