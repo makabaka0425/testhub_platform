@@ -851,7 +851,8 @@ class TestExecutor:
                 elif locator_strategy == 'xpath':
                     selector = f'xpath={locator_value}'
                 elif locator_strategy == 'id':
-                    selector = f'#{locator_value}'
+                    # locator_value 可能已经包含 # 前缀（如 #statusCode），避免重复拼接
+                    selector = locator_value if locator_value.startswith('#') else f'#{locator_value}'
                 elif locator_strategy == 'name':
                     selector = f'[name="{locator_value}"]'
                 elif locator_strategy == 'text':
@@ -935,11 +936,12 @@ class TestExecutor:
                                             'ul' in locator_value.lower() or 'ol' in locator_value.lower()))
                         )
 
-                        # 检测是否是 el-select 容器（下拉框触发器）
+                        # 检测是否是 el-select 或 ant-select 容器（下拉框触发器）
                         is_select_trigger = (
-                                'el-select' in locator_value.lower() and
-                                'ancestor::' in locator_value and
-                                '//li' not in locator_value
+                                ('el-select' in locator_value.lower() and
+                                 'ancestor::' in locator_value and
+                                 '//li' not in locator_value) or
+                                ('ant-select' in locator_value.lower() and '//li' not in locator_value)
                         )
 
                         if is_select_trigger:
@@ -1068,28 +1070,72 @@ class TestExecutor:
                             # 已移除调试面板代码
                         else:
                             # 普通元素：正常点击
-                            # 如果刚切换了标签页，增加超时时间并滚动到元素
-                            if step_data.get('_just_switched_tab'):
-                                print(f"  ⚠️  刚切换标签页，增加元素等待时间和滚动")
+                            # 先检测是否是 Ant Design / Element Plus 下拉框容器
+                            # 这些组件的容器 div 不能直接 click，需要点击内部 input 触发器
+                            is_custom_select = False
+                            try:
+                                js_check = f"""
+                                    (() => {{
+                                        const el = document.querySelector({repr(selector)}) ||
+                                                   document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                                        if (!el) return {{ isSelect: false }};
+                                        // 检测 Ant Design select
+                                        if (el.classList && (el.classList.contains('ant-select') || el.closest('.ant-select'))) {{
+                                            const selectEl = el.classList.contains('ant-select') ? el : el.closest('.ant-select');
+                                            const trigger = selectEl.querySelector('.ant-select-selector') ||
+                                                           selectEl.querySelector('input') ||
+                                                           selectEl.querySelector('.ant-select-selection-item');
+                                            if (trigger) {{
+                                                trigger.click();
+                                                return {{ isSelect: true, framework: 'antd', method: 'click-selector' }};
+                                            }}
+                                        }}
+                                        // 检测 Element Plus select
+                                        if (el.classList && (el.classList.contains('el-select') || el.closest('.el-select'))) {{
+                                            const selectEl = el.classList.contains('el-select') ? el : el.closest('.el-select');
+                                            const trigger = selectEl.querySelector('.el-select__wrapper') ||
+                                                           selectEl.querySelector('input') ||
+                                                           selectEl.querySelector('.el-input__inner');
+                                            if (trigger) {{
+                                                trigger.click();
+                                                return {{ isSelect: true, framework: 'element-plus', method: 'click-wrapper' }};
+                                            }}
+                                        }}
+                                        return {{ isSelect: false }};
+                                    }})()
+                                """
+                                check_result = self.current_page.evaluate(js_check)
+                                if check_result.get('isSelect'):
+                                    self.current_page.wait_for_timeout(800)  # 等待下拉框展开
+                                    is_custom_select = True
+                                    step_result['success'] = True
+                                    print(f"[Playwright] 检测到{check_result.get('framework')}下拉框，已点击内部触发器")
+                            except Exception as e:
+                                print(f"[Playwright] 下拉框检测异常(忽略): {str(e)[:60]}")
+                            
+                            if not is_custom_select:
+                                # 如果刚切换了标签页，增加超时时间并滚动到元素
+                                if step_data.get('_just_switched_tab'):
+                                    print(f"  ⚠️  刚切换标签页，增加元素等待时间和滚动")
 
-                                # 关键修复：确保页面保持在前台！
-                                self.current_page.bring_to_front()
-                                print(f"  ✓ 页面已置于前台")
+                                    # 关键修复：确保页面保持在前台！
+                                    self.current_page.bring_to_front()
+                                    print(f"  ✓ 页面已置于前台")
 
-                                # 先尝试滚动到元素（确保元素在视口内）
-                                try:
-                                    self.current_page.locator(selector).scroll_into_view_if_needed(timeout=5000)
-                                    print(f"  ✓ 元素已滚动到视口")
-                                except Exception as e:
-                                    print(f"  ⚠️  滚动失败: {str(e)[:50]}")
+                                    # 先尝试滚动到元素（确保元素在视口内）
+                                    try:
+                                        self.current_page.locator(selector).scroll_into_view_if_needed(timeout=5000)
+                                        print(f"  ✓ 元素已滚动到视口")
+                                    except Exception as e:
+                                        print(f"  ⚠️  滚动失败: {str(e)[:50]}")
 
-                                # 使用更长的超时时间（至少10秒）
-                                extended_timeout = max(step_data['wait_time'], 10000)
-                                self.current_page.click(selector, timeout=extended_timeout)
-                                print(f"  ✓ 点击成功（超时: {extended_timeout}ms）")
-                            else:
-                                self.current_page.click(selector, timeout=step_data['wait_time'])
-                            step_result['success'] = True
+                                    # 使用更长的超时时间（至少10秒）
+                                    extended_timeout = max(step_data['wait_time'], 10000)
+                                    self.current_page.click(selector, timeout=extended_timeout)
+                                    print(f"  ✓ 点击成功（超时: {extended_timeout}ms）")
+                                else:
+                                    self.current_page.click(selector, timeout=step_data['wait_time'])
+                                step_result['success'] = True
 
                 elif step_data['action_type'] == 'fill':
                     # 解析输入值中的变量表达式
