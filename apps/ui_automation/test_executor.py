@@ -1071,34 +1071,34 @@ class TestExecutor:
                         else:
                             # 普通元素：正常点击
                             # 先检测是否是 Ant Design / Element Plus 下拉框容器
-                            # 这些组件的容器 div 不能直接 click，需要点击内部 input 触发器
+                            # 这些组件的容器 div 不能直接 click，需要点击内部触发器
                             is_custom_select = False
                             try:
+                                # 用临时data属性标记目标select容器，便于Playwright精确定位触发器
                                 js_check = f"""
                                     (() => {{
+                                        // 移除之前的临时标记
+                                        document.querySelectorAll('[data-pw-select-mark]').forEach(el => el.removeAttribute('data-pw-select-mark'));
+                                        
                                         const el = document.querySelector({repr(selector)}) ||
                                                    document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
                                         if (!el) return {{ isSelect: false }};
                                         // 检测 Ant Design select
-                                        if (el.classList && (el.classList.contains('ant-select') || el.closest('.ant-select'))) {{
-                                            const selectEl = el.classList.contains('ant-select') ? el : el.closest('.ant-select');
-                                            const trigger = selectEl.querySelector('.ant-select-selector') ||
-                                                           selectEl.querySelector('input') ||
-                                                           selectEl.querySelector('.ant-select-selection-item');
+                                        const antSelect = (el.classList && el.classList.contains('ant-select')) ? el : (el.closest ? el.closest('.ant-select') : null);
+                                        if (antSelect) {{
+                                            const trigger = antSelect.querySelector('.ant-select-selector');
                                             if (trigger) {{
-                                                trigger.click();
-                                                return {{ isSelect: true, framework: 'antd', method: 'click-selector' }};
+                                                antSelect.setAttribute('data-pw-select-mark', '1');
+                                                return {{ isSelect: true, framework: 'antd', triggerSelector: '[data-pw-select-mark="1"] .ant-select-selector' }};
                                             }}
                                         }}
                                         // 检测 Element Plus select
-                                        if (el.classList && (el.classList.contains('el-select') || el.closest('.el-select'))) {{
-                                            const selectEl = el.classList.contains('el-select') ? el : el.closest('.el-select');
-                                            const trigger = selectEl.querySelector('.el-select__wrapper') ||
-                                                           selectEl.querySelector('input') ||
-                                                           selectEl.querySelector('.el-input__inner');
+                                        const elSelect = (el.classList && el.classList.contains('el-select')) ? el : (el.closest ? el.closest('.el-select') : null);
+                                        if (elSelect) {{
+                                            const trigger = elSelect.querySelector('.el-select__wrapper') || elSelect.querySelector('.el-input__inner');
                                             if (trigger) {{
-                                                trigger.click();
-                                                return {{ isSelect: true, framework: 'element-plus', method: 'click-wrapper' }};
+                                                elSelect.setAttribute('data-pw-select-mark', '1');
+                                                return {{ isSelect: true, framework: 'element-plus', triggerSelector: '[data-pw-select-mark="1"] .el-select__wrapper' }};
                                             }}
                                         }}
                                         return {{ isSelect: false }};
@@ -1106,10 +1106,21 @@ class TestExecutor:
                                 """
                                 check_result = self.current_page.evaluate(js_check)
                                 if check_result.get('isSelect'):
-                                    self.current_page.wait_for_timeout(800)  # 等待下拉框展开
-                                    is_custom_select = True
-                                    step_result['success'] = True
-                                    print(f"[Playwright] 检测到{check_result.get('framework')}下拉框，已点击内部触发器")
+                                    # 使用 Playwright 原生 click（不是 JS click），能触发 Vue 事件
+                                    trigger_sel = check_result.get('triggerSelector', '')
+                                    if trigger_sel:
+                                        try:
+                                            trigger_locator = self.current_page.locator(trigger_sel).first
+                                            trigger_locator.scroll_into_view_if_needed(timeout=3000)
+                                            trigger_locator.click(timeout=step_data['wait_time'])
+                                            self.current_page.wait_for_timeout(800)  # 等待下拉框展开
+                                            is_custom_select = True
+                                            step_result['success'] = True
+                                            print(f"[Playwright] 检测到{check_result.get('framework')}下拉框，Playwright原生click触发器成功")
+                                        except Exception as e:
+                                            print(f"[Playwright] Playwright click触发器失败，回退到普通click: {str(e)[:60]}")
+                                    else:
+                                        print(f"[Playwright] 下拉框检测成功但未找到触发器选择器，回退到普通click")
                             except Exception as e:
                                 print(f"[Playwright] 下拉框检测异常(忽略): {str(e)[:60]}")
                             
