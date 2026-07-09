@@ -1080,8 +1080,11 @@ class TestExecutor:
                                         // 移除之前的临时标记
                                         document.querySelectorAll('[data-pw-select-mark]').forEach(el => el.removeAttribute('data-pw-select-mark'));
                                         
-                                        const el = document.querySelector({repr(selector)}) ||
-                                                   document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                                        let el = null;
+                                        try {{ el = document.querySelector({repr(selector)}); }} catch(e) {{ el = null; }}
+                                        if (!el) {{
+                                            el = document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                                        }}
                                         if (!el) return {{ isSelect: false }};
                                         // 检测 Ant Design select
                                         const antSelect = (el.classList && el.classList.contains('ant-select')) ? el : (el.closest ? el.closest('.ant-select') : null);
@@ -1189,8 +1192,11 @@ class TestExecutor:
                         js_open = f"""
                             (() => {{
                                 document.querySelectorAll('[data-pw-select-mark]').forEach(el => el.removeAttribute('data-pw-select-mark'));
-                                const el = document.querySelector({repr(selector)}) ||
-                                           document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                                let el = null;
+                                try {{ el = document.querySelector({repr(selector)}); }} catch(e) {{ el = null; }}
+                                if (!el) {{
+                                    el = document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                                }}
                                 if (!el) return {{ opened: false, reason: 'element-not-found' }};
                                 // Ant Design
                                 const antSelect = (el.classList && el.classList.contains('ant-select')) ? el : (el.closest ? el.closest('.ant-select') : null);
