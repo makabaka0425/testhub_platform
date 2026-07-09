@@ -674,6 +674,7 @@ class TestCaseStep(models.Model):
         ('exists', '元素存在'),
         ('hasAttribute', '属性值'),
         ('tableContains', '表格包含文本'),
+        ('tableNotContains', '表格不包含文本'),
         ('tableEmpty', '表格为空'),
     ]
 

@@ -251,6 +251,7 @@
                             <el-option :label="t('uiAutomation.testCase.assertExists')" value="exists" />
                             <el-option :label="t('uiAutomation.testCase.assertHasAttribute')" value="hasAttribute" />
                             <el-option label="表格包含文本" value="tableContains" />
+                            <el-option label="表格不包含文本" value="tableNotContains" />
                             <el-option label="表格为空" value="tableEmpty" />
                           </el-select>
                           <div v-if="element.assert_type !== 'tableEmpty'" style="display: flex; align-items: center; margin-left: 10px; width: 240px">
@@ -785,7 +786,7 @@ const needsWaitTime = (actionType) => {
 const needsElement = (actionType, assertType) => {
   if (['wait', 'switchTab', 'screenshot', 'navigate'].includes(actionType)) return false
   // 表格断言类型自动查找表格，不需要用户选择元素
-  if (actionType === 'assert' && ['tableContains', 'tableEmpty'].includes(assertType)) return false
+  if (actionType === 'assert' && ['tableContains', 'tableNotContains', 'tableEmpty'].includes(assertType)) return false
   return true
 }
 
