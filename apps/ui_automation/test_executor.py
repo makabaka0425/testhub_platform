@@ -1474,6 +1474,41 @@ class TestExecutor:
                         except Exception as e:
                             step_result['error'] = f"✗ 表格断言异常: {str(e)[:80]}"
 
+                    elif step_data['assert_type'] == 'tableNotContains':
+                        # 表格不包含文本：自动查找表格容器，验证指定文本不在表格中
+                        try:
+                            js_table_check = f"""
+                                (() => {{
+                                    const tbl = document.querySelector('.ant-table') ||
+                                                document.querySelector('.el-table') ||
+                                                document.querySelector('table');
+                                    if (!tbl) return {{ found: false, reason: 'no-table' }};
+
+                                    const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
+                                    const matchingRows = [];
+                                    for (const row of rows) {{
+                                        const text = (row.textContent || '').trim();
+                                        if (text.includes({repr(resolved_assert_value)})) {{
+                                            matchingRows.push(text.substring(0, 100));
+                                        }}
+                                    }}
+                                    return {{ found: true, totalRows: rows.length, matchingCount: matchingRows.length, matchedText: matchingRows[0] || '' }};
+                                }})()
+                            """
+                            table_result = self.current_page.evaluate(js_table_check)
+
+                            if not table_result.get('found'):
+                                step_result['error'] = "✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
+                            elif table_result.get('matchingCount', 0) == 0:
+                                step_result['success'] = True
+                                step_result['assert_detail'] = f"表格共{table_result.get('totalRows', 0)}行，未找到包含'{resolved_assert_value}'的行"
+                                print(f"[assert] 表格不包含'{resolved_assert_value}'成功: {table_result.get('totalRows', 0)}行中无匹配")
+                            else:
+                                total = table_result.get('totalRows', 0)
+                                step_result['error'] = f"✗ 断言失败: 表格共{total}行，找到{table_result['matchingCount']}行包含'{resolved_assert_value}'，期望不包含"
+                        except Exception as e:
+                            step_result['error'] = f"✗ 表格断言异常: {str(e)[:80]}"
+
                     elif step_data['assert_type'] == 'tableEmpty':
                         # 表格为空：自动在页面上查找表格容器，检查是否无数据行
                         try:
@@ -2834,6 +2869,28 @@ class TestExecutor:
                                     step_result['success'] = True
                                 else:
                                     step_result['error'] = f"✗ 断言失败: 表格文本不包含 '{resolved_assert_value}'"
+                        except Exception as e:
+                            step_result['error'] = f"✗ 表格断言异常: {str(e)[:80]}"
+
+                    elif step_data['assert_type'] == 'tableNotContains':
+                        # Selenium版表格不包含文本断言 - 自动查找表格容器
+                        try:
+                            table = None
+                            for selector in ['.ant-table', '.el-table', 'table']:
+                                try:
+                                    table = driver.find_element(By.CSS_SELECTOR, selector)
+                                    if table:
+                                        break
+                                except:
+                                    continue
+                            if not table:
+                                step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
+                            else:
+                                text = table.text
+                                if resolved_assert_value not in text:
+                                    step_result['success'] = True
+                                else:
+                                    step_result['error'] = f"✗ 断言失败: 表格文本包含 '{resolved_assert_value}'，期望不包含"
                         except Exception as e:
                             step_result['error'] = f"✗ 表格断言异常: {str(e)[:80]}"
 
