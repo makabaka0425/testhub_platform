@@ -295,69 +295,81 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             # 其他操作需要元素定位器
-            # 获取元素定位器
-            locator_strategy = element_data.get('locator_strategy', 'css')
-            locator_value = element_data.get('locator_value', '')
-            element_name = element_data.get('name', '未知元素')
+            # 表格断言类型不需要元素定位器，跳过locator创建
+            _table_assert_types = ('tableContains', 'tableNotContains', 'tableEmpty')
+            _needs_locator = not (action_type == 'assert' and step.assert_type in _table_assert_types)
 
-            # 获取强制操作选项（用于visibility:hidden的元素）
-            force_action = element_data.get('force_action', False)
+            if _needs_locator:
+                # 获取元素定位器
+                locator_strategy = element_data.get('locator_strategy', 'css')
+                locator_value = element_data.get('locator_value', '')
+                element_name = element_data.get('name', '未知元素')
 
-            # 计算超时时间：优先使用元素的wait_timeout（秒），其次使用步骤的wait_time（毫秒）
-            # 如果元素有wait_timeout，转换为毫秒；否则使用步骤的wait_time
-            element_wait_timeout = element_data.get('wait_timeout')  # 秒
-            if element_wait_timeout is not None and element_wait_timeout > 0:
-                timeout_ms = element_wait_timeout * 1000  # 转换为毫秒
-            elif step.wait_time:
-                timeout_ms = step.wait_time
-            else:
-                timeout_ms = 5000  # 默认5秒
+                # 获取强制操作选项（用于visibility:hidden的元素）
+                force_action = element_data.get('force_action', False)
 
-            # 根据定位策略获取元素
-            if locator_strategy.lower() == 'id':
-                locator = self.page.locator(f'#{locator_value}')
-            elif locator_strategy.lower() in ['css', 'css selector']:
-                # CSS 定位器，对于可能匹配多个元素的情况，添加 .first
-                # 特别是下拉框选项，可能有多个同名选项
-                if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
+                # 计算超时时间：优先使用元素的wait_timeout（秒），其次使用步骤的wait_time（毫秒）
+                # 如果元素有wait_timeout，转换为毫秒；否则使用步骤的wait_time
+                element_wait_timeout = element_data.get('wait_timeout')  # 秒
+                if element_wait_timeout is not None and element_wait_timeout > 0:
+                    timeout_ms = element_wait_timeout * 1000  # 转换为毫秒
+                elif step.wait_time:
+                    timeout_ms = step.wait_time
+                else:
+                    timeout_ms = 5000  # 默认5秒
+
+                # 根据定位策略获取元素
+                if locator_strategy.lower() == 'id':
+                    locator = self.page.locator(f'#{locator_value}')
+                elif locator_strategy.lower() in ['css', 'css selector']:
+                    # CSS 定位器，对于可能匹配多个元素的情况，添加 .first
+                    # 特别是下拉框选项，可能有多个同名选项
+                    if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
+                        # 如果是下拉框选项，强制只查找可见元素
+                        if 'visible=true' not in locator_value:
+                            locator = self.page.locator(f"{locator_value} >> visible=true").first
+                        else:
+                            locator = self.page.locator(locator_value).first
+                    else:
+                        locator = self.page.locator(locator_value)
+                elif locator_strategy.lower() == 'xpath':
+                    # XPath 定位器
                     # 如果是下拉框选项，强制只查找可见元素
-                    if 'visible=true' not in locator_value:
-                        locator = self.page.locator(f"{locator_value} >> visible=true").first
+                    if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
+                        if 'visible=true' not in locator_value:
+                            locator = self.page.locator(f"xpath={locator_value} >> visible=true").first
+                        else:
+                            locator = self.page.locator(f"xpath={locator_value}").first
+                    # 如果 XPath 已经包含索引 [n]，不要添加 .first（会冲突）
+                    elif '[' in locator_value and ']' in locator_value:
+                        locator = self.page.locator(f'xpath={locator_value}')
                     else:
-                        locator = self.page.locator(locator_value).first
+                        # 如果没有索引，添加 .first 避免 strict mode violation
+                        locator = self.page.locator(f'xpath={locator_value}').first
+                elif locator_strategy.lower() == 'text':
+                    locator = self.page.get_by_text(locator_value)
+                elif locator_strategy.lower() == 'name':
+                    locator = self.page.locator(f'[name="{locator_value}"]')
+                elif locator_strategy.lower() == 'placeholder':
+                    locator = self.page.get_by_placeholder(locator_value)
+                elif locator_strategy.lower() == 'role':
+                    locator = self.page.get_by_role(locator_value)
+                elif locator_strategy.lower() == 'label':
+                    locator = self.page.get_by_label(locator_value)
+                elif locator_strategy.lower() == 'title':
+                    locator = self.page.get_by_title(locator_value)
+                elif locator_strategy.lower() == 'test-id':
+                    locator = self.page.get_by_test_id(locator_value)
                 else:
+                    # 默认使用CSS选择器
                     locator = self.page.locator(locator_value)
-            elif locator_strategy.lower() == 'xpath':
-                # XPath 定位器
-                # 如果是下拉框选项，强制只查找可见元素
-                if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
-                    if 'visible=true' not in locator_value:
-                        locator = self.page.locator(f"xpath={locator_value} >> visible=true").first
-                    else:
-                        locator = self.page.locator(f"xpath={locator_value}").first
-                # 如果 XPath 已经包含索引 [n]，不要添加 .first（会冲突）
-                elif '[' in locator_value and ']' in locator_value:
-                    locator = self.page.locator(f'xpath={locator_value}')
-                else:
-                    # 如果没有索引，添加 .first 避免 strict mode violation
-                    locator = self.page.locator(f'xpath={locator_value}').first
-            elif locator_strategy.lower() == 'text':
-                locator = self.page.get_by_text(locator_value)
-            elif locator_strategy.lower() == 'name':
-                locator = self.page.locator(f'[name="{locator_value}"]')
-            elif locator_strategy.lower() == 'placeholder':
-                locator = self.page.get_by_placeholder(locator_value)
-            elif locator_strategy.lower() == 'role':
-                locator = self.page.get_by_role(locator_value)
-            elif locator_strategy.lower() == 'label':
-                locator = self.page.get_by_label(locator_value)
-            elif locator_strategy.lower() == 'title':
-                locator = self.page.get_by_title(locator_value)
-            elif locator_strategy.lower() == 'test-id':
-                locator = self.page.get_by_test_id(locator_value)
             else:
-                # 默认使用CSS选择器
-                locator = self.page.locator(locator_value)
+                # 表格断言不需要定位器，设置默认值
+                locator = None
+                locator_strategy = ''
+                locator_value = ''
+                element_name = step.assert_type
+                timeout_ms = step.wait_time or 5000
 
             # 执行操作
             execution_time = 0
@@ -794,6 +806,120 @@ class PlaywrightTestEngine:
                         return True, log, None
                     else:
                         log = f"✗ 断言失败: 元素 '{element_name}' 不存在"
+                        screenshot = await self.page.screenshot()
+                        screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                        return False, log, screenshot_base64
+
+                elif step.assert_type in ('tableContains', 'tableNotContains'):
+                    # 表格包含/不包含文本断言：自动查找表格容器，不需要元素定位器
+                    try:
+                        table_result = await self.page.evaluate(f"""(() => {{
+                            const tbl = document.querySelector('.ant-table') ||
+                                        document.querySelector('.el-table') ||
+                                        document.querySelector('table');
+                            if (!tbl) return {{ found: false }};
+                            const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
+                            const matchingRows = [];
+                            for (const row of rows) {{
+                                const text = (row.textContent || '').trim();
+                                if (text.includes({repr(resolved_assert_value)})) {{
+                                    matchingRows.push(text.substring(0, 100));
+                                }}
+                            }}
+                            return {{ found: true, totalRows: rows.length, matchingCount: matchingRows.length }};
+                        }})()""")
+
+                        if not table_result.get('found'):
+                            log = f"✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
+                            screenshot = await self.page.screenshot()
+                            screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                            return False, log, screenshot_base64
+
+                        total = table_result.get('totalRows', 0)
+                        matching = table_result.get('matchingCount', 0)
+
+                        if step.assert_type == 'tableContains':
+                            if matching > 0:
+                                log = f"✓ 断言通过: 表格共{total}行，找到{matching}行包含'{resolved_assert_value}'"
+                                return True, log, None
+                            else:
+                                log = f"✗ 断言失败: 表格共{total}行，未找到包含'{resolved_assert_value}'的行"
+                                screenshot = await self.page.screenshot()
+                                screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                                return False, log, screenshot_base64
+                        else:  # tableNotContains
+                            if matching == 0:
+                                log = f"✓ 断言通过: 表格共{total}行，未找到包含'{resolved_assert_value}'的行"
+                                return True, log, None
+                            else:
+                                log = f"✗ 断言失败: 表格共{total}行，找到{matching}行包含'{resolved_assert_value}'，期望不包含"
+                                screenshot = await self.page.screenshot()
+                                screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                                return False, log, screenshot_base64
+
+                    except Exception as e:
+                        log = f"✗ 表格断言异常: {str(e)[:80]}"
+                        screenshot = await self.page.screenshot()
+                        screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                        return False, log, screenshot_base64
+
+                elif step.assert_type == 'tableEmpty':
+                    # 表格为空断言：自动查找表格容器，不需要元素定位器
+                    try:
+                        empty_result = await self.page.evaluate("""(() => {
+                            const tbl = document.querySelector('.ant-table') ||
+                                        document.querySelector('.el-table') ||
+                                        document.querySelector('table');
+                            if (!tbl) return { found: false };
+                            const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
+                            const dataRows = Array.from(rows).filter(r => !r.classList.contains('ant-table-placeholder') && (r.textContent || '').trim().length > 0);
+                            const emptyHints = tbl.querySelectorAll('.ant-table-placeholder, .ant-empty, .el-table__empty-block, .el-table__empty-text');
+                            const hasEmptyHint = Array.from(emptyHints).some(h => h.offsetParent !== null);
+                            return { found: true, dataRows: dataRows.length, hasEmptyHint, isEmpty: dataRows.length === 0 || hasEmptyHint };
+                        })()""")
+
+                        if not empty_result.get('found'):
+                            log = f"✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
+                            screenshot = await self.page.screenshot()
+                            screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                            return False, log, screenshot_base64
+
+                        if empty_result.get('isEmpty', False):
+                            log = f"✓ 断言通过: 表格为空"
+                            return True, log, None
+                        else:
+                            rows = empty_result.get('dataRows', 0)
+                            log = f"✗ 断言失败: 表格不为空，共{rows}行数据"
+                            screenshot = await self.page.screenshot()
+                            screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                            return False, log, screenshot_base64
+
+                    except Exception as e:
+                        log = f"✗ 表格为空断言异常: {str(e)[:80]}"
+                        screenshot = await self.page.screenshot()
+                        screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                        return False, log, screenshot_base64
+
+                elif step.assert_type == 'hasAttribute':
+                    # 属性值断言：需要元素定位器
+                    attr_name = resolved_assert_value.split('=')[0] if '=' in resolved_assert_value else resolved_assert_value
+                    attr_value = await locator.get_attribute(attr_name, timeout=timeout_ms)
+                    if attr_value is not None:
+                        if '=' in resolved_assert_value:
+                            expected_val = resolved_assert_value.split('=', 1)[1]
+                            if attr_value == expected_val:
+                                log = f"✓ 断言通过: 元素 '{element_name}' 属性 {attr_name}='{attr_value}'"
+                                return True, log, None
+                            else:
+                                log = f"✗ 断言失败: 元素 '{element_name}' 属性 {attr_name}='{attr_value}'，期望 '{expected_val}'"
+                                screenshot = await self.page.screenshot()
+                                screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                                return False, log, screenshot_base64
+                        else:
+                            log = f"✓ 断言通过: 元素 '{element_name}' 存在属性 '{attr_name}'"
+                            return True, log, None
+                    else:
+                        log = f"✗ 断言失败: 元素 '{element_name}' 不存在属性 '{attr_name}'"
                         screenshot = await self.page.screenshot()
                         screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
                         return False, log, screenshot_base64
