@@ -1306,12 +1306,12 @@ class TestExecutor:
                                                     const titles = dd.querySelectorAll('.ant-select-tree-title');
                                                     for (const title of titles) {{
                                                         const text = (title.textContent || '').trim();
-                                                        if (text.includes({repr(opt_text)})) {{
-                                                            const treenode = title.closest('.ant-select-tree-treenode');
-                                                            if (treenode) {{
-                                                                treenode.setAttribute('data-pw-opt-mark', '1');
-                                                                return {{ found: true, text: text, selector: '.ant-select-tree-treenode[data-pw-opt-mark="1"]' }};
-                                                            }}
+                                                            if (text.includes({repr(opt_text)})) {{
+                                                                const contentWrapper = title.closest('.ant-select-tree-node-content-wrapper');
+                                                                if (contentWrapper) {{
+                                                                    contentWrapper.setAttribute('data-pw-opt-mark', '1');
+                                                                    return {{ found: true, text: text, selector: '.ant-select-tree-node-content-wrapper[data-pw-opt-mark="1"]' }};
+                                                                }}
                                                         }}
                                                     }}
                                                 }}
