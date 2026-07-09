@@ -161,7 +161,7 @@
                             <el-option label="路由跳转" value="navigate" />
                           </el-select>
                           <el-tree-select
-                            v-if="needsElement(element.action_type)"
+                            v-if="needsElement(element.action_type, element.assert_type)"
                             v-model="element.element_id"
                             :data="elementTreeData"
                             :props="elementTreeProps"
@@ -782,8 +782,11 @@ const needsWaitTime = (actionType) => {
   return ['wait', 'waitFor'].includes(actionType)
 }
 
-const needsElement = (actionType) => {
-  return !['wait', 'switchTab', 'screenshot', 'navigate'].includes(actionType)
+const needsElement = (actionType, assertType) => {
+  if (['wait', 'switchTab', 'screenshot', 'navigate'].includes(actionType)) return false
+  // 表格断言类型自动查找表格，不需要用户选择元素
+  if (actionType === 'assert' && ['tableContains', 'tableEmpty'].includes(assertType)) return false
+  return true
 }
 
 // 元素树形下拉 props
