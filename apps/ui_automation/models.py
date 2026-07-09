@@ -54,7 +54,7 @@ class ElementGroup(models.Model):
     name = models.CharField(max_length=200, verbose_name='分组名称')
     description = models.TextField(blank=True, verbose_name='分组描述')
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='element_groups', verbose_name='所属项目')
-    parent_group = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, verbose_name='父分组')
+    parent_group = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, verbose_name='父分组')
     order = models.IntegerField(default=0, verbose_name='排序')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')

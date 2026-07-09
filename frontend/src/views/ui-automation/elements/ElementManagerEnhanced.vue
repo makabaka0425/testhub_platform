@@ -1513,7 +1513,7 @@ const editNode = async () => {
     editPageForm.id = rightClickedNode.value._originalId || rightClickedNode.value.id
     editPageForm.name = rightClickedNode.value.name
     editPageForm.description = rightClickedNode.value.description || ''
-    editPageForm.parent_page = rightClickedNode.value.parent_group || null
+    editPageForm.parent_page = rightClickedNode.value.parent_group ?? null
     console.log('Set edit page form data:', editPageForm)
     console.log('Setting showEditPageDialog to true')
     showEditPageDialog.value = true
@@ -1691,11 +1691,9 @@ const updatePage = async () => {
       project: selectedProject.value
     }
 
-    // 只有当父页面ID存在且不为空时才添加parent_group字段
-    // 如果父页面ID为null，表示取消父页面关联
-    if (editPageForm.parent_page !== undefined) {
-      pageData.parent_group = editPageForm.parent_page
-    }
+    // 始终包含parent_group字段，null表示取消父页面关联
+    // 注意：el-select clearable清除时值可能变为undefined或''，需归一化为null
+    pageData.parent_group = editPageForm.parent_page || null
 
     await updateElementGroup(editPageForm.id, pageData)
 
