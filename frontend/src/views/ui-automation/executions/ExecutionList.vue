@@ -409,6 +409,7 @@ const getActionText = (actionType) => {
   const actionMap = {
     'click': t('uiAutomation.actionTypes.click'),
     'fill': t('uiAutomation.actionTypes.fill'),
+    'select': '选择下拉选项',
     'getText': t('uiAutomation.actionTypes.getText'),
     'waitFor': t('uiAutomation.actionTypes.waitFor'),
     'hover': t('uiAutomation.actionTypes.hover'),

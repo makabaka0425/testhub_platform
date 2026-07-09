@@ -655,6 +655,7 @@ class TestCaseStep(models.Model):
     ACTION_TYPE_CHOICES = [
         ('click', '点击'),
         ('fill', '输入文本'),
+        ('select', '选择下拉选项'),
         ('getText', '获取文本'),
         ('waitFor', '等待元素'),
         ('hover', '悬停'),

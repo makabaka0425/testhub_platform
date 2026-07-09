@@ -149,6 +149,7 @@
                           >
                             <el-option :label="t('uiAutomation.testCase.actionClick')" value="click" />
                             <el-option :label="t('uiAutomation.testCase.actionFill')" value="fill" />
+                            <el-option label="选择下拉选项" value="select" />
                             <el-option :label="t('uiAutomation.testCase.actionGetText')" value="getText" />
                             <el-option :label="t('uiAutomation.testCase.actionWaitFor')" value="waitFor" />
                             <el-option :label="t('uiAutomation.testCase.actionHover')" value="hover" />
@@ -207,7 +208,7 @@
                           <div style="display: flex; gap: 5px; flex: 1">
                             <el-input
                               v-model="element.input_value"
-                              :placeholder="element.action_type === 'switchTab' ? t('uiAutomation.testCase.switchTabPlaceholder') : element.action_type === 'navigate' ? '输入路由路径，如 /user/list' : t('uiAutomation.testCase.inputPlaceholder')"
+                              :placeholder="element.action_type === 'select' ? '选项文本，多个用逗号分隔' : element.action_type === 'switchTab' ? t('uiAutomation.testCase.switchTabPlaceholder') : element.action_type === 'navigate' ? '输入路由路径，如 /user/list' : t('uiAutomation.testCase.inputPlaceholder')"
                               size="small"
                             >
                               <template #append>
@@ -747,7 +748,7 @@ const onStepsReorder = () => {
 
 const onActionTypeChange = (step) => {
   // 根据操作类型重置相关参数
-  if (!['fill', 'navigate'].includes(step.action_type)) {
+  if (!['fill', 'select', 'navigate'].includes(step.action_type)) {
     step.input_value = ''
   }
   if (step.action_type !== 'wait') {
@@ -772,7 +773,7 @@ const onElementChange = (step) => {
 }
 
 const needsInputValue = (actionType) => {
-  return ['fill', 'switchTab', 'navigate'].includes(actionType)
+  return ['fill', 'select', 'switchTab', 'navigate'].includes(actionType)
 }
 
 const needsWaitTime = (actionType) => {
@@ -1224,6 +1225,7 @@ const getActionTypeText = (actionType) => {
   const textMap = {
     'click': t('uiAutomation.testCase.actionType.click'),
     'fill': t('uiAutomation.testCase.actionType.fill'),
+    'select': '选择下拉选项',
     'getText': t('uiAutomation.testCase.actionType.getText'),
     'waitFor': t('uiAutomation.testCase.actionType.waitFor'),
     'hover': t('uiAutomation.testCase.actionType.hover'),
@@ -1247,6 +1249,7 @@ const getActionText = (actionType) => {
   const actionMap = {
     'click': t('uiAutomation.testCase.actionText.click'),
     'fill': t('uiAutomation.testCase.actionText.fill'),
+    'select': '选择',
     'getText': t('uiAutomation.testCase.actionText.getText'),
     'waitFor': t('uiAutomation.testCase.actionText.waitFor'),
     'hover': t('uiAutomation.testCase.actionText.hover'),
