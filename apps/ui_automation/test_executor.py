@@ -1244,7 +1244,7 @@ class TestExecutor:
                             # UI 框架下拉框：Playwright click 触发器
                             trigger_sel = open_result['triggerSelector']
                             self.current_page.locator(trigger_sel).first.scroll_into_view_if_needed(timeout=3000)
-                            self.current_page.locator(trigger_sel).first.click(timeout=step_data['wait_time'])
+                            self.current_page.locator(trigger_sel).first.click(timeout=5000)
                             self.current_page.wait_for_timeout(800)
                             select_opened = True
                             framework = open_result.get('framework', '')
@@ -1390,6 +1390,21 @@ class TestExecutor:
                                     opt_selected = True
                                     selected_options.append(matched_text)
                                     print(f"[select] 选中选项: '{matched_text}' (匹配'{opt_text}')")
+                                    
+                                    # 选中后主动关闭可能残留的下拉面板，避免遮挡后续元素
+                                    try:
+                                        self.current_page.evaluate("""(() => {
+                                            document.querySelectorAll('.ant-select-dropdown, .ant-tree-select-dropdown').forEach(dd => {
+                                                if (dd.offsetParent !== null) {
+                                                    // 点击空白处关闭（通过 Escape 键更可靠）
+                                                }
+                                            });
+                                        })()""")
+                                        # 按 Escape 关闭可能残留的下拉框
+                                        self.current_page.keyboard.press('Escape')
+                                        self.current_page.wait_for_timeout(300)
+                                    except:
+                                        pass
                                     
                                     # 清除临时标记
                                     try:
