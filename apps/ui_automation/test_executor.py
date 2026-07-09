@@ -1086,6 +1086,15 @@ class TestExecutor:
                                             el = document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
                                         }}
                                         if (!el) return {{ isSelect: false }};
+                                        // 检测 Ant Design TreeSelect（优先，因为 TreeSelect 也包含 .ant-select）
+                                        const antTreeSelect = (el.classList && el.classList.contains('ant-tree-select')) ? el : (el.closest ? el.closest('.ant-tree-select') : null);
+                                        if (antTreeSelect) {{
+                                            const trigger = antTreeSelect.querySelector('.ant-select-selector');
+                                            if (trigger) {{
+                                                antTreeSelect.setAttribute('data-pw-select-mark', '1');
+                                                return {{ isSelect: true, framework: 'antd-tree', triggerSelector: '[data-pw-select-mark="1"] .ant-select-selector' }};
+                                            }}
+                                        }}
                                         // 检测 Ant Design select
                                         const antSelect = (el.classList && el.classList.contains('ant-select')) ? el : (el.closest ? el.closest('.ant-select') : null);
                                         if (antSelect) {{
@@ -1198,7 +1207,16 @@ class TestExecutor:
                                     el = document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
                                 }}
                                 if (!el) return {{ opened: false, reason: 'element-not-found' }};
-                                // Ant Design
+                                // Ant Design TreeSelect（优先检测，因为 TreeSelect 也包含 .ant-select）
+                                const antTreeSelect = (el.classList && el.classList.contains('ant-tree-select')) ? el : (el.closest ? el.closest('.ant-tree-select') : null);
+                                if (antTreeSelect) {{
+                                    const trigger = antTreeSelect.querySelector('.ant-select-selector');
+                                    if (trigger) {{
+                                        antTreeSelect.setAttribute('data-pw-select-mark', '1');
+                                        return {{ opened: true, framework: 'antd-tree', triggerSelector: '[data-pw-select-mark="1"] .ant-select-selector', dropdownSelector: '.ant-tree-select-dropdown', optionSelector: '.ant-select-tree-treenode' }};
+                                    }}
+                                }}
+                                // Ant Design Select
                                 const antSelect = (el.classList && el.classList.contains('ant-select')) ? el : (el.closest ? el.closest('.ant-select') : null);
                                 if (antSelect) {{
                                     const trigger = antSelect.querySelector('.ant-select-selector');
@@ -1256,7 +1274,52 @@ class TestExecutor:
                             
                             # 尝试在下拉面板中模糊匹配选项
                             try:
-                                if framework == 'antd':
+                                if framework == 'antd-tree':
+                                    # Ant Design TreeSelect: 树形下拉框
+                                    # 第一步：展开所有折叠的父节点
+                                    js_expand = """(() => {
+                                        const dropdowns = document.querySelectorAll('.ant-tree-select-dropdown');
+                                        for (const dd of dropdowns) {
+                                            if (dd.style.display !== 'none' && dd.offsetParent !== null) {
+                                                const closedSwitchers = dd.querySelectorAll('.ant-select-tree-switcher_close:not(.ant-select-tree-switcher-leaf)');
+                                                let expanded = 0;
+                                                for (const sw of closedSwitchers) {
+                                                    try { sw.click(); expanded++; } catch(e) {}
+                                                }
+                                                return { expanded: expanded };
+                                            }
+                                        }
+                                        return { expanded: 0 };
+                                    })()"""
+                                    expand_result = self.current_page.evaluate(js_expand)
+                                    if expand_result.get('expanded', 0) > 0:
+                                        # 展开节点后等待 DOM 更新
+                                        self.current_page.wait_for_timeout(500)
+                                        print(f"[select] TreeSelect: 展开了 {expand_result['expanded']} 个父节点")
+
+                                    # 第二步：在 .ant-select-tree-title 中模糊匹配
+                                    js_match = f"""
+                                        (() => {{
+                                            const dropdowns = document.querySelectorAll('.ant-tree-select-dropdown');
+                                            for (const dd of dropdowns) {{
+                                                if (dd.style.display !== 'none' && dd.offsetParent !== null) {{
+                                                    const titles = dd.querySelectorAll('.ant-select-tree-title');
+                                                    for (const title of titles) {{
+                                                        const text = (title.textContent || '').trim();
+                                                        if (text.includes({repr(opt_text)})) {{
+                                                            const treenode = title.closest('.ant-select-tree-treenode');
+                                                            if (treenode) {{
+                                                                treenode.setAttribute('data-pw-opt-mark', '1');
+                                                                return {{ found: true, text: text, selector: '.ant-select-tree-treenode[data-pw-opt-mark="1"]' }};
+                                                            }}
+                                                        }}
+                                                    }}
+                                                }}
+                                            }}
+                                            return {{ found: false }};
+                                        }})()
+                                    """
+                                elif framework == 'antd':
                                     # Ant Design: 在 .ant-select-dropdown 中找 .ant-select-item-option
                                     # 模糊匹配：选项文本包含目标文本
                                     js_match = f"""
