@@ -250,8 +250,10 @@
                             <el-option :label="t('uiAutomation.testCase.assertIsVisible')" value="isVisible" />
                             <el-option :label="t('uiAutomation.testCase.assertExists')" value="exists" />
                             <el-option :label="t('uiAutomation.testCase.assertHasAttribute')" value="hasAttribute" />
+                            <el-option label="表格包含文本" value="tableContains" />
+                            <el-option label="表格为空" value="tableEmpty" />
                           </el-select>
-                          <div style="display: flex; align-items: center; margin-left: 10px; width: 240px">
+                          <div v-if="element.assert_type !== 'tableEmpty'" style="display: flex; align-items: center; margin-left: 10px; width: 240px">
                             <el-input
                               v-model="element.assert_value"
                               :placeholder="t('uiAutomation.testCase.expectedValue')"

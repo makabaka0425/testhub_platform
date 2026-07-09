@@ -673,6 +673,8 @@ class TestCaseStep(models.Model):
         ('isVisible', '元素可见'),
         ('exists', '元素存在'),
         ('hasAttribute', '属性值'),
+        ('tableContains', '表格包含文本'),
+        ('tableEmpty', '表格为空'),
     ]
 
     test_case = models.ForeignKey(TestCase, on_delete=models.CASCADE, related_name='steps', verbose_name='测试用例')
