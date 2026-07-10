@@ -176,6 +176,9 @@ class ElementViewSet(viewsets.ModelViewSet):
     filterset_fields = ['project', 'locator_strategy', 'element_type', 'validation_status', 'group']
     search_fields = ['name', 'description', 'page', 'component_name']
 
+    # 手动交互模式会话管理（类变量，跨请求共享）
+    _manual_sessions = {}  # session_id -> {playwright, browser, page, context, captures, created_at}
+
     def get_serializer_class(self):
         if self.action in ['list', 'retrieve']:
             return ElementEnhancedSerializer
@@ -368,6 +371,8 @@ class ElementViewSet(viewsets.ModelViewSet):
             dom_elements = extract_result.get('elements', [])
             final_url = extract_result.get('final_url', url)
             redirect_warning = extract_result.get('redirect_warning', '')
+            candidate_buttons = extract_result.get('candidate_buttons', [])
+            table_row_count = extract_result.get('table_row_count', 0)
         except Exception as e:
             import traceback
             error_detail = f'{str(e)}\n{traceback.format_exc()}'
@@ -441,12 +446,725 @@ class ElementViewSet(viewsets.ModelViewSet):
             'page_title': dom_elements[0].get('page_title', '') if dom_elements else '',
             'url': url,
             'final_url': final_url,
-            'elements': ai_elements
+            'elements': ai_elements,
+            'candidate_buttons': candidate_buttons,
+            'table_row_count': table_row_count
         }
         if redirect_warning:
             response_data['redirect_warning'] = redirect_warning
 
         return Response(response_data)
+
+    @action(detail=False, methods=['post'])
+    def ai_extract_dialogs(self, request):
+        """AI提取弹窗元素 — 自动点击候选按钮，提取弹窗内元素"""
+        import os
+        os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+
+        project_id = request.data.get('project_id')
+        url = request.data.get('url', '').strip()
+        login_config_id = request.data.get('login_config_id')
+        page_name = request.data.get('page_name', '').strip()
+        buttons = request.data.get('buttons', [])  # 用户勾选的候选按钮列表
+
+        if not project_id or not url:
+            return Response({'error': 'project_id 和 url 为必填项'}, status=status.HTTP_400_BAD_REQUEST)
+        if not buttons:
+            return Response({'error': 'buttons 为必填项，请提供要点击的候选按钮列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 验证项目
+        try:
+            project = UiProject.objects.get(id=project_id)
+        except UiProject.DoesNotExist:
+            return Response({'error': '项目不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 验证登录配置
+        login_config = None
+        if login_config_id:
+            try:
+                login_config = LoginConfig.objects.get(id=login_config_id, project=project)
+            except LoginConfig.DoesNotExist:
+                return Response({'error': '登录配置不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        login_steps_data = None
+        login_start_url = ''
+        if login_config:
+            login_start_url = login_config.login_url or ''
+            if not login_start_url and login_config.project:
+                login_start_url = login_config.project.base_url or ''
+            test_case = login_config.login_test_case
+            if test_case:
+                steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+                login_steps_data = []
+                for step in steps:
+                    step_data = {
+                        'action_type': step.action_type,
+                        'input_value': step.input_value or '',
+                        'wait_time': step.wait_time or 1000,
+                        'action_wait': step.action_wait or 0,
+                        'element': None
+                    }
+                    if step.element:
+                        step_data['element'] = {
+                            'locator_value': step.element.locator_value,
+                            'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                        }
+                    login_steps_data.append(step_data)
+
+        # 使用Playwright自动点击按钮并提取弹窗元素
+        try:
+            extract_result = self._playwright_extract_dialog_elements(
+                url, buttons, login_start_url, login_steps_data
+            )
+        except Exception as e:
+            import traceback
+            error_detail = f'{str(e)}\n{traceback.format_exc()}'
+            print(f'[AI提取弹窗] 提取失败: {error_detail}')
+            return Response({'error': f'弹窗元素提取失败: {str(e) or type(e).__name__}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        dialog_elements = extract_result.get('elements', [])
+        dialog_sources = extract_result.get('dialog_sources', {})
+
+        # AI 分析与分类
+        if not dialog_elements:
+            return Response({
+                'elements': [],
+                'dialog_sources': dialog_sources,
+                'message': '未在弹窗中找到可交互元素'
+            })
+
+        try:
+            ai_elements = self._ai_analyze_elements(dialog_elements)
+        except Exception as e:
+            print(f'[AI提取弹窗] AI分析失败，回退到规则引擎: {str(e)}')
+            ai_elements = self._rule_based_classify(dialog_elements)
+
+        # 填充 page_name 和 source
+        for elem in ai_elements:
+            if page_name:
+                elem['page'] = page_name
+
+        # 关联验证状态
+        validation_map = {}
+        dom_validated_values = set()
+        for dom_elem in dialog_elements:
+            v_status = dom_elem.get('validation_status', '')
+            v_details = dom_elem.get('validation_details', '')
+            if not v_status:
+                continue
+            auto_css = dom_elem.get('auto_css', '')
+            auto_xpath = dom_elem.get('auto_xpath', '')
+            if auto_css:
+                validation_map[auto_css] = (v_status, v_details)
+                dom_validated_values.add(auto_css)
+            if auto_xpath:
+                validation_map[auto_xpath] = (v_status, v_details)
+                dom_validated_values.add(auto_xpath)
+
+        for elem in ai_elements:
+            locator_value = elem.get('locator_value', '')
+            if locator_value in validation_map:
+                v_status, v_details = validation_map[locator_value]
+                elem['validation_status'] = v_status
+                elem['validation_details'] = v_details
+            else:
+                elem['validation_status'] = 'UNVALIDATED'
+                elem['validation_details'] = '未在DOM提取阶段验证'
+
+            # 关联弹窗来源
+            source = elem.get('source', '')
+            if not source:
+                for css in [elem.get('locator_value', ''), elem.get('auto_css', '')]:
+                    if css:
+                        for dialog_name, dialog_css_list in dialog_sources.items():
+                            if css in dialog_css_list:
+                                elem['source'] = dialog_name
+                                break
+
+        # 二次验证
+        needs_revalidation = [
+            e for e in ai_elements
+            if not e.get('validation_status') or e.get('validation_status') in ('', 'PARTIAL')
+        ]
+        if needs_revalidation:
+            print(f'[AI提取弹窗] 有{len(needs_revalidation)}个元素需要二次验证')
+            self._revalidate_locators(url, login_start_url, login_steps_data, needs_revalidation)
+
+        ai_elements = self._deduplicate_locators(ai_elements)
+
+        return Response({
+            'elements': ai_elements,
+            'dialog_sources': dialog_sources
+        })
+
+    def _playwright_extract_dialog_elements(self, url, buttons, login_start_url='', login_steps_data=None):
+        """使用Playwright打开页面，逐个点击候选按钮提取弹窗元素"""
+        from playwright.sync_api import sync_playwright
+        import time
+
+        all_dialog_elements = []
+        dialog_sources = {}  # 弹窗名 -> 元素CSS列表
+        dialog_failures = []
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+            page = context.new_page()
+
+            # 登录（如有）
+            if login_start_url and login_steps_data:
+                page.goto(login_start_url, wait_until='networkidle', timeout=30000)
+                time.sleep(2)
+                for i, step_data in enumerate(login_steps_data):
+                    self._execute_login_step(page, step_data)
+                try:
+                    page.wait_for_load_state('networkidle', timeout=10000)
+                except:
+                    pass
+                time.sleep(2)
+
+            # 导航到目标页面
+            page.goto(url, wait_until='networkidle', timeout=30000)
+            time.sleep(2)
+            page_title = page.title()
+
+            for btn_info in buttons:
+                btn_text = btn_info.get('text', '')
+                btn_css = btn_info.get('css_selector', '')
+                btn_xpath = btn_info.get('xpath', '')
+                btn_source = btn_info.get('source', '页面级按钮')
+
+                print(f'[AI提取弹窗] 尝试点击按钮: "{btn_text}" (source={btn_source})')
+
+                try:
+                    # 点击按钮
+                    clicked = False
+                    if btn_css:
+                        try:
+                            locator = page.locator(btn_css).first
+                            if locator.count() > 0:
+                                locator.click(timeout=5000)
+                                clicked = True
+                        except:
+                            pass
+                    if not clicked and btn_xpath:
+                        try:
+                            locator = page.locator(f'xpath={btn_xpath}').first
+                            if locator.count() > 0:
+                                locator.click(timeout=5000)
+                                clicked = True
+                        except:
+                            pass
+                    if not clicked and btn_text:
+                        # 尝试通过文本点击
+                        try:
+                            page.get_by_text(btn_text, exact=False).first.click(timeout=5000)
+                            clicked = True
+                        except:
+                            pass
+
+                    if not clicked:
+                        dialog_failures.append({'button': btn_text, 'reason': '无法定位或点击按钮'})
+                        continue
+
+                    # 等待弹窗出现
+                    dialog_appeared = False
+                    dialog_selector = None
+                    for sel in ['.ant-modal:visible', '.ant-drawer:visible', '.el-dialog:visible', '.el-drawer:visible',
+                                '[role="dialog"]:visible', '.modal:visible']:
+                        try:
+                            page.wait_for_selector(sel, timeout=3000)
+                            dialog_selector = sel
+                            dialog_appeared = True
+                            break
+                        except:
+                            continue
+
+                    if not dialog_appeared:
+                        dialog_failures.append({'button': btn_text, 'reason': '点击后未检测到弹窗'})
+                        # 尝试恢复页面状态
+                        time.sleep(1)
+                        continue
+
+                    time.sleep(1)  # 等待弹窗内容完全渲染
+
+                    # 获取弹窗标题（用于来源标注）
+                    dialog_title = btn_text
+                    try:
+                        title_el = page.locator(f'{dialog_selector} .ant-modal-title, {dialog_selector} .el-dialog__title, {dialog_selector} [role="dialog"] h3, {dialog_selector} h2, {dialog_selector} h3').first
+                        if title_el.count() > 0:
+                            dialog_title = f"{btn_text}弹窗({title_el.text_content().strip()[:20]})"
+                        else:
+                            dialog_title = f"{btn_text}弹窗"
+                    except:
+                        dialog_title = f"{btn_text}弹窗"
+
+                    print(f'[AI提取弹窗] 检测到弹窗: {dialog_title}')
+
+                    # 提取弹窗内部元素（scope限制在弹窗容器内）
+                    dialog_js = """
+                    (dialogSelector) => {
+                        const results = [];
+                        const interactiveSelectors = [
+                            'input', 'button', 'a[href]', 'select', 'textarea',
+                            '[role="button"]', '[role="link"]', '[role="tab"]',
+                            '[role="menuitem"]', '[role="option"]', '[role="switch"]',
+                            '[onclick]', '[contenteditable="true"]',
+                            '.el-button', '.el-input__inner', '.el-select',
+                            '.el-checkbox', '.el-radio', '.el-switch',
+                            '.ant-btn', '.ant-input', '.ant-select', '.ant-checkbox',
+                            '.ant-radio', '.ant-switch'
+                        ];
+
+                        const seen = new Set();
+                        const container = document.querySelector(dialogSelector);
+                        if (!container) return { elements: [] };
+
+                        interactiveSelectors.forEach(selector => {
+                            try {
+                                container.querySelectorAll(selector).forEach(el => {
+                                    const rect = el.getBoundingClientRect();
+                                    if (rect.width === 0 && rect.height === 0) return;
+                                    const style = window.getComputedStyle(el);
+                                    if (style.display === 'none' || style.visibility === 'hidden') return;
+
+                                    const key = el.tagName + '|' + (el.id||'') + '|' + el.className + '|' + rect.x + '|' + rect.y;
+                                    if (seen.has(key)) return;
+                                    seen.add(key);
+
+                                    results.push({
+                                        tag: el.tagName.toLowerCase(),
+                                        id: el.id || '',
+                                        name: el.getAttribute('name') || '',
+                                        className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
+                                        type: el.type || '',
+                                        placeholder: el.placeholder || '',
+                                        value: (el.value || '').substring(0, 50),
+                                        href: el.href || '',
+                                        role: el.getAttribute('role') || '',
+                                        ariaLabel: el.getAttribute('aria-label') || '',
+                                        dataTestId: el.getAttribute('data-testid') || '',
+                                        text: (el.textContent || '').trim().substring(0, 80),
+                                        title: el.title || '',
+                                        visible: true,
+                                        rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+                                        isInTableRow: false,
+                                        tableRowIndex: -1
+                                    });
+                                });
+                            } catch(e) {}
+                        });
+                        return { elements: results.slice(0, 80) };
+                    }
+                    """
+
+                    dialog_result = page.evaluate(dialog_js, dialog_selector)
+                    dialog_raw_elements = dialog_result.get('elements', [])
+
+                    # 计算定位器 + 验证
+                    dialog_css_list = []
+                    for elem in dialog_raw_elements:
+                        elem['page_title'] = page_title
+                        elem['source'] = dialog_title
+                        css_selector = self._compute_css_selector(elem)
+                        xpath = self._compute_xpath(elem)
+                        validation = self._validate_locators(page, elem, css_selector, xpath)
+                        elem['auto_css'] = validation['css_selector']
+                        elem['auto_xpath'] = validation['xpath']
+                        elem['validation_status'] = validation['validation_status']
+                        elem['validation_details'] = validation['validation_details']
+                        all_dialog_elements.append(elem)
+                        if validation['css_selector']:
+                            dialog_css_list.append(validation['css_selector'])
+
+                    dialog_sources[dialog_title] = dialog_css_list
+                    print(f'[AI提取弹窗] 弹窗"{dialog_title}"提取到 {len(dialog_raw_elements)} 个元素')
+
+                    # 关闭弹窗：遮罩层 → 取消按钮 → ESC
+                    self._close_dialog(page)
+
+                except Exception as e:
+                    dialog_failures.append({'button': btn_text, 'reason': str(e)})
+                    print(f'[AI提取弹窗] 点击"{btn_text}"时出错: {str(e)}')
+                    # 尝试恢复
+                    try:
+                        self._close_dialog(page)
+                    except:
+                        pass
+
+            browser.close()
+
+        if dialog_failures:
+            print(f'[AI提取弹窗] 失败的按钮: {dialog_failures}')
+
+        return {
+            'elements': all_dialog_elements,
+            'dialog_sources': dialog_sources
+        }
+
+    def _close_dialog(self, page):
+        """关闭弹窗：遮罩层优先 → 取消按钮 → ESC兜底"""
+        import time
+
+        # 1. 点击遮罩层
+        try:
+            # Ant Design: 点击modal-wrap的边缘区域
+            mask = page.locator('.ant-modal-wrap:not(.ant-modal-wrap-hidden)').first
+            if mask.count() > 0:
+                # 点击左上角边缘（遮罩层区域，而非modal内容区域）
+                mask_box = mask.bounding_box()
+                if mask_box:
+                    page.mouse.click(mask_box['x'] + 5, mask_box['y'] + 5)
+                    time.sleep(500 / 1000)
+                    if page.locator('.ant-modal:visible').count() == 0:
+                        return True
+        except:
+            pass
+
+        # 2. 找取消/关闭按钮
+        try:
+            for close_sel in ['.ant-modal-close', '.ant-modal:visible .ant-btn-default',
+                              '.el-dialog__close', '.el-dialog .el-button--default',
+                              '[role="dialog"] button:has-text("取消")',
+                              '[role="dialog"] button:has-text("关闭")']:
+                try:
+                    close_btn = page.locator(close_sel).last
+                    if close_btn.count() > 0:
+                        close_btn.click(timeout=3000)
+                        time.sleep(500 / 1000)
+                        if page.locator('.ant-modal:visible, .el-dialog:visible, [role="dialog"]:visible').count() == 0:
+                            return True
+                except:
+                    continue
+        except:
+            pass
+
+        # 3. ESC兜底
+        try:
+            page.keyboard.press('Escape')
+            time.sleep(500 / 1000)
+        except:
+            pass
+
+        return page.locator('.ant-modal:visible, .el-dialog:visible, [role="dialog"]:visible').count() == 0
+
+        return page.locator('.ant-modal:visible, .el-dialog:visible, [role="dialog"]:visible').count() == 0
+
+    @action(detail=False, methods=['post'], url_path='ai_extract_manual/start')
+    def ai_extract_manual_start(self, request):
+        """手动交互模式 — 启动浏览器会话"""
+        import os
+        import uuid
+        import time
+        os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+
+        url = request.data.get('url', '').strip()
+        login_config_id = request.data.get('login_config_id')
+        project_id = request.data.get('project_id')
+
+        if not url:
+            return Response({'error': 'url 为必填项'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 登录配置
+        login_steps_data = None
+        login_start_url = ''
+        login_config = None
+        if login_config_id and project_id:
+            try:
+                project = UiProject.objects.get(id=project_id)
+                login_config = LoginConfig.objects.get(id=login_config_id, project=project)
+                login_start_url = login_config.login_url or ''
+                if not login_start_url and login_config.project:
+                    login_start_url = login_config.project.base_url or ''
+                test_case = login_config.login_test_case
+                if test_case:
+                    steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+                    login_steps_data = []
+                    for step in steps:
+                        step_data = {
+                            'action_type': step.action_type,
+                            'input_value': step.input_value or '',
+                            'wait_time': step.wait_time or 1000,
+                            'action_wait': step.action_wait or 0,
+                            'element': None
+                        }
+                        if step.element:
+                            step_data['element'] = {
+                                'locator_value': step.element.locator_value,
+                                'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                            }
+                        login_steps_data.append(step_data)
+            except Exception as e:
+                print(f'[手动提取] 登录配置加载失败: {str(e)}')
+
+        # 启动Playwright有头浏览器
+        try:
+            from playwright.sync_api import sync_playwright
+            session_id = str(uuid.uuid4())
+            pw = sync_playwright().start()
+            browser = pw.chromium.launch(headless=False)
+            context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+            page = context.new_page()
+
+            # 登录（如有）
+            if login_start_url and login_steps_data:
+                page.goto(login_start_url, wait_until='networkidle', timeout=30000)
+                time.sleep(2)
+                for step_data in login_steps_data:
+                    self._execute_login_step(page, step_data)
+                try:
+                    page.wait_for_load_state('networkidle', timeout=10000)
+                except:
+                    pass
+                time.sleep(2)
+
+            # 导航到目标页面
+            page.goto(url, wait_until='networkidle', timeout=30000)
+            time.sleep(2)
+
+            # 注入浮动按钮
+            self._inject_fab_button(page, session_id)
+
+            # 存储会话
+            self._manual_sessions[session_id] = {
+                'playwright': pw,
+                'browser': browser,
+                'context': context,
+                'page': page,
+                'captures': [],
+                'created_at': time.time()
+            }
+
+            return Response({
+                'session_id': session_id,
+                'message': '浏览器已打开，请手动操作后点击页面上的"提取元素"按钮'
+            })
+        except Exception as e:
+            import traceback
+            return Response({'error': f'启动浏览器失败: {str(e)}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='ai_extract_manual/capture')
+    def ai_extract_manual_capture(self, request):
+        """手动交互模式 — 提取当前页面元素"""
+        import time
+
+        session_id = request.data.get('session_id')
+        page_name = request.data.get('page_name', '').strip()
+
+        if not session_id or session_id not in self._manual_sessions:
+            return Response({'error': '无效的会话ID，请重新启动'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._manual_sessions[session_id]
+        page = session['page']
+
+        try:
+            # 获取元素数据（由浮动按钮JS收集并发送）
+            # 这里直接在后端用Playwright提取当前页面
+            page_title = page.title()
+
+            # 检查是否超时（5分钟）
+            if time.time() - session['created_at'] > 300:
+                self._cleanup_manual_session(session_id)
+                return Response({'error': '会话已超时(5分钟)，请重新启动'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 注入提取JS（复用主页面提取逻辑，但不过滤表格行重复）
+            extract_js = """
+            () => {
+                const results = [];
+                const interactiveSelectors = [
+                    'input', 'button', 'a[href]', 'select', 'textarea',
+                    '[role="button"]', '[role="link"]', '[role="tab"]',
+                    '[role="menuitem"]', '[role="option"]', '[role="switch"]',
+                    '[onclick]', '[contenteditable="true"]',
+                    '.el-button', '.el-input__inner', '.el-select',
+                    '.el-checkbox', '.el-radio', '.el-switch',
+                    '.ant-btn', '.ant-input', '.ant-select', '.ant-checkbox',
+                    '.ant-radio', '.ant-switch'
+                ];
+                const seen = new Set();
+                interactiveSelectors.forEach(selector => {
+                    try {
+                        document.querySelectorAll(selector).forEach(el => {
+                            // 跳过我们注入的浮动按钮
+                            if (el.id === 'ai-extract-fab' || el.closest('#ai-extract-fab')) return;
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width === 0 && rect.height === 0) return;
+                            const style = window.getComputedStyle(el);
+                            if (style.display === 'none' || style.visibility === 'hidden') return;
+                            const key = el.tagName + '|' + (el.id||'') + '|' + el.className + '|' + rect.x + '|' + rect.y;
+                            if (seen.has(key)) return;
+                            seen.add(key);
+                            results.push({
+                                tag: el.tagName.toLowerCase(),
+                                id: el.id || '',
+                                name: el.getAttribute('name') || '',
+                                className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
+                                type: el.type || '',
+                                placeholder: el.placeholder || '',
+                                value: (el.value || '').substring(0, 50),
+                                href: el.href || '',
+                                role: el.getAttribute('role') || '',
+                                ariaLabel: el.getAttribute('aria-label') || '',
+                                dataTestId: el.getAttribute('data-testid') || '',
+                                text: (el.textContent || '').trim().substring(0, 80),
+                                title: el.title || '',
+                                visible: true,
+                                rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+                                isInTableRow: false,
+                                tableRowIndex: -1
+                            });
+                        });
+                    } catch(e) {}
+                });
+                return { elements: results.slice(0, 80) };
+            }
+            """
+
+            extract_result = page.evaluate(extract_js)
+            raw_elements = extract_result.get('elements', [])
+
+            # 计算定位器 + 验证
+            for elem in raw_elements:
+                elem['page_title'] = page_title
+                if page_name:
+                    elem['source'] = page_name
+                css_selector = self._compute_css_selector(elem)
+                xpath = self._compute_xpath(elem)
+                validation = self._validate_locators(page, elem, css_selector, xpath)
+                elem['auto_css'] = validation['css_selector']
+                elem['auto_xpath'] = validation['xpath']
+                elem['validation_status'] = validation['validation_status']
+                elem['validation_details'] = validation['validation_details']
+
+            # AI分析
+            try:
+                ai_elements = self._ai_analyze_elements(raw_elements)
+            except Exception as e:
+                print(f'[手动提取] AI分析失败，回退规则引擎: {str(e)}')
+                ai_elements = self._rule_based_classify(raw_elements)
+
+            for elem in ai_elements:
+                if page_name:
+                    elem['page'] = page_name
+                    elem['source'] = page_name
+
+            # 记录这次提取
+            capture_info = {
+                'index': len(session['captures']) + 1,
+                'page_name': page_name or page_title,
+                'element_count': len(ai_elements),
+                'elements': ai_elements
+            }
+            session['captures'].append(capture_info)
+
+            # 重新注入浮动按钮（页面可能已变化）
+            time.sleep(0.5)
+            self._inject_fab_button(page, session_id)
+
+            return Response({
+                'elements': ai_elements,
+                'capture_index': capture_info['index'],
+                'total_captures': len(session['captures'])
+            })
+
+        except Exception as e:
+            import traceback
+            print(f'[手动提取] 提取失败: {traceback.format_exc()}')
+            return Response({'error': f'提取失败: {str(e)}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='ai_extract_manual/finish')
+    def ai_extract_manual_finish(self, request):
+        """手动交互模式 — 完成提取，汇总所有结果"""
+        session_id = request.data.get('session_id')
+
+        if not session_id or session_id not in self._manual_sessions:
+            return Response({'error': '无效的会话ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._manual_sessions[session_id]
+        captures = session['captures']
+
+        # 汇总所有提取结果
+        all_elements = []
+        seen_locators = set()
+        for capture in captures:
+            for elem in capture['elements']:
+                # 去重（相同定位值的元素只保留第一个）
+                locator_key = (elem.get('locator_strategy', ''), elem.get('locator_value', ''))
+                if locator_key in seen_locators:
+                    continue
+                seen_locators.add(locator_key)
+                all_elements.append(elem)
+
+        # 关闭浏览器
+        self._cleanup_manual_session(session_id)
+
+        return Response({
+            'elements': all_elements,
+            'captures': [
+                {'index': c['index'], 'page_name': c['page_name'], 'element_count': c['element_count']}
+                for c in captures
+            ]
+        })
+
+    def _inject_fab_button(self, page, session_id):
+        """在页面中注入浮动操作按钮"""
+        # 获取当前请求的host（后端地址）
+        fab_js = """
+        (sessionId) => {
+            // 清除旧的浮动按钮
+            const oldFab = document.getElementById('ai-extract-fab');
+            if (oldFab) oldFab.remove();
+
+            const fab = document.createElement('div');
+            fab.id = 'ai-extract-fab';
+            fab.innerHTML = `
+                <div style="position: fixed; bottom: 30px; right: 30px; z-index: 999999;
+                     display: flex; flex-direction: column; gap: 8px; font-family: sans-serif;">
+                    <button id="ai-extract-btn" style="
+                        width: 120px; padding: 10px 16px; border: none; border-radius: 8px;
+                        background: #409 EFF; color: white; font-size: 13px; font-weight: 600;
+                        cursor: pointer; box-shadow: 0 4px 12px rgba(64,158,255,0.4);
+                        transition: all 0.2s;
+                    " onmouseover="this.style.transform='scale(1.05)'"
+                       onmouseout="this.style.transform='scale(1)'">
+                        提取当前元素
+                    </button>
+                    <button id="ai-finish-btn" style="
+                        width: 120px; padding: 10px 16px; border: none; border-radius: 8px;
+                        background: #f56c6c; color: white; font-size: 13px; font-weight: 600;
+                        cursor: pointer; box-shadow: 0 4px 12px rgba(245,108,108,0.4);
+                        transition: all 0.2s;
+                    " onmouseover="this.style.transform='scale(1.05)'"
+                       onmouseout="this.style.transform='scale(1)'">
+                        完成提取
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(fab);
+        }
+        """
+        try:
+            page.evaluate(fab_js, session_id)
+        except:
+            pass
+
+    def _cleanup_manual_session(self, session_id):
+        """清理手动交互会话"""
+        if session_id not in self._manual_sessions:
+            return
+        session = self._manual_sessions[session_id]
+        try:
+            session['browser'].close()
+        except:
+            pass
+        try:
+            session['playwright'].stop()
+        except:
+            pass
+        del self._manual_sessions[session_id]
 
     def _playwright_extract_elements(self, url, login_start_url='', login_steps_data=None):
         """使用 Playwright 打开页面并提取 DOM 元素"""
@@ -498,10 +1216,11 @@ class ElementViewSet(viewsets.ModelViewSet):
             # 获取页面标题
             page_title = page.title()
 
-            # 注入 JS 脚本提取 DOM 元素
+            # 注入 JS 脚本提取 DOM 元素（含列表行去重 + 候选弹窗触发按钮识别）
             js_script = """
             () => {
                 const results = [];
+                const candidateButtons = [];
                 const interactiveSelectors = [
                     'input', 'button', 'a[href]', 'select', 'textarea',
                     '[role="button"]', '[role="link"]', '[role="tab"]',
@@ -510,10 +1229,54 @@ class ElementViewSet(viewsets.ModelViewSet):
                     // Element Plus
                     '.el-button', '.el-input__inner', '.el-select',
                     '.el-checkbox', '.el-radio', '.el-switch',
-                    '.el-pagination', '.el-table'
+                    '.el-pagination', '.el-table',
+                    // Ant Design
+                    '.ant-btn', '.ant-input', '.ant-select', '.ant-checkbox',
+                    '.ant-radio', '.ant-switch', '.ant-pagination', '.ant-table'
                 ];
 
                 const seen = new Set();
+
+                // ---- 列表行去重：识别表格/列表区域，行内元素只保留第一行 ----
+                // 找出所有表格行
+                const tableRows = [];
+                const rowElementSets = []; // 每行的元素集合
+                document.querySelectorAll('table tbody tr, .ant-table-tbody tr, .el-table__body tr').forEach(tr => {
+                    const cells = Array.from(tr.querySelectorAll('td'));
+                    if (cells.length > 0) tableRows.push({ tr, cells });
+                });
+
+                // 记录非首行中重复的按钮/链接（相同文本+相同class视为重复）
+                const firstRowButtonKeys = new Set();
+                const duplicateRowElementKeys = new Set();
+
+                if (tableRows.length > 1) {
+                    // 收集第一行中所有按钮/链接的签名
+                    const firstRow = tableRows[0];
+                    firstRow.tr.querySelectorAll('button, a, [role="button"], .ant-btn, .el-button').forEach(btn => {
+                        const key = (btn.textContent || '').trim().substring(0, 30) + '|' +
+                                    (btn.className || '').toString().substring(0, 100) + '|' +
+                                    btn.tagName;
+                        firstRowButtonKeys.add(key);
+                    });
+                    // 非首行中与第一行签名相同的元素标记为重复
+                    for (let r = 1; r < tableRows.length; r++) {
+                        tableRows[r].tr.querySelectorAll('button, a, [role="button"], .ant-btn, .el-button').forEach(btn => {
+                            const key = (btn.textContent || '').trim().substring(0, 30) + '|' +
+                                        (btn.className || '').toString().substring(0, 100) + '|' +
+                                        btn.tagName;
+                            if (firstRowButtonKeys.has(key)) {
+                                duplicateRowElementKeys.add(btn);
+                            }
+                        });
+                    }
+                }
+
+                // ---- 候选弹窗触发按钮关键词 ----
+                const dialogKeywords = ['新增', '添加', '创建', '新建', '编辑', '修改', '查看', '详情',
+                    '导入', '导出', '设置', '配置', '分配', '授权', '审核', '审批',
+                    '新增用户', '新增角色', '新增岗位', '新增部门'];
+                const dangerKeywords = ['删除', '移除', '清空', '注销', '退出', '提交', '保存', '确认', '禁用', '启用'];
 
                 interactiveSelectors.forEach(selector => {
                     try {
@@ -524,10 +1287,18 @@ class ElementViewSet(viewsets.ModelViewSet):
                             const style = window.getComputedStyle(el);
                             if (style.display === 'none' || style.visibility === 'hidden') return;
 
+                            // 列表行去重：跳过非首行的重复按钮
+                            if (duplicateRowElementKeys.has(el)) return;
+
                             // 去重
                             const key = el.tagName + '|' + (el.id||'') + '|' + el.className + '|' + rect.x + '|' + rect.y;
                             if (seen.has(key)) return;
                             seen.add(key);
+
+                            // 判断是否在表格行内
+                            const tr = el.closest('tr');
+                            const isInTableRow = tr !== null && tableRows.length > 0;
+                            const rowIndex = isInTableRow ? tableRows.findIndex(r => r.tr === tr) : -1;
 
                             results.push({
                                 tag: el.tagName.toLowerCase(),
@@ -544,18 +1315,111 @@ class ElementViewSet(viewsets.ModelViewSet):
                                 text: (el.textContent || '').trim().substring(0, 80),
                                 title: el.title || '',
                                 visible: true,
-                                rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) }
+                                rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+                                isInTableRow: isInTableRow,
+                                tableRowIndex: rowIndex
                             });
                         });
                     } catch(e) {}
                 });
 
-                return { elements: results.slice(0, 80) };
+                // ---- 识别候选弹窗触发按钮 ----
+                // 收集页面级按钮（不在表格行内的）
+                const btnElements = results.filter(e =>
+                    e.tag === 'button' || e.role === 'button' ||
+                    e.className.includes('ant-btn') || e.className.includes('el-button') ||
+                    (e.tag === 'a' && e.href && !e.href.startsWith('javascript'))
+                );
+
+                // 页面级按钮候选
+                btnElements.filter(e => !e.isInTableRow).forEach((btn, idx) => {
+                    const text = btn.text.trim();
+                    const isDanger = dangerKeywords.some(kw => text.includes(kw));
+                    const isCandidate = !isDanger && (
+                        dialogKeywords.some(kw => text.includes(kw)) ||
+                        btn.className.includes('ant-btn-primary') ||
+                        btn.className.includes('el-button--primary')
+                    );
+                    if (isCandidate) {
+                        candidateButtons.push({
+                            index: candidateButtons.length,
+                            text: text,
+                            tag: btn.tag,
+                            className: btn.className,
+                            id: btn.id,
+                            source: '页面级按钮',
+                            reason: dialogKeywords.some(kw => text.includes(kw)) ?
+                                `文本"${text}"包含弹窗触发关键词` : '主要操作按钮（primary样式）'
+                        });
+                    }
+                });
+
+                // 表格行操作按钮候选（只用第一行的）
+                if (tableRows.length > 0) {
+                    const firstRow = tableRows[0];
+                    firstRow.tr.querySelectorAll('button, a, [role="button"], .ant-btn, .el-button').forEach(el => {
+                        const text = (el.textContent || '').trim();
+                        if (!text) return;
+                        const isDanger = dangerKeywords.some(kw => text.includes(kw));
+                        const isCandidate = !isDanger && (
+                            dialogKeywords.some(kw => text.includes(kw)) ||
+                            el.className.includes('ant-btn-link') ||
+                            el.className.includes('el-button--text')
+                        );
+                        if (isCandidate) {
+                            // 找到这个元素在results中的索引，获取其定位信息
+                            const rect = el.getBoundingClientRect();
+                            candidateButtons.push({
+                                index: candidateButtons.length,
+                                text: text,
+                                tag: el.tagName.toLowerCase(),
+                                className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
+                                id: el.id || '',
+                                source: '表格行操作',
+                                reason: dialogKeywords.some(kw => text.includes(kw)) ?
+                                    `表格行操作"${text}"可能触发弹窗` : '表格行链接按钮'
+                            });
+                        }
+                    });
+                }
+
+                return {
+                    elements: results.slice(0, 80),
+                    candidateButtons: candidateButtons.slice(0, 20),
+                    tableRowCount: tableRows.length
+                };
             }
             """
 
             extract_result = page.evaluate(js_script)
             raw_elements = extract_result.get('elements', [])
+            candidate_buttons_raw = extract_result.get('candidateButtons', [])
+            table_row_count = extract_result.get('tableRowCount', 0)
+
+            # 为候选按钮计算定位器（在浏览器仍打开时）
+            candidate_buttons = []
+            for cb in candidate_buttons_raw:
+                try:
+                    css_sel = self._compute_css_selector(cb)
+                    xpath_sel = self._compute_xpath(cb)
+                    # 验证定位器
+                    try:
+                        css_count = page.locator(css_sel).count() if css_sel else 0
+                    except:
+                        css_count = 0
+                    cb['css_selector'] = css_sel if css_count > 0 else ''
+                    cb['xpath'] = xpath_sel
+                    cb['locator_valid'] = css_count == 1
+                except Exception as e:
+                    cb['css_selector'] = ''
+                    cb['xpath'] = ''
+                    cb['locator_valid'] = False
+                candidate_buttons.append(cb)
+
+            if table_row_count > 0:
+                print(f'[AI提取] 检测到表格 {table_row_count} 行，已去重行内重复按钮')
+            if candidate_buttons:
+                print(f'[AI提取] 识别到 {len(candidate_buttons)} 个候选弹窗触发按钮: {[cb["text"] for cb in candidate_buttons]}')
 
             # 为每个元素计算 CSS Selector 和 XPath，并进行即时验证
             validation_stats = {'valid': 0, 'partial': 0, 'invalid': 0}
@@ -592,7 +1456,9 @@ class ElementViewSet(viewsets.ModelViewSet):
         return {
             'elements': dom_elements,
             'final_url': final_url,
-            'redirect_warning': redirect_warning
+            'redirect_warning': redirect_warning,
+            'candidate_buttons': candidate_buttons,
+            'table_row_count': table_row_count
         }
 
     def _execute_login_step(self, page, step_data):
