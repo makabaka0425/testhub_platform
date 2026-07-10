@@ -786,37 +786,89 @@ const handleAiExtract = async () => {
       return
     }
 
-    // 检查是否有候选弹窗触发按钮
-    const buttons = result.candidate_buttons || []
-    if (buttons.length > 0) {
-      // 先展示主页面元素结果
-      showAiExtractDialog.value = false
-      showAiResultDialog.value = true
-      ElMessage.success(`主页面提取 ${aiExtractResults.value.length} 个元素，检测到 ${buttons.length} 个可能触发弹窗的按钮`)
+    // 展示主页面元素结果
+    showAiExtractDialog.value = false
+    showAiResultDialog.value = true
 
-      // 设置候选按钮数据，稍后用户可选择
-      candidateButtons.value = buttons.map((btn, idx) => ({
-        ...btn,
-        _id: idx,
-        selected: btn.source !== '表格行操作'  // 页面级按钮默认选中，行操作默认不选
-      }))
-      selectedCandidates.value = candidateButtons.value.filter(b => b.selected)
+    // 构建候选弹窗按钮列表：
+    // 1. 后端关键词匹配的候选按钮
+    // 2. 主页面提取结果中的按钮类元素（BUTTON/LINK）
+    // 按 css_selector 去重后合并
+    const backendButtons = (result.candidate_buttons || []).map(btn => ({
+      ...btn,
+      source: btn.source || '页面级按钮',
+      reason: btn.reason || '关键词匹配'
+    }))
 
-      // 默认全选所有提取的元素
-      await nextTick()
-      if (aiResultTableRef.value) {
-        aiResultTableRef.value.toggleAllSelection()
+    // 从主页面提取结果中提取按钮类元素
+    const mainPageButtons = aiExtractResults.value
+      .filter(elem => ['BUTTON', 'LINK'].includes(elem.element_type))
+      .map(elem => {
+        let css_selector = elem.auto_css || ''
+        let xpath = elem.auto_xpath || ''
+        // 没有 auto_css 时从 locator_strategy/value 构建
+        if (!css_selector && elem.locator_value) {
+          if (elem.locator_strategy === 'CSS' || elem.locator_strategy === 'css') css_selector = elem.locator_value
+          else if (elem.locator_strategy === 'ID' || elem.locator_strategy === 'id') css_selector = `#${elem.locator_value}`
+          else if (elem.locator_strategy === 'name') css_selector = `[name="${elem.locator_value}"]`
+          else if (elem.locator_strategy === 'class') css_selector = `.${elem.locator_value.split(' ')[0]}`
+        }
+        if (!xpath && elem.locator_value) {
+          if (elem.locator_strategy === 'XPath' || elem.locator_strategy === 'xpath') xpath = elem.locator_value
+        }
+        return {
+          text: elem.name || elem.text || '未命名按钮',
+          css_selector,
+          xpath,
+          source: '主页面按钮',
+          reason: '主页面提取的按钮元素'
+        }
+      })
+
+    // 去重合并：先放后端关键词匹配的，再放主页面按钮（跳过已有的）
+    const seenSelectors = new Set()
+    const merged = []
+
+    for (const btn of backendButtons) {
+      const key = btn.css_selector || btn.text
+      if (key && !seenSelectors.has(key)) {
+        seenSelectors.add(key)
+        merged.push(btn)
+      } else if (!key) {
+        merged.push(btn)
       }
+    }
+    for (const btn of mainPageButtons) {
+      const key = btn.css_selector || btn.text
+      if (key && !seenSelectors.has(key)) {
+        seenSelectors.add(key)
+        merged.push(btn)
+      } else if (!key) {
+        merged.push(btn)
+      }
+    }
+
+    // 设置 _id 和默认选中状态
+    candidateButtons.value = merged.map((btn, idx) => ({
+      ...btn,
+      _id: idx,
+      selected: btn.source !== '表格行操作' && btn.source !== '主页面按钮'  // 页面级按钮默认选中，行操作和主页面按钮默认不选
+    }))
+    selectedCandidates.value = candidateButtons.value.filter(b => b.selected)
+
+    const keywordCount = backendButtons.length
+    const mainPageCount = mainPageButtons.length
+    const totalCount = candidateButtons.value.length
+    if (keywordCount > 0) {
+      ElMessage.success(`主页面提取 ${aiExtractResults.value.length} 个元素，${totalCount} 个候选按钮（关键词匹配 ${keywordCount} 个 + 主页面按钮 ${mainPageCount} 个）`)
     } else {
-      showAiExtractDialog.value = false
-      showAiResultDialog.value = true
-      ElMessage.success(`成功提取 ${aiExtractResults.value.length} 个元素`)
+      ElMessage.success(`主页面提取 ${aiExtractResults.value.length} 个元素，${totalCount} 个候选按钮可提取弹窗`)
+    }
 
-      // 默认全选所有提取的元素
-      await nextTick()
-      if (aiResultTableRef.value) {
-        aiResultTableRef.value.toggleAllSelection()
-      }
+    // 默认全选所有提取的元素
+    await nextTick()
+    if (aiResultTableRef.value) {
+      aiResultTableRef.value.toggleAllSelection()
     }
   } catch (error) {
     const errMsg = error.response?.data?.error || error.message || '提取失败'
