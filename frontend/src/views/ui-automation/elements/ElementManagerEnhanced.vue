@@ -825,23 +825,23 @@ const handleAiExtract = async () => {
         }
       })
 
-    // 去重合并：先放后端关键词匹配的，再放主页面按钮（跳过已有的）
-    const seenSelectors = new Set()
+    // 去重合并：按按钮名称(text)去重，先放后端关键词匹配的，再放主页面按钮
+    const seenNames = new Set()
     const merged = []
 
     for (const btn of backendButtons) {
-      const key = btn.css_selector || btn.text
-      if (key && !seenSelectors.has(key)) {
-        seenSelectors.add(key)
+      const key = (btn.text || '').trim()
+      if (key && !seenNames.has(key)) {
+        seenNames.add(key)
         merged.push(btn)
       } else if (!key) {
         merged.push(btn)
       }
     }
     for (const btn of mainPageButtons) {
-      const key = btn.css_selector || btn.text
-      if (key && !seenSelectors.has(key)) {
-        seenSelectors.add(key)
+      const key = (btn.text || '').trim()
+      if (key && !seenNames.has(key)) {
+        seenNames.add(key)
         merged.push(btn)
       } else if (!key) {
         merged.push(btn)
