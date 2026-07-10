@@ -2366,6 +2366,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         element_id=step_data.get('element') if step_data.get('element') else None,
                         input_value=step_data.get('input_value', ''),
                         wait_time=step_data.get('wait_time', 1000),
+                        action_wait=step_data.get('action_wait', 0),
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
                         description=step_data.get('description', '')
@@ -2404,6 +2405,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     element=step.element,
                     input_value=step.input_value,
                     wait_time=step.wait_time,
+                    action_wait=step.action_wait,
                     assert_type=step.assert_type,
                     assert_value=step.assert_value,
                     description=step.description
@@ -2467,6 +2469,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         element_id=step_data.get('element') if step_data.get('element') else None,
                         input_value=step_data.get('input_value', ''),
                         wait_time=step_data.get('wait_time', 1000),
+                        action_wait=step_data.get('action_wait', 0),
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
                         description=step_data.get('description', '')
