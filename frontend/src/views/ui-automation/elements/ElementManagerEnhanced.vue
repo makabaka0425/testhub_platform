@@ -801,9 +801,16 @@ const handleAiExtract = async () => {
     }))
 
     // 从主页面提取结果中提取按钮类元素
-    // 排除 LINK 类型（导航菜单/侧边栏链接），只保留真正的 BUTTON
+    // 排除导航菜单：通过定位器中的menu/nav/sidebar等特征识别
+    const navPatterns = /menu|nav|sidebar|breadcrumb|sider|aside/i
     const mainPageButtons = aiExtractResults.value
       .filter(elem => elem.element_type === 'BUTTON')
+      .filter(elem => {
+        // 检查定位器是否包含导航菜单特征
+        const locatorStr = `${elem.auto_css || ''} ${elem.auto_xpath || ''} ${elem.locator_value || ''}`
+        if (navPatterns.test(locatorStr)) return false
+        return true
+      })
       .map(elem => {
         let css_selector = elem.auto_css || ''
         let xpath = elem.auto_xpath || ''
