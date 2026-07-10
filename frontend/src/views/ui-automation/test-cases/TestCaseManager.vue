@@ -241,6 +241,19 @@
                           />
                         </div>
 
+                        <!-- 操作后等待 -->
+                        <div v-if="needsActionWait(element.action_type)" class="step-param">
+                          <label>操作后等待(秒)</label>
+                          <el-input-number
+                            v-model="element.action_wait"
+                            :min="0"
+                            :max="60"
+                            :step="1"
+                            size="small"
+                            placeholder="0"
+                          />
+                        </div>
+
                         <!-- 断言参数 -->
                         <div v-if="element.action_type === 'assert'" class="step-param">
                           <label>{{ t('uiAutomation.testCase.assertType') }}</label>
@@ -732,6 +745,7 @@ const addStep = () => {
     element_id: '',
     input_value: '',
     wait_time: 1000,
+    action_wait: 0,
     assert_type: 'textContains',
     assert_value: '',
     description: '',
@@ -781,6 +795,11 @@ const needsInputValue = (actionType) => {
 
 const needsWaitTime = (actionType) => {
   return ['wait', 'waitFor'].includes(actionType)
+}
+
+const needsActionWait = (actionType) => {
+  // 操作后等待适用于除wait/waitFor/assert之外的所有操作类型
+  return !['wait', 'waitFor', 'assert'].includes(actionType)
 }
 
 const needsElement = (actionType, assertType) => {

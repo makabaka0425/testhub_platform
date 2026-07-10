@@ -207,8 +207,24 @@ class TestExecutor:
                 'id': test_case.id,
                 'name': test_case.name,
                 'project_id': self.test_suite.project.id,
-                'steps': []
             }
+            case_data['steps'] = []
+
+            # 获取步骤并预先加载所有相关数据
+            steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+            for step in steps:
+                step_data = {
+                    'id': step.id,
+                    'step_number': step.step_number,
+                    'action_type': step.action_type,
+                    'description': step.description,
+                    'input_value': step.input_value,
+                    'wait_time': step.wait_time,
+                    'action_wait': step.action_wait,
+                    'assert_type': step.assert_type,
+                    'assert_value': step.assert_value,
+                    'element': None
+                }
 
             # 获取步骤并预先加载所有相关数据
             steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
@@ -557,6 +573,7 @@ class TestExecutor:
                     'description': step.description,
                     'input_value': step.input_value,
                     'wait_time': step.wait_time,
+                    'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
                     'element': None
@@ -664,6 +681,13 @@ class TestExecutor:
                         self.current_page.wait_for_timeout(800)  # 等待800ms，确保下拉框完全展开
                     else:
                         self.current_page.wait_for_timeout(300)  # 其他操作等待300ms
+
+                # action_wait: 步骤操作成功后等待指定秒数再执行下一步
+                # 用于等待动画、表格刷新、页面跳转等场景
+                action_wait = step_data.get('action_wait', 0) or 0
+                if step_result['success'] and action_wait > 0:
+                    print(f"⏱️  步骤 {step_data['step_number']} 操作后等待 {action_wait} 秒 (action_wait)")
+                    self.current_page.wait_for_timeout(action_wait * 1000)
 
                 # 如果步骤失败，捕获失败截图
                 if not step_result['success']:
@@ -2116,6 +2140,7 @@ class TestExecutor:
                     'description': step.description,
                     'input_value': step.input_value,
                     'wait_time': step.wait_time,
+                    'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
                     'element': None
@@ -2586,6 +2611,12 @@ class TestExecutor:
                     else:
                         time.sleep(0.3)  # 其他操作等待300ms
 
+                # action_wait: 步骤操作成功后等待指定秒数再执行下一步
+                action_wait = step_data.get('action_wait', 0) or 0
+                if step_result['success'] and action_wait > 0:
+                    print(f"⏱️  步骤 {step_data['step_number']} 操作后等待 {action_wait} 秒 (action_wait)")
+                    time.sleep(action_wait)
+
                 # 如果步骤失败,捕获失败截图
                 if not step_result['success']:
                     result['status'] = 'failed'
@@ -2659,6 +2690,12 @@ class TestExecutor:
             for step_data in case_data['steps']:
                 step_result = self.execute_step_selenium(driver, step_data)
                 result['steps'].append(step_result)
+
+                # action_wait: 步骤操作成功后等待指定秒数再执行下一步
+                action_wait = step_data.get('action_wait', 0) or 0
+                if step_result['success'] and action_wait > 0:
+                    print(f"⏱️  步骤 {step_data['step_number']} 操作后等待 {action_wait} 秒 (action_wait)")
+                    time.sleep(action_wait)
 
                 if not step_result['success']:
                     result['status'] = 'failed'
