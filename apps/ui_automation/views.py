@@ -1601,12 +1601,15 @@ class ElementViewSet(viewsets.ModelViewSet):
                             const style = window.getComputedStyle(el);
                             if (style.display === 'none' || style.visibility === 'hidden') return;
 
-                            // 排除导航菜单元素（侧边栏菜单、顶部导航等）
-                            const navPatterns = /menu|nav|sidebar|breadcrumb|sider|aside|tabbar/i;
-                            const elClassName = (typeof el.className === 'string') ? el.className : '';
-                            const parentClassName = (el.parentElement && typeof el.parentElement.className === 'string') ? el.parentElement.className : '';
-                            const ancestorClassName = el.closest('[class*="menu"], [class*="nav"], [class*="sidebar"], [class*="sider"], [class*="aside"]');
-                            if (navPatterns.test(elClassName) || navPatterns.test(parentClassName) || ancestorClassName) return;
+                            // 排除导航菜单链接（仅对<a>标签过滤，不影响button/input等）
+                            if (el.tagName === 'A') {
+                                const navPatterns = /menu|nav|sidebar|breadcrumb|sider|aside|tabbar/i;
+                                const elClassName = (typeof el.className === 'string') ? el.className : '';
+                                const parentClassName = (el.parentElement && typeof el.parentElement.className === 'string') ? el.parentElement.className : '';
+                                const grandParent = el.parentElement ? el.parentElement.parentElement : null;
+                                const grandParentClassName = (grandParent && typeof grandParent.className === 'string') ? grandParent.className : '';
+                                if (navPatterns.test(elClassName) || navPatterns.test(parentClassName) || navPatterns.test(grandParentClassName)) return;
+                            }
 
                             // 列表行去重：跳过非首行的重复按钮
                             if (duplicateRowElementKeys.has(el)) return;
