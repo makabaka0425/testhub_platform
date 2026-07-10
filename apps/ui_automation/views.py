@@ -1601,6 +1601,13 @@ class ElementViewSet(viewsets.ModelViewSet):
                             const style = window.getComputedStyle(el);
                             if (style.display === 'none' || style.visibility === 'hidden') return;
 
+                            // 排除导航菜单元素（侧边栏菜单、顶部导航等）
+                            const navPatterns = /menu|nav|sidebar|breadcrumb|sider|aside|tabbar/i;
+                            const elClassName = (typeof el.className === 'string') ? el.className : '';
+                            const parentClassName = (el.parentElement && typeof el.parentElement.className === 'string') ? el.parentElement.className : '';
+                            const ancestorClassName = el.closest('[class*="menu"], [class*="nav"], [class*="sidebar"], [class*="sider"], [class*="aside"]');
+                            if (navPatterns.test(elClassName) || navPatterns.test(parentClassName) || ancestorClassName) return;
+
                             // 列表行去重：跳过非首行的重复按钮
                             if (duplicateRowElementKeys.has(el)) return;
 
