@@ -375,6 +375,12 @@
             <span v-else style="color: #c0c4cc; font-size: 12px;">-</span>
           </template>
         </el-table-column>
+        <el-table-column label="来源" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.source" type="info" size="small">{{ row.source }}</el-tag>
+            <span v-else style="color: #c0c4cc; font-size: 12px;">主页面</span>
+          </template>
+        </el-table-column>
         <el-table-column label="描述" min-width="130">
           <template #default="{ row }">
             <el-input v-model="row.description" size="small" />
@@ -382,9 +388,89 @@
         </el-table-column>
       </el-table>
       <template #footer>
-        <el-button @click="showAiResultDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleBatchImport" :loading="batchImportLoading">
-          确认导入({{ selectedAiResults.length }}个元素)
+        <div style="display: flex; justify-content: space-between; width: 100%;">
+          <el-button v-if="candidateButtons.length > 0" type="warning" @click="showAiResultDialog = false; showCandidateDialog = true">
+            提取弹窗元素({{ candidateButtons.length }}个候选)
+          </el-button>
+          <span v-else></span>
+          <div>
+            <el-button @click="showAiResultDialog = false">取消</el-button>
+            <el-button type="primary" @click="handleBatchImport" :loading="batchImportLoading">
+              确认导入({{ selectedAiResults.length }}个元素)
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 候选弹窗触发按钮选择对话框 -->
+    <el-dialog v-model="showCandidateDialog" title="弹窗元素提取" width="700px" :close-on-click-modal="false" top="5vh">
+      <div style="margin-bottom: 16px;">
+        <el-alert type="info" :closable="false" show-icon>
+          <template #title>
+            检测到以下按钮可能触发弹窗，勾选后系统将自动点击并提取弹窗内元素
+          </template>
+        </el-alert>
+      </div>
+
+      <el-table :data="candidateButtons" @selection-change="handleCandidateSelectionChange"
+                style="width: 100%" max-height="400">
+        <el-table-column type="selection" width="50" />
+        <el-table-column prop="text" label="按钮文本" width="150" />
+        <el-table-column prop="source" label="来源" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.source === '页面级按钮' ? 'primary' : 'warning'" size="small">
+              {{ row.source }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="reason" label="识别原因" />
+      </el-table>
+
+      <template #footer>
+        <div style="display: flex; justify-content: space-between;">
+          <el-button @click="handleManualModeStart" :loading="manualLoading" type="info">
+            手动交互模式
+          </el-button>
+          <div>
+            <el-button @click="showCandidateDialog = false">跳过</el-button>
+            <el-button type="primary" @click="handleExtractDialogs" :loading="candidateLoading">
+              自动提取勾选按钮的弹窗
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 手动交互模式控制面板 -->
+    <el-dialog v-model="manualSessionId" title="手动交互模式" width="500px" :close-on-click-modal="false"
+               :show-close="false" top="30vh">
+      <div style="margin-bottom: 16px;">
+        <el-alert type="info" :closable="false" show-icon>
+          <template #title>
+            浏览器已打开，请手动操作到目标状态后，点击下方"提取当前页面"按钮
+          </template>
+        </el-alert>
+      </div>
+
+      <div v-if="manualCaptures.length > 0" style="margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 8px;">已提取记录：</div>
+        <div v-for="cap in manualCaptures" :key="cap.index" style="margin-bottom: 4px; color: #67c23a;">
+          第{{ cap.index }}次 - {{ cap.page_name }}（{{ cap.element_count }} 个元素）
+        </div>
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <el-input v-model="aiExtractForm.page_name" placeholder="可选：为本次提取命名（如"新增用户弹窗"）"
+                  size="small" clearable />
+      </div>
+
+      <template #footer>
+        <el-button @click="handleManualCapture" :loading="manualLoading" type="primary">
+          提取当前页面元素
+        </el-button>
+        <el-button @click="handleManualFinish" :loading="manualLoading" type="success">
+          完成提取
         </el-button>
       </template>
     </el-dialog>
@@ -417,6 +503,10 @@ import {
   validateElementLocator,
   generateElementSuggestions,
   aiExtractElements,
+  aiExtractDialogs,
+  aiExtractManualStart,
+  aiExtractManualCapture,
+  aiExtractManualFinish,
   getLoginConfigs
 } from '@/api/ui_automation'
 
@@ -448,6 +538,7 @@ const showEditPageDialog = ref(false)
 // AI智能提取相关
 const showAiExtractDialog = ref(false)
 const showAiResultDialog = ref(false)
+const showCandidateDialog = ref(false)  // 候选按钮选择对话框
 const aiExtractLoading = ref(false)
 const aiExtractProgress = ref('')
 const aiExtractResults = ref([])
@@ -461,6 +552,17 @@ const aiExtractForm = reactive({
   login_config_id: null,
   page_name: ''
 })
+
+// 候选弹窗触发按钮相关
+const candidateButtons = ref([])       // 候选按钮列表
+const selectedCandidates = ref([])     // 用户勾选的按钮
+const candidateLoading = ref(false)    // 弹窗提取加载状态
+
+// 手动交互模式相关
+const manualSessionId = ref('')
+const manualCaptures = ref([])         // 手动模式的多次提取结果
+const manualCaptureIndex = ref(0)
+const manualLoading = ref(false)
 
 // 右键菜单
 const showContextMenu = ref(false)
@@ -683,14 +785,37 @@ const handleAiExtract = async () => {
       return
     }
 
-    showAiExtractDialog.value = false
-    showAiResultDialog.value = true
-    ElMessage.success(`成功提取 ${aiExtractResults.value.length} 个元素`)
+    // 检查是否有候选弹窗触发按钮
+    const buttons = result.candidate_buttons || []
+    if (buttons.length > 0) {
+      // 先展示主页面元素结果
+      showAiExtractDialog.value = false
+      showAiResultDialog.value = true
+      ElMessage.success(`主页面提取 ${aiExtractResults.value.length} 个元素，检测到 ${buttons.length} 个可能触发弹窗的按钮`)
 
-    // 默认全选所有提取的元素
-    await nextTick()
-    if (aiResultTableRef.value) {
-      aiResultTableRef.value.toggleAllSelection()
+      // 设置候选按钮数据，稍后用户可选择
+      candidateButtons.value = buttons.map((btn, idx) => ({
+        ...btn,
+        _id: idx,
+        selected: btn.source !== '表格行操作'  // 页面级按钮默认选中，行操作默认不选
+      }))
+      selectedCandidates.value = candidateButtons.value.filter(b => b.selected)
+
+      // 默认全选所有提取的元素
+      await nextTick()
+      if (aiResultTableRef.value) {
+        aiResultTableRef.value.toggleAllSelection()
+      }
+    } else {
+      showAiExtractDialog.value = false
+      showAiResultDialog.value = true
+      ElMessage.success(`成功提取 ${aiExtractResults.value.length} 个元素`)
+
+      // 默认全选所有提取的元素
+      await nextTick()
+      if (aiResultTableRef.value) {
+        aiResultTableRef.value.toggleAllSelection()
+      }
     }
   } catch (error) {
     const errMsg = error.response?.data?.error || error.message || '提取失败'
@@ -699,6 +824,171 @@ const handleAiExtract = async () => {
   } finally {
     aiExtractLoading.value = false
     aiExtractProgress.value = ''
+  }
+}
+
+// 自动提取弹窗元素
+const handleExtractDialogs = async () => {
+  if (selectedCandidates.value.length === 0) {
+    ElMessage.warning('请至少选择一个候选按钮')
+    return
+  }
+
+  candidateLoading.value = true
+  showCandidateDialog.value = false
+
+  try {
+    const data = {
+      project_id: selectedProject.value,
+      url: aiExtractForm.url,
+      login_config_id: aiExtractForm.login_config_id || undefined,
+      page_name: aiExtractForm.page_name || undefined,
+      buttons: selectedCandidates.value.map(btn => ({
+        text: btn.text,
+        css_selector: btn.css_selector,
+        xpath: btn.xpath,
+        source: btn.source
+      }))
+    }
+
+    const response = await aiExtractDialogs(data)
+    const result = response.data
+
+    // 将弹窗元素合并到结果中
+    const dialogElements = (result.elements || []).map((elem, index) => ({
+      ...elem,
+      _id: aiExtractResults.value.length + index
+    }))
+
+    // 追加到现有结果
+    aiExtractResults.value = [...aiExtractResults.value, ...dialogElements]
+
+    ElMessage.success(`弹窗提取完成，新增 ${dialogElements.length} 个弹窗元素`)
+
+    // 重新打开结果对话框
+    showAiResultDialog.value = true
+    await nextTick()
+    if (aiResultTableRef.value) {
+      aiResultTableRef.value.toggleAllSelection()
+    }
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '弹窗提取失败'
+    ElMessage.error(errMsg)
+    console.error('弹窗提取失败:', error)
+    showAiResultDialog.value = true
+  } finally {
+    candidateLoading.value = false
+  }
+}
+
+// 候选按钮选择变化
+const handleCandidateSelectionChange = (val) => {
+  selectedCandidates.value = val
+}
+
+// 启动手动交互模式
+const handleManualModeStart = async () => {
+  if (!aiExtractForm.url) {
+    ElMessage.warning('请输入目标页面URL')
+    return
+  }
+
+  manualLoading.value = true
+  try {
+    const data = {
+      project_id: selectedProject.value,
+      url: aiExtractForm.url,
+      login_config_id: aiExtractForm.login_config_id || undefined
+    }
+
+    const response = await aiExtractManualStart(data)
+    const result = response.data
+
+    manualSessionId.value = result.session_id
+    manualCaptures.value = []
+    manualCaptureIndex.value = 0
+
+    ElMessage.success('浏览器已打开，请手动操作后提取元素')
+    showAiExtractDialog.value = false
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '启动浏览器失败'
+    ElMessage.error(errMsg)
+  } finally {
+    manualLoading.value = false
+  }
+}
+
+// 手动模式 - 提取当前页面
+const handleManualCapture = async () => {
+  if (!manualSessionId.value) {
+    ElMessage.warning('请先启动手动模式')
+    return
+  }
+
+  manualLoading.value = true
+  try {
+    const data = {
+      session_id: manualSessionId.value,
+      page_name: aiExtractForm.page_name || ''
+    }
+
+    const response = await aiExtractManualCapture(data)
+    const result = response.data
+
+    const capturedElements = (result.elements || []).map((elem, index) => ({
+      ...elem,
+      _id: manualCaptures.value.reduce((acc, c) => acc + c.elements.length, 0) + index
+    }))
+
+    manualCaptures.value.push({
+      index: result.capture_index,
+      page_name: result.page_name || `第${result.capture_index}次提取`,
+      element_count: capturedElements.length,
+      elements: capturedElements
+    })
+    manualCaptureIndex.value = result.capture_index
+
+    ElMessage.success(`第${result.capture_index}次提取完成，获取 ${capturedElements.length} 个元素`)
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '提取失败'
+    ElMessage.error(errMsg)
+  } finally {
+    manualLoading.value = false
+  }
+}
+
+// 手动模式 - 完成提取
+const handleManualFinish = async () => {
+  if (!manualSessionId.value) return
+
+  manualLoading.value = true
+  try {
+    const response = await aiExtractManualFinish({ session_id: manualSessionId.value })
+    const result = response.data
+
+    // 将所有提取结果合并到主结果中
+    const allElements = (result.elements || []).map((elem, index) => ({
+      ...elem,
+      _id: index
+    }))
+
+    aiExtractResults.value = allElements
+    aiResultInfo.url = aiExtractForm.url
+    manualSessionId.value = ''
+
+    // 打开结果对话框
+    showAiResultDialog.value = true
+    await nextTick()
+    if (aiResultTableRef.value) {
+      aiResultTableRef.value.toggleAllSelection()
+    }
+
+    ElMessage.success(`手动提取完成，共 ${allElements.length} 个元素（${result.captures?.length || 0} 次提取）`)
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '完成提取失败'
+    ElMessage.error(errMsg)
+  } finally {
+    manualLoading.value = false
   }
 }
 

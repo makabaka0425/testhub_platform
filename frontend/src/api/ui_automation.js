@@ -483,6 +483,46 @@ export function aiExtractElements(data) {
   })
 }
 
+// AI提取弹窗元素（自动点击候选按钮）
+export function aiExtractDialogs(data) {
+  return request({
+    url: '/ui-automation/elements/ai_extract_dialogs/',
+    method: 'post',
+    data,
+    timeout: 180000
+  })
+}
+
+// 手动交互模式 — 启动
+export function aiExtractManualStart(data) {
+  return request({
+    url: '/ui-automation/elements/ai_extract_manual/start/',
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}
+
+// 手动交互模式 — 提取当前页面
+export function aiExtractManualCapture(data) {
+  return request({
+    url: '/ui-automation/elements/ai_extract_manual/capture/',
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}
+
+// 手动交互模式 — 完成
+export function aiExtractManualFinish(data) {
+  return request({
+    url: '/ui-automation/elements/ai_extract_manual/finish/',
+    method: 'post',
+    data,
+    timeout: 30000
+  })
+}
+
 // 页面对象相关API
 export function getPageObjects(params) {
   return request({
