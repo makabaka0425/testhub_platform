@@ -1536,40 +1536,54 @@ class TestExecutor:
                     elif step_data['assert_type'] == 'tableContains':
                         # 表格包含文本：自动在页面上查找表格容器，检查是否有行包含指定文本
                         # 不需要用户选择元素，执行器自动查找 .ant-table / .el-table / table
-                        try:
-                            js_table_check = f"""
-                                (() => {{
-                                    // 自动在页面上查找表格容器（优先 Ant Design，其次 Element Plus，最后原生）
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
-                                    if (!tbl) return {{ found: false, reason: 'no-table' }};
-                                    
-                                    // 遍历数据行
-                                    const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
-                                    const matchingRows = [];
-                                    for (const row of rows) {{
-                                        const text = (row.textContent || '').trim();
-                                        if (text.includes({repr(resolved_assert_value)})) {{
-                                            matchingRows.push(text.substring(0, 100));
+                        # 带重试机制：点击确定后表格数据可能还没刷新，等待最多10秒
+                        max_wait_seconds = 10
+                        start_check_time = time.time()
+                        table_check_done = False
+                        while not table_check_done and (time.time() - start_check_time) < max_wait_seconds:
+                            try:
+                                js_table_check = f"""
+                                    (() => {{
+                                        // 自动在页面上查找表格容器（优先 Ant Design，其次 Element Plus，最后原生）
+                                        const tbl = document.querySelector('.ant-table') ||
+                                                    document.querySelector('.el-table') ||
+                                                    document.querySelector('table');
+                                        if (!tbl) return {{ found: false, reason: 'no-table' }};
+                                        
+                                        // 遍历数据行
+                                        const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
+                                        const matchingRows = [];
+                                        for (const row of rows) {{
+                                            const text = (row.textContent || '').trim();
+                                            if (text.includes({repr(resolved_assert_value)})) {{
+                                                matchingRows.push(text.substring(0, 100));
+                                            }}
                                         }}
-                                    }}
-                                    return {{ found: true, totalRows: rows.length, matchingCount: matchingRows.length, matchedText: matchingRows[0] || '' }};
-                                }})()
-                            """
-                            table_result = self.current_page.evaluate(js_table_check)
-                            
-                            if not table_result.get('found'):
-                                step_result['error'] = "✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
-                            elif table_result.get('matchingCount', 0) > 0:
-                                step_result['success'] = True
-                                step_result['assert_detail'] = f"表格共{table_result.get('totalRows', 0)}行，找到{table_result['matchingCount']}行包含'{resolved_assert_value}'"
-                                print(f"[assert] 表格包含'{resolved_assert_value}'成功: {table_result.get('totalRows', 0)}行中{table_result['matchingCount']}行匹配")
-                            else:
-                                total = table_result.get('totalRows', 0)
-                                step_result['error'] = f"✗ 断言失败: 表格共{total}行，未找到包含'{resolved_assert_value}'的行"
-                        except Exception as e:
-                            step_result['error'] = f"✗ 表格断言异常: {str(e)[:80]}"
+                                        return {{ found: true, totalRows: rows.length, matchingCount: matchingRows.length, matchedText: matchingRows[0] || '' }};
+                                    }})()
+                                """
+                                table_result = self.current_page.evaluate(js_table_check)
+                                
+                                if not table_result.get('found'):
+                                    step_result['error'] = "✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
+                                    table_check_done = True
+                                elif table_result.get('matchingCount', 0) > 0:
+                                    step_result['success'] = True
+                                    step_result['assert_detail'] = f"表格共{table_result.get('totalRows', 0)}行，找到{table_result['matchingCount']}行包含'{resolved_assert_value}'"
+                                    print(f"[assert] 表格包含'{resolved_assert_value}'成功: {table_result.get('totalRows', 0)}行中{table_result['matchingCount']}行匹配")
+                                    table_check_done = True
+                                else:
+                                    # 表格存在但没找到匹配行，等待后重试
+                                    elapsed = round(time.time() - start_check_time, 1)
+                                    print(f"[assert] 表格未找到'{resolved_assert_value}'，等待刷新... ({elapsed}s)")
+                                    self.current_page.wait_for_timeout(1000)
+                            except Exception as e:
+                                step_result['error'] = f"✗ 表格断言异常: {str(e)[:80]}"
+                                table_check_done = True
+
+                        if not step_result['success'] and not step_result.get('error'):
+                            total = table_result.get('totalRows', 0) if table_result else 0
+                            step_result['error'] = f"✗ 断言失败: 表格共{total}行，未找到包含'{resolved_assert_value}'的行"
 
                     elif step_data['assert_type'] == 'tableNotContains':
                         # 表格不包含文本：自动查找表格容器，验证指定文本不在表格中
