@@ -443,7 +443,7 @@
     </el-dialog>
 
     <!-- 手动交互模式控制面板 -->
-    <el-dialog v-model="manualSessionId" title="手动交互模式" width="500px" :close-on-click-modal="false"
+    <el-dialog v-model="showManualDialog" title="手动交互模式" width="500px" :close-on-click-modal="false"
                :show-close="false" top="30vh">
       <div style="margin-bottom: 16px;">
         <el-alert type="info" :closable="false" show-icon>
@@ -559,8 +559,9 @@ const selectedCandidates = ref([])     // 用户勾选的按钮
 const candidateLoading = ref(false)    // 弹窗提取加载状态
 
 // 手动交互模式相关
-const manualSessionId = ref('')
-const manualCaptures = ref([])         // 手动模式的多次提取结果
+const showManualDialog = ref(false)        // 控制手动模式对话框显示
+const manualSessionId = ref('')            // 手动模式session ID
+const manualCaptures = ref([])             // 手动模式的多次提取结果
 const manualCaptureIndex = ref(0)
 const manualLoading = ref(false)
 
@@ -907,6 +908,7 @@ const handleManualModeStart = async () => {
     manualSessionId.value = result.session_id
     manualCaptures.value = []
     manualCaptureIndex.value = 0
+    showManualDialog.value = true
 
     ElMessage.success('浏览器已打开，请手动操作后提取元素')
     showAiExtractDialog.value = false
@@ -975,6 +977,7 @@ const handleManualFinish = async () => {
     aiExtractResults.value = allElements
     aiResultInfo.url = aiExtractForm.url
     manualSessionId.value = ''
+    showManualDialog.value = false
 
     // 打开结果对话框
     showAiResultDialog.value = true
