@@ -1639,11 +1639,21 @@ class ElementViewSet(viewsets.ModelViewSet):
 
                 // ---- 识别候选弹窗触发按钮 ----
                 // 收集页面级按钮（不在表格行内的）
-                const btnElements = results.filter(e =>
-                    e.tag === 'button' || e.role === 'button' ||
-                    e.className.includes('ant-btn') || e.className.includes('el-button') ||
-                    (e.tag === 'a' && e.href && !e.href.startsWith('javascript'))
-                );
+                // 排除导航菜单链接（侧边栏菜单、顶部导航等），只收集真正的操作按钮
+                const navKeywords = ['menu', 'nav', 'sidebar', 'breadcrumb', 'tab'];
+                const btnElements = results.filter(e => {
+                    // 必须是按钮类元素
+                    const isButton = e.tag === 'button' || e.role === 'button' ||
+                        e.className.includes('ant-btn') || e.className.includes('el-button');
+                    const isLink = e.tag === 'a' && e.href && !e.href.startsWith('javascript');
+                    if (!isButton && !isLink) return false;
+                    // 排除导航菜单类元素
+                    const cls = (e.className || '').toLowerCase();
+                    if (navKeywords.some(kw => cls.includes(kw))) return false;
+                    // <a>标签只保留不含导航class的
+                    if (isLink && !isButton) return false;
+                    return true;
+                });
 
                 // 页面级按钮候选
                 btnElements.filter(e => !e.isInTableRow).forEach((btn, idx) => {
