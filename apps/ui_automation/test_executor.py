@@ -1489,9 +1489,16 @@ class TestExecutor:
                     if resolved_assert_value != step_data['assert_value']:
                         print(f"  ✓ 断言变量解析: {step_data['assert_value']} -> {resolved_assert_value}")
 
+                    # 断言前先等待页面稳定（防止登录等操作后页面正在跳转导致元素找不到）
+                    try:
+                        self.current_page.wait_for_load_state('domcontentloaded', timeout=3000)
+                    except:
+                        pass
+
                     # 执行断言
+                    assert_timeout = max(step_data['wait_time'], 10000)
                     if step_data['assert_type'] == 'textContains':
-                        text = self.current_page.text_content(selector, timeout=max(step_data['wait_time'], 5000))
+                        text = self.current_page.text_content(selector, timeout=assert_timeout)
                         if text and resolved_assert_value in text:
                             step_result['success'] = True
                         elif not resolved_assert_value:
@@ -1503,7 +1510,7 @@ class TestExecutor:
                             log += f"  - 实际文本: '{text}'"
                             step_result['error'] = log
                     elif step_data['assert_type'] == 'textEquals':
-                        text = self.current_page.text_content(selector, timeout=max(step_data['wait_time'], 5000))
+                        text = self.current_page.text_content(selector, timeout=assert_timeout)
                         if text and text.strip() == resolved_assert_value:
                             step_result['success'] = True
                         else:
