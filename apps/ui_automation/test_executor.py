@@ -231,7 +231,8 @@ class TestExecutor:
                         'id': step.element.id,
                         'name': step.element.name,
                         'locator_value': step.element.locator_value,
-                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
+                        'wait_timeout': step.element.wait_timeout,
                     }
 
                 case_data['steps'].append(step_data)
@@ -565,7 +566,8 @@ class TestExecutor:
                         'id': step.element.id,
                         'name': step.element.name,
                         'locator_value': step.element.locator_value,
-                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
+                        'wait_timeout': step.element.wait_timeout,
                     }
                 login_case_data['steps'].append(step_data)
 
@@ -860,6 +862,13 @@ class TestExecutor:
                 else:
                     selector = locator_value
 
+                # 计算有效超时：优先使用元素的 wait_timeout（秒），其次使用步骤的 wait_time（毫秒）
+                element_wait_timeout = step_data['element']['wait_timeout'] if step_data.get('element') and step_data['element'].get('wait_timeout') else None
+                if element_wait_timeout is not None and element_wait_timeout > 0:
+                    effective_timeout = element_wait_timeout * 1000  # 秒转毫秒
+                else:
+                    effective_timeout = max(step_data['wait_time'], 5000)
+
                 # 根据操作类型执行动作
                 if step_data['action_type'] == 'click':
                     # 检测是否是原生HTML select的option元素（优先检测，因为option元素特殊）
@@ -906,7 +915,7 @@ class TestExecutor:
                                 select_locator = self.current_page.locator(select_locator_value)
 
                             # 使用select_option方法
-                            select_locator.select_option(value=option_value, timeout=max(step_data['wait_time'], 5000))
+                            select_locator.select_option(value=option_value, timeout=effective_timeout)
 
                             execution_time = round(time.time() - start_time, 2)
                             step_result['success'] = True
@@ -1124,7 +1133,7 @@ class TestExecutor:
                                         try:
                                             trigger_locator = self.current_page.locator(trigger_sel).first
                                             trigger_locator.scroll_into_view_if_needed(timeout=3000)
-                                            trigger_locator.click(timeout=max(step_data['wait_time'], 5000))
+                                            trigger_locator.click(timeout=effective_timeout)
                                             self.current_page.wait_for_timeout(800)  # 等待下拉框展开
                                             is_custom_select = True
                                             step_result['success'] = True
@@ -1157,7 +1166,7 @@ class TestExecutor:
                                     self.current_page.click(selector, timeout=extended_timeout)
                                     print(f"  ✓ 点击成功（超时: {extended_timeout}ms）")
                                 else:
-                                    self.current_page.click(selector, timeout=max(step_data['wait_time'], 5000))
+                                    self.current_page.click(selector, timeout=effective_timeout)
                                 step_result['success'] = True
 
                 elif step_data['action_type'] == 'fill':
@@ -1171,7 +1180,7 @@ class TestExecutor:
                         extended_timeout = max(step_data['wait_time'], 10000)
                         self.current_page.fill(selector, resolved_value, timeout=extended_timeout)
                     else:
-                        self.current_page.fill(selector, resolved_value, timeout=max(step_data['wait_time'], 5000))
+                        self.current_page.fill(selector, resolved_value, timeout=effective_timeout)
 
                     step_result['success'] = True
                     # 记录解析后的值（用于调试）
@@ -1253,7 +1262,7 @@ class TestExecutor:
                             print(f"[select] 检测到{framework}下拉框，已打开")
                         else:
                             # 非 UI 框架下拉框，直接 click 元素
-                            self.current_page.click(selector, timeout=max(step_data['wait_time'], 5000))
+                            self.current_page.click(selector, timeout=effective_timeout)
                             self.current_page.wait_for_timeout(800)
                             select_opened = True
                             framework = 'native'
@@ -1446,7 +1455,7 @@ class TestExecutor:
 
 
                 elif step_data['action_type'] == 'getText':
-                    text = self.current_page.text_content(selector, timeout=max(step_data['wait_time'], 5000))
+                    text = self.current_page.text_content(selector, timeout=effective_timeout)
                     step_result['result'] = text
                     step_result['success'] = True
 
@@ -1462,15 +1471,15 @@ class TestExecutor:
 
                     if is_dropdown_option_wait:
                         # 对于下拉框选项，只等待元素在DOM中（attached），不要求可见
-                        self.current_page.wait_for_selector(selector, state='attached', timeout=max(step_data['wait_time'], 5000))
+                        self.current_page.wait_for_selector(selector, state='attached', timeout=effective_timeout)
                     else:
                         # 普通元素：等待可见
-                        self.current_page.wait_for_selector(selector, timeout=max(step_data['wait_time'], 5000))
+                        self.current_page.wait_for_selector(selector, timeout=effective_timeout)
 
                     step_result['success'] = True
 
                 elif step_data['action_type'] == 'hover':
-                    self.current_page.hover(selector, timeout=max(step_data['wait_time'], 5000))
+                    self.current_page.hover(selector, timeout=effective_timeout)
                     step_result['success'] = True
 
                 elif step_data['action_type'] == 'scroll':
@@ -1496,7 +1505,7 @@ class TestExecutor:
                         pass
 
                     # 执行断言
-                    assert_timeout = max(step_data['wait_time'], 10000)
+                    assert_timeout = max(effective_timeout, 10000)
                     if step_data['assert_type'] == 'textContains':
                         text = self.current_page.text_content(selector, timeout=assert_timeout)
                         if text and resolved_assert_value in text:
@@ -2110,7 +2119,8 @@ class TestExecutor:
                         'id': step.element.id,
                         'name': step.element.name,
                         'locator_value': step.element.locator_value,
-                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
+                        'wait_timeout': step.element.wait_timeout,
                     }
 
                 case_data['steps'].append(step_data)
