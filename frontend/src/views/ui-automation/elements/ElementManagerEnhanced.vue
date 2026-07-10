@@ -461,7 +461,7 @@
       </div>
 
       <div style="margin-bottom: 12px;">
-        <el-input v-model="aiExtractForm.page_name" placeholder="可选：为本次提取命名（如"新增用户弹窗"）"
+        <el-input v-model="aiExtractForm.page_name" placeholder="可选：为本次提取命名（如'新增用户弹窗'）"
                   size="small" clearable />
       </div>
 
