@@ -1401,16 +1401,10 @@ class TestExecutor:
                                     print(f"[select] 选中选项: '{matched_text}' (匹配'{opt_text}')")
                                     
                                     # 选中后主动关闭可能残留的下拉面板，避免遮挡后续元素
+                                    # 注意：不能按 Escape，因为 Escape 会关闭 Ant Design 弹窗
                                     try:
-                                        self.current_page.evaluate("""(() => {
-                                            document.querySelectorAll('.ant-select-dropdown, .ant-tree-select-dropdown').forEach(dd => {
-                                                if (dd.offsetParent !== null) {
-                                                    // 点击空白处关闭（通过 Escape 键更可靠）
-                                                }
-                                            });
-                                        })()""")
-                                        # 按 Escape 关闭可能残留的下拉框
-                                        self.current_page.keyboard.press('Escape')
+                                        # 点击下拉面板外的区域关闭下拉框
+                                        self.current_page.click('body', position={'x': 10, 'y': 10}, timeout=2000)
                                         self.current_page.wait_for_timeout(300)
                                     except:
                                         pass
