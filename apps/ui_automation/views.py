@@ -853,10 +853,12 @@ class ElementViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='ai_extract_manual/start')
     def ai_extract_manual_start(self, request):
-        """手动交互模式 — 启动浏览器会话"""
+        """手动交互模式 — 启动浏览器会话（在专用线程中运行Playwright）"""
         import os
         import uuid
         import time
+        import threading
+        import asyncio
         os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
 
         url = request.data.get('url', '').strip()
@@ -898,47 +900,91 @@ class ElementViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 print(f'[手动提取] 登录配置加载失败: {str(e)}')
 
-        # 启动Playwright有头浏览器
+        # 启动Playwright有头浏览器，在专用线程的事件循环中运行
         try:
-            from playwright.sync_api import sync_playwright
             session_id = str(uuid.uuid4())
-            pw = sync_playwright().start()
-            browser = pw.chromium.launch(headless=False)
-            context = browser.new_context(viewport={'width': 1920, 'height': 1080})
-            page = context.new_page()
 
-            # 登录（如有）
-            if login_start_url and login_steps_data:
-                page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
-                for step_data in login_steps_data:
-                    self._execute_login_step(page, step_data)
-                try:
-                    page.wait_for_load_state('networkidle', timeout=10000)
-                except:
-                    pass
-                time.sleep(2)
+            # 创建专用线程的事件循环
+            loop = asyncio.new_event_loop()
 
-            # 导航到目标页面
-            page.goto(url, wait_until='networkidle', timeout=30000)
-            time.sleep(2)
+            # 用于接收启动结果
+            start_result = {'error': None, 'page': None, 'browser': None, 'context': None, 'pw': None}
 
-            # 注入浮动按钮
-            self._inject_fab_button(page, session_id)
+            def run_playwright_in_thread():
+                """在专用线程中运行Playwright"""
+                asyncio.set_event_loop(loop)
+                from playwright.async_api import async_playwright
+
+                async def do_start():
+                    try:
+                        pw = await async_playwright().start()
+                        browser = await pw.chromium.launch(headless=False)
+                        context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+                        page = await context.new_page()
+
+                        # 登录（如有）
+                        if login_start_url and login_steps_data:
+                            await page.goto(login_start_url, wait_until='networkidle', timeout=30000)
+                            await asyncio.sleep(2)
+                            for step_data in login_steps_data:
+                                await self._async_execute_login_step(page, step_data)
+                            try:
+                                await page.wait_for_load_state('networkidle', timeout=10000)
+                            except:
+                                pass
+                            await asyncio.sleep(2)
+
+                        # 导航到目标页面
+                        await page.goto(url, wait_until='networkidle', timeout=30000)
+                        await asyncio.sleep(2)
+
+                        # 注入浮动按钮
+                        await self._async_inject_fab_button(page, session_id)
+
+                        start_result['pw'] = pw
+                        start_result['browser'] = browser
+                        start_result['context'] = context
+                        start_result['page'] = page
+                    except Exception as e:
+                        start_result['error'] = str(e)
+
+                loop.run_until_complete(do_start())
+                # 保持事件循环运行，等待后续capture/finish任务
+                loop.run_forever()
+
+            # 启动专用线程
+            thread = threading.Thread(target=run_playwright_in_thread, daemon=True)
+            thread.start()
+
+            # 等待启动完成（最多60秒）
+            for _ in range(120):
+                time.sleep(0.5)
+                if start_result['error'] or start_result['page']:
+                    break
+
+            if start_result['error']:
+                return Response({'error': f'启动浏览器失败: {start_result["error"]}'},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            if not start_result['page']:
+                return Response({'error': '启动浏览器超时'},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
             # 存储会话
             self._manual_sessions[session_id] = {
-                'playwright': pw,
-                'browser': browser,
-                'context': context,
-                'page': page,
+                'loop': loop,
+                'thread': thread,
+                'playwright': start_result['pw'],
+                'browser': start_result['browser'],
+                'context': start_result['context'],
+                'page': start_result['page'],
                 'captures': [],
                 'created_at': time.time()
             }
 
             return Response({
                 'session_id': session_id,
-                'message': '浏览器已打开，请手动操作后点击页面上的"提取元素"按钮'
+                'message': '浏览器已打开，请手动操作后点击"提取当前页面"按钮'
             })
         except Exception as e:
             import traceback
@@ -947,8 +993,9 @@ class ElementViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='ai_extract_manual/capture')
     def ai_extract_manual_capture(self, request):
-        """手动交互模式 — 提取当前页面元素"""
+        """手动交互模式 — 提取当前页面元素（通过专用线程事件循环执行）"""
         import time
+        import asyncio
 
         session_id = request.data.get('session_id')
         page_name = request.data.get('page_name', '').strip()
@@ -957,114 +1004,120 @@ class ElementViewSet(viewsets.ModelViewSet):
             return Response({'error': '无效的会话ID，请重新启动'}, status=status.HTTP_400_BAD_REQUEST)
 
         session = self._manual_sessions[session_id]
-        page = session['page']
+        loop = session['loop']
+
+        # 检查是否超时（5分钟）
+        if time.time() - session['created_at'] > 300:
+            self._cleanup_manual_session(session_id)
+            return Response({'error': '会话已超时(5分钟)，请重新启动'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # 获取元素数据（由浮动按钮JS收集并发送）
-            # 这里直接在后端用Playwright提取当前页面
-            page_title = page.title()
+            # 在专用线程的事件循环中执行Playwright操作
+            async def do_capture():
+                page = session['page']
+                page_title = await page.title()
 
-            # 检查是否超时（5分钟）
-            if time.time() - session['created_at'] > 300:
-                self._cleanup_manual_session(session_id)
-                return Response({'error': '会话已超时(5分钟)，请重新启动'}, status=status.HTTP_400_BAD_REQUEST)
-
-            # 注入提取JS（复用主页面提取逻辑，但不过滤表格行重复）
-            extract_js = """
-            () => {
-                const results = [];
-                const interactiveSelectors = [
-                    'input', 'button', 'a[href]', 'select', 'textarea',
-                    '[role="button"]', '[role="link"]', '[role="tab"]',
-                    '[role="menuitem"]', '[role="option"]', '[role="switch"]',
-                    '[onclick]', '[contenteditable="true"]',
-                    '.el-button', '.el-input__inner', '.el-select',
-                    '.el-checkbox', '.el-radio', '.el-switch',
-                    '.ant-btn', '.ant-input', '.ant-select', '.ant-checkbox',
-                    '.ant-radio', '.ant-switch'
-                ];
-                const seen = new Set();
-                interactiveSelectors.forEach(selector => {
-                    try {
-                        document.querySelectorAll(selector).forEach(el => {
-                            // 跳过我们注入的浮动按钮
-                            if (el.id === 'ai-extract-fab' || el.closest('#ai-extract-fab')) return;
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width === 0 && rect.height === 0) return;
-                            const style = window.getComputedStyle(el);
-                            if (style.display === 'none' || style.visibility === 'hidden') return;
-                            const key = el.tagName + '|' + (el.id||'') + '|' + el.className + '|' + rect.x + '|' + rect.y;
-                            if (seen.has(key)) return;
-                            seen.add(key);
-                            results.push({
-                                tag: el.tagName.toLowerCase(),
-                                id: el.id || '',
-                                name: el.getAttribute('name') || '',
-                                className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
-                                type: el.type || '',
-                                placeholder: el.placeholder || '',
-                                value: (el.value || '').substring(0, 50),
-                                href: el.href || '',
-                                role: el.getAttribute('role') || '',
-                                ariaLabel: el.getAttribute('aria-label') || '',
-                                dataTestId: el.getAttribute('data-testid') || '',
-                                text: (el.textContent || '').trim().substring(0, 80),
-                                title: el.title || '',
-                                visible: true,
-                                rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
-                                isInTableRow: false,
-                                tableRowIndex: -1
+                # 注入提取JS
+                extract_js = """
+                () => {
+                    const results = [];
+                    const interactiveSelectors = [
+                        'input', 'button', 'a[href]', 'select', 'textarea',
+                        '[role="button"]', '[role="link"]', '[role="tab"]',
+                        '[role="menuitem"]', '[role="option"]', '[role="switch"]',
+                        '[onclick]', '[contenteditable="true"]',
+                        '.el-button', '.el-input__inner', '.el-select',
+                        '.el-checkbox', '.el-radio', '.el-switch',
+                        '.ant-btn', '.ant-input', '.ant-select', '.ant-checkbox',
+                        '.ant-radio', '.ant-switch'
+                    ];
+                    const seen = new Set();
+                    interactiveSelectors.forEach(selector => {
+                        try {
+                            document.querySelectorAll(selector).forEach(el => {
+                                if (el.id === 'ai-extract-fab' || el.closest('#ai-extract-fab')) return;
+                                const rect = el.getBoundingClientRect();
+                                if (rect.width === 0 && rect.height === 0) return;
+                                const style = window.getComputedStyle(el);
+                                if (style.display === 'none' || style.visibility === 'hidden') return;
+                                const key = el.tagName + '|' + (el.id||'') + '|' + el.className + '|' + rect.x + '|' + rect.y;
+                                if (seen.has(key)) return;
+                                seen.add(key);
+                                results.push({
+                                    tag: el.tagName.toLowerCase(),
+                                    id: el.id || '',
+                                    name: el.getAttribute('name') || '',
+                                    className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
+                                    type: el.type || '',
+                                    placeholder: el.placeholder || '',
+                                    value: (el.value || '').substring(0, 50),
+                                    href: el.href || '',
+                                    role: el.getAttribute('role') || '',
+                                    ariaLabel: el.getAttribute('aria-label') || '',
+                                    dataTestId: el.getAttribute('data-testid') || '',
+                                    text: (el.textContent || '').trim().substring(0, 80),
+                                    title: el.title || '',
+                                    visible: true,
+                                    rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+                                    isInTableRow: false,
+                                    tableRowIndex: -1
+                                });
                             });
-                        });
-                    } catch(e) {}
-                });
-                return { elements: results.slice(0, 80) };
-            }
-            """
+                        } catch(e) {}
+                    });
+                    return { elements: results.slice(0, 80) };
+                }
+                """
 
-            extract_result = page.evaluate(extract_js)
-            raw_elements = extract_result.get('elements', [])
+                extract_result = await page.evaluate(extract_js)
+                raw_elements = extract_result.get('elements', [])
 
-            # 计算定位器 + 验证
-            for elem in raw_elements:
-                elem['page_title'] = page_title
-                if page_name:
-                    elem['source'] = page_name
-                css_selector = self._compute_css_selector(elem)
-                xpath = self._compute_xpath(elem)
-                validation = self._validate_locators(page, elem, css_selector, xpath)
-                elem['auto_css'] = validation['css_selector']
-                elem['auto_xpath'] = validation['xpath']
-                elem['validation_status'] = validation['validation_status']
-                elem['validation_details'] = validation['validation_details']
+                # 计算定位器 + 验证
+                for elem in raw_elements:
+                    elem['page_title'] = page_title
+                    if page_name:
+                        elem['source'] = page_name
+                    css_selector = self._compute_css_selector(elem)
+                    xpath = self._compute_xpath(elem)
+                    validation = await self._async_validate_locators(page, elem, css_selector, xpath)
+                    elem['auto_css'] = validation['css_selector']
+                    elem['auto_xpath'] = validation['xpath']
+                    elem['validation_status'] = validation['validation_status']
+                    elem['validation_details'] = validation['validation_details']
 
-            # AI分析
-            try:
-                ai_elements = self._ai_analyze_elements(raw_elements)
-            except Exception as e:
-                print(f'[手动提取] AI分析失败，回退规则引擎: {str(e)}')
-                ai_elements = self._rule_based_classify(raw_elements)
+                # AI分析
+                try:
+                    ai_elements = self._ai_analyze_elements(raw_elements)
+                except Exception as e:
+                    print(f'[手动提取] AI分析失败，回退规则引擎: {str(e)}')
+                    ai_elements = self._rule_based_classify(raw_elements)
 
-            for elem in ai_elements:
-                if page_name:
-                    elem['page'] = page_name
-                    elem['source'] = page_name
+                for elem in ai_elements:
+                    if page_name:
+                        elem['page'] = page_name
+                        elem['source'] = page_name
 
-            # 记录这次提取
-            capture_info = {
-                'index': len(session['captures']) + 1,
-                'page_name': page_name or page_title,
-                'element_count': len(ai_elements),
-                'elements': ai_elements
-            }
-            session['captures'].append(capture_info)
+                # 记录这次提取
+                capture_info = {
+                    'index': len(session['captures']) + 1,
+                    'page_name': page_name or page_title,
+                    'element_count': len(ai_elements),
+                    'elements': ai_elements
+                }
+                session['captures'].append(capture_info)
 
-            # 重新注入浮动按钮（页面可能已变化）
-            time.sleep(0.5)
-            self._inject_fab_button(page, session_id)
+                # 重新注入浮动按钮
+                await asyncio.sleep(0.5)
+                await self._async_inject_fab_button(page, session_id)
+
+                return capture_info
+
+            # 提交到专用线程的事件循环并等待结果
+            future = asyncio.run_coroutine_threadsafe(do_capture(), loop)
+            capture_info = future.result(timeout=120)
 
             return Response({
-                'elements': ai_elements,
+                'elements': capture_info['elements'],
                 'capture_index': capture_info['index'],
                 'total_captures': len(session['captures'])
             })
@@ -1078,6 +1131,8 @@ class ElementViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='ai_extract_manual/finish')
     def ai_extract_manual_finish(self, request):
         """手动交互模式 — 完成提取，汇总所有结果"""
+        import asyncio
+
         session_id = request.data.get('session_id')
 
         if not session_id or session_id not in self._manual_sessions:
@@ -1098,8 +1153,29 @@ class ElementViewSet(viewsets.ModelViewSet):
                 seen_locators.add(locator_key)
                 all_elements.append(elem)
 
-        # 关闭浏览器
-        self._cleanup_manual_session(session_id)
+        # 关闭浏览器（在专用线程的事件循环中执行）
+        loop = session['loop']
+
+        async def do_cleanup():
+            try:
+                await session['browser'].close()
+            except:
+                pass
+            try:
+                await session['playwright'].stop()
+            except:
+                pass
+
+        future = asyncio.run_coroutine_threadsafe(do_cleanup(), loop)
+        try:
+            future.result(timeout=10)
+        except:
+            pass
+
+        # 停止事件循环
+        loop.call_soon_threadsafe(loop.stop)
+
+        del self._manual_sessions[session_id]
 
         return Response({
             'elements': all_elements,
@@ -1152,19 +1228,252 @@ class ElementViewSet(viewsets.ModelViewSet):
             pass
 
     def _cleanup_manual_session(self, session_id):
-        """清理手动交互会话"""
+        """清理手动交互会话（仅用于外部清理，正常流程使用finish）"""
         if session_id not in self._manual_sessions:
             return
         session = self._manual_sessions[session_id]
+        loop = session.get('loop')
         try:
-            session['browser'].close()
-        except:
-            pass
-        try:
-            session['playwright'].stop()
+            if loop and loop.is_running():
+                import asyncio
+                async def do_close():
+                    try:
+                        await session['browser'].close()
+                    except:
+                        pass
+                    try:
+                        await session['playwright'].stop()
+                    except:
+                        pass
+                future = asyncio.run_coroutine_threadsafe(do_close(), loop)
+                try:
+                    future.result(timeout=5)
+                except:
+                    pass
+                loop.call_soon_threadsafe(loop.stop)
+            else:
+                session['browser'].close()
+                session['playwright'].stop()
         except:
             pass
         del self._manual_sessions[session_id]
+
+    async def _async_execute_login_step(self, page, step_data):
+        """async版本 — 在页面上执行单个登录步骤"""
+        import asyncio
+        try:
+            action = step_data.get('action_type')
+            element_info = step_data.get('element')
+            input_value = step_data.get('input_value', '')
+
+            if not element_info:
+                return
+
+            strategy = element_info.get('locator_strategy', 'css')
+            locator_value = element_info.get('locator_value', '')
+
+            if not locator_value:
+                return
+
+            if strategy in ['id', 'ID']:
+                locator = f'#{locator_value}'
+            elif strategy in ['css', 'CSS']:
+                locator = locator_value
+            elif strategy in ['xpath', 'XPath']:
+                locator = f'xpath={locator_value}'
+            elif strategy == 'name':
+                locator = f'[name="{locator_value}"]'
+            else:
+                locator = locator_value
+
+            el = page.locator(locator).first
+            if not await el.is_visible():
+                try:
+                    await el.wait_for(state='visible', timeout=5000)
+                except:
+                    return
+
+            if action == 'click':
+                await el.click()
+                await asyncio.sleep(0.5)
+            elif action == 'fill':
+                await el.fill(input_value)
+            elif action == 'navigate':
+                await page.goto(input_value, wait_until='networkidle', timeout=30000)
+        except Exception as e:
+            print(f'[登录步骤-async] 执行失败: {str(e)}')
+
+    async def _async_inject_fab_button(self, page, session_id):
+        """async版本 — 在页面中注入浮动操作按钮"""
+        fab_js = """
+        (sessionId) => {
+            const oldFab = document.getElementById('ai-extract-fab');
+            if (oldFab) oldFab.remove();
+
+            const fab = document.createElement('div');
+            fab.id = 'ai-extract-fab';
+            fab.innerHTML = `
+                <div style="position: fixed; bottom: 30px; right: 30px; z-index: 999999;
+                     display: flex; flex-direction: column; gap: 8px; font-family: sans-serif;">
+                    <button id="ai-extract-btn" style="
+                        width: 120px; padding: 10px 16px; border: none; border-radius: 8px;
+                        background: #409EFF; color: white; font-size: 13px; font-weight: 600;
+                        cursor: pointer; box-shadow: 0 4px 12px rgba(64,158,255,0.4);
+                        transition: all 0.2s;
+                    " onmouseover="this.style.transform='scale(1.05)'"
+                       onmouseout="this.style.transform='scale(1)'">
+                        提取当前元素
+                    </button>
+                    <button id="ai-finish-btn" style="
+                        width: 120px; padding: 10px 16px; border: none; border-radius: 8px;
+                        background: #f56c6c; color: white; font-size: 13px; font-weight: 600;
+                        cursor: pointer; box-shadow: 0 4px 12px rgba(245,108,108,0.4);
+                        transition: all 0.2s;
+                    " onmouseover="this.style.transform='scale(1.05)'"
+                       onmouseout="this.style.transform='scale(1)'">
+                        完成提取
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(fab);
+        }
+        """
+        try:
+            await page.evaluate(fab_js, session_id)
+        except:
+            pass
+
+    async def _async_validate_locators(self, page, elem, css_selector, xpath):
+        """async版本 — 在浏览器页面上即时验证定位策略"""
+        import re
+
+        result = {
+            'css_selector': css_selector,
+            'xpath': xpath,
+            'css_valid': False,
+            'xpath_valid': False,
+            'validation_status': 'INVALID',
+            'validation_details': ''
+        }
+
+        details = []
+
+        # 验证 CSS Selector
+        css_count = 0
+        try:
+            css_count = await page.locator(css_selector).count()
+        except Exception as e:
+            details.append(f'CSS异常: {str(e)[:60]}')
+
+        if css_count >= 1:
+            result['css_valid'] = True
+            if css_count == 1:
+                details.append(f'CSS有效(1个匹配)')
+            else:
+                details.append(f'CSS有效但多个匹配({css_count}个)')
+        else:
+            details.append(f'CSS无效(0匹配)')
+            fallback_css = await self._async_try_css_fallbacks(page, elem, css_selector)
+            if fallback_css:
+                result['css_selector'] = fallback_css
+                result['css_valid'] = True
+                details.append(f'CSS回退成功: {fallback_css}')
+            else:
+                details.append('CSS回退失败')
+
+        # 验证 XPath
+        xpath_count = 0
+        try:
+            xpath_count = await page.locator(f'xpath={xpath}').count()
+        except Exception as e:
+            details.append(f'XPath异常: {str(e)[:60]}')
+
+        if xpath_count >= 1:
+            result['xpath_valid'] = True
+            if xpath_count == 1:
+                details.append(f'XPath有效(1个匹配)')
+            else:
+                details.append(f'XPath有效但多个匹配({xpath_count}个)')
+        else:
+            details.append(f'XPath无效(0匹配)')
+            fallback_xpath = await self._async_try_xpath_fallbacks(page, elem, xpath)
+            if fallback_xpath:
+                result['xpath'] = fallback_xpath
+                result['xpath_valid'] = True
+                details.append(f'XPath回退成功: {fallback_xpath}')
+            else:
+                details.append('XPath回退失败')
+
+        if result['css_valid'] and result['xpath_valid']:
+            result['validation_status'] = 'VALID'
+        elif result['css_valid'] or result['xpath_valid']:
+            result['validation_status'] = 'PARTIAL'
+        result['validation_details'] = '; '.join(details)
+
+        return result
+
+    async def _async_try_css_fallbacks(self, page, elem, original_css):
+        """async版本 — CSS回退策略"""
+        import re
+
+        # 策略1: 带tag的id选择器
+        if elem.get('id'):
+            tag = elem.get('tag', '')
+            fallback = f'{tag}#{elem["id"]}' if tag else f'#{elem["id"]}'
+            try:
+                if await page.locator(fallback).count() >= 1:
+                    return fallback
+            except:
+                pass
+
+        # 策略2: name属性选择器
+        if elem.get('name'):
+            tag = elem.get('tag', 'input')
+            fallback = f'{tag}[name="{elem["name"]}"]'
+            try:
+                if await page.locator(fallback).count() >= 1:
+                    return fallback
+            except:
+                pass
+
+        # 策略3: placeholder属性
+        if elem.get('placeholder'):
+            tag = elem.get('tag', 'input')
+            fallback = f'{tag}[placeholder="{elem["placeholder"]}"]'
+            try:
+                if await page.locator(fallback).count() >= 1:
+                    return fallback
+            except:
+                pass
+
+        return None
+
+    async def _async_try_xpath_fallbacks(self, page, elem, original_xpath):
+        """async版本 — XPath回退策略"""
+        import re
+
+        # 策略1: 带text的XPath
+        text = elem.get('text', '').strip()
+        if text and len(text) <= 50:
+            tag = elem.get('tag', '*')
+            fallback = f'//{tag}[contains(text(), "{text[:30]}")]'
+            try:
+                if await page.locator(f'xpath={fallback}').count() >= 1:
+                    return fallback
+            except:
+                pass
+
+        # 策略2: 带id的XPath
+        if elem.get('id'):
+            tag = elem.get('tag', '*')
+            fallback = f'//{tag}[@id="{elem["id"]}"]'
+            try:
+                if await page.locator(f'xpath={fallback}').count() >= 1:
+                    return fallback
+            except:
+                pass
+
+        return None
 
     def _playwright_extract_elements(self, url, login_start_url='', login_steps_data=None):
         """使用 Playwright 打开页面并提取 DOM 元素"""
