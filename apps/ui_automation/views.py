@@ -1143,14 +1143,19 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         # 汇总所有提取结果
         all_elements = []
-        seen_locators = set()
+        seen_keys = set()
         for capture in captures:
             for elem in capture['elements']:
-                # 去重（相同定位值的元素只保留第一个）
-                locator_key = (elem.get('locator_strategy', ''), elem.get('locator_value', ''))
-                if locator_key in seen_locators:
+                # 去重：按 元素名称+定位策略+定位值 去重，避免同名同定位的重复元素
+                # 不同名称的元素即使定位器相同也保留（如多个button.ant-btn）
+                dedup_key = (
+                    elem.get('name', ''),
+                    elem.get('locator_strategy', ''),
+                    elem.get('locator_value', '')
+                )
+                if dedup_key in seen_keys:
                     continue
-                seen_locators.add(locator_key)
+                seen_keys.add(dedup_key)
                 all_elements.append(elem)
 
         # 关闭浏览器（在专用线程的事件循环中执行）
