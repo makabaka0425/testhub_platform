@@ -684,6 +684,7 @@ class TestCaseStep(models.Model):
     element = models.ForeignKey(Element, on_delete=models.CASCADE, null=True, blank=True, verbose_name='目标元素')
     input_value = models.TextField(blank=True, verbose_name='输入值')
     wait_time = models.IntegerField(default=1000, verbose_name='等待时间(毫秒)')
+    action_wait = models.IntegerField(default=0, verbose_name='操作后等待(秒)', help_text='步骤操作成功后等待指定秒数再执行下一步，用于等待动画/加载完成')
     assert_type = models.CharField(max_length=20, choices=ASSERT_TYPE_CHOICES, blank=True, verbose_name='断言类型')
     assert_value = models.TextField(blank=True, verbose_name='断言期望值')
     description = models.TextField(blank=True, verbose_name='步骤描述')
