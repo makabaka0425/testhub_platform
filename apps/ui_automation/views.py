@@ -1936,6 +1936,7 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
                     'description': step.description,
                     'input_value': step.input_value,
                     'wait_time': step.wait_time,
+                    'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
                     'element': None
@@ -2005,6 +2006,11 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
                                     step_errors.append(f"步骤{step_data['step_number']}: 文本不包含'{step_data['assert_value']}'")
                         
                         time.sleep(0.5)
+                        
+                        # action_wait: 步骤操作成功后等待指定秒数再执行下一步
+                        action_wait = step_data.get('action_wait', 0) or 0
+                        if action_wait > 0:
+                            time.sleep(action_wait)
                     except Exception as step_err:
                         step_errors.append(f"步骤{step_data['step_number']}执行失败: {str(step_err)}")
                         break
@@ -2761,6 +2767,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     'description': step.description,
                     'input_value': step.input_value,
                     'wait_time': step.wait_time,
+                    'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
                 }
@@ -2896,6 +2903,11 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         'success': success,
                                         'error': None if success else step_log
                                     })
+
+                                    # action_wait: 步骤操作成功后等待指定秒数再执行下一步
+                                    if success and getattr(step, 'action_wait', 0) and step.action_wait > 0:
+                                        execution_logs.append(f"  ⏱️  操作后等待 {step.action_wait} 秒 (action_wait)")
+                                        time.sleep(step.action_wait)
 
                                     if not success:
                                         logger.info(f"[调试-Selenium] 步骤 {i} 执行失败，设置状态为 failed")
@@ -3074,7 +3086,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     try:
                                         execution_logs.append(f"  [调试] 准备执行步骤...")
                                         success, step_log, screenshot_base64 = await engine.execute_step(step,
-                                                                                                         element_data or {})
+                                                                                                          element_data or {})
                                         execution_logs.append(f"  [调试] 步骤执行完成, success={success}")
 
                                         execution_logs.append(f"  {step_log}")
@@ -3088,6 +3100,11 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                             'success': success,
                                             'error': None if success else step_log
                                         })
+
+                                        # action_wait: 步骤操作成功后等待指定秒数再执行下一步
+                                        if success and getattr(step, 'action_wait', 0) and step.action_wait > 0:
+                                            execution_logs.append(f"  ⏱️  操作后等待 {step.action_wait} 秒 (action_wait)")
+                                            await asyncio.sleep(step.action_wait)
 
                                         # 如果步骤失败,保存截图
                                         if not success:
