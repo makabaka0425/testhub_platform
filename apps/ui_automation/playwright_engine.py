@@ -320,7 +320,7 @@ class PlaywrightTestEngine:
 
                 # 根据定位策略获取元素
                 if locator_strategy.lower() == 'id':
-                    locator = self.page.locator(f'#{locator_value}')
+                    locator = self.page.locator(locator_value if locator_value.startswith('#') else f'#{locator_value}')
                 elif locator_strategy.lower() in ['css', 'css selector']:
                     # CSS 定位器，对于可能匹配多个元素的情况，添加 .first
                     # 特别是下拉框选项，可能有多个同名选项

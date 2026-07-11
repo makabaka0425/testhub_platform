@@ -302,7 +302,62 @@
       </div>
       <template #footer>
         <el-button @click="showAiExtractDialog = false">取消</el-button>
+        <el-button type="success" @click="handlePickStart" :loading="pickLoading">
+          交互式选取
+        </el-button>
         <el-button type="primary" @click="handleAiExtract" :loading="aiExtractLoading">开始提取</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 交互式选取模式 - 控制面板 -->
+    <el-dialog v-model="showPickDialog" title="交互式选取模式" width="600px" :close-on-click-modal="false"
+               :show-close="false" top="20vh">
+      <el-alert type="success" :closable="false" show-icon style="margin-bottom: 16px;">
+        <template #title>
+          浏览器已打开，请在页面中点击要提取的元素。鼠标悬停会高亮显示，点击后AI自动识别定位器。
+        </template>
+      </el-alert>
+
+      <div v-if="pickElements.length > 0" style="margin-bottom: 12px;">
+        <div style="font-weight: 600; margin-bottom: 8px;">已选取元素（{{ pickElements.length }} 个）：</div>
+        <el-table :data="pickElements" max-height="300" size="small">
+          <el-table-column label="元素名称" min-width="120">
+            <template #default="{ row }">
+              {{ row.name || '未命名' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="类型" width="80">
+            <template #default="{ row }">
+              <el-tag size="small">{{ row.element_type || '-' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="定位策略" width="80">
+            <template #default="{ row }">
+              {{ row.locator_strategy || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="定位表达式" min-width="150" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.locator_value || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="60">
+            <template #default="{ $index }">
+              <el-button type="danger" size="small" text @click="pickElements.splice($index, 1)">
+                删除
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <div v-else style="text-align: center; padding: 20px 0; color: #909399;">
+        尚未选取任何元素，请在浏览器中点击页面元素
+      </div>
+
+      <template #footer>
+        <el-button @click="handlePickFinish" type="success" :loading="pickLoading">
+          完成选取
+        </el-button>
       </template>
     </el-dialog>
 
@@ -507,6 +562,9 @@ import {
   aiExtractManualStart,
   aiExtractManualCapture,
   aiExtractManualFinish,
+  aiPickStart,
+  aiPickStatus,
+  aiPickFinish,
   getLoginConfigs
 } from '@/api/ui_automation'
 
@@ -564,6 +622,13 @@ const manualSessionId = ref('')            // 手动模式session ID
 const manualCaptures = ref([])             // 手动模式的多次提取结果
 const manualCaptureIndex = ref(0)
 const manualLoading = ref(false)
+
+// 交互式选取模式相关
+const showPickDialog = ref(false)          // 控制选取模式对话框显示
+const pickSessionId = ref('')              // 选取模式session ID
+const pickElements = ref([])               // 已选取的元素列表
+const pickLoading = ref(false)             // 加载状态
+let pickPollTimer = null                   // 轮询定时器
 
 // 右键菜单
 const showContextMenu = ref(false)
@@ -1052,6 +1117,108 @@ const handleManualFinish = async () => {
     ElMessage.error(errMsg)
   } finally {
     manualLoading.value = false
+  }
+}
+
+// ==================== 交互式选取模式 ====================
+
+// 启动交互式选取
+const handlePickStart = async () => {
+  if (!aiExtractForm.url) {
+    ElMessage.warning('请输入目标页面URL')
+    return
+  }
+
+  pickLoading.value = true
+  try {
+    const data = {
+      project_id: selectedProject.value,
+      url: aiExtractForm.url,
+      login_config_id: aiExtractForm.login_config_id || undefined
+    }
+
+    const response = await aiPickStart(data)
+    const result = response.data
+
+    pickSessionId.value = result.session_id
+    pickElements.value = []
+    showPickDialog.value = true
+    showAiExtractDialog.value = false
+
+    ElMessage.success('浏览器已打开，请在页面中点击要提取的元素')
+
+    // 开始轮询获取已选取的元素
+    startPickPolling()
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '启动失败'
+    ElMessage.error(errMsg)
+  } finally {
+    pickLoading.value = false
+  }
+}
+
+// 轮询获取已选取元素
+const startPickPolling = () => {
+  if (pickPollTimer) clearInterval(pickPollTimer)
+  pickPollTimer = setInterval(async () => {
+    if (!pickSessionId.value) {
+      clearInterval(pickPollTimer)
+      return
+    }
+    try {
+      const response = await aiPickStatus({ session_id: pickSessionId.value })
+      const result = response.data
+      if (result.elements) {
+        pickElements.value = result.elements.map((elem, index) => ({
+          ...elem,
+          _id: index
+        }))
+      }
+    } catch (error) {
+      // 静默处理轮询错误
+    }
+  }, 2000)
+}
+
+// 完成交互式选取
+const handlePickFinish = async () => {
+  if (!pickSessionId.value) return
+
+  pickLoading.value = true
+  try {
+    // 停止轮询
+    if (pickPollTimer) {
+      clearInterval(pickPollTimer)
+      pickPollTimer = null
+    }
+
+    const response = await aiPickFinish({ session_id: pickSessionId.value })
+    const result = response.data
+
+    // 将结果填充到预览表格
+    const allElements = (result.elements || []).map((elem, index) => ({
+      ...elem,
+      _id: index
+    }))
+
+    aiExtractResults.value = allElements
+    aiResultInfo.url = aiExtractForm.url
+    pickSessionId.value = ''
+    showPickDialog.value = false
+
+    // 打开结果预览对话框
+    showAiResultDialog.value = true
+    await nextTick()
+    if (aiResultTableRef.value) {
+      aiResultTableRef.value.toggleAllSelection()
+    }
+
+    ElMessage.success(`选取完成，共 ${allElements.length} 个元素`)
+  } catch (error) {
+    const errMsg = error.response?.data?.error || error.message || '完成选取失败'
+    ElMessage.error(errMsg)
+  } finally {
+    pickLoading.value = false
   }
 }
 

@@ -523,6 +523,36 @@ export function aiExtractManualFinish(data) {
   })
 }
 
+// 交互式选取模式 — 启动
+export function aiPickStart(data) {
+  return request({
+    url: '/ui-automation/elements/ai_pick/start/',
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}
+
+// 交互式选取模式 — 获取状态（轮询）
+export function aiPickStatus(params) {
+  return request({
+    url: '/ui-automation/elements/ai_pick/status/',
+    method: 'get',
+    params,
+    timeout: 10000
+  })
+}
+
+// 交互式选取模式 — 完成
+export function aiPickFinish(data) {
+  return request({
+    url: '/ui-automation/elements/ai_pick/finish/',
+    method: 'post',
+    data,
+    timeout: 30000
+  })
+}
+
 // 页面对象相关API
 export function getPageObjects(params) {
   return request({

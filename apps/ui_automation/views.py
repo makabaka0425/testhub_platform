@@ -178,6 +178,8 @@ class ElementViewSet(viewsets.ModelViewSet):
 
     # 手动交互模式会话管理（类变量，跨请求共享）
     _manual_sessions = {}  # session_id -> {playwright, browser, page, context, captures, created_at}
+    # 交互式选取模式会话管理
+    _pick_sessions = {}    # session_id -> {playwright, browser, page, context, picked_elements, created_at}
 
     def get_serializer_class(self):
         if self.action in ['list', 'retrieve']:
@@ -442,6 +444,9 @@ class ElementViewSet(viewsets.ModelViewSet):
         # Step 3: 去重定位值，确保每个元素的定位尽量唯一
         ai_elements = self._deduplicate_locators(ai_elements)
 
+        # Step 3.5: 按元素名称去重，过滤列表行重复的操作按钮
+        ai_elements = self._deduplicate_by_name(ai_elements)
+
         response_data = {
             'page_title': dom_elements[0].get('page_title', '') if dom_elements else '',
             'url': url,
@@ -592,6 +597,9 @@ class ElementViewSet(viewsets.ModelViewSet):
             self._revalidate_locators(url, login_start_url, login_steps_data, needs_revalidation)
 
         ai_elements = self._deduplicate_locators(ai_elements)
+
+        # 按元素名称去重，过滤列表行重复的操作按钮
+        ai_elements = self._deduplicate_by_name(ai_elements)
 
         return Response({
             'elements': ai_elements,
@@ -1158,6 +1166,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                 seen_keys.add(dedup_key)
                 all_elements.append(elem)
 
+        # 按元素名称去重，过滤列表行重复的操作按钮
+        all_elements = self._deduplicate_by_name(all_elements)
+
         # 关闭浏览器（在专用线程的事件循环中执行）
         loop = session['loop']
 
@@ -1263,6 +1274,815 @@ class ElementViewSet(viewsets.ModelViewSet):
             pass
         del self._manual_sessions[session_id]
 
+    # ==================== 交互式选取模式 ====================
+
+    @action(detail=False, methods=['post'], url_path='ai_pick/start')
+    def ai_pick_start(self, request):
+        """交互式选取模式 — 启动浏览器会话，用户点击元素后AI识别定位器"""
+        import os
+        import uuid
+        import time
+        import threading
+        import asyncio
+        os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+
+        url = request.data.get('url', '').strip()
+        login_config_id = request.data.get('login_config_id')
+        project_id = request.data.get('project_id')
+
+        if not url:
+            return Response({'error': 'url 为必填项'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 登录配置（复用手动模式的逻辑）
+        login_steps_data = None
+        login_start_url = ''
+        if login_config_id and project_id:
+            try:
+                project = UiProject.objects.get(id=project_id)
+                login_config = LoginConfig.objects.get(id=login_config_id, project=project)
+                login_start_url = login_config.login_url or ''
+                if not login_start_url and login_config.project:
+                    login_start_url = login_config.project.base_url or ''
+                test_case = login_config.login_test_case
+                if test_case:
+                    steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+                    login_steps_data = []
+                    for step in steps:
+                        step_data = {
+                            'action_type': step.action_type,
+                            'input_value': step.input_value or '',
+                            'wait_time': step.wait_time or 1000,
+                            'action_wait': step.action_wait or 0,
+                            'element': None
+                        }
+                        if step.element:
+                            step_data['element'] = {
+                                'locator_value': step.element.locator_value,
+                                'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                            }
+                        login_steps_data.append(step_data)
+            except Exception as e:
+                print(f'[交互选取] 登录配置加载失败: {str(e)}')
+
+        try:
+            session_id = str(uuid.uuid4())
+            loop = asyncio.new_event_loop()
+            start_result = {'error': None, 'page': None, 'browser': None, 'context': None, 'pw': None}
+
+            def run_playwright_in_thread():
+                asyncio.set_event_loop(loop)
+                from playwright.async_api import async_playwright
+
+                async def do_start():
+                    try:
+                        pw = await async_playwright().start()
+                        browser = await pw.chromium.launch(headless=False)
+                        context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+                        page = await context.new_page()
+
+                        if login_start_url and login_steps_data:
+                            await page.goto(login_start_url, wait_until='networkidle', timeout=30000)
+                            await asyncio.sleep(2)
+                            for step_data in login_steps_data:
+                                await self._async_execute_login_step(page, step_data)
+                            try:
+                                await page.wait_for_load_state('networkidle', timeout=10000)
+                            except:
+                                pass
+                            await asyncio.sleep(2)
+
+                        await page.goto(url, wait_until='networkidle', timeout=30000)
+                        await asyncio.sleep(2)
+
+                        # 注入交互式选取脚本
+                        await self._async_inject_pick_script(page, session_id)
+
+                        start_result['pw'] = pw
+                        start_result['browser'] = browser
+                        start_result['context'] = context
+                        start_result['page'] = page
+                    except Exception as e:
+                        start_result['error'] = str(e)
+
+                loop.run_until_complete(do_start())
+                loop.run_forever()
+
+            thread = threading.Thread(target=run_playwright_in_thread, daemon=True)
+            thread.start()
+
+            for _ in range(120):
+                time.sleep(0.5)
+                if start_result['error'] or start_result['page']:
+                    break
+
+            if start_result['error']:
+                return Response({'error': f'启动浏览器失败: {start_result["error"]}'},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            if not start_result['page']:
+                return Response({'error': '启动浏览器超时'},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            self._pick_sessions[session_id] = {
+                'loop': loop,
+                'thread': thread,
+                'playwright': start_result['pw'],
+                'browser': start_result['browser'],
+                'context': start_result['context'],
+                'page': start_result['page'],
+                'picked_elements': [],
+                'created_at': time.time()
+            }
+
+            return Response({
+                'session_id': session_id,
+                'message': '浏览器已打开，请在页面中点击要提取的元素'
+            })
+        except Exception as e:
+            import traceback
+            return Response({'error': f'启动失败: {str(e)}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='ai_pick/status')
+    def ai_pick_status(self, request):
+        """交互式选取模式 — 获取已选取的元素列表（供前端轮询）"""
+        session_id = request.query_params.get('session_id')
+        if not session_id or session_id not in self._pick_sessions:
+            return Response({'error': '无效的会话ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._pick_sessions[session_id]
+        import time
+        if time.time() - session['created_at'] > 600:
+            self._cleanup_pick_session(session_id)
+            return Response({'error': '会话已超时(10分钟)，请重新启动'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'elements': session['picked_elements'],
+            'count': len(session['picked_elements'])
+        })
+
+    @action(detail=False, methods=['post'], url_path='ai_pick/finish')
+    def ai_pick_finish(self, request):
+        """交互式选取模式 — 完成选取，关闭浏览器，返回所有元素"""
+        import asyncio
+
+        session_id = request.data.get('session_id')
+        if not session_id or session_id not in self._pick_sessions:
+            return Response({'error': '无效的会话ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._pick_sessions[session_id]
+        all_elements = session['picked_elements']
+
+        # 关闭浏览器
+        loop = session['loop']
+
+        async def do_cleanup():
+            try:
+                await session['browser'].close()
+            except:
+                pass
+            try:
+                await session['playwright'].stop()
+            except:
+                pass
+
+        future = asyncio.run_coroutine_threadsafe(do_cleanup(), loop)
+        try:
+            future.result(timeout=10)
+        except:
+            pass
+
+        loop.call_soon_threadsafe(loop.stop)
+        del self._pick_sessions[session_id]
+
+        return Response({
+            'elements': all_elements,
+            'count': len(all_elements)
+        })
+
+    def _cleanup_pick_session(self, session_id):
+        """清理交互式选取会话"""
+        if session_id not in self._pick_sessions:
+            return
+        session = self._pick_sessions[session_id]
+        loop = session.get('loop')
+        try:
+            if loop and loop.is_running():
+                import asyncio
+                async def do_close():
+                    try:
+                        await session['browser'].close()
+                    except:
+                        pass
+                    try:
+                        await session['playwright'].stop()
+                    except:
+                        pass
+                future = asyncio.run_coroutine_threadsafe(do_close(), loop)
+                try:
+                    future.result(timeout=5)
+                except:
+                    pass
+                loop.call_soon_threadsafe(loop.stop)
+        except:
+            pass
+        del self._pick_sessions[session_id]
+
+    async def _async_inject_pick_script(self, page, session_id):
+        """注入交互式选取脚本 — mouseover高亮 + click捕获 + 浮层面板"""
+        # 先暴露 Python 函数，供 JS 在用户点击元素时调用
+        async def on_element_clicked(element_data):
+            """JS调用：用户点击元素后，计算定位器并AI分析"""
+            try:
+                # 计算CSS和XPath
+                css_selector = self._compute_css_selector(element_data)
+                xpath = self._compute_xpath(element_data)
+
+                # 验证定位器
+                validation = await self._async_validate_locators(page, element_data, css_selector, xpath)
+                element_data['auto_css'] = validation['css_selector']
+                element_data['auto_xpath'] = validation['xpath']
+                element_data['validation_status'] = validation['validation_status']
+                element_data['validation_details'] = validation['validation_details']
+
+                # AI分析单个元素
+                try:
+                    ai_result = self._ai_analyze_single_element(element_data)
+                except Exception as e:
+                    print(f'[交互选取] AI分析失败，回退规则引擎: {str(e)}')
+                    ai_result = self._rule_based_classify([element_data])[0] if self._rule_based_classify([element_data]) else None
+
+                if ai_result:
+                    ai_result['source'] = '交互选取'
+
+                    # 验证AI返回的定位器，如果不唯一则尝试修正
+                    ai_result = await self._validate_and_fix_locator(page, ai_result, element_data)
+
+                    # 存入session
+                    session = self._pick_sessions.get(session_id)
+                    if session:
+                        session['picked_elements'].append(ai_result)
+                    return ai_result
+                return None
+            except Exception as e:
+                print(f'[交互选取] 元素处理失败: {str(e)}')
+                return None
+
+        await page.expose_function('__aiPickElement', on_element_clicked)
+
+        # 暴露改名函数
+        async def on_element_renamed(index, new_name):
+            """JS调用：用户在浮窗中修改元素名称"""
+            session = self._pick_sessions.get(session_id)
+            if session and 0 <= index < len(session['picked_elements']):
+                session['picked_elements'][index]['name'] = new_name
+                return True
+            return False
+
+        await page.expose_function('__aiPickRename', on_element_renamed)
+
+        # 注入选取模式UI脚本
+        pick_js = """
+        () => {
+            // 清除旧面板
+            const oldPanel = document.getElementById('ai-pick-panel');
+            if (oldPanel) oldPanel.remove();
+
+            // 创建样式
+            const style = document.createElement('style');
+            style.id = 'ai-pick-style';
+            style.textContent = `
+                .ai-pick-highlight {
+                    outline: 2px solid #ff4d4f !important;
+                    outline-offset: 1px !important;
+                    cursor: crosshair !important;
+                }
+                #ai-pick-panel {
+                    position: fixed; top: 16px; right: 16px; z-index: 999999;
+                    width: 320px; max-height: 70vh; overflow-y: auto;
+                    background: rgba(255,255,255,0.98); border-radius: 10px;
+                    box-shadow: 0 6px 24px rgba(0,0,0,0.15);
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                    font-size: 13px;
+                }
+                #ai-pick-panel .pick-header {
+                    padding: 12px 16px; background: #409EFF; color: white;
+                    border-radius: 10px 10px 0 0; font-weight: 600; font-size: 14px;
+                    display: flex; justify-content: space-between; align-items: center;
+                    cursor: move; user-select: none;
+                }
+                #ai-pick-panel .pick-body { padding: 8px 0; }
+                #ai-pick-panel .pick-item {
+                    padding: 8px 16px; border-bottom: 1px solid #f0f0f0;
+                    display: flex; justify-content: space-between; align-items: center;
+                }
+                #ai-pick-panel .pick-item:last-child { border-bottom: none; }
+                #ai-pick-panel .pick-item-name {
+                    font-weight: 500; color: #333; flex: 1; min-width: 0;
+                    padding: 2px 6px; border: 1px solid transparent; border-radius: 4px;
+                    outline: none; background: transparent; cursor: text;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                }
+                #ai-pick-panel .pick-item-name:hover {
+                    border-color: #d9d9d9; background: #fafafa;
+                }
+                #ai-pick-panel .pick-item-name:focus {
+                    border-color: #409EFF; background: white;
+                    white-space: normal; overflow: visible;
+                }
+                #ai-pick-panel .pick-item-type {
+                    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+                    background: #e6f7ff; color: #1890ff;
+                }
+                #ai-pick-panel .pick-loading {
+                    padding: 12px 16px; text-align: center; color: #999;
+                }
+                #ai-pick-panel .pick-empty {
+                    padding: 20px 16px; text-align: center; color: #999;
+                }
+                #ai-pick-panel .pick-footer {
+                    padding: 10px 16px; border-top: 1px solid #f0f0f0;
+                    display: flex; justify-content: center;
+                }
+                #ai-pick-panel .pick-hint {
+                    padding: 6px 16px; font-size: 11px; color: #999; text-align: center;
+                    background: #fafafa;
+                }
+                #ai-pick-panel .pick-toolbar {
+                    padding: 6px 12px; display: flex; gap: 8px; border-bottom: 1px solid #f0f0f0;
+                }
+                #ai-pick-panel .pick-toolbar button {
+                    flex: 1; padding: 5px 10px; border: 1px solid #d9d9d9; border-radius: 6px;
+                    background: white; color: #666; font-size: 12px; cursor: pointer; transition: all 0.15s;
+                }
+                #ai-pick-panel .pick-toolbar button.active {
+                    background: #409EFF; color: white; border-color: #409EFF;
+                }
+                #ai-pick-panel .pick-mode-badge {
+                    display: inline-block; padding: 2px 8px; border-radius: 10px;
+                    font-size: 11px; font-weight: 500;
+                }
+                #ai-pick-panel .pick-mode-badge.select {
+                    background: #fff1f0; color: #ff4d4f;
+                }
+                #ai-pick-panel .pick-mode-badge.browse {
+                    background: #f6ffed; color: #52c41a;
+                }
+            `;
+            document.head.appendChild(style);
+
+            // 创建面板
+            const panel = document.createElement('div');
+            panel.id = 'ai-pick-panel';
+            panel.innerHTML = `
+                <div class="pick-header">
+                    <span>选取模式</span>
+                    <span id="pick-count">0 个元素</span>
+                </div>
+                <div class="pick-toolbar">
+                    <button id="pick-mode-select" class="active">选取元素</button>
+                    <button id="pick-mode-browse">浏览操作</button>
+                </div>
+                <div class="pick-hint" id="pick-hint">
+                    <span class="pick-mode-badge select">选取</span> 鼠标悬停高亮，点击选取元素
+                </div>
+                <div class="pick-body" id="pick-body">
+                    <div class="pick-empty">尚未选取任何元素</div>
+                </div>
+            `;
+            document.body.appendChild(panel);
+
+            // 拖拽逻辑：按住 header 拖动面板
+            const pickHeader = panel.querySelector('.pick-header');
+            let isDragging = false;
+            let dragOffsetX = 0;
+            let dragOffsetY = 0;
+
+            pickHeader.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                const rect = panel.getBoundingClientRect();
+                dragOffsetX = e.clientX - rect.left;
+                dragOffsetY = e.clientY - rect.top;
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                let newX = e.clientX - dragOffsetX;
+                let newY = e.clientY - dragOffsetY;
+                // 限制不超出视口
+                const maxX = window.innerWidth - panel.offsetWidth;
+                const maxY = window.innerHeight - 40;
+                newX = Math.max(0, Math.min(newX, maxX));
+                newY = Math.max(0, Math.min(newY, maxY));
+                panel.style.left = newX + 'px';
+                panel.style.top = newY + 'px';
+                panel.style.right = 'auto';
+            });
+
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            // 模式切换：选取模式 vs 浏览模式
+            let pickMode = 'select'; // 'select' or 'browse'
+            const btnSelect = document.getElementById('pick-mode-select');
+            const btnBrowse = document.getElementById('pick-mode-browse');
+            const hintEl = document.getElementById('pick-hint');
+
+            btnSelect.addEventListener('click', () => {
+                pickMode = 'select';
+                btnSelect.classList.add('active');
+                btnBrowse.classList.remove('active');
+                hintEl.innerHTML = '<span class="pick-mode-badge select">选取</span> 鼠标悬停高亮，点击选取元素';
+            });
+
+            btnBrowse.addEventListener('click', () => {
+                pickMode = 'browse';
+                btnBrowse.classList.add('active');
+                btnSelect.classList.remove('active');
+                // 清除高亮
+                if (highlightedEl) {
+                    highlightedEl.classList.remove('ai-pick-highlight');
+                    highlightedEl = null;
+                }
+                hintEl.innerHTML = '<span class="pick-mode-badge browse">浏览</span> 正常操作页面，可点击按钮打开弹窗';
+            });
+
+            let highlightedEl = null;
+            let isProcessing = false;
+
+            // mouseover 高亮（仅选取模式）
+            document.addEventListener('mouseover', (e) => {
+                if (isProcessing || pickMode !== 'select') return;
+                const el = e.target;
+                // 排除面板自身
+                if (el.closest('#ai-pick-panel') || el.closest('#ai-pick-style')) return;
+                if (highlightedEl && highlightedEl !== el) {
+                    highlightedEl.classList.remove('ai-pick-highlight');
+                }
+                el.classList.add('ai-pick-highlight');
+                highlightedEl = el;
+            }, true);
+
+            // mouseout 移除高亮
+            document.addEventListener('mouseout', (e) => {
+                if (highlightedEl) {
+                    highlightedEl.classList.remove('ai-pick-highlight');
+                }
+            }, true);
+
+            // click 捕获（仅选取模式拦截，浏览模式放行）
+            document.addEventListener('click', async (e) => {
+                // 浏览模式：不拦截，让页面正常响应
+                if (pickMode !== 'select') return;
+
+                let el = e.target;
+                // 排除面板自身
+                if (el.closest('#ai-pick-panel') || el.closest('#ai-pick-style')) return;
+
+                // 拦截默认行为
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                if (isProcessing) return;
+                isProcessing = true;
+
+                // 移除高亮
+                el.classList.remove('ai-pick-highlight');
+
+                // 向上查找最近的交互元素（button, a, input, select, textarea, [role=button] 等）
+                // 用户可能点击的是按钮内部的 span/icon，需要定位到真正的交互元素
+                const interactiveSelectors = 'button, a[href], input, select, textarea, [role="button"], [role="link"], [role="switch"], [onclick], .ant-btn, .el-button';
+                let interactiveEl = el.closest(interactiveSelectors);
+                if (interactiveEl) {
+                    el = interactiveEl;
+                }
+
+                // 收集元素DOM信息
+                const rect = el.getBoundingClientRect();
+                const parentEl = el.parentElement;
+                const elementData = {
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id || '',
+                    name: el.getAttribute('name') || '',
+                    className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
+                    type: el.type || '',
+                    placeholder: el.placeholder || '',
+                    value: (el.value || '').substring(0, 50),
+                    href: el.href || '',
+                    role: el.getAttribute('role') || '',
+                    ariaLabel: el.getAttribute('aria-label') || '',
+                    dataTestId: el.getAttribute('data-testid') || '',
+                    text: (el.textContent || '').trim().substring(0, 80),
+                    title: el.title || '',
+                    visible: true,
+                    rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+                    isInTableRow: false,
+                    tableRowIndex: -1,
+                    outerHTML: el.outerHTML.substring(0, 500),
+                    parentInfo: parentEl ? {
+                        tag: parentEl.tagName.toLowerCase(),
+                        className: (typeof parentEl.className === 'string') ? parentEl.className.substring(0, 100) : '',
+                        text: (parentEl.textContent || '').trim().substring(0, 80)
+                    } : null
+                };
+
+                // 显示加载状态
+                const body = document.getElementById('pick-body');
+                const loadingDiv = document.createElement('div');
+                loadingDiv.className = 'pick-loading';
+                loadingDiv.id = 'pick-loading';
+                loadingDiv.textContent = '正在分析元素...';
+                body.appendChild(loadingDiv);
+
+                try {
+                    const result = await window.__aiPickElement(elementData);
+                    // 移除加载状态
+                    const ld = document.getElementById('pick-loading');
+                    if (ld) ld.remove();
+
+                    if (result) {
+                        // 移除空提示
+                        const empty = body.querySelector('.pick-empty');
+                        if (empty) empty.remove();
+
+                        // 添加到列表
+                        const item = document.createElement('div');
+                        item.className = 'pick-item';
+                        const typeMap = {
+                            'INPUT': '输入框', 'BUTTON': '按钮', 'LINK': '链接',
+                            'DROPDOWN': '下拉框', 'CHECKBOX': '复选框', 'RADIO': '单选框',
+                            'TEXT': '文本', 'IMAGE': '图片', 'TABLE': '表格',
+                            'CONTAINER': '容器', 'FORM': '表单', 'MODAL': '弹窗'
+                        };
+                        const typeText = typeMap[result.element_type] || result.element_type || '元素';
+                        const itemName = result.name || '未命名';
+                        const itemIndex = body.querySelectorAll('.pick-item').length;
+                        item.innerHTML = `
+                            <span class="pick-item-name" contenteditable="true" data-index="${itemIndex}" title="点击编辑名称">${itemName}</span>
+                            <span class="pick-item-type">${typeText}</span>
+                        `;
+                        body.appendChild(item);
+
+                        // 监听名称编辑，同步到后端 session
+                        const nameSpan = item.querySelector('.pick-item-name');
+                        nameSpan.addEventListener('blur', async () => {
+                            const newName = nameSpan.textContent.trim();
+                            const idx = parseInt(nameSpan.getAttribute('data-index'));
+                            if (newName) {
+                                try {
+                                    await window.__aiPickRename(idx, newName);
+                                } catch(e) {
+                                    console.error('[交互选取] 改名失败:', e);
+                                }
+                            }
+                        });
+                        nameSpan.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                nameSpan.blur();
+                            }
+                        });
+
+                        // 更新计数
+                        const countEl = document.getElementById('pick-count');
+                        const items = body.querySelectorAll('.pick-item');
+                        countEl.textContent = items.length + ' 个元素';
+                    }
+                } catch (err) {
+                    const ld = document.getElementById('pick-loading');
+                    if (ld) ld.remove();
+                    console.error('[交互选取] 分析失败:', err);
+                } finally {
+                    isProcessing = false;
+                }
+            }, true);
+        }
+        """
+        await page.evaluate(pick_js)
+
+    async def _validate_and_fix_locator(self, page, ai_result, element_data):
+        """验证AI返回的定位器，如果不唯一则尝试生成更精确的定位表达式"""
+        strategy = ai_result.get('locator_strategy', '')
+        value = ai_result.get('locator_value', '')
+        text = (element_data.get('text', '') or '').strip()
+        tag = element_data.get('tag', '')
+        elem_id = element_data.get('id', '')
+        aria_label = element_data.get('ariaLabel', '')
+        placeholder = element_data.get('placeholder', '')
+        name_attr = element_data.get('name', '')
+
+        # 如果已有ID且唯一，直接用
+        if elem_id:
+            try:
+                count = await page.locator(f'#{elem_id}').count()
+                if count == 1:
+                    ai_result['locator_strategy'] = 'ID'
+                    ai_result['locator_value'] = elem_id
+                    ai_result['validation_status'] = 'VALID'
+                    ai_result['validation_details'] = 'ID唯一匹配'
+                    return ai_result
+            except:
+                pass
+
+        # 验证AI返回的定位器
+        match_count = 0
+        try:
+            if strategy == 'XPath':
+                match_count = await page.locator(f'xpath={value}').count()
+            elif strategy == 'CSS':
+                match_count = await page.locator(value).count()
+        except:
+            pass
+
+        if match_count == 1:
+            ai_result['validation_status'] = 'VALID'
+            ai_result['validation_details'] = '定位器唯一匹配'
+            return ai_result
+
+        # 不唯一或无效，尝试生成基于文本的精确XPath
+        if text and len(text) <= 30:
+            # 尝试多种XPath文本定位方式
+            candidates = []
+            # 1. 文本在元素自身
+            candidates.append(f'//{tag}[contains(text(),"{text}")]')
+            # 2. 文本在直接子元素
+            candidates.append(f'//{tag}[.//*[contains(text(),"{text}")]]')
+            # 3. 文本在任意后代元素
+            candidates.append(f'//{tag}[contains(.,"{text}")]')
+
+            for xp in candidates:
+                try:
+                    count = await page.locator(f'xpath={xp}').count()
+                    if count == 1:
+                        ai_result['locator_strategy'] = 'XPath'
+                        ai_result['locator_value'] = xp
+                        ai_result['validation_status'] = 'VALID'
+                        ai_result['validation_details'] = f'文本XPath唯一匹配: {xp}'
+                        print(f'[交互选取] 定位器修正: {strategy}:{value} → XPath:{xp}')
+                        return ai_result
+                except:
+                    continue
+
+        # 尝试 aria-label
+        if aria_label:
+            xp = f'//{tag}[@aria-label="{aria_label}"]'
+            try:
+                count = await page.locator(f'xpath={xp}').count()
+                if count == 1:
+                    ai_result['locator_strategy'] = 'XPath'
+                    ai_result['locator_value'] = xp
+                    ai_result['validation_status'] = 'VALID'
+                    ai_result['validation_details'] = f'aria-label唯一匹配'
+                    return ai_result
+            except:
+                pass
+
+        # 尝试 placeholder
+        if placeholder:
+            xp = f'//{tag}[@placeholder="{placeholder}"]'
+            try:
+                count = await page.locator(f'xpath={xp}').count()
+                if count == 1:
+                    ai_result['locator_strategy'] = 'XPath'
+                    ai_result['locator_value'] = xp
+                    ai_result['validation_status'] = 'VALID'
+                    ai_result['validation_details'] = f'placeholder唯一匹配'
+                    return ai_result
+            except:
+                pass
+
+        # 尝试 name 属性
+        if name_attr and ' ' not in name_attr:
+            xp = f'//{tag}[@name="{name_attr}"]'
+            try:
+                count = await page.locator(f'xpath={xp}').count()
+                if count == 1:
+                    ai_result['locator_strategy'] = 'XPath'
+                    ai_result['locator_value'] = xp
+                    ai_result['validation_status'] = 'VALID'
+                    ai_result['validation_details'] = f'name属性唯一匹配'
+                    return ai_result
+            except:
+                pass
+
+        # 所有策略都无法唯一定位，保留原值但标记状态
+        if match_count > 1:
+            ai_result['validation_status'] = 'PARTIAL'
+            ai_result['validation_details'] = f'定位器匹配{match_count}个元素，不够精确'
+        else:
+            ai_result['validation_status'] = element_data.get('validation_status', 'UNVALIDATED')
+            ai_result['validation_details'] = element_data.get('validation_details', '未验证')
+
+        return ai_result
+
+    def _ai_analyze_single_element(self, elem):
+        """使用 LLM 分析单个元素，返回结构化元素信息"""
+        from langchain_openai import ChatOpenAI
+        from apps.requirement_analysis.models import AIModelConfig
+        import asyncio
+        import json
+        import re
+
+        config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+        if not config_obj:
+            raise Exception('未找到可用的AI模型配置')
+
+        api_key = config_obj.api_key
+        base_url = config_obj.base_url
+        model_name = config_obj.model_name
+
+        if not api_key:
+            raise Exception('AI模型API Key未配置')
+
+        llm = ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=0.1,
+            max_tokens=1000
+        )
+
+        # 构造精简的元素数据
+        elem_data = {
+            'tag': elem.get('tag', ''),
+            'id': elem.get('id', ''),
+            'name': elem.get('name', ''),
+            'type': elem.get('type', ''),
+            'placeholder': elem.get('placeholder', ''),
+            'text': elem.get('text', '')[:50],
+            'role': elem.get('role', ''),
+            'ariaLabel': elem.get('ariaLabel', ''),
+            'className': elem.get('className', '')[:100],
+            'auto_css': elem.get('auto_css', ''),
+            'auto_xpath': elem.get('auto_xpath', ''),
+            'outerHTML': elem.get('outerHTML', '')[:300],
+        }
+
+        prompt = f"""你是一个UI自动化测试元素定位专家。以下是用户点击选中的网页元素DOM数据，请分析并返回：
+1. 元素的中文名称（简洁准确，如"用户名输入框"、"查询按钮"、"新增链接"）
+2. 最佳定位策略和定位值
+3. 元素类型，必须是以下之一：INPUT, BUTTON, LINK, DROPDOWN, CHECKBOX, RADIO, TEXT, IMAGE, CONTAINER, TABLE, FORM, MODAL
+
+定位策略必须是以下之一：ID, CSS, XPath, name, class, text, placeholder, role, label, title, test-id
+
+定位值生成规则（按优先级）：
+- 有id属性：用 ID 策略，值如 username（不要加#前缀）
+- 有data-testid：用 test-id 策略
+- 有name属性（不含空格）：用 name 策略
+- 有placeholder：用 placeholder 策略
+- 有aria-label：用 label 策略
+- 按钮类元素（button/a/[role=button]）且有文本内容：用 XPath 策略，值如 //button[contains(text(),"新增")] 或 //button[.//span[contains(text(),"新增")]]（根据文本在元素自身还是子元素中）
+- 有唯一className组合：用 CSS 策略，如 button.ant-btn-primary
+- 以上都不满足时，结合 tag + 文本生成 XPath
+
+重要：定位值必须能唯一定位到该元素。不要返回简单的标签名（如 span、button），必须包含足够的限定条件。
+
+请严格按以下JSON格式返回，不要添加任何其他文字：
+{{"name": "元素名称", "element_type": "BUTTON", "locator_strategy": "XPath", "locator_value": "//button[contains(text(),\\"新增\\")]", "description": "简短描述"}}
+
+元素DOM数据：
+{json.dumps(elem_data, ensure_ascii=False)}"""
+
+        # 同步调用 LLM
+        import concurrent.futures
+        def call_llm():
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(llm.ainvoke(prompt))
+            finally:
+                loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(call_llm)
+            response = future.result(timeout=60)
+        content = response.content
+
+        # 解析JSON
+        json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+        if json_match:
+            try:
+                result = json.loads(json_match.group(1))
+                # 补充备份定位器和验证状态
+                backup = []
+                css_sel = elem.get('auto_css', '')
+                xpath = elem.get('auto_xpath', '')
+                if css_sel and css_sel != result.get('locator_value', ''):
+                    backup.append({'strategy': 'CSS', 'value': css_sel})
+                if xpath and xpath != result.get('locator_value', ''):
+                    backup.append({'strategy': 'XPath', 'value': xpath})
+                result['backup_locators'] = backup
+                result['is_visible'] = True
+                result['validation_status'] = elem.get('validation_status', '')
+                result['validation_details'] = elem.get('validation_details', '')
+                return result
+            except json.JSONDecodeError:
+                pass
+
+        # 解析失败，回退规则引擎
+        raise Exception(f'AI返回结果解析失败: {content[:200]}')
+
     async def _async_execute_login_step(self, page, step_data):
         """async版本 — 在页面上执行单个登录步骤"""
         import asyncio
@@ -1281,7 +2101,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                 return
 
             if strategy in ['id', 'ID']:
-                locator = f'#{locator_value}'
+                locator = locator_value if locator_value.startswith('#') else f'#{locator_value}'
             elif strategy in ['css', 'CSS']:
                 locator = locator_value
             elif strategy in ['xpath', 'XPath']:
@@ -1601,14 +2421,25 @@ class ElementViewSet(viewsets.ModelViewSet):
                             const style = window.getComputedStyle(el);
                             if (style.display === 'none' || style.visibility === 'hidden') return;
 
-                            // 排除导航菜单链接（仅对<a>标签过滤，不影响button/input等）
-                            if (el.tagName === 'A') {
-                                const navPatterns = /menu|nav|sidebar|breadcrumb|sider|aside|tabbar/i;
-                                const elClassName = (typeof el.className === 'string') ? el.className : '';
-                                const parentClassName = (el.parentElement && typeof el.parentElement.className === 'string') ? el.parentElement.className : '';
-                                const grandParent = el.parentElement ? el.parentElement.parentElement : null;
-                                const grandParentClassName = (grandParent && typeof grandParent.className === 'string') ? grandParent.className : '';
-                                if (navPatterns.test(elClassName) || navPatterns.test(parentClassName) || navPatterns.test(grandParentClassName)) return;
+                            // 排除导航菜单区域元素（侧边栏、顶部导航、面包屑、标签页）
+                            // 对所有标签生效，不限于<a>
+                            {
+                                const navPatterns = /menu|nav|sidebar|breadcrumb|sider|aside|tabbar|page-header/i;
+                                // 精确匹配导航容器类名（避免模糊匹配误伤主内容区）
+                                const navContainerSelectors = '.ant-menu, .el-menu, .ant-layout-sider, .el-aside, aside, nav, .breadcrumb, [class*="breadcrumb"], [class*="tabbar"]';
+                                const parentNav = el.closest(navContainerSelectors);
+                                if (parentNav) {
+                                    // 排除表格内的元素（如下拉菜单在表格内时不排除）
+                                    if (!el.closest('tr, .ant-table-tbody, .el-table__body')) return;
+                                }
+                                // <a>标签按原有逻辑过滤
+                                if (el.tagName === 'A') {
+                                    const elClassName = (typeof el.className === 'string') ? el.className : '';
+                                    const parentClassName = (el.parentElement && typeof el.parentElement.className === 'string') ? el.parentElement.className : '';
+                                    const grandParent = el.parentElement ? el.parentElement.parentElement : null;
+                                    const grandParentClassName = (grandParent && typeof grandParent.className === 'string') ? grandParent.className : '';
+                                    if (navPatterns.test(elClassName) || navPatterns.test(parentClassName) || navPatterns.test(grandParentClassName)) return;
+                                }
                             }
 
                             // 列表行去重：跳过非首行的重复按钮
@@ -1816,7 +2647,7 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             # 定位元素
             if strategy in ['id', 'ID']:
-                locator = f'#{locator_value}'
+                locator = locator_value if locator_value.startswith('#') else f'#{locator_value}'
             elif strategy in ['css', 'CSS']:
                 locator = locator_value
             elif strategy in ['xpath', 'XPath']:
@@ -2428,6 +3259,29 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         return None, None
 
+    def _deduplicate_by_name(self, elements):
+        """按元素名称去重，同一来源下同名元素只保留第一条。
+        
+        用于过滤列表中每行重复的操作按钮（如编辑、删除等）。
+        不同来源（如不同弹窗）的同名元素不受影响。
+        """
+        seen_names = set()
+        deduped = []
+        removed_count = 0
+        for elem in elements:
+            name = (elem.get('name', '') or '').strip()
+            source = (elem.get('source', '') or '').strip()
+            dedup_key = (name, source)
+            if name and dedup_key in seen_names:
+                removed_count += 1
+                continue
+            if name:
+                seen_names.add(dedup_key)
+            deduped.append(elem)
+        if removed_count > 0:
+            print(f'[AI提取] 按名称去重: 移除了{removed_count}个同名重复元素')
+        return deduped
+
     def _deduplicate_locators(self, elements):
         """检测并修复重复的定位值，确保每个元素的定位尽量唯一"""
         # 按 (locator_strategy, locator_value) 分组找重复
@@ -2658,7 +3512,7 @@ DOM数据：
                 'locator_strategy': strategy,
                 'locator_value': value,
                 'backup_locators': backup,
-                'description': f'{name}（{tag}标签）',
+                'description': name,
                 'is_visible': elem.get('visible', True),
                 'validation_status': elem.get('validation_status', ''),
                 'validation_details': elem.get('validation_details', ''),
@@ -2696,7 +3550,7 @@ DOM数据：
     def _infer_best_locator(self, elem):
         """推断最佳定位策略和值"""
         if elem.get('id'):
-            return 'ID', f'#{elem["id"]}'
+            return 'ID', elem["id"]
         # name含空格时不可靠，跳过
         name_val = elem.get('name', '')
         if name_val and ' ' not in name_val:
@@ -3176,7 +4030,7 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
                             elif locator_strategy == 'xpath':
                                 selector = f'xpath={locator_value}'
                             elif locator_strategy == 'id':
-                                selector = f'#{locator_value}'
+                                selector = locator_value if locator_value.startswith('#') else f'#{locator_value}'
                             elif locator_strategy == 'name':
                                 selector = f'[name="{locator_value}"]'
                             elif locator_strategy == 'text':
