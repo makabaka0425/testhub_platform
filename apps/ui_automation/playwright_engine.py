@@ -146,21 +146,28 @@ class PlaywrightTestEngine:
                 browser_launcher = self.playwright.chromium
 
             # 启动浏览器
+            launch_args = [
+                '--disable-blink-features=AutomationControlled',  # 避免被检测
+                '--ignore-certificate-errors',  # 忽略证书错误
+                '--allow-insecure-localhost',  # 允许不安全localhost
+                '--disable-web-security',  # 禁用web安全限制（跨域）
+            ]
+            if not self.headless:
+                launch_args.append('--start-maximized')
             self.browser = await browser_launcher.launch(
                 headless=self.headless,
-                args=[
-                    '--disable-blink-features=AutomationControlled',  # 避免被检测
-                    '--ignore-certificate-errors',  # 忽略证书错误
-                    '--allow-insecure-localhost',  # 允许不安全localhost
-                    '--disable-web-security',  # 禁用web安全限制（跨域）
-                ]
+                args=launch_args
             )
 
-            # 创建浏览器上下文
-            self.context = await self.browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-            )
+            # 创建浏览器上下文（有头模式最大化，无头模式固定视口）
+            context_kwargs = {
+                'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            }
+            if self.headless:
+                context_kwargs['viewport'] = {'width': 1920, 'height': 1080}
+            else:
+                context_kwargs['no_viewport'] = True
+            self.context = await self.browser.new_context(**context_kwargs)
 
             # 创建页面
             self.page = await self.context.new_page()

@@ -131,6 +131,226 @@ class TestExecutor:
             connection.close()
             print(f"[TestExecutor] 执行器已退出")
 
+    def run_cleanup(self, test_cases=None):
+        """执行清理步骤（只执行标记为 is_cleanup=True 的步骤）"""
+        import os
+        os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+        connection.close()
+
+        if test_cases is None:
+            test_cases = self.test_cases
+
+        # 收集有用例清理步骤的用例
+        cleanup_cases = []
+        for tc in test_cases:
+            cleanup_steps = tc.steps.select_related('element', 'element__locator_strategy').filter(
+                is_cleanup=True
+            ).order_by('step_number')
+            if cleanup_steps.exists():
+                case_data = {
+                    'id': tc.id,
+                    'name': tc.name,
+                    'project_id': self.test_suite.project.id,
+                    'steps': []
+                }
+                for step in cleanup_steps:
+                    step_data = {
+                        'id': step.id,
+                        'step_number': step.step_number,
+                        'action_type': step.action_type,
+                        'description': step.description,
+                        'input_value': step.input_value,
+                        'wait_time': step.wait_time,
+                        'action_wait': step.action_wait,
+                        'assert_type': step.assert_type,
+                        'assert_value': step.assert_value,
+                        'element': None
+                    }
+                    if step.element:
+                        step_data['element'] = {
+                            'id': step.element.id,
+                            'name': step.element.name,
+                            'locator_value': step.element.locator_value,
+                            'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
+                            'wait_timeout': step.element.wait_timeout,
+                        }
+                    case_data['steps'].append(step_data)
+                cleanup_cases.append(case_data)
+
+        if not cleanup_cases:
+            print(f"[清理步骤] 没有找到清理步骤，跳过")
+            return
+
+        print(f"[清理步骤] 共 {len(cleanup_cases)} 个用例有清理步骤")
+
+        if self.engine == 'playwright':
+            self._run_cleanup_playwright(cleanup_cases)
+        else:
+            self._run_cleanup_selenium(cleanup_cases)
+
+    def _run_cleanup_playwright(self, cleanup_cases):
+        """使用 Playwright 执行清理步骤"""
+        from playwright.sync_api import sync_playwright
+
+        login_config = getattr(self.test_suite, 'login_config', None)
+
+        with sync_playwright() as p:
+            browser = None
+            try:
+                common_args = [
+                    '--disable-blink-features=AutomationControlled',
+                    '--ignore-certificate-errors',
+                    '--allow-insecure-localhost',
+                    '--disable-web-security',
+                ]
+                if not self.headless:
+                    common_args.append('--start-maximized')
+
+                if self.browser == 'firefox':
+                    browser = p.firefox.launch(headless=self.headless, args=common_args)
+                elif self.browser == 'safari':
+                    browser = p.webkit.launch(headless=self.headless, args=common_args)
+                else:
+                    browser = p.chromium.launch(headless=self.headless, args=common_args)
+
+                context_kwargs = {
+                    'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                }
+                if self.headless:
+                    context_kwargs['viewport'] = {'width': 1920, 'height': 1080}
+                else:
+                    context_kwargs['no_viewport'] = True
+                self.context = browser.new_context(**context_kwargs)
+                self.current_page = self.context.new_page()
+
+                # 登录
+                if login_config:
+                    login_success = self._perform_login(login_config)
+                    if not login_success:
+                        print(f"[清理步骤] 登录失败，终止清理")
+                        return
+                    print(f"[清理步骤] 登录成功，开始执行清理步骤")
+
+                # 执行每个用例的清理步骤
+                for i, case_data in enumerate(cleanup_cases, 1):
+                    print(f"\n{'=' * 60}")
+                    print(f"[清理步骤] 正在执行第 {i}/{len(cleanup_cases)} 个用例的清理: {case_data['name']}")
+                    print(f"{'=' * 60}")
+
+                    try:
+                        case_result = self.execute_test_case_playwright_no_db(case_data)
+                        status_text = '成功' if case_result['status'] == 'passed' else '失败'
+                        print(f"[清理步骤] 清理{status_text}: {case_data['name']}")
+                    except Exception as e:
+                        print(f"[清理步骤] 清理异常: {case_data['name']} - {str(e)}")
+
+            except Exception as e:
+                print(f"[清理步骤] Playwright 执行异常: {str(e)}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                if browser:
+                    try:
+                        # 关闭前等待网络请求完成
+                        try:
+                            self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                        except Exception:
+                            pass
+                        time.sleep(1)
+                        browser.close()
+                        print(f"[清理步骤] 浏览器已关闭\n")
+                    except:
+                        pass
+
+    def _run_cleanup_selenium(self, cleanup_cases):
+        """使用 Selenium 执行清理步骤"""
+        driver = None
+        try:
+            driver = self.create_selenium_driver()
+            if not driver:
+                print(f"[清理步骤] Selenium 驱动创建失败")
+                return
+
+            self.driver = driver
+
+            # 导航到项目基础URL
+            base_url = self.test_suite.project.base_url
+            if base_url:
+                driver.get(base_url)
+                from selenium.webdriver.support.ui import WebDriverWait
+                try:
+                    WebDriverWait(driver, 10).until(
+                        lambda d: d.execute_script("return document.readyState") == "complete"
+                    )
+                except:
+                    pass
+                time.sleep(2)
+
+            # 执行登录用例
+            login_config = getattr(self.test_suite, 'login_config', None)
+            if login_config and login_config.login_test_case:
+                login_case = login_config.login_test_case
+                login_steps = login_case.steps.select_related('element', 'element__locator_strategy').filter(
+                    is_cleanup=False
+                ).order_by('step_number')
+                login_case_data = {
+                    'id': login_case.id,
+                    'name': login_case.name,
+                    'steps': []
+                }
+                for step in login_steps:
+                    step_data = {
+                        'id': step.id,
+                        'step_number': step.step_number,
+                        'action_type': step.action_type,
+                        'description': step.description,
+                        'input_value': step.input_value,
+                        'wait_time': step.wait_time,
+                        'action_wait': step.action_wait,
+                        'assert_type': step.assert_type,
+                        'assert_value': step.assert_value,
+                        'element': None
+                    }
+                    if step.element:
+                        step_data['element'] = {
+                            'id': step.element.id,
+                            'name': step.element.name,
+                            'locator_value': step.element.locator_value,
+                            'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
+                            'wait_timeout': step.element.wait_timeout,
+                        }
+                    login_case_data['steps'].append(step_data)
+
+                print(f"[清理步骤] 执行登录用例「{login_case.name}」")
+                self.execute_test_case_selenium_no_db(driver, login_case_data)
+                print(f"[清理步骤] 登录完成，开始执行清理步骤")
+
+            # 执行清理步骤
+            for i, case_data in enumerate(cleanup_cases, 1):
+                print(f"\n{'=' * 60}")
+                print(f"[清理步骤] 正在执行第 {i}/{len(cleanup_cases)} 个用例的清理: {case_data['name']}")
+                print(f"{'=' * 60}")
+
+                try:
+                    case_result = self.execute_test_case_selenium_no_db(driver, case_data)
+                    status_text = '成功' if case_result.get('status') == 'passed' else '失败'
+                    print(f"[清理步骤] 清理{status_text}: {case_data['name']}")
+                except Exception as e:
+                    print(f"[清理步骤] 清理异常: {case_data['name']} - {str(e)}")
+
+        except Exception as e:
+            print(f"[清理步骤] Selenium 执行异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if driver:
+                try:
+                    time.sleep(1)
+                    driver.quit()
+                    print(f"[清理步骤] 浏览器已关闭\n")
+                except:
+                    pass
+
     def run_with_playwright(self):
         """使用 Playwright 执行测试（同步版本）"""
         start_time = time.time()
@@ -210,8 +430,10 @@ class TestExecutor:
             }
             case_data['steps'] = []
 
-            # 获取步骤并预先加载所有相关数据
-            steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+            # 获取步骤并预先加载所有相关数据（正常执行时跳过清理步骤）
+            steps = test_case.steps.select_related('element', 'element__locator_strategy').filter(
+                is_cleanup=False
+            ).order_by('step_number')
             for step in steps:
                 step_data = {
                     'id': step.id,
@@ -221,21 +443,6 @@ class TestExecutor:
                     'input_value': step.input_value,
                     'wait_time': step.wait_time,
                     'action_wait': step.action_wait,
-                    'assert_type': step.assert_type,
-                    'assert_value': step.assert_value,
-                    'element': None
-                }
-
-            # 获取步骤并预先加载所有相关数据
-            steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
-            for step in steps:
-                step_data = {
-                    'id': step.id,
-                    'step_number': step.step_number,
-                    'action_type': step.action_type,
-                    'description': step.description,
-                    'input_value': step.input_value,
-                    'wait_time': step.wait_time,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
                     'element': None
@@ -292,6 +499,8 @@ class TestExecutor:
                         '--allow-insecure-localhost',
                         '--disable-web-security',
                     ]
+                    if not self.headless:
+                        common_args.append('--start-maximized')
                     if self.browser == 'firefox':
                         browser = p.firefox.launch(headless=self.headless, args=common_args)
                     elif self.browser == 'safari':
@@ -300,11 +509,15 @@ class TestExecutor:
                         browser = p.chromium.launch(headless=self.headless, args=common_args)
                     print(f"✓ 浏览器已启动（共享模式）")
 
-                    # 创建共享上下文
-                    self.context = browser.new_context(
-                        viewport={'width': 1920, 'height': 1080},
-                        user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-                    )
+                    # 创建共享上下文（有头模式最大化，无头模式固定视口）
+                    context_kwargs = {
+                        'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                    }
+                    if self.headless:
+                        context_kwargs['viewport'] = {'width': 1920, 'height': 1080}
+                    else:
+                        context_kwargs['no_viewport'] = True
+                    self.context = browser.new_context(**context_kwargs)
                     self.current_page = self.context.new_page()
 
                     # 执行登录
@@ -391,6 +604,12 @@ class TestExecutor:
                 finally:
                     if browser:
                         try:
+                            # 关闭前等待最后的网络请求完成，防止服务端操作（如保存数据）未完成
+                            try:
+                                self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                            except Exception:
+                                pass
+                            time.sleep(1)  # 兜底等待1秒，确保服务端请求处理完毕
                             browser.close()
                             print(f"✓ 浏览器已关闭（共享模式）\n")
                         except:
@@ -419,25 +638,30 @@ class TestExecutor:
                             '--allow-insecure-localhost',  # 允许不安全localhost
                             '--disable-web-security',  # 禁用web安全限制（跨域）
                         ]
+                        if not self.headless:
+                            common_args.append('--start-maximized')
                         # 选择浏览器
                         if self.browser == 'firefox':
                             browser = p.firefox.launch(headless=self.headless, args=common_args)
                         elif self.browser == 'safari':
                             browser = p.webkit.launch(headless=self.headless, args=common_args)
-                        else:  # chrome or edge
-                            # 添加防检测参数
-                            browser = p.chromium.launch(
-                                headless=self.headless,
-                                args=common_args
-                            )
+                        else:
+                            browser = p.chromium.launch(headless=self.headless, args=common_args)
 
                         print(f"✓ 浏览器已启动")
 
-                        # 配置上下文（User Agent 和 Viewport）
-                        self.context = browser.new_context(
-                            viewport={'width': 1920, 'height': 1080},
-                            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-                        )
+                        # 配置上下文（有头模式最大化，无头模式固定视口）
+                        context_kwargs = {
+                            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                        }
+                        if self.headless:
+                            context_kwargs['viewport'] = {'width': 1920, 'height': 1080}
+                        else:
+                            context_kwargs['no_viewport'] = True
+                        self.context = browser.new_context(**context_kwargs)
+
+                        print(f"✓ 浏览器已启动")
+
                         self.current_page = self.context.new_page()
 
                         # 导航到项目基础URL
@@ -532,6 +756,12 @@ class TestExecutor:
                     finally:
                         # 确保每个用例执行后都关闭浏览器
                         try:
+                            # 关闭前等待最后的网络请求完成，防止服务端操作未完成
+                            try:
+                                self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                            except Exception:
+                                pass
+                            time.sleep(1)  # 兜底等待1秒
                             browser.close()
                             print(f"✓ 浏览器已关闭\n")
                         except:
@@ -2130,8 +2360,10 @@ class TestExecutor:
                 'steps': []
             }
 
-            # 获取步骤并预先加载所有相关数据
-            steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+            # 获取步骤并预先加载所有相关数据（正常执行时跳过清理步骤）
+            steps = test_case.steps.select_related('element', 'element__locator_strategy').filter(
+                is_cleanup=False
+            ).order_by('step_number')
             for step in steps:
                 step_data = {
                     'id': step.id,
@@ -2372,6 +2604,8 @@ class TestExecutor:
                 # Safari：每个用例执行完都关闭浏览器
                 if not use_browser_reuse and driver:
                     try:
+                        # 关闭前等待最后操作完成
+                        time.sleep(1)
                         driver.quit()
                         print(f"✓ Safari 浏览器已关闭\n")
                     except Exception as e:
@@ -2383,6 +2617,8 @@ class TestExecutor:
             try:
                 print(f"\n{'=' * 60}")
                 print(f"正在关闭浏览器...")
+                # 关闭前等待最后的网络请求完成
+                time.sleep(1)
                 driver.quit()
                 print(f"✓ 浏览器已关闭")
                 print(f"{'=' * 60}\n")
@@ -2432,7 +2668,10 @@ class TestExecutor:
             options.add_argument('--disable-gpu')
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--window-size=1920,1080')
+            if self.headless:
+                options.add_argument('--window-size=1920,1080')
+            else:
+                options.add_argument('--start-maximized')
 
             # 禁用自动化特征检测
             options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
@@ -2490,8 +2729,10 @@ class TestExecutor:
             options = FirefoxOptions()
             if self.headless:
                 options.add_argument('--headless')
-            options.add_argument('--width=1920')
-            options.add_argument('--height=1080')
+                options.add_argument('--width=1920')
+                options.add_argument('--height=1080')
+            else:
+                options.add_argument('--start-maximized')
 
             # 性能优化：禁用不必要的功能加快启动速度
             options.set_preference('browser.cache.disk.enable', False)
@@ -2517,7 +2758,7 @@ class TestExecutor:
             # 并在 Safari 设置 -> 开发菜单中启用"允许远程自动化"
             try:
                 driver = webdriver.Safari()
-                driver.set_window_size(1920, 1080)
+                driver.maximize_window()
             except Exception as e:
                 error_msg = str(e)
                 if 'Could not create a session' in error_msg or 'InvalidSessionIdException' in error_msg:
@@ -2537,7 +2778,10 @@ class TestExecutor:
             options.add_argument('--disable-gpu')
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--window-size=1920,1080')
+            if self.headless:
+                options.add_argument('--window-size=1920,1080')
+            else:
+                options.add_argument('--start-maximized')
 
             # 使用缓存优先策略
             service = EdgeService(EdgeChromiumDriverManager().install())
@@ -2551,7 +2795,10 @@ class TestExecutor:
             options.add_argument('--disable-gpu')
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--window-size=1920,1080')
+            if self.headless:
+                options.add_argument('--window-size=1920,1080')
+            else:
+                options.add_argument('--start-maximized')
 
             # 禁用自动化特征检测
             options.add_experimental_option('excludeSwitches', ['enable-automation'])

@@ -57,6 +57,12 @@
             {{ row.test_case_count || 0 }}
           </template>
         </el-table-column>
+        <el-table-column label="数据清理" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.cleanup_sql" size="small" type="warning">DB清理</el-tag>
+            <span v-else style="color: #c0c4cc; font-size: 12px;">未配置</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="$t('uiAutomation.suite.executionStatus')" width="100">
           <template #default="{ row }">
             <el-tag :type="getExecutionStatusTag(row.execution_status)">
@@ -76,10 +82,11 @@
         </el-table-column>
         <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
         <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="240" fixed="right">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="editSuite(row.id)">{{ $t('uiAutomation.common.edit') }}</el-button>
             <el-button link type="success" @click="runSuite(row)">{{ $t('uiAutomation.common.run') }}</el-button>
+            <el-button v-if="row.cleanup_sql" link type="warning" :loading="cleanupLoadingSuiteId === row.id" @click="runDbCleanup(row)">清理数据</el-button>
             <el-button link type="danger" @click="deleteSuite(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
           </template>
         </el-table-column>
@@ -128,6 +135,17 @@
           </el-select>
           <div class="mode-description">
             <span class="description-text">共享会话模式下，执行前会先按登录配置自动登录</span>
+          </div>
+        </el-form-item>
+        <el-form-item label="清理SQL">
+          <el-input
+            v-model="createForm.cleanup_sql"
+            type="textarea"
+            :rows="5"
+            placeholder="请输入清理测试数据的SQL语句，多条语句用分号分隔&#10;例如：DELETE FROM test_data WHERE created_by='auto_test';&#10;UPDATE config SET value='' WHERE key='test_key';"
+          />
+          <div class="mode-description">
+            <span class="description-text">执行测试后可手动触发，连接被测系统数据库执行清理SQL。仅支持 DELETE/UPDATE/TRUNCATE 语句。需先在项目配置中设置数据库连接。</span>
           </div>
         </el-form-item>
         <el-form-item :label="$t('uiAutomation.suite.testCases')">
@@ -298,6 +316,7 @@ import {
   removeTestCaseFromTestSuite,
   updateTestCaseOrder,
   runTestSuite,
+  runSuiteDbCleanup,
   getLoginConfigs
 } from '@/api/ui_automation'
 import { useI18n } from 'vue-i18n'
@@ -330,7 +349,8 @@ const createForm = reactive({
   name: '',
   description: '',
   execution_mode: 'per_case',
-  login_config: null
+  login_config: null,
+  cleanup_sql: ''
 })
 
 // 表单验证规则 - 使用 computed 实现动态国际化
@@ -479,7 +499,8 @@ const handleCreate = async () => {
       name: createForm.name,
       description: createForm.description,
       execution_mode: createForm.execution_mode,
-      login_config: createForm.execution_mode === 'shared_session' ? createForm.login_config : null
+      login_config: createForm.execution_mode === 'shared_session' ? createForm.login_config : null,
+      cleanup_sql: createForm.cleanup_sql || null
     }
 
     let suiteId
@@ -538,6 +559,7 @@ const editSuite = async (id) => {
     createForm.description = suites_data.description
     createForm.execution_mode = suites_data.execution_mode || 'per_case'
     createForm.login_config = suites_data.login_config || null
+    createForm.cleanup_sql = suites_data.cleanup_sql || ''
 
     // 加载已选测试用例
     const response = await getTestSuiteTestCases(id)
@@ -656,6 +678,38 @@ const pollSuiteStatus = (suiteId) => {
   }, 3000) // 每3秒轮询一次
 }
 
+// 清理测试数据
+const cleanupLoadingSuiteId = ref(null)
+
+// 执行数据库清理SQL
+const runDbCleanup = async (suite) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要执行套件「${suite.name}」的清理SQL吗？将连接被测系统数据库执行SQL语句清理测试数据。`,
+      '确认执行数据库清理',
+      { confirmButtonText: '确认执行', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  cleanupLoadingSuiteId.value = suite.id
+  try {
+    const response = await runSuiteDbCleanup(suite.id)
+    const result = response.data
+    if (result.total_affected_rows > 0) {
+      ElMessage.success(`数据库清理完成，共影响 ${result.total_affected_rows} 行`)
+    } else {
+      ElMessage.success('数据库清理完成，无数据受影响')
+    }
+    await loadSuites()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.error || '数据库清理失败')
+  } finally {
+    cleanupLoadingSuiteId.value = null
+  }
+}
+
 // 测试用例管理方法
 const handleTestCaseRowClick = (row) => {
   // 双击添加测试用例
@@ -702,6 +756,7 @@ const resetForm = () => {
   createForm.description = ''
   createForm.execution_mode = 'per_case'
   createForm.login_config = null
+  createForm.cleanup_sql = ''
   selectedTestCases.value = []
   testCaseSearchText.value = ''
   isEditing.value = false
