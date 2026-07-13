@@ -32,13 +32,15 @@ class UiProjectSerializer(serializers.ModelSerializer):
 class UiProjectCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UiProject
-        fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'owner', 'members')
+        fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'owner', 'members',
+                  'target_db_type', 'target_db_host', 'target_db_port', 'target_db_name', 'target_db_user', 'target_db_password')
 
 
 class UiProjectUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UiProject
-        fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'members')
+        fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'members',
+                  'target_db_type', 'target_db_host', 'target_db_port', 'target_db_name', 'target_db_user', 'target_db_password')
 
 
 class LocatorStrategySerializer(serializers.ModelSerializer):
@@ -254,6 +256,7 @@ class TestSuiteSerializer(serializers.ModelSerializer):
     test_case_count = serializers.SerializerMethodField()
     login_config_name = serializers.CharField(source='login_config.name', read_only=True, default='')
     execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
+    has_cleanup_steps = serializers.SerializerMethodField()
 
     class Meta:
         model = TestSuite
@@ -268,18 +271,24 @@ class TestSuiteSerializer(serializers.ModelSerializer):
         """获取测试用例数量"""
         return obj.suite_test_cases.count()
 
+    def get_has_cleanup_steps(self, obj):
+        """检查套件中的用例是否有清理步骤"""
+        from .models import TestCaseStep
+        test_case_ids = obj.suite_test_cases.values_list('test_case_id', flat=True)
+        return TestCaseStep.objects.filter(test_case_id__in=test_case_ids, is_cleanup=True).exists()
+
 
 class TestSuiteCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSuite
-        fields = ('id', 'project', 'name', 'description', 'login_config', 'execution_mode')
+        fields = ('id', 'project', 'name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
         read_only_fields = ('id',)
 
 
 class TestSuiteUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSuite
-        fields = ('name', 'description', 'login_config', 'execution_mode')
+        fields = ('name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
 
 
 class TestSuiteWithScriptsSerializer(serializers.ModelSerializer):
@@ -605,7 +614,7 @@ class TestCaseStepSerializer(serializers.ModelSerializer):
         model = TestCaseStep
         fields = [
             'id', 'step_number', 'action_type', 'element', 'element_name', 'element_locator',
-            'input_value', 'wait_time', 'action_wait', 'assert_type', 'assert_value', 'description', 'created_at'
+            'input_value', 'wait_time', 'action_wait', 'assert_type', 'assert_value', 'description', 'is_cleanup', 'created_at'
         ]
 
 

@@ -22,6 +22,14 @@ class UiProject(models.Model):
     end_date = models.DateField(null=True, blank=True, verbose_name='结束日期')
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='owned_ui_projects', verbose_name='负责人')
     members = models.ManyToManyField(User, blank=True, related_name='ui_projects', verbose_name='团队成员')
+    # 被测系统数据库连接配置（用于清理测试数据）
+    target_db_type = models.CharField(max_length=20, blank=True, default='', verbose_name='被测数据库类型',
+                                       help_text='支持 mysql/postgresql/sqlite/oracle，为空表示不配置')
+    target_db_host = models.CharField(max_length=200, blank=True, default='', verbose_name='被测数据库主机')
+    target_db_port = models.IntegerField(null=True, blank=True, verbose_name='被测数据库端口')
+    target_db_name = models.CharField(max_length=200, blank=True, default='', verbose_name='被测数据库名称')
+    target_db_user = models.CharField(max_length=200, blank=True, default='', verbose_name='被测数据库用户')
+    target_db_password = models.CharField(max_length=200, blank=True, default='', verbose_name='被测数据库密码')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
@@ -462,6 +470,10 @@ class TestSuite(models.Model):
     execution_mode = models.CharField(max_length=20, choices=EXECUTION_MODE_CHOICES,
                                       default='per_case', verbose_name='执行模式')
 
+    # 清理测试数据SQL配置（通过直连被测数据库执行）
+    cleanup_sql = models.TextField(blank=True, default='', verbose_name='清理SQL',
+                                    help_text='清理测试数据的SQL语句，多条用分号分隔。如: DELETE FROM users WHERE username LIKE "测试%";')
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
@@ -688,6 +700,7 @@ class TestCaseStep(models.Model):
     assert_type = models.CharField(max_length=20, choices=ASSERT_TYPE_CHOICES, blank=True, verbose_name='断言类型')
     assert_value = models.TextField(blank=True, verbose_name='断言期望值')
     description = models.TextField(blank=True, verbose_name='步骤描述')
+    is_cleanup = models.BooleanField(default=False, verbose_name='是否清理步骤', help_text='标记为清理步骤的步骤在正常执行时跳过，仅在执行清理时运行')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
 
     class Meta:

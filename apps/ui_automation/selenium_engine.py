@@ -195,7 +195,10 @@ class SeleniumTestEngine:
                 options.add_argument('--disable-gpu')
                 options.add_argument('--no-sandbox')
                 options.add_argument('--disable-dev-shm-usage')
-                options.add_argument('--window-size=1920,1080')
+                if self.headless:
+                    options.add_argument('--window-size=1920,1080')
+                else:
+                    options.add_argument('--start-maximized')
                 
                 # 禁用自动化特征检测
                 options.add_experimental_option('excludeSwitches', ['enable-automation'])
@@ -239,8 +242,10 @@ class SeleniumTestEngine:
                 options = Options()
                 if self.headless:
                     options.add_argument('--headless')
-                options.add_argument('--width=1920')
-                options.add_argument('--height=1080')
+                    options.add_argument('--width=1920')
+                    options.add_argument('--height=1080')
+                else:
+                    options.add_argument('--start-maximized')
                 
                 # 性能优化：禁用不必要的功能加快启动速度
                 options.set_preference('browser.cache.disk.enable', False)
@@ -270,7 +275,10 @@ class SeleniumTestEngine:
                 if self.headless:
                     options.add_argument('--headless')
                 options.add_argument('--disable-blink-features=AutomationControlled')
-                options.add_argument('--window-size=1920,1080')
+                if self.headless:
+                    options.add_argument('--window-size=1920,1080')
+                else:
+                    options.add_argument('--start-maximized')
 
                 # 使用缓存优先策略，7天内不重新下载
                 service = Service(EdgeChromiumDriverManager().install())
@@ -282,7 +290,7 @@ class SeleniumTestEngine:
                 # 并在 Safari 设置 -> 开发菜单中启用"允许远程自动化"
                 try:
                     self.driver = webdriver.Safari()
-                    self.driver.set_window_size(1920, 1080)
+                    self.driver.maximize_window()
                 except Exception as e:
                     error_msg = str(e)
                     if 'Could not create a session' in error_msg or 'InvalidSessionIdException' in error_msg:
@@ -309,7 +317,10 @@ class SeleniumTestEngine:
                 options.add_argument('--disable-gpu')
                 options.add_argument('--no-sandbox')
                 options.add_argument('--disable-dev-shm-usage')
-                options.add_argument('--window-size=1920,1080')
+                if self.headless:
+                    options.add_argument('--window-size=1920,1080')
+                else:
+                    options.add_argument('--start-maximized')
                 
                 # 禁用自动化特征检测
                 options.add_experimental_option('excludeSwitches', ['enable-automation'])

@@ -53,6 +53,25 @@ export function deleteUiProject(id) {
   })
 }
 
+// 清理项目测试数据
+export function cleanProjectTestData(id, data) {
+  return request({
+    url: `/ui-automation/projects/${id}/clean-test-data/`,
+    method: 'post',
+    data
+  })
+}
+
+// 测试项目数据库连接
+export function testDbConnection(id, data) {
+  return request({
+    url: `/ui-automation/projects/${id}/test-db-connection/`,
+    method: 'post',
+    data,
+    timeout: 15000
+  })
+}
+
 // 定位策略相关API
 
 // 获取定位策略列表
@@ -250,6 +269,25 @@ export function runTestSuite(suiteId, data) {
     method: 'post',
     data,
     timeout: 600000  // 10分钟超时，因为套件可能包含多个测试用例
+  })
+}
+
+// 执行套件清理步骤
+export function runSuiteCleanup(suiteId, data) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/run-cleanup/`,
+    method: 'post',
+    data,
+    timeout: 600000
+  })
+}
+
+// 执行套件数据库清理SQL
+export function runSuiteDbCleanup(suiteId) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/run-db-cleanup/`,
+    method: 'post',
+    timeout: 60000
   })
 }
 

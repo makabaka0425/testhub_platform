@@ -161,6 +161,236 @@ class UiProjectViewSet(viewsets.ModelViewSet):
         log_operation('delete', 'project', instance.id, instance.name, self.request.user)
         instance.delete()
 
+    @action(detail=True, methods=['post'], url_path='clean-test-data')
+    def clean_test_data(self, request, pk=None):
+        """清理项目的测试执行数据（保留用例定义、元素库、操作审计记录）"""
+        import os
+        from django.conf import settings
+
+        project = self.get_object()
+
+        # 可选的时间范围过滤
+        before_date = request.data.get('before_date')  # ISO格式字符串，如 2025-01-01
+        data_types = request.data.get('data_types')  # 指定要清理的数据类型，不传则默认全部
+
+        # 默认清理所有类型的执行数据
+        all_data_types = ['case_executions', 'suite_executions', 'ai_executions', 'screenshots', 'notification_logs']
+        if data_types is None:
+            data_types = all_data_types
+        elif not data_types:
+            return Response({'message': '未选择要清理的数据类型', 'details': {}, 'total_deleted': 0})
+
+        stats = {}
+        total_deleted = 0
+
+        # 构建时间过滤条件
+        time_filter = {}
+        if before_date:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(before_date)
+                time_filter['created_at__lt'] = dt
+            except (ValueError, TypeError):
+                return Response({'error': 'before_date 格式无效，请使用 ISO 格式（如 2025-01-01）'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. 清理 TestCaseExecution（用例执行记录）
+        if 'case_executions' in data_types:
+            qs = TestCaseExecution.objects.filter(project=project)
+            if time_filter:
+                qs = qs.filter(**time_filter)
+            count = qs.count()
+            # 删除关联的磁盘文件（如果有截图存在screenshots JSON中）
+            if count > 0:
+                qs.delete()
+            stats['case_executions'] = count
+            total_deleted += count
+
+        # 2. 清理 TestExecution（套件执行记录）+ 关联的 Screenshot
+        if 'suite_executions' in data_types:
+            qs = TestExecution.objects.filter(project=project)
+            if time_filter:
+                qs = qs.filter(**time_filter)
+            count = qs.count()
+            if count > 0:
+                # 先删除关联的截图文件
+                screenshot_qs = Screenshot.objects.filter(execution__project=project)
+                if time_filter:
+                    screenshot_qs = screenshot_qs.filter(execution__created_at__lt=time_filter.get('created_at__lt', None))
+                for screenshot in screenshot_qs:
+                    try:
+                        if screenshot.image and os.path.isfile(screenshot.image.path):
+                            os.remove(screenshot.image.path)
+                    except Exception:
+                        pass
+                qs.delete()  # 级联删除会处理Screenshot记录
+            stats['suite_executions'] = count
+            total_deleted += count
+
+        # 3. 清理 AIExecutionRecord（AI执行记录）+ 关联的磁盘文件
+        if 'ai_executions' in data_types:
+            qs = AIExecutionRecord.objects.filter(project=project)
+            if time_filter:
+                qs = qs.filter(**time_filter)
+            count = qs.count()
+            if count > 0:
+                for record in qs:
+                    # 删除GIF录制文件
+                    if record.gif_path:
+                        try:
+                            gif_full_path = os.path.join(settings.MEDIA_ROOT, record.gif_path.lstrip('/'))
+                            if os.path.isfile(gif_full_path):
+                                os.remove(gif_full_path)
+                        except Exception:
+                            pass
+                qs.delete()
+            stats['ai_executions'] = count
+            total_deleted += count
+
+        # 4. 清理孤立的截图文件（不属于任何执行记录的）
+        if 'screenshots' in data_types and 'suite_executions' not in data_types:
+            # 单独清理截图（如果上面没清理套件执行的话）
+            orphan_screenshots = Screenshot.objects.filter(execution__project=project)
+            deleted_screenshots = 0
+            for screenshot in orphan_screenshots:
+                try:
+                    if screenshot.image and os.path.isfile(screenshot.image.path):
+                        os.remove(screenshot.image.path)
+                        deleted_screenshots += 1
+                except Exception:
+                    pass
+            orphan_screenshots.delete()
+            stats['orphan_screenshots'] = deleted_screenshots
+
+        # 5. 清理通知日志
+        if 'notification_logs' in data_types:
+            qs = UiNotificationLog.objects.filter(task__project=project)
+            if time_filter:
+                qs = qs.filter(**time_filter)
+            count = qs.count()
+            if count > 0:
+                qs.delete()
+            stats['notification_logs'] = count
+            total_deleted += count
+
+        # 记录操作
+        log_operation('delete', 'project', project.id,
+                      f'清理测试数据: {project.name} (共{total_deleted}条)', request.user)
+
+        return Response({
+            'message': f'清理完成，共删除 {total_deleted} 条记录',
+            'project': project.name,
+            'details': stats,
+            'total_deleted': total_deleted
+        })
+
+    @action(detail=True, methods=['post'], url_path='test-db-connection')
+    def test_db_connection(self, request, pk=None):
+        """测试被测系统数据库连接"""
+        import time
+
+        project = self.get_object()
+
+        # 支持两种场景：
+        # 1. 已保存的项目：使用项目上的数据库配置
+        # 2. 请求体中传入配置：优先使用请求体中的值（创建/编辑时即时测试）
+        db_type = request.data.get('target_db_type') or project.target_db_type
+        db_host = request.data.get('target_db_host') or project.target_db_host
+        db_port = request.data.get('target_db_port') or project.target_db_port
+        db_name = request.data.get('target_db_name') or project.target_db_name
+        db_user = request.data.get('target_db_user') or project.target_db_user
+        db_password = request.data.get('target_db_password', None)
+        if db_password is None:
+            db_password = project.target_db_password or ''
+
+        if not db_type:
+            return Response({'success': False, 'error': '请先选择数据库类型'}, status=status.HTTP_400_BAD_REQUEST)
+        if not db_name:
+            return Response({'success': False, 'error': '请先填写数据库名'}, status=status.HTTP_400_BAD_REQUEST)
+
+        db_type = db_type.lower()
+        conn = None
+        start = time.time()
+
+        try:
+            if db_type == 'mysql':
+                import pymysql
+                conn = pymysql.connect(
+                    host=db_host or 'localhost',
+                    port=int(db_port) if db_port else 3306,
+                    user=db_user or '',
+                    password=db_password,
+                    database=db_name,
+                    charset='utf8mb4',
+                    connect_timeout=10
+                )
+            elif db_type in ('postgresql', 'postgres'):
+                import psycopg2
+                conn = psycopg2.connect(
+                    host=db_host or 'localhost',
+                    port=int(db_port) if db_port else 5432,
+                    user=db_user or '',
+                    password=db_password,
+                    dbname=db_name,
+                    connect_timeout=10
+                )
+            elif db_type == 'sqlite':
+                import sqlite3
+                conn = sqlite3.connect(db_name)
+            elif db_type == 'oracle':
+                import cx_Oracle
+                dsn = cx_Oracle.makedsn(
+                    db_host or 'localhost',
+                    int(db_port) if db_port else 1521,
+                    service_name=db_name
+                )
+                conn = cx_Oracle.connect(user=db_user or '', password=db_password, dsn=dsn)
+            else:
+                return Response({'success': False, 'error': f'不支持的数据库类型: {db_type}'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 测试查询
+            with conn.cursor() as cursor:
+                cursor.execute('SELECT 1')
+
+            elapsed = round((time.time() - start) * 1000)
+            db_version = ''
+            try:
+                with conn.cursor() as cursor:
+                    if db_type == 'mysql':
+                        cursor.execute('SELECT VERSION()')
+                    elif db_type in ('postgresql', 'postgres'):
+                        cursor.execute('SELECT version()')
+                    elif db_type == 'sqlite':
+                        cursor.execute('SELECT sqlite_version()')
+                    elif db_type == 'oracle':
+                        cursor.execute('SELECT * FROM v$version WHERE rownum = 1')
+                    row = cursor.fetchone()
+                    if row:
+                        db_version = str(row[0])
+            except Exception:
+                pass
+
+            return Response({
+                'success': True,
+                'message': '数据库连接成功',
+                'db_type': db_type,
+                'db_version': db_version,
+                'elapsed_ms': elapsed
+            })
+
+        except Exception as e:
+            elapsed = round((time.time() - start) * 1000)
+            return Response({
+                'success': False,
+                'error': str(e),
+                'elapsed_ms': elapsed
+            })
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
 
 class LocatorStrategyViewSet(viewsets.ModelViewSet):
     queryset = LocatorStrategy.objects.all()
@@ -351,7 +581,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                 login_start_url = login_config.project.base_url or ''
             test_case = login_config.login_test_case
             if test_case:
-                steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+                steps = test_case.steps.select_related('element', 'element__locator_strategy').filter(is_cleanup=False).order_by('step_number')
                 login_steps_data = []
                 for step in steps:
                     step_data = {
@@ -499,7 +729,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                 login_start_url = login_config.project.base_url or ''
             test_case = login_config.login_test_case
             if test_case:
-                steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+                steps = test_case.steps.select_related('element', 'element__locator_strategy').filter(is_cleanup=False).order_by('step_number')
                 login_steps_data = []
                 for step in steps:
                     step_data = {
@@ -926,8 +1156,8 @@ class ElementViewSet(viewsets.ModelViewSet):
                 async def do_start():
                     try:
                         pw = await async_playwright().start()
-                        browser = await pw.chromium.launch(headless=False)
-                        context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+                        browser = await pw.chromium.launch(headless=False, args=['--start-maximized'])
+                        context = await browser.new_context(no_viewport=True)
                         page = await context.new_page()
 
                         # 登录（如有）
@@ -1336,8 +1566,8 @@ class ElementViewSet(viewsets.ModelViewSet):
                 async def do_start():
                     try:
                         pw = await async_playwright().start()
-                        browser = await pw.chromium.launch(headless=False)
-                        context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+                        browser = await pw.chromium.launch(headless=False, args=['--start-maximized'])
+                        context = await browser.new_context(no_viewport=True)
                         page = await context.new_page()
 
                         if login_start_url and login_steps_data:
@@ -3975,8 +4205,8 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
 
             test_case = login_config.login_test_case
 
-            # 预先获取步骤数据，避免在Playwright上下文中访问ORM
-            steps = test_case.steps.select_related('element', 'element__locator_strategy').order_by('step_number')
+            # 预先获取步骤数据，避免在Playwright上下文中访问ORM（跳过清理步骤）
+            steps = test_case.steps.select_related('element', 'element__locator_strategy').filter(is_cleanup=False).order_by('step_number')
             case_data = {
                 'id': test_case.id,
                 'name': test_case.name,
@@ -4005,8 +4235,8 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
                 case_data['steps'].append(step_data)
 
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=False)
-                context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+                browser = p.chromium.launch(headless=False, args=['--start-maximized'])
+                context = browser.new_context(no_viewport=True)
                 page = context.new_page()
 
                 # 导航到登录页（优先使用login_config的login_url，否则使用项目基础URL）
@@ -4310,6 +4540,154 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
             'headless': headless
         }, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'], url_path='run-cleanup')
+    def run_cleanup(self, request, pk=None):
+        """执行套件中所有用例的清理步骤"""
+        test_suite = self.get_object()
+
+        # 检查是否有用例
+        test_cases = [stc.test_case for stc in test_suite.suite_test_cases.all().order_by('order')]
+        if not test_cases:
+            return Response({'error': '该测试套件未包含任何测试用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 检查是否有清理步骤
+        has_cleanup = False
+        for tc in test_cases:
+            if tc.steps.filter(is_cleanup=True).exists():
+                has_cleanup = True
+                break
+        if not has_cleanup:
+            return Response({'error': '该套件的用例没有配置清理步骤'}, status=status.HTTP_400_BAD_REQUEST)
+
+        engine = request.data.get('engine', getattr(test_suite, 'engine', None) or 'playwright')
+        browser = request.data.get('browser', getattr(test_suite, 'browser', None) or 'chrome')
+        headless = request.data.get('headless', False)
+
+        import threading
+        import traceback
+        from .test_executor import TestExecutor
+
+        def run_cleanup_task():
+            try:
+                print(f"[清理步骤] 开始执行: {test_suite.name}")
+                executor = TestExecutor(
+                    test_suite=test_suite,
+                    engine=engine,
+                    browser=browser,
+                    headless=headless,
+                    executed_by=request.user
+                )
+                executor.run_cleanup(test_cases)
+                print(f"[清理步骤] 执行完成: {test_suite.name}")
+            except Exception as e:
+                print(f"[清理步骤] 执行异常: {str(e)}")
+                traceback.print_exc()
+
+        thread = threading.Thread(target=run_cleanup_task, daemon=False)
+        thread.start()
+
+        log_operation('run', 'suite', test_suite.id, f'{test_suite.name} - 清理测试数据', request.user)
+
+        return Response({
+            'message': '清理步骤开始执行',
+            'suite_id': test_suite.id,
+            'engine': engine,
+            'browser': browser,
+            'headless': headless
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='run-db-cleanup')
+    def run_db_cleanup(self, request, pk=None):
+        """通过直连被测数据库执行清理SQL"""
+        test_suite = self.get_object()
+        project = test_suite.project
+
+        # 检查项目是否配置了被测数据库连接
+        if not project.target_db_type:
+            return Response({'error': '项目未配置被测数据库连接信息，请在项目设置中配置'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 检查套件是否配置了清理SQL
+        cleanup_sql = test_suite.cleanup_sql.strip()
+        if not cleanup_sql:
+            return Response({'error': '该套件未配置清理SQL'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 执行数据库清理
+        try:
+            result = self._execute_cleanup_sql(project, cleanup_sql)
+            log_operation('run', 'suite', test_suite.id, f'{test_suite.name} - 数据库清理({result["total_affected"]}行)', request.user)
+            return Response({
+                'message': f'清理完成，共影响 {result["total_affected"]} 行',
+                'suite_id': test_suite.id,
+                'details': result['details'],
+                'total_affected': result['total_affected']
+            })
+        except Exception as e:
+            logger.error(f"数据库清理失败: {str(e)}", exc_info=True)
+            return Response({'error': f'数据库清理失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _execute_cleanup_sql(self, project, cleanup_sql):
+        """连接被测数据库执行清理SQL"""
+        import re
+
+        # 拆分多条SQL（按分号分隔，忽略注释和空行）
+        sqls = [s.strip() for s in re.split(r';\s*\n', cleanup_sql) if s.strip() and not s.strip().startswith('--')]
+
+        db_type = project.target_db_type.lower()
+        details = []
+        total_affected = 0
+
+        if db_type == 'mysql':
+            import pymysql
+            conn = pymysql.connect(
+                host=project.target_db_host,
+                port=project.target_db_port or 3306,
+                user=project.target_db_user,
+                password=project.target_db_password,
+                database=project.target_db_name,
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.Cursor
+            )
+        elif db_type in ('postgresql', 'postgres'):
+            import psycopg2
+            conn = psycopg2.connect(
+                host=project.target_db_host,
+                port=project.target_db_port or 5432,
+                user=project.target_db_user,
+                password=project.target_db_password,
+                dbname=project.target_db_name
+            )
+        elif db_type == 'sqlite':
+            import sqlite3
+            conn = sqlite3.connect(project.target_db_name)
+        elif db_type == 'oracle':
+            import cx_Oracle
+            dsn = cx_Oracle.makedsn(project.target_db_host, project.target_db_port or 1521, service_name=project.target_db_name)
+            conn = cx_Oracle.connect(user=project.target_db_user, password=project.target_db_password, dsn=dsn)
+        else:
+            raise ValueError(f'不支持的数据库类型: {db_type}')
+
+        try:
+            with conn.cursor() as cursor:
+                for sql in sqls:
+                    # 安全检查：只允许 DELETE / UPDATE / TRUNCATE 语句
+                    sql_upper = sql.strip().upper()
+                    if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
+                        details.append({'sql': sql, 'error': '只允许 DELETE/UPDATE/TRUNCATE 语句', 'affected': 0})
+                        continue
+
+                    try:
+                        cursor.execute(sql)
+                        affected = cursor.rowcount if cursor.rowcount >= 0 else 0
+                        details.append({'sql': sql, 'affected': affected})
+                        total_affected += affected
+                    except Exception as e:
+                        details.append({'sql': sql, 'error': str(e), 'affected': 0})
+            conn.commit()
+        finally:
+            conn.close()
+
+        return {'details': details, 'total_affected': total_affected}
+
 
 class TestExecutionViewSet(viewsets.ModelViewSet):
     queryset = TestExecution.objects.all()
@@ -4429,7 +4807,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         action_wait=step_data.get('action_wait', 0),
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
-                        description=step_data.get('description', '')
+                        description=step_data.get('description', ''),
+                        is_cleanup=step_data.get('is_cleanup', False)
                     )
                     created_count += 1
                 except Exception as e:
@@ -4468,7 +4847,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     action_wait=step.action_wait,
                     assert_type=step.assert_type,
                     assert_value=step.assert_value,
-                    description=step.description
+                    description=step.description,
+                    is_cleanup=step.is_cleanup
                 ))
 
             if new_steps:
@@ -4532,7 +4912,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         action_wait=step_data.get('action_wait', 0),
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
-                        description=step_data.get('description', '')
+                        description=step_data.get('description', ''),
+                        is_cleanup=step_data.get('is_cleanup', False)
                     )
                     created_count += 1
                 except Exception as e:
@@ -4809,8 +5190,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
             start_time = time.time()
 
-            # 获取测试用例的所有步骤
-            test_steps = list(test_case.steps.all().order_by('step_number'))
+            # 获取测试用例的所有步骤（跳过清理步骤）
+            test_steps = list(test_case.steps.filter(is_cleanup=False).all().order_by('step_number'))
 
             # 预先获取所有步骤的数据,避免在异步上下文中访问ORM
             steps_data = []

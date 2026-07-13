@@ -51,10 +51,11 @@
         <el-table-column prop="owner.username" :label="$t('uiAutomation.project.owner')" width="100" />
         <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
         <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="180" fixed="right">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="240" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="goToProjectDetail(row.id)">{{ $t('uiAutomation.common.view') }}</el-button>
             <el-button link @click="editProject(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
+            <el-button link type="warning" @click="showCleanDialog(row)">清理数据</el-button>
             <el-button link type="danger" @click="deleteProject(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
           </template>
         </el-table-column>
@@ -112,6 +113,37 @@
           <el-date-picker v-model="createForm.end_date" type="date" :placeholder="$t('uiAutomation.project.selectDate')" />
         </el-form-item>
       </el-form>
+      <!-- 被测数据库连接配置（可折叠） -->
+      <el-divider content-position="left">被测系统数据库连接</el-divider>
+      <el-form label-width="80px">
+        <el-form-item label="数据库类型">
+          <el-select v-model="createForm.target_db_type" placeholder="请选择" clearable style="width: 100%">
+            <el-option label="MySQL" value="mysql" />
+            <el-option label="PostgreSQL" value="postgresql" />
+            <el-option label="SQLite" value="sqlite" />
+            <el-option label="Oracle" value="oracle" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="createForm.target_db_type !== 'sqlite'" label="主机地址">
+          <el-input v-model="createForm.target_db_host" placeholder="如：192.168.1.100" />
+        </el-form-item>
+        <el-form-item v-if="createForm.target_db_type !== 'sqlite'" label="端口">
+          <el-input v-model="createForm.target_db_port" placeholder="如：3306" />
+        </el-form-item>
+        <el-form-item label="数据库名">
+          <el-input v-model="createForm.target_db_name" :placeholder="createForm.target_db_type === 'sqlite' ? 'SQLite文件路径' : '数据库名'" />
+        </el-form-item>
+        <el-form-item v-if="createForm.target_db_type !== 'sqlite'" label="用户名">
+          <el-input v-model="createForm.target_db_user" placeholder="数据库用户名" />
+        </el-form-item>
+        <el-form-item v-if="createForm.target_db_type !== 'sqlite'" label="密码">
+          <el-input v-model="createForm.target_db_password" type="password" show-password placeholder="数据库密码" />
+        </el-form-item>
+        <div style="color: #909399; font-size: 12px; margin-top: -10px; margin-bottom: 10px; padding-left: 10px;">
+          配置被测系统的数据库连接后，可在测试套件中配置清理SQL，执行测试后直接连接数据库清理测试数据。<br/>
+          保存项目后可测试数据库连接。
+        </div>
+      </el-form>
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="showCreateDialog = false">{{ $t('uiAutomation.common.cancel') }}</el-button>
@@ -119,7 +151,7 @@
         </span>
       </template>
     </el-dialog>
-    
+
     <!-- 编辑项目对话框 -->
     <el-dialog v-model="showEditDialog" :title="$t('uiAutomation.project.editProject')" width="500px" :close-on-click-modal="false">
       <el-form ref="editFormRef" :model="editForm" :rules="formRules" label-width="80px">
@@ -159,6 +191,45 @@
           <el-date-picker v-model="editForm.end_date" type="date" :placeholder="$t('uiAutomation.project.selectDate')" />
         </el-form-item>
       </el-form>
+      <!-- 被测数据库连接配置（可折叠） -->
+      <el-divider content-position="left">被测系统数据库连接</el-divider>
+      <el-form label-width="80px">
+        <el-form-item label="数据库类型">
+          <el-select v-model="editForm.target_db_type" placeholder="请选择" clearable style="width: 100%">
+            <el-option label="MySQL" value="mysql" />
+            <el-option label="PostgreSQL" value="postgresql" />
+            <el-option label="SQLite" value="sqlite" />
+            <el-option label="Oracle" value="oracle" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="editForm.target_db_type !== 'sqlite'" label="主机地址">
+          <el-input v-model="editForm.target_db_host" placeholder="如：192.168.1.100" />
+        </el-form-item>
+        <el-form-item v-if="editForm.target_db_type !== 'sqlite'" label="端口">
+          <el-input v-model="editForm.target_db_port" placeholder="如：3306" />
+        </el-form-item>
+        <el-form-item label="数据库名">
+          <el-input v-model="editForm.target_db_name" :placeholder="editForm.target_db_type === 'sqlite' ? 'SQLite文件路径' : '数据库名'" />
+        </el-form-item>
+        <el-form-item v-if="editForm.target_db_type !== 'sqlite'" label="用户名">
+          <el-input v-model="editForm.target_db_user" placeholder="数据库用户名" />
+        </el-form-item>
+        <el-form-item v-if="editForm.target_db_type !== 'sqlite'" label="密码">
+          <el-input v-model="editForm.target_db_password" type="password" show-password placeholder="数据库密码" />
+        </el-form-item>
+        <div style="color: #909399; font-size: 12px; margin-top: -10px; margin-bottom: 10px; padding-left: 10px;">
+          配置被测系统的数据库连接后，可在测试套件中配置清理SQL，执行测试后直接连接数据库清理测试数据
+        </div>
+        <div style="text-align: right; margin-top: -4px;">
+          <el-button type="success" size="small" :loading="testDbLoading" :disabled="!editForm.target_db_type" @click="handleTestDbConnection">测试连接</el-button>
+          <span v-if="testDbResult" :style="{ color: testDbResult.success ? '#67c23a' : '#f56c6c', fontSize: '12px', marginLeft: '8px' }">
+            {{ testDbResult.success ? `连接成功 (${testDbResult.elapsed_ms}ms)` : `连接失败: ${testDbResult.error}` }}
+          </span>
+          <span v-if="testDbResult && testDbResult.success && testDbResult.db_version" style="color: #909399; font-size: 12px; margin-left: 8px;">
+            {{ testDbResult.db_version }}
+          </span>
+        </div>
+      </el-form>
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="showEditDialog = false">{{ $t('uiAutomation.common.cancel') }}</el-button>
@@ -195,6 +266,51 @@
         </span>
       </template>
     </el-dialog>
+
+    <!-- 清理测试数据对话框 -->
+    <el-dialog v-model="showCleanDataDialog" title="清理测试数据" width="520px" :close-on-click-modal="false">
+      <div v-if="cleanTargetProject" style="margin-bottom: 16px;">
+        <span style="font-weight: 500;">项目：</span>{{ cleanTargetProject.name }}
+      </div>
+      <el-alert type="warning" :closable="false" style="margin-bottom: 16px;">
+        此操作将删除选中的执行数据，<b>不可恢复</b>。用例定义、元素库和操作审计记录不会被删除。
+      </el-alert>
+      <el-form label-width="100px">
+        <el-form-item label="时间范围">
+          <el-radio-group v-model="cleanForm.timeMode">
+            <el-radio value="all">全部数据</el-radio>
+            <el-radio value="before">指定时间之前</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="cleanForm.timeMode === 'before'" label="截止日期">
+          <el-date-picker
+            v-model="cleanForm.beforeDate"
+            type="date"
+            placeholder="选择截止日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%;"
+          />
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            将清理该日期之前（不含当天）的执行数据
+          </div>
+        </el-form-item>
+        <el-form-item label="数据类型">
+          <el-checkbox-group v-model="cleanForm.dataTypes">
+            <el-checkbox value="case_executions">用例执行记录</el-checkbox>
+            <el-checkbox value="suite_executions">套件执行记录</el-checkbox>
+            <el-checkbox value="ai_executions">AI执行记录</el-checkbox>
+            <el-checkbox value="screenshots">截图文件</el-checkbox>
+            <el-checkbox value="notification_logs">通知日志</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showCleanDataDialog = false">取消</el-button>
+          <el-button type="danger" :loading="cleanLoading" @click="handleCleanData">确认清理</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -202,7 +318,7 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, View, Edit, Delete } from '@element-plus/icons-vue'
-import { getUiProjects, createUiProject, updateUiProject, deleteUiProject } from '@/api/ui_automation'
+import { getUiProjects, createUiProject, updateUiProject, deleteUiProject, cleanProjectTestData, testDbConnection } from '@/api/ui_automation'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -238,7 +354,13 @@ const createForm = reactive({
   status: 'IN_PROGRESS',
   base_url: '',
   start_date: null,
-  end_date: null
+  end_date: null,
+  target_db_type: '',
+  target_db_host: '',
+  target_db_port: '',
+  target_db_name: '',
+  target_db_user: '',
+  target_db_password: ''
 })
 
 const editForm = reactive({
@@ -247,7 +369,13 @@ const editForm = reactive({
   status: 'IN_PROGRESS',
   base_url: '',
   start_date: null,
-  end_date: null
+  end_date: null,
+  target_db_type: '',
+  target_db_host: '',
+  target_db_port: '',
+  target_db_name: '',
+  target_db_user: '',
+  target_db_password: ''
 })
 
 // 表单验证规则
@@ -369,6 +497,20 @@ const handleCurrentChange = (current) => {
 const showDetailDialog = ref(false)
 const currentProjectDetail = ref(null)
 
+// 清理数据相关
+const showCleanDataDialog = ref(false)
+const cleanTargetProject = ref(null)
+const cleanLoading = ref(false)
+const cleanForm = reactive({
+  timeMode: 'all',
+  beforeDate: null,
+  dataTypes: ['case_executions', 'suite_executions', 'ai_executions', 'screenshots', 'notification_logs']
+})
+
+// 测试数据库连接相关
+const testDbLoading = ref(false)
+const testDbResult = ref(null)
+
 // 查看项目详情
 const goToProjectDetail = (id) => {
   // 查找当前项目
@@ -378,6 +520,103 @@ const goToProjectDetail = (id) => {
     showDetailDialog.value = true
   } else {
     ElMessage.error(t('uiAutomation.project.messages.notFound'))
+  }
+}
+
+// 显示清理数据对话框
+const showCleanDialog = (project) => {
+  cleanTargetProject.value = project
+  cleanForm.timeMode = 'all'
+  cleanForm.beforeDate = null
+  cleanForm.dataTypes = ['case_executions', 'suite_executions', 'ai_executions', 'screenshots', 'notification_logs']
+  showCleanDataDialog.value = true
+}
+
+// 执行清理数据
+const handleCleanData = async () => {
+  if (cleanForm.dataTypes.length === 0) {
+    ElMessage.warning('请至少选择一种数据类型')
+    return
+  }
+
+  if (cleanForm.timeMode === 'before' && !cleanForm.beforeDate) {
+    ElMessage.warning('请选择截止日期')
+    return
+  }
+
+  const typeNames = {
+    case_executions: '用例执行记录',
+    suite_executions: '套件执行记录',
+    ai_executions: 'AI执行记录',
+    screenshots: '截图文件',
+    notification_logs: '通知日志'
+  }
+  const selectedNames = cleanForm.dataTypes.map(t => typeNames[t]).join('、')
+  const timeDesc = cleanForm.timeMode === 'before' ? `${cleanForm.beforeDate} 之前的` : '所有'
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要清理项目「${cleanTargetProject.value.name}」${timeDesc}${selectedNames}吗？此操作不可恢复！`,
+      '确认清理',
+      { confirmButtonText: '确认清理', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  cleanLoading.value = true
+  try {
+    const data = { data_types: cleanForm.dataTypes }
+    if (cleanForm.timeMode === 'before' && cleanForm.beforeDate) {
+      data.before_date = cleanForm.beforeDate
+    }
+    const res = await cleanProjectTestData(cleanTargetProject.value.id, data)
+    ElMessage.success(res.data.message || '清理完成')
+    showCleanDataDialog.value = false
+  } catch (error) {
+    ElMessage.error(error.response?.data?.error || '清理失败')
+    console.error('清理测试数据失败:', error)
+  } finally {
+    cleanLoading.value = false
+  }
+}
+
+// 测试数据库连接
+const handleTestDbConnection = async () => {
+  if (!currentEditId.value) {
+    ElMessage.warning('请先保存项目后再测试连接')
+    return
+  }
+  if (!editForm.target_db_type) {
+    ElMessage.warning('请先选择数据库类型')
+    return
+  }
+
+  testDbLoading.value = true
+  testDbResult.value = null
+  try {
+    // 将当前表单中的数据库配置传入，优先使用表单值
+    const data = {
+      target_db_type: editForm.target_db_type,
+      target_db_host: editForm.target_db_host,
+      target_db_port: editForm.target_db_port ? Number(editForm.target_db_port) : null,
+      target_db_name: editForm.target_db_name,
+      target_db_user: editForm.target_db_user,
+      target_db_password: editForm.target_db_password
+    }
+    const res = await testDbConnection(currentEditId.value, data)
+    testDbResult.value = res.data
+    if (res.data.success) {
+      ElMessage.success(`数据库连接成功 (${res.data.elapsed_ms}ms)`)
+    } else {
+      ElMessage.error(res.data.error || '连接失败')
+    }
+  } catch (error) {
+    const result = { success: false, error: error.response?.data?.error || '连接测试失败' }
+    testDbResult.value = result
+    ElMessage.error(result.error)
+  } finally {
+    testDbLoading.value = false
   }
 }
 
@@ -391,8 +630,15 @@ const editProject = (project) => {
     status: project.status,
     base_url: project.base_url,
     start_date: project.start_date ? new Date(project.start_date) : null,
-    end_date: project.end_date ? new Date(project.end_date) : null
+    end_date: project.end_date ? new Date(project.end_date) : null,
+    target_db_type: project.target_db_type || '',
+    target_db_host: project.target_db_host || '',
+    target_db_port: project.target_db_port || '',
+    target_db_name: project.target_db_name || '',
+    target_db_user: project.target_db_user || '',
+    target_db_password: project.target_db_password || ''
   })
+  testDbResult.value = null
   showEditDialog.value = true
 }
 
@@ -464,6 +710,12 @@ const handleCreate = async () => {
       createForm[key] = ''
     })
     createForm.status = 'IN_PROGRESS'
+    createForm.target_db_type = ''
+    createForm.target_db_host = ''
+    createForm.target_db_port = ''
+    createForm.target_db_name = ''
+    createForm.target_db_user = ''
+    createForm.target_db_password = ''
     urlProtocol.value = 'https://'
     
     loadProjects()
