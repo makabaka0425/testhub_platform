@@ -333,7 +333,7 @@ class VariableResolver:
             elif func_name == 'random_float':
                 kwargs = {'min_val': args[0] if len(args) > 0 else 0.0, 'max_val': args[1] if len(args) > 1 else 1.0, 'precision': args[2] if len(args) > 2 else 2, 'count': args[3] if len(args) > 3 else 1}
             elif func_name == 'random_string':
-                kwargs = {'length': args[0] if len(args) > 0 else 8, 'char_type': args[1] if len(args) > 1 else 'all', 'count': args[2] if len(args) > 2 else 1}
+                kwargs = {'length': args[0] if len(args) > 0 else 10, 'char_type': args[1] if len(args) > 1 else 'all', 'count': args[2] if len(args) > 2 else 1}
             elif func_name in ['random_uuid', 'random_guid']:
                 kwargs = {'version': args[0] if len(args) > 0 else 4, 'count': args[1] if len(args) > 1 else 1}
             elif func_name in ['random_mac', 'random_mac_address']:
