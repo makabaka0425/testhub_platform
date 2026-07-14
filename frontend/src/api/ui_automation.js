@@ -591,6 +591,16 @@ export function aiPickFinish(data) {
   })
 }
 
+// 交互式选取模式 — 删除指定元素
+export function aiPickRemove(data) {
+  return request({
+    url: '/ui-automation/elements/ai_pick/remove/',
+    method: 'post',
+    data,
+    timeout: 10000
+  })
+}
+
 // 页面对象相关API
 export function getPageObjects(params) {
   return request({

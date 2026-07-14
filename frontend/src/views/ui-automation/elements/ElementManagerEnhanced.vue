@@ -343,7 +343,7 @@
           </el-table-column>
           <el-table-column label="操作" width="60">
             <template #default="{ $index }">
-              <el-button type="danger" size="small" text @click="pickElements.splice($index, 1)">
+              <el-button type="danger" size="small" text @click="removePickElement($index)">
                 删除
               </el-button>
             </template>
@@ -565,6 +565,7 @@ import {
   aiPickStart,
   aiPickStatus,
   aiPickFinish,
+  aiPickRemove,
   getLoginConfigs
 } from '@/api/ui_automation'
 
@@ -1219,6 +1220,17 @@ const handlePickFinish = async () => {
     ElMessage.error(errMsg)
   } finally {
     pickLoading.value = false
+  }
+}
+
+// 交互式选取 — 删除指定元素（同步后端）
+const removePickElement = async (index) => {
+  try {
+    await aiPickRemove({ session_id: pickSessionId.value, index })
+    // 后端已删除，下一次轮询会自动同步，但先本地也删掉让UI即时响应
+    pickElements.value.splice(index, 1)
+  } catch (error) {
+    ElMessage.error('删除失败')
   }
 }
 
