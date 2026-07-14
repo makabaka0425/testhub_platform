@@ -128,14 +128,15 @@
               <el-row :gutter="20">
                 <el-col :span="12">
                   <el-form-item :label="$t('uiAutomation.element.page')">
-                    <el-select v-model="selectedElement.page" :placeholder="$t('uiAutomation.element.selectPage')">
-                      <el-option
-                        v-for="page in pages"
-                        :key="page.id"
-                        :label="page.name"
-                        :value="page.name"
-                      />
-                    </el-select>
+                    <el-tree-select
+                      v-model="selectedElement.page"
+                      :data="pageOnlyTree"
+                      :props="{ label: 'name', value: 'name', children: 'children' }"
+                      :placeholder="$t('uiAutomation.element.selectPage')"
+                      check-strictly
+                      :render-after-expand="false"
+                      style="width: 100%"
+                    />
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
@@ -444,10 +445,11 @@
       </el-table>
       <template #footer>
         <div style="display: flex; justify-content: space-between; width: 100%;">
-          <el-button v-if="candidateButtons.length > 0" type="warning" @click="showAiResultDialog = false; showCandidateDialog = true">
+          <!-- 弹窗元素提取功能暂时隐藏 -->
+          <!-- <el-button v-if="candidateButtons.length > 0" type="warning" @click="showAiResultDialog = false; showCandidateDialog = true">
             提取弹窗元素({{ candidateButtons.length }}个候选)
-          </el-button>
-          <span v-else></span>
+          </el-button> -->
+          <span></span>
           <div>
             <el-button @click="showAiResultDialog = false">取消</el-button>
             <el-button type="primary" @click="handleBatchImport" :loading="batchImportLoading">
@@ -578,6 +580,20 @@ const selectedProject = ref('')
 const pages = ref([])
 const locatorStrategies = ref([])
 const treeData = ref([])
+// 仅包含页面节点的树（过滤掉元素节点），用于所属页面树形下拉
+const pageOnlyTree = computed(() => {
+  const filterPage = (nodes) => {
+    if (!nodes) return []
+    return nodes
+      .filter(n => n.type !== 'element')
+      .map(n => ({
+        ...n,
+        children: filterPage(n.children)
+      }))
+      .filter(n => n.type === 'page' || (n.children && n.children.length > 0))
+  }
+  return filterPage(treeData.value)
+})
 const selectedElement = ref(null)
 const expandedKeys = ref([])
 const treeKey = ref(0) // 用于强制重新渲染树组件
@@ -962,7 +978,6 @@ const handleExtractDialogs = async () => {
   }
 
   candidateLoading.value = true
-  showCandidateDialog.value = false
 
   try {
     const data = {
@@ -990,10 +1005,19 @@ const handleExtractDialogs = async () => {
     // 追加到现有结果
     aiExtractResults.value = [...aiExtractResults.value, ...dialogElements]
 
-    ElMessage.success(`弹窗提取完成，新增 ${dialogElements.length} 个弹窗元素`)
-
-    // 重新打开结果对话框
+    // 关闭候选对话框，打开结果对话框
+    showCandidateDialog.value = false
     showAiResultDialog.value = true
+
+    // 显示失败信息
+    const failures = result.failures || []
+    if (failures.length > 0) {
+      const failMsg = failures.map(f => `"${f.button}": ${f.reason}`).join('；')
+      ElMessage.warning(`弹窗提取完成，新增 ${dialogElements.length} 个弹窗元素。以下按钮提取失败：${failMsg}`)
+    } else {
+      ElMessage.success(`弹窗提取完成，新增 ${dialogElements.length} 个弹窗元素`)
+    }
+
     await nextTick()
     if (aiResultTableRef.value) {
       aiResultTableRef.value.toggleAllSelection()
@@ -1002,6 +1026,8 @@ const handleExtractDialogs = async () => {
     const errMsg = error.response?.data?.error || error.message || '弹窗提取失败'
     ElMessage.error(errMsg)
     console.error('弹窗提取失败:', error)
+    // 出错时回到结果对话框
+    showCandidateDialog.value = false
     showAiResultDialog.value = true
   } finally {
     candidateLoading.value = false

@@ -771,12 +771,14 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         dialog_elements = extract_result.get('elements', [])
         dialog_sources = extract_result.get('dialog_sources', {})
+        dialog_failures = extract_result.get('failures', [])
 
         # AI 分析与分类
         if not dialog_elements:
             return Response({
                 'elements': [],
                 'dialog_sources': dialog_sources,
+                'failures': dialog_failures,
                 'message': '未在弹窗中找到可交互元素'
             })
 
@@ -844,7 +846,8 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         return Response({
             'elements': ai_elements,
-            'dialog_sources': dialog_sources
+            'dialog_sources': dialog_sources,
+            'failures': dialog_failures
         })
 
     def _playwright_extract_dialog_elements(self, url, buttons, login_start_url='', login_steps_data=None):
@@ -923,7 +926,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                     for sel in ['.ant-modal:visible', '.ant-drawer:visible', '.el-dialog:visible', '.el-drawer:visible',
                                 '[role="dialog"]:visible', '.modal:visible']:
                         try:
-                            page.wait_for_selector(sel, timeout=3000)
+                            page.wait_for_selector(sel, timeout=5000)
                             dialog_selector = sel
                             dialog_appeared = True
                             break
@@ -936,7 +939,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                         time.sleep(1)
                         continue
 
-                    time.sleep(1)  # 等待弹窗内容完全渲染
+                    time.sleep(2)  # 等待弹窗内容完全渲染
 
                     # 获取弹窗标题（用于来源标注）
                     dialog_title = btn_text
@@ -1049,7 +1052,8 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         return {
             'elements': all_dialog_elements,
-            'dialog_sources': dialog_sources
+            'dialog_sources': dialog_sources,
+            'failures': dialog_failures
         }
 
     def _close_dialog(self, page):
