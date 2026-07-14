@@ -23,7 +23,7 @@
             :placeholder="t('uiAutomation.testCase.searchPlaceholder')"
             clearable
             size="small"
-            style="width: 200px"
+            style="width: 180px"
           >
             <template #prefix>
               <el-icon><Search /></el-icon>
@@ -31,40 +31,46 @@
           </el-input>
         </div>
 
-        <div class="test-case-list">
-          <div
-            v-for="testCase in filteredTestCases"
-            :key="testCase.id"
-            class="test-case-item"
-            :class="{ active: selectedTestCase?.id === testCase.id }"
-            @click="selectTestCase(testCase)"
+        <div class="test-case-table-wrapper">
+          <el-table
+            :data="paginatedTestCases"
+            size="small"
+            @current-change="handleTableCurrentChange"
+            :row-class-name="tableRowClassName"
+            style="width: 100%"
           >
-            <div class="case-header">
-              <div class="case-info">
-                <h4 class="case-name">{{ testCase.name }}</h4>
-                <p class="case-description">{{ testCase.description || t('uiAutomation.testCase.noDescription') }}</p>
-              </div>
-              <div class="case-actions">
-                <el-button size="small" text @click.stop="runTestCase(testCase)">
-                  <el-icon><CaretRight /></el-icon>
-                </el-button>
-                <el-button size="small" text @click.stop="editTestCase(testCase)">
-                  <el-icon><Edit /></el-icon>
-                </el-button>
-                <el-button size="small" text @click.stop="copyTestCase(testCase)">
-                  <el-icon><CopyDocument /></el-icon>
-                </el-button>
-                <el-button size="small" text type="danger" @click.stop="deleteTestCase(testCase)">
-                  <el-icon><Delete /></el-icon>
-                </el-button>
-              </div>
-            </div>
-            <div class="case-meta">
-              <!-- 移除状态显示 -->
-              <span class="step-count">{{ testCase.steps?.length || 0 }} {{ t('uiAutomation.testCase.stepsCount') }}</span>
-              <span class="update-time">{{ formatTime(testCase.updated_at) }}</span>
-            </div>
-          </div>
+            <el-table-column prop="name" label="用例名称" min-width="140" show-overflow-tooltip />
+            <el-table-column label="步骤" width="55" align="center">
+              <template #default="{ row }">
+                <span class="step-count">{{ row.steps?.length || 0 }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="更新时间" width="140" align="left">
+              <template #default="{ row }">
+                <span style="font-size: 12px; color: #888; white-space: nowrap;">{{ formatTime(row.updated_at) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120" align="center">
+              <template #default="{ row }">
+                <div class="row-actions">
+                  <el-icon class="row-action-btn" @click.stop="runTestCase(row)" title="运行"><CaretRight /></el-icon>
+                  <el-icon class="row-action-btn" @click.stop="editTestCase(row)" title="编辑"><Edit /></el-icon>
+                  <el-icon class="row-action-btn" @click.stop="copyTestCase(row)" title="复制"><CopyDocument /></el-icon>
+                  <el-icon class="row-action-btn danger" @click.stop="deleteTestCase(row)" title="删除"><Delete /></el-icon>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div class="pagination-wrapper">
+          <el-pagination
+            v-model:current-page="currentPage"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 20, 50]"
+            :total="filteredTestCases.length"
+            layout="total, sizes, prev, pager, next"
+            small
+          />
         </div>
       </div>
 
@@ -657,6 +663,8 @@ const currentSteps = ref([])
 const availableElements = ref([])
 const elementTreeData = ref([])
 const searchKeyword = ref('')
+const currentPage = ref(1)
+const pageSize = ref(10)
 const showCreateDialog = ref(false)
 const editingTestCase = ref(null)
 const executionResult = ref(null)
@@ -721,6 +729,27 @@ const filteredTestCases = computed(() => {
     tc.description?.includes(searchKeyword.value)
   )
 })
+
+// 分页后的用例列表
+const paginatedTestCases = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredTestCases.value.slice(start, start + pageSize.value)
+})
+
+// 搜索时重置到第一页
+watch(searchKeyword, () => {
+  currentPage.value = 1
+})
+
+// 表格行点击选中
+const handleTableCurrentChange = (row) => {
+  if (row) selectTestCase(row)
+}
+
+// 表格行高亮样式
+const tableRowClassName = ({ row }) => {
+  return selectedTestCase.value?.id === row.id ? 'active-row' : ''
+}
 
 // 解析执行日志
 const parsedExecutionLogs = computed(() => {
@@ -1505,7 +1534,7 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
+  padding: 20px 20px 20px 12px;
   border-bottom: 1px solid #e6e6e6;
   background: white;
 }
@@ -1527,15 +1556,18 @@ onMounted(async () => {
 }
 
 .left-panel {
-  width: 350px;
+  width: 45%;
+  min-width: 400px;
   border-right: 1px solid #e6e6e6;
   background: white;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .panel-header {
-  padding: 15px;
+  padding: 12px 15px 12px 12px;
   border-bottom: 1px solid #e6e6e6;
   display: flex;
   justify-content: space-between;
@@ -1546,71 +1578,63 @@ onMounted(async () => {
   margin: 0;
 }
 
-.test-case-list {
+.test-case-table-wrapper {
   flex: 1;
   overflow-y: auto;
-  padding: 10px;
+  padding: 0;
+  min-height: 0;
 }
 
-.test-case-item {
-  border: 1px solid #e6e6e6;
-  border-radius: 6px;
-  margin-bottom: 10px;
-  padding: 15px;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.test-case-item:hover {
-  border-color: #409eff;
-  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.1);
-}
-
-.test-case-item.active {
-  border-color: #409eff;
-  background-color: #f0f8ff;
-}
-
-.case-header {
+.pagination-wrapper {
+  padding: 8px 15px;
+  border-top: 1px solid #e6e6e6;
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 10px;
-}
-
-.case-info {
-  flex: 1;
-}
-
-.case-name {
-  margin: 0 0 5px 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.case-description {
-  margin: 0;
-  color: #666;
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.case-actions {
-  display: flex;
-  gap: 5px;
-}
-
-.case-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  color: #888;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  background: white;
 }
 
 .step-count {
   color: #409eff;
   font-weight: 500;
+}
+
+/* 表格行高亮 */
+:deep(.el-table .active-row) {
+  background-color: #f0f8ff !important;
+}
+
+:deep(.el-table .active-row:hover > td) {
+  background-color: #e6f0ff !important;
+}
+
+/* 操作按钮行内排列 */
+.row-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 表格第一列与标题对齐：padding-left=10px与上方标题对齐 */
+:deep(.el-table .el-table__body-wrapper td:first-child .cell),
+:deep(.el-table .el-table__header-wrapper th:first-child .cell) {
+  padding-left: 10px;
+}
+
+.row-action-btn {
+  cursor: pointer;
+  color: #606266;
+  font-size: 16px;
+  transition: color 0.2s;
+}
+
+.row-action-btn:hover {
+  color: #409eff;
+}
+
+.row-action-btn.danger:hover {
+  color: #f56c6c;
 }
 
 .right-panel {

@@ -132,14 +132,15 @@
               <el-icon><Document /></el-icon>
               <span>{{ $t('menu.caseManagement') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ui-automation/scripts-enhanced">
+            <!-- 脚本生成、脚本列表暂时隐藏 -->
+            <!-- <el-menu-item index="/ui-automation/scripts-enhanced">
               <el-icon><Edit /></el-icon>
               <span>{{ $t('menu.scriptGeneration') }}</span>
             </el-menu-item>
             <el-menu-item index="/ui-automation/scripts">
               <el-icon><DocumentCopy /></el-icon>
               <span>{{ $t('menu.scriptList') }}</span>
-            </el-menu-item>
+            </el-menu-item> -->
             <el-menu-item index="/ui-automation/suites">
               <el-icon><Collection /></el-icon>
               <span>{{ $t('menu.suiteManagement') }}</span>
