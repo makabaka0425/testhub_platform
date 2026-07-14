@@ -119,6 +119,43 @@
 
           <!-- 测试步骤编辑 -->
           <div class="steps-container" v-show="showSteps">
+            <!-- 前置条件 -->
+            <div class="precondition-section">
+              <div class="section-header" @click="showPreconditions = !showPreconditions">
+                <h4>前置条件</h4>
+                <el-icon><component :is="showPreconditions ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+              </div>
+              <div v-if="showPreconditions" class="section-content">
+                <el-select
+                  v-model="selectedPreconditions"
+                  multiple
+                  filterable
+                  placeholder="选择前置条件用例（按选择顺序执行）"
+                  style="width: 100%"
+                  size="small"
+                >
+                  <el-option
+                    v-for="tc in availablePreconditions"
+                    :key="tc.id"
+                    :label="tc.name"
+                    :value="tc.id"
+                  />
+                </el-select>
+                <div v-if="selectedPreconditions.length > 0" class="precondition-list">
+                  <div v-for="(pcId, idx) in selectedPreconditions" :key="pcId" class="precondition-item">
+                    <span class="precondition-order">{{ idx + 1 }}</span>
+                    <span class="precondition-name">{{ getTestCaseName(pcId) }}</span>
+                    <el-button size="small" text type="danger" @click="removePrecondition(idx)">
+                      <el-icon><Delete /></el-icon>
+                    </el-button>
+                  </div>
+                </div>
+                <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+                  单用例执行时自动先执行，套件执行时忽略
+                </div>
+              </div>
+            </div>
+
             <div class="steps-header">
               <h4>{{ t('uiAutomation.testCase.testSteps') }}</h4>
               <el-button size="small" text @click="expandAllSteps">
@@ -184,6 +221,13 @@
                               </div>
                             </template>
                           </el-tree-select>
+                          <el-input
+                            v-if="['fill', 'getText', 'select'].includes(element.action_type)"
+                            v-model="element.output_var"
+                            placeholder="输出变量名"
+                            size="small"
+                            style="width: 120px"
+                          />
                         </div>
                         <div class="step-right">
                           <el-button
@@ -305,6 +349,26 @@
                     </div>
                   </template>
                 </draggable>
+              </div>
+            </div>
+
+            <!-- 后置清理SQL -->
+            <div class="postcondition-section">
+              <div class="section-header" @click="showPostcondition = !showPostcondition">
+                <h4>后置清理SQL</h4>
+                <el-icon><component :is="showPostcondition ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+              </div>
+              <div v-if="showPostcondition" class="section-content">
+                <el-input
+                  v-model="postconditionSql"
+                  type="textarea"
+                  :rows="3"
+                  size="small"
+                  placeholder="用例执行完自动执行的清理SQL，多条用分号分隔&#10;例如：DELETE FROM users WHERE username='${username}';&#10;仅支持 DELETE/UPDATE/TRUNCATE，可用 ${变量名} 引用步骤输出变量"
+                />
+                <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+                  需先在项目配置中设置数据库连接
+                </div>
               </div>
             </div>
           </div>
@@ -430,7 +494,7 @@
       v-model="showCreateDialog"
       :title="editingTestCase ? t('uiAutomation.testCase.editTestCase') : t('uiAutomation.testCase.createTestCase')"
       :close-on-click-modal="false"
-      width="500px"
+      width="650px"
     >
       <el-form :model="testCaseForm" label-width="100px">
         <el-form-item :label="t('uiAutomation.testCase.caseName')" required>
@@ -450,6 +514,37 @@
             <el-option :label="t('uiAutomation.testCase.priorityMedium')" value="medium" />
             <el-option :label="t('uiAutomation.testCase.priorityLow')" value="low" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="前置条件">
+          <el-select
+            v-model="testCaseForm.preconditions"
+            multiple
+            filterable
+            placeholder="选择前置条件用例（按选择顺序执行）"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="tc in availablePreconditions"
+              :key="tc.id"
+              :label="tc.name"
+              :value="tc.id"
+              :disabled="editingTestCase && tc.id === editingTestCase.id"
+            />
+          </el-select>
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            前置条件在单用例执行时自动先执行，套件执行时忽略
+          </div>
+        </el-form-item>
+        <el-form-item label="后置清理SQL">
+          <el-input
+            v-model="testCaseForm.postcondition_sql"
+            type="textarea"
+            :rows="4"
+            placeholder="用例执行后自动执行的清理SQL，多条用分号分隔&#10;例如：DELETE FROM users WHERE username='${username}';&#10;仅支持 DELETE/UPDATE/TRUNCATE 语句，可用 ${变量名} 引用步骤输出变量"
+          />
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            需先在项目配置中设置数据库连接，支持 ${变量名} 引用步骤输出变量
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -583,13 +678,39 @@ const currentFieldForDataFactory = ref('')
 const variableCategories = ref([])
 const loading = ref(false)
 
+// 前置条件/后置条件（详情面板编辑）
+const selectedPreconditions = ref([])
+const postconditionSql = ref('')
+const showPreconditions = ref(false)
+const showPostcondition = ref(false)
+
+const getTestCaseName = (id) => {
+  const tc = testCases.value.find(t => t.id === id)
+  return tc ? tc.name : `用例#${id}`
+}
+
+const removePrecondition = (index) => {
+  selectedPreconditions.value.splice(index, 1)
+}
+
 
 
 // 表单数据
 const testCaseForm = reactive({
   name: '',
   description: '',
-  priority: 'medium'
+  priority: 'medium',
+  preconditions: [],
+  postcondition_sql: ''
+})
+
+// 可选的前置条件用例列表（同项目下的其他用例）
+const availablePreconditions = computed(() => {
+  return testCases.value.filter(tc => {
+    // 排除当前正在编辑的用例自身
+    if (editingTestCase.value && tc.id === editingTestCase.value.id) return false
+    return true
+  })
 })
 
 // 计算属性
@@ -733,6 +854,11 @@ const selectTestCase = (testCase) => {
   } else {
     currentSteps.value = []
   }
+  // 加载前置条件和后置条件
+  selectedPreconditions.value = (testCase.preconditions_data || []).map(pc => pc.id)
+  postconditionSql.value = testCase.postcondition_sql || ''
+  showPreconditions.value = selectedPreconditions.value.length > 0
+  showPostcondition.value = !!testCase.postcondition_sql
   // 只有在切换到不同用例时才清空执行结果
   executionResult.value = null
   showSteps.value = true
@@ -749,6 +875,7 @@ const addStep = () => {
     assert_type: 'textContains',
     assert_value: '',
     description: '',
+    output_var: '',
     expanded: true
   }
   currentSteps.value.push(newStep)
@@ -841,7 +968,9 @@ const saveTestCase = async () => {
   try {
     const updateData = {
       ...selectedTestCase.value,
-      steps: currentSteps.value
+      steps: currentSteps.value,
+      preconditions: selectedPreconditions.value,
+      postcondition_sql: postconditionSql.value
     }
 
     await updateTestCase(selectedTestCase.value.id, updateData)
@@ -855,7 +984,12 @@ const saveTestCase = async () => {
     }
   } catch (error) {
       console.error('保存测试用例失败:', error)
-      ElMessage.error(t('uiAutomation.testCase.save.failed'))
+      if (error.response?.data?.preconditions) {
+        const msg = error.response.data.preconditions
+        ElMessage.error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+      } else {
+        ElMessage.error(t('uiAutomation.testCase.save.failed'))
+      }
     }
 }
 
@@ -927,6 +1061,9 @@ const editTestCase = (testCase) => {
   testCaseForm.name = testCase.name
   testCaseForm.description = testCase.description || ''
   testCaseForm.priority = testCase.priority || 'medium'
+  // 加载前置条件（preconditions_data 是 [{id, name, order}] 格式，转为 id 列表）
+  testCaseForm.preconditions = (testCase.preconditions_data || []).map(pc => pc.id)
+  testCaseForm.postcondition_sql = testCase.postcondition_sql || ''
   showCreateDialog.value = true
 }
 
@@ -1187,6 +1324,8 @@ const saveTestCaseForm = async () => {
       name: testCaseForm.name,
       description: testCaseForm.description,
       priority: testCaseForm.priority,
+      preconditions: testCaseForm.preconditions,
+      postcondition_sql: testCaseForm.postcondition_sql,
       project: projectId.value,
       steps: []
     }
@@ -1213,7 +1352,11 @@ const saveTestCaseForm = async () => {
     resetForm()
   } catch (error) {
     console.error('保存测试用例失败:', error)
-    ElMessage.error(t('uiAutomation.testCase.save.failed'))
+    if (error.response?.data?.preconditions) {
+      ElMessage.error(error.response.data.preconditions.join ? error.response.data.preconditions.join('; ') : error.response.data.preconditions)
+    } else {
+      ElMessage.error(t('uiAutomation.testCase.save.failed'))
+    }
   }
 }
 
@@ -1221,6 +1364,8 @@ const resetForm = () => {
   testCaseForm.name = ''
   testCaseForm.description = ''
   testCaseForm.priority = 'medium'
+  testCaseForm.preconditions = []
+  testCaseForm.postcondition_sql = ''
 }
 
 // 辅助方法
@@ -1522,11 +1667,75 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
+  padding: 10px 15px;
+  border-bottom: 1px solid #ebeef5;
 }
 
 .steps-header h4 {
   margin: 0;
+}
+
+/* 前置条件/后置条件区块样式 */
+.precondition-section,
+.postcondition-section {
+  border-bottom: 1px solid #ebeef5;
+  padding: 0;
+}
+
+.precondition-section .section-header,
+.postcondition-section .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.precondition-section .section-header:hover,
+.postcondition-section .section-header:hover {
+  background: #f0f2f5;
+}
+
+.precondition-section .section-header h4,
+.postcondition-section .section-header h4 {
+  margin: 0;
+}
+
+.precondition-section .section-content,
+.postcondition-section .section-content {
+  padding: 10px 15px 15px;
+}
+
+.precondition-list {
+  margin-top: 8px;
+}
+
+.precondition-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+  gap: 8px;
+}
+
+.precondition-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #409eff;
+  color: #fff;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.precondition-name {
+  flex: 1;
+  font-size: 13px;
+  color: #303133;
 }
 
 .steps-list {

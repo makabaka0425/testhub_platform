@@ -4,7 +4,7 @@ from .models import (
     UiProject, LocatorStrategy, Element, TestScript, TestSuite,
     TestSuiteScript, TestSuiteTestCase, TestExecution, TestEnvironment, Screenshot,
     ElementGroup, PageObject, PageObjectElement, ScriptStep, ScriptElementUsage,
-    TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
+    TestCase, TestCaseStep, TestCaseExecution, TestCasePrecondition, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig
 )
@@ -614,7 +614,7 @@ class TestCaseStepSerializer(serializers.ModelSerializer):
         model = TestCaseStep
         fields = [
             'id', 'step_number', 'action_type', 'element', 'element_name', 'element_locator',
-            'input_value', 'wait_time', 'action_wait', 'assert_type', 'assert_value', 'description', 'is_cleanup', 'created_at'
+            'input_value', 'wait_time', 'action_wait', 'assert_type', 'assert_value', 'description', 'output_var', 'is_cleanup', 'created_at'
         ]
 
 
@@ -623,18 +623,99 @@ class TestCaseSerializer(serializers.ModelSerializer):
     steps = TestCaseStepSerializer(many=True, read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     project_name = serializers.CharField(source='project.name', read_only=True)
+    preconditions = serializers.PrimaryKeyRelatedField(many=True, queryset=TestCase.objects.all(), required=False)
+    preconditions_data = serializers.SerializerMethodField()
 
     class Meta:
         model = TestCase
         fields = [
             'id', 'name', 'description', 'project', 'project_name', 'status', 'priority',
+            'preconditions', 'preconditions_data', 'postcondition_sql',
             'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps'
         ]
         read_only_fields = ['created_by']
 
+    def get_preconditions_data(self, obj):
+        """获取前置条件用例的详细信息（含排序）"""
+        relations = TestCasePrecondition.objects.filter(test_case=obj).select_related('precondition').order_by('order')
+        return [
+            {
+                'id': rel.precondition.id,
+                'name': rel.precondition.name,
+                'order': rel.order
+            }
+            for rel in relations
+        ]
+
+    @staticmethod
+    def _check_circular_dependency(test_case_id, precondition_ids):
+        """检测前置条件是否存在循环依赖
+        
+        检查从 test_case_id 出发，通过前置条件链是否能回到自身。
+        同时检查前置条件列表中是否有重复。
+        """
+        if not precondition_ids:
+            return None
+
+        # 检查前置条件列表中是否有重复
+        if len(precondition_ids) != len(set(precondition_ids)):
+            return "前置条件中存在重复的用例"
+
+        # 检查是否引用自身
+        if test_case_id and test_case_id in precondition_ids:
+            return "不能将自身设为前置条件"
+
+        # BFS 检测循环依赖：从每个前置条件出发，看能否回到 test_case_id
+        visited = set()
+        queue = list(precondition_ids)
+        while queue:
+            current_id = queue.pop(0)
+            if current_id == test_case_id:
+                return "前置条件存在循环依赖"
+            if current_id in visited:
+                continue
+            visited.add(current_id)
+            # 获取 current_id 的前置条件
+            next_preconditions = TestCasePrecondition.objects.filter(
+                test_case_id=current_id
+            ).values_list('precondition_id', flat=True)
+            for pid in next_preconditions:
+                if pid not in visited:
+                    queue.append(pid)
+
+        return None
+
     def create(self, validated_data):
+        # 弹出 ManyToMany 字段
+        preconditions = validated_data.pop('preconditions', [])
         validated_data['created_by'] = self.context['request'].user
-        return super().create(validated_data)
+        instance = super().create(validated_data)
+        # 循环依赖检测（create 时主要是检查前置条件列表本身无重复）
+        precondition_ids = [pc.id for pc in preconditions]
+        error = self._check_circular_dependency(None, precondition_ids)
+        if error:
+            instance.delete()
+            raise serializers.ValidationError({'preconditions': error})
+        # 创建前置条件关联（带排序）
+        for idx, pc in enumerate(preconditions):
+            TestCasePrecondition.objects.create(test_case=instance, precondition=pc, order=idx)
+        return instance
+
+    def update(self, instance, validated_data):
+        # 弹出 ManyToMany 字段
+        preconditions = validated_data.pop('preconditions', None)
+        instance = super().update(instance, validated_data)
+        # 如果请求中包含了 preconditions，则更新关联
+        if preconditions is not None:
+            # 循环依赖检测
+            precondition_ids = [pc.id for pc in preconditions]
+            error = self._check_circular_dependency(instance.id, precondition_ids)
+            if error:
+                raise serializers.ValidationError({'preconditions': error})
+            TestCasePrecondition.objects.filter(test_case=instance).delete()
+            for idx, pc in enumerate(preconditions):
+                TestCasePrecondition.objects.create(test_case=instance, precondition=pc, order=idx)
+        return instance
 
 
 class TestCaseExecutionSerializer(serializers.ModelSerializer):
