@@ -1679,6 +1679,24 @@ class ElementViewSet(viewsets.ModelViewSet):
             'count': len(session['picked_elements'])
         })
 
+    @action(detail=False, methods=['post'], url_path='ai_pick/remove')
+    def ai_pick_remove(self, request):
+        """交互式选取模式 — 删除指定元素"""
+        session_id = request.data.get('session_id')
+        element_index = request.data.get('index')
+        if not session_id or session_id not in self._pick_sessions:
+            return Response({'error': '无效的会话ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        session = self._pick_sessions[session_id]
+        if element_index is not None and 0 <= element_index < len(session['picked_elements']):
+            removed = session['picked_elements'].pop(element_index)
+            return Response({
+                'success': True,
+                'removed': removed,
+                'count': len(session['picked_elements'])
+            })
+        return Response({'error': '无效的元素索引'}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=False, methods=['post'], url_path='ai_pick/finish')
     def ai_pick_finish(self, request):
         """交互式选取模式 — 完成选取，关闭浏览器，返回所有元素"""
@@ -1776,10 +1794,13 @@ class ElementViewSet(viewsets.ModelViewSet):
                     # 验证AI返回的定位器，如果不唯一则尝试修正
                     ai_result = await self._validate_and_fix_locator(page, ai_result, element_data)
 
-                    # 存入session
+                    # 存入session（去重：相同 locator_strategy + locator_value 不重复添加）
                     session = self._pick_sessions.get(session_id)
                     if session:
-                        session['picked_elements'].append(ai_result)
+                        new_key = (ai_result.get('locator_strategy', ''), ai_result.get('locator_value', ''))
+                        existing_keys = {(e.get('locator_strategy', ''), e.get('locator_value', '')) for e in session['picked_elements']}
+                        if new_key not in existing_keys:
+                            session['picked_elements'].append(ai_result)
                     return ai_result
                 return None
             except Exception as e:
