@@ -648,6 +648,8 @@ class TestCase(models.Model):
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='test_cases', verbose_name='所属项目')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft', verbose_name='状态')
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium', verbose_name='优先级')
+    preconditions = models.ManyToManyField('self', symmetrical=False, blank=True, through='TestCasePrecondition', verbose_name='前置条件')
+    postcondition_sql = models.TextField(blank=True, default='', verbose_name='后置清理SQL', help_text='用例执行后自动执行的清理SQL，支持${变量名}引用步骤输出变量')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_test_cases', verbose_name='创建人')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
@@ -660,6 +662,23 @@ class TestCase(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class TestCasePrecondition(models.Model):
+    """用例前置条件中间表（保证执行顺序）"""
+    test_case = models.ForeignKey(TestCase, on_delete=models.CASCADE, related_name='precondition_relations', verbose_name='测试用例')
+    precondition = models.ForeignKey(TestCase, on_delete=models.CASCADE, related_name='used_as_precondition', verbose_name='前置用例')
+    order = models.IntegerField(default=0, verbose_name='执行顺序')
+
+    class Meta:
+        db_table = 'ui_test_case_preconditions'
+        verbose_name = '用例前置条件'
+        verbose_name_plural = '用例前置条件'
+        ordering = ['order']
+        unique_together = ['test_case', 'precondition']
+
+    def __str__(self):
+        return f"{self.test_case.name} -> {self.precondition.name} (order: {self.order})"
 
 
 class TestCaseStep(models.Model):
@@ -700,6 +719,7 @@ class TestCaseStep(models.Model):
     assert_type = models.CharField(max_length=20, choices=ASSERT_TYPE_CHOICES, blank=True, verbose_name='断言类型')
     assert_value = models.TextField(blank=True, verbose_name='断言期望值')
     description = models.TextField(blank=True, verbose_name='步骤描述')
+    output_var = models.CharField(max_length=100, blank=True, default='', verbose_name='输出变量名', help_text='将步骤的实际值存入变量，供后续步骤或后置SQL通过${变量名}引用')
     is_cleanup = models.BooleanField(default=False, verbose_name='是否清理步骤', help_text='标记为清理步骤的步骤在正常执行时跳过，仅在执行清理时运行')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
 
