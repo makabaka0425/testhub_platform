@@ -28,6 +28,7 @@ class TestExecutor:
         self.execution = None
         self.test_cases = []
         self.results = []
+        self.context_variables = {}  # 用例级变量表，存储步骤输出变量
 
     def create_execution_record(self):
         """创建测试执行记录"""
@@ -164,6 +165,7 @@ class TestExecutor:
                         'action_wait': step.action_wait,
                         'assert_type': step.assert_type,
                         'assert_value': step.assert_value,
+                        'output_var': step.output_var,
                         'element': None
                     }
                     if step.element:
@@ -309,6 +311,7 @@ class TestExecutor:
                         'action_wait': step.action_wait,
                         'assert_type': step.assert_type,
                         'assert_value': step.assert_value,
+                        'output_var': step.output_var,
                         'element': None
                     }
                     if step.element:
@@ -1010,9 +1013,11 @@ class TestExecutor:
                 })
 
         result['end_time'] = datetime.now().isoformat()
-        return result
 
-    def execute_test_case_playwright(self, page, case_data):
+        # 执行后置清理SQL
+        self._execute_postcondition_sql(case_data, result)
+
+        return result
         self.current_page = page
         """使用 Playwright 执行单个测试用例（同步版本） - 已弃用，保留用于向后兼容
 
@@ -1425,7 +1430,7 @@ class TestExecutor:
 
                 elif step_data['action_type'] == 'fill':
                     # 解析输入值中的变量表达式
-                    resolved_value = resolve_variables(step_data['input_value'])
+                    resolved_value = resolve_variables(step_data['input_value'], self.context_variables)
 
                     # 如果刚切换了标签页，增加超时时间
                     if step_data.get('_just_switched_tab'):
@@ -1442,13 +1447,19 @@ class TestExecutor:
                         step_result['resolved_value'] = resolved_value
                         print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
 
+                    # 捕获输出变量
+                    if step_data.get('output_var'):
+                        self.context_variables[step_data['output_var']] = resolved_value
+                        step_result['output_var'] = step_data['output_var']
+                        print(f"  ✓ 输出变量: {step_data['output_var']} = {resolved_value}")
+
                 elif step_data['action_type'] == 'select':
                     # 选择下拉选项：input_value 填选项文本，多个选项用英文逗号分隔
                     # 支持 Ant Design 和 Element Plus 下拉组件
                     # 匹配方式：模糊匹配（contains）
                     import re as _re
                     
-                    resolved_value = resolve_variables(step_data['input_value'])
+                    resolved_value = resolve_variables(step_data['input_value'], self.context_variables)
                     # 拆分多个选项（逗号分隔）
                     option_texts = [t.strip() for t in resolved_value.split(',') if t.strip()]
                     is_multi = len(option_texts) > 1
@@ -1698,6 +1709,13 @@ class TestExecutor:
                             step_result['selected_options'] = selected_options
                             if select_errors:
                                 step_result['warning'] = '; '.join(select_errors)
+
+                            # 捕获输出变量（select操作存入实际选中的值）
+                            if step_data.get('output_var'):
+                                output_value = ','.join(selected_options) if isinstance(selected_options, list) else str(selected_options)
+                                self.context_variables[step_data['output_var']] = output_value
+                                step_result['output_var'] = step_data['output_var']
+                                print(f"  ✓ 输出变量: {step_data['output_var']} = {output_value}")
                         else:
                             step_result['error'] = f'选择下拉选项失败: {"; ".join(select_errors)}'
 
@@ -1706,6 +1724,12 @@ class TestExecutor:
                     text = self.current_page.text_content(selector, timeout=effective_timeout)
                     step_result['result'] = text
                     step_result['success'] = True
+
+                    # 捕获输出变量
+                    if step_data.get('output_var') and text is not None:
+                        self.context_variables[step_data['output_var']] = text.strip() if text else ''
+                        step_result['output_var'] = step_data['output_var']
+                        print(f"  ✓ 输出变量: {step_data['output_var']} = {text.strip() if text else ''}")
 
                 elif step_data['action_type'] == 'waitFor':
                     # 检测是否是下拉框选项（下拉框选项可能是隐藏的）
@@ -1742,7 +1766,7 @@ class TestExecutor:
 
                 elif step_data['action_type'] == 'assert':
                     # 解析断言值中的变量
-                    resolved_assert_value = resolve_variables(step_data['assert_value'])
+                    resolved_assert_value = resolve_variables(step_data['assert_value'], self.context_variables)
                     if resolved_assert_value != step_data['assert_value']:
                         print(f"  ✓ 断言变量解析: {step_data['assert_value']} -> {resolved_assert_value}")
 
@@ -2201,7 +2225,7 @@ class TestExecutor:
 
                 elif step_data['action_type'] == 'assert':
                     # 表格断言类型不需要元素定位器，在无元素分支处理
-                    resolved_assert_value = resolve_variables(step_data['assert_value'])
+                    resolved_assert_value = resolve_variables(step_data['assert_value'], self.context_variables)
                     if resolved_assert_value != step_data['assert_value']:
                         print(f"  ✓ 断言变量解析: {step_data['assert_value']} -> {resolved_assert_value}")
 
@@ -3210,7 +3234,7 @@ class TestExecutor:
                     element_obj = wait.until(EC.presence_of_element_located((by, locator_value)))
                     
                     # 解析输入值中的变量表达式
-                    resolved_value = resolve_variables(step_data['input_value'])
+                    resolved_value = resolve_variables(step_data['input_value'], self.context_variables)
 
                     for attempt in range(max_retries):
                         try:
@@ -3222,6 +3246,12 @@ class TestExecutor:
                             if resolved_value != step_data['input_value']:
                                 step_result['resolved_value'] = resolved_value
                                 print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
+
+                            # 捕获输出变量
+                            if step_data.get('output_var'):
+                                self.context_variables[step_data['output_var']] = resolved_value
+                                step_result['output_var'] = step_data['output_var']
+                                print(f"  ✓ 输出变量: {step_data['output_var']} = {resolved_value}")
 
                             break
                         except StaleElementReferenceException:
@@ -3246,6 +3276,13 @@ class TestExecutor:
                             text = element_obj.text
                             step_result['result'] = text
                             step_result['success'] = True
+
+                            # 捕获输出变量
+                            if step_data.get('output_var') and text is not None:
+                                self.context_variables[step_data['output_var']] = text.strip() if text else ''
+                                step_result['output_var'] = step_data['output_var']
+                                print(f"  ✓ 输出变量: {step_data['output_var']} = {text.strip() if text else ''}")
+
                             break
                         except StaleElementReferenceException:
                             if attempt < max_retries - 1:
@@ -3294,7 +3331,7 @@ class TestExecutor:
                     element_obj = wait.until(EC.presence_of_element_located((by, locator_value)))
                     
                     # 解析断言值中的变量
-                    resolved_assert_value = resolve_variables(step_data['assert_value'])
+                    resolved_assert_value = resolve_variables(step_data['assert_value'], self.context_variables)
                     if resolved_assert_value != step_data['assert_value']:
                         print(f"  ✓ 断言变量解析: {step_data['assert_value']} -> {resolved_assert_value}")
 
@@ -3444,7 +3481,7 @@ class TestExecutor:
 
                 elif step_data['action_type'] == 'assert':
                     # 表格断言类型不需要元素定位器，在无元素分支处理
-                    resolved_assert_value = resolve_variables(step_data['assert_value'])
+                    resolved_assert_value = resolve_variables(step_data['assert_value'], self.context_variables)
                     if resolved_assert_value != step_data['assert_value']:
                         print(f"  ✓ 断言变量解析: {step_data['assert_value']} -> {resolved_assert_value}")
 
@@ -3697,3 +3734,177 @@ class TestExecutor:
             print(f"   错误信息: {error_msg[:500]}")  # 限制长度避免刷屏
 
         return step_result
+
+    def _execute_postcondition_sql(self, case_data, result):
+        """执行用例的后置清理SQL"""
+        from .models import TestCase
+
+        try:
+            test_case = TestCase.objects.get(id=case_data['id'])
+        except TestCase.DoesNotExist:
+            return
+
+        cleanup_sql = test_case.postcondition_sql
+        if not cleanup_sql or not cleanup_sql.strip():
+            return
+
+        project = test_case.project
+        if not project.target_db_type:
+            result['postcondition'] = {
+                'executed': False,
+                'error': '项目未配置被测数据库连接'
+            }
+            return
+
+        # 变量替换
+        from .variable_resolver import resolve_variables
+        resolved_sql = resolve_variables(cleanup_sql, self.context_variables)
+
+        print(f"[后置清理] 执行清理SQL: {resolved_sql[:200]}")
+
+        # 复用清理SQL执行逻辑
+        import re
+        sqls = [s.strip() for s in re.split(r';\s*\n', resolved_sql) if s.strip() and not s.strip().startswith('--')]
+        db_type = project.target_db_type.lower()
+        details = []
+        total_affected = 0
+        conn = None
+
+        try:
+            if db_type == 'mysql':
+                import pymysql
+                conn = pymysql.connect(
+                    host=project.target_db_host,
+                    port=project.target_db_port or 3306,
+                    user=project.target_db_user,
+                    password=project.target_db_password,
+                    database=project.target_db_name,
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.Cursor,
+                    connect_timeout=10
+                )
+            elif db_type in ('postgresql', 'postgres'):
+                import psycopg2
+                conn = psycopg2.connect(
+                    host=project.target_db_host,
+                    port=project.target_db_port or 5432,
+                    user=project.target_db_user,
+                    password=project.target_db_password,
+                    dbname=project.target_db_name,
+                    connect_timeout=10
+                )
+            elif db_type == 'sqlite':
+                import sqlite3
+                conn = sqlite3.connect(project.target_db_name)
+            elif db_type == 'oracle':
+                import cx_Oracle
+                dsn = cx_Oracle.makedsn(project.target_db_host, project.target_db_port or 1521, service_name=project.target_db_name)
+                conn = cx_Oracle.connect(user=project.target_db_user, password=project.target_db_password, dsn=dsn)
+            else:
+                result['postcondition'] = {'executed': False, 'error': f'不支持的数据库类型: {db_type}'}
+                return
+
+            with conn.cursor() as cursor:
+                for sql in sqls:
+                    sql_upper = sql.strip().upper()
+                    if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
+                        details.append({'sql': sql, 'error': '只允许 DELETE/UPDATE/TRUNCATE 语句', 'affected': 0})
+                        continue
+                    try:
+                        cursor.execute(sql)
+                        affected = cursor.rowcount if cursor.rowcount >= 0 else 0
+                        details.append({'sql': sql, 'affected': affected})
+                        total_affected += affected
+                    except Exception as e:
+                        details.append({'sql': sql, 'error': str(e), 'affected': 0})
+            conn.commit()
+
+            result['postcondition'] = {
+                'executed': True,
+                'total_affected': total_affected,
+                'details': details
+            }
+            print(f"[后置清理] 执行完成，影响 {total_affected} 行")
+
+        except Exception as e:
+            result['postcondition'] = {
+                'executed': False,
+                'error': str(e)
+            }
+            print(f"[后置清理] 执行失败: {str(e)}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def _execute_preconditions(self, test_case):
+        """执行用例的前置条件（单条执行时调用）
+
+        Args:
+            test_case: TestCase 实例
+
+        Returns:
+            (success, message): 前置条件是否全部通过，以及失败原因
+        """
+        from .models import TestCasePrecondition
+
+        relations = TestCasePrecondition.objects.filter(
+            test_case=test_case
+        ).select_related('precondition').order_by('order')
+
+        if not relations.exists():
+            return True, ''
+
+        for rel in relations:
+            precondition_case = rel.precondition
+            print(f"[前置条件] 执行前置用例: {precondition_case.name} (顺序: {rel.order})")
+
+            # 准备前置用例数据
+            steps = precondition_case.steps.filter(is_cleanup=False).order_by('step_number')
+            case_data = {
+                'id': precondition_case.id,
+                'name': precondition_case.name,
+                'project_id': precondition_case.project_id,
+                'steps': []
+            }
+            for step in steps:
+                step_data = {
+                    'id': step.id,
+                    'step_number': step.step_number,
+                    'action_type': step.action_type,
+                    'description': step.description,
+                    'input_value': step.input_value,
+                    'wait_time': step.wait_time,
+                    'action_wait': step.action_wait,
+                    'assert_type': step.assert_type,
+                    'assert_value': step.assert_value,
+                    'output_var': step.output_var,
+                    'element': None
+                }
+                if step.element:
+                    step_data['element'] = {
+                        'id': step.element.id,
+                        'name': step.element.name,
+                        'locator_value': step.element.locator_value,
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
+                        'wait_timeout': step.element.wait_timeout,
+                    }
+                case_data['steps'].append(step_data)
+
+            # 执行前置用例（使用当前浏览器页面）
+            if self.engine == 'playwright' and self.current_page:
+                pre_result = self.execute_test_case_playwright_no_db(case_data)
+            else:
+                pre_result = None  # Selenium 暂不支持
+                print(f"[前置条件] Selenium引擎暂不支持前置条件执行")
+
+            if pre_result and pre_result['status'] != 'passed':
+                msg = f"前置用例「{precondition_case.name}」执行失败: {pre_result.get('error', '未知错误')}"
+                print(f"[前置条件] {msg}")
+                return False, msg
+
+            print(f"[前置条件] 前置用例「{precondition_case.name}」执行通过")
+
+        return True, ''

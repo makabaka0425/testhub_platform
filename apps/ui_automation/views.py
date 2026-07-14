@@ -564,6 +564,17 @@ class ElementViewSet(viewsets.ModelViewSet):
         except UiProject.DoesNotExist:
             return Response({'error': '项目不存在'}, status=status.HTTP_404_NOT_FOUND)
 
+        # URL规范化：相对路径拼接 + 协议修正
+        _base_url = (project.base_url or '').rstrip('/')
+        if url and not url.startswith('http://') and not url.startswith('https://'):
+            if _base_url:
+                url = f"{_base_url}/{url.lstrip('/')}"
+            else:
+                return Response({'error': '相对路径需要项目配置base_url'}, status=status.HTTP_400_BAD_REQUEST)
+        if _base_url.startswith('https://') and url.startswith('http://'):
+            url = 'https://' + url[7:]
+            print(f'[URL规范化] http→https: {url}')
+
         # 验证登录配置
         login_config = None
         if login_config_id:
@@ -1523,6 +1534,24 @@ class ElementViewSet(viewsets.ModelViewSet):
         if not url:
             return Response({'error': 'url 为必填项'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # URL规范化：如果URL是相对路径，用项目base_url拼接；如果协议不一致则修正
+        if project_id:
+            try:
+                _proj = UiProject.objects.get(id=project_id)
+                _base_url = (_proj.base_url or '').rstrip('/')
+                # 相对路径拼接
+                if url and not url.startswith('http://') and not url.startswith('https://'):
+                    if _base_url:
+                        url = f"{_base_url}/{url.lstrip('/')}"
+                    else:
+                        return Response({'error': '相对路径需要项目配置base_url'}, status=status.HTTP_400_BAD_REQUEST)
+                # 协议修正：项目base_url是https但用户输入了http，自动修正以保持cookie
+                if _base_url.startswith('https://') and url.startswith('http://'):
+                    url = 'https://' + url[7:]
+                    print(f'[URL规范化] http→https: {url}')
+            except Exception as e:
+                print(f'[URL规范化] 失败: {str(e)}')
+
         # 登录配置（复用手动模式的逻辑）
         login_steps_data = None
         login_start_url = ''
@@ -2321,6 +2350,19 @@ class ElementViewSet(viewsets.ModelViewSet):
             element_info = step_data.get('element')
             input_value = step_data.get('input_value', '')
 
+            # 不需要元素定位器的操作类型
+            _no_element_actions = ('navigate', 'wait', 'screenshot')
+
+            if action in _no_element_actions:
+                if action == 'navigate':
+                    # navigate需要用项目的base_url拼接相对路径
+                    await page.goto(input_value, wait_until='networkidle', timeout=30000)
+                    await asyncio.sleep(1)
+                elif action == 'wait':
+                    wait_ms = step_data.get('wait_time', 1000)
+                    await asyncio.sleep(wait_ms / 1000)
+                return
+
             if not element_info:
                 return
 
@@ -2353,8 +2395,37 @@ class ElementViewSet(viewsets.ModelViewSet):
                 await asyncio.sleep(0.5)
             elif action == 'fill':
                 await el.fill(input_value)
-            elif action == 'navigate':
-                await page.goto(input_value, wait_until='networkidle', timeout=30000)
+            elif action == 'select':
+                # select操作：尝试原生select_option，失败则Ant Design/Element Plus点击模式
+                try:
+                    await el.select_option(label=input_value, timeout=5000)
+                except Exception:
+                    # 自定义下拉组件：点击触发器打开 → JS查找选项 → 点击选中
+                    await el.click()
+                    await asyncio.sleep(0.5)
+                    try:
+                        js_match = f"""
+                            (() => {{
+                                const dropdowns = document.querySelectorAll('.ant-select-dropdown, .el-select-dropdown');
+                                for (const dd of dropdowns) {{
+                                    if (dd.offsetParent !== null) {{
+                                        const items = dd.querySelectorAll('.ant-select-item-option, .el-select-dropdown__item');
+                                        for (const item of items) {{
+                                            const text = (item.textContent || '').trim();
+                                            if (text.includes({repr(input_value)})) {{
+                                                item.click();
+                                                return true;
+                                            }}
+                                        }}
+                                    }}
+                                }}
+                                return false;
+                            }})()
+                        """
+                        await page.evaluate(js_match)
+                        await asyncio.sleep(0.3)
+                    except:
+                        pass
         except Exception as e:
             print(f'[登录步骤-async] 执行失败: {str(e)}')
 
@@ -2864,6 +2935,18 @@ class ElementViewSet(viewsets.ModelViewSet):
             element_info = step_data.get('element')
             input_value = step_data.get('input_value', '')
 
+            # 不需要元素定位器的操作类型
+            _no_element_actions = ('navigate', 'wait', 'screenshot')
+
+            if action in _no_element_actions:
+                if action == 'navigate':
+                    page.goto(input_value, wait_until='networkidle', timeout=30000)
+                    time.sleep(1)
+                elif action == 'wait':
+                    wait_ms = step_data.get('wait_time', 1000)
+                    time.sleep(wait_ms / 1000)
+                return
+
             if not element_info:
                 print(f'[登录步骤] 跳过: 无元素信息, action={action}')
                 return
@@ -2904,9 +2987,37 @@ class ElementViewSet(viewsets.ModelViewSet):
             elif action == 'fill':
                 el.fill(input_value)
                 print(f'[登录步骤] ✅ fill 成功, locator={locator}, value={input_value}')
-            elif action == 'navigate':
-                page.goto(input_value, wait_until='networkidle', timeout=30000)
-                print(f'[登录步骤] ✅ navigate 成功, url={input_value}')
+            elif action == 'select':
+                try:
+                    el.select_option(label=input_value, timeout=5000)
+                    print(f'[登录步骤] ✅ select 成功, locator={locator}, value={input_value}')
+                except Exception:
+                    el.click()
+                    time.sleep(0.5)
+                    try:
+                        js_match = f"""
+                            (() => {{
+                                const dropdowns = document.querySelectorAll('.ant-select-dropdown, .el-select-dropdown');
+                                for (const dd of dropdowns) {{
+                                    if (dd.offsetParent !== null) {{
+                                        const items = dd.querySelectorAll('.ant-select-item-option, .el-select-dropdown__item');
+                                        for (const item of items) {{
+                                            const text = (item.textContent || '').trim();
+                                            if (text.includes({repr(input_value)})) {{
+                                                item.click();
+                                                return true;
+                                            }}
+                                        }}
+                                    }}
+                                }}
+                                return false;
+                            }})()
+                        """
+                        page.evaluate(js_match)
+                        time.sleep(0.3)
+                        print(f'[登录步骤] ✅ select(自定义下拉) 成功, locator={locator}, value={input_value}')
+                    except:
+                        print(f'[登录步骤] ⚠ select自定义下拉失败, locator={locator}, value={input_value}')
             else:
                 print(f'[登录步骤] 未知action类型: {action}')
         except Exception as e:
@@ -4223,6 +4334,7 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
                     'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
+                    'output_var': step.output_var,
                     'element': None
                 }
                 if step.element:
@@ -4808,6 +4920,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
                         description=step_data.get('description', ''),
+                        output_var=step_data.get('output_var', ''),
                         is_cleanup=step_data.get('is_cleanup', False)
                     )
                     created_count += 1
@@ -4913,6 +5026,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
                         description=step_data.get('description', ''),
+                        output_var=step_data.get('output_var', ''),
                         is_cleanup=step_data.get('is_cleanup', False)
                     )
                     created_count += 1
@@ -5205,6 +5319,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
+                    'output_var': step.output_var,
                 }
 
                 # 获取元素数据
@@ -5220,6 +5335,45 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     step_data['element_data'] = None
 
                 steps_data.append(step_data)
+
+            # 预取前置条件数据（避免在异步上下文中访问Django ORM触发SynchronousOnlyOperation）
+            from .models import TestCasePrecondition
+            preconditions_data = []
+            precondition_rels = TestCasePrecondition.objects.filter(
+                test_case=test_case
+            ).select_related('precondition').order_by('order')
+            for rel in precondition_rels:
+                pre_case = rel.precondition
+                pre_steps_qs = pre_case.steps.filter(is_cleanup=False).select_related('element__locator_strategy').order_by('step_number')
+                pre_steps_list = []
+                for ps in pre_steps_qs:
+                    psd = {
+                        'step_number': ps.step_number,
+                        'action_type': ps.action_type,
+                        'description': ps.description,
+                        'input_value': ps.input_value,
+                        'wait_time': ps.wait_time,
+                        'action_wait': ps.action_wait,
+                        'assert_type': ps.assert_type,
+                        'assert_value': ps.assert_value,
+                        'output_var': ps.output_var or '',
+                    }
+                    if ps.element:
+                        psd['element_data'] = {
+                            'locator_strategy': ps.element.locator_strategy.name if ps.element.locator_strategy else 'css',
+                            'locator_value': ps.element.locator_value,
+                            'name': ps.element.name,
+                            'wait_timeout': ps.element.wait_timeout,
+                            'force_action': ps.element.force_action
+                        }
+                    else:
+                        psd['element_data'] = None
+                    pre_steps_list.append(psd)
+                preconditions_data.append({
+                    'id': pre_case.id,
+                    'name': pre_case.name,
+                    'steps': pre_steps_list,
+                })
 
             # 存储步骤执行结果（用于JSON格式的execution_logs）
             step_results = []
@@ -5452,6 +5606,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
                     async def run_test():
                         """异步执行测试"""
+                        # 用例级变量表，存储步骤输出变量
+                        context_variables = {}
+
                         # 根据浏览器类型选择
                         browser_map = {
                             'chrome': 'chromium',
@@ -5463,7 +5620,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         headless = request.data.get('headless', False)
 
                         # 创建Playwright引擎实例
-                        engine = PlaywrightTestEngine(browser_type=browser_type, headless=headless)
+                        engine = PlaywrightTestEngine(browser_type=browser_type, headless=headless, base_url=test_case.project.base_url)
 
                         try:
                             # 启动浏览器
@@ -5487,6 +5644,74 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     return False
 
                             if steps_data:
+                                # 执行前置条件（单条用例执行时，使用预取数据避免异步上下文中的ORM访问）
+                                if preconditions_data:
+                                    execution_logs.append("========== 执行前置条件 ==========")
+                                    for pre_cond in preconditions_data:
+                                        pre_case_name = pre_cond['name']
+                                        execution_logs.append(f"执行前置用例: {pre_case_name}")
+                                        pre_steps_data = pre_cond['steps']
+
+                                        # 同引擎执行前置用例步骤
+                                        pre_passed = True
+                                        for psi, ps_info in enumerate(pre_steps_data, 1):
+                                            try:
+                                                # 使用预取的step字段数据构造一个简单的step-like对象
+                                                # 避免在异步上下文中访问ORM对象
+                                                from types import SimpleNamespace
+                                                ps_obj = SimpleNamespace(
+                                                    action_type=ps_info['action_type'],
+                                                    input_value=ps_info.get('input_value', ''),
+                                                    wait_time=ps_info.get('wait_time', 1000),
+                                                    action_wait=ps_info.get('action_wait', 0),
+                                                    assert_type=ps_info.get('assert_type', ''),
+                                                    assert_value=ps_info.get('assert_value', ''),
+                                                    output_var=ps_info.get('output_var', ''),
+                                                )
+                                                ps_success, ps_log, ps_screenshot = await engine.execute_step(
+                                                    ps_obj,
+                                                    ps_info.get('element_data') or {},
+                                                    context_variables
+                                                )
+                                                if not ps_success:
+                                                    pre_passed = False
+                                                    execution_logs.append(f"  ✗ 前置步骤 {psi} 失败: {ps_log}")
+                                                    break
+                                                else:
+                                                    execution_logs.append(f"  ✓ 前置步骤 {psi}: {ps_log.split(chr(10))[0]}")
+                                            except Exception as e:
+                                                pre_passed = False
+                                                execution_logs.append(f"  ✗ 前置步骤 {psi} 异常: {str(e)}")
+                                                break
+
+                                        if not pre_passed:
+                                            execution_result['status'] = 'failed'
+                                            execution_result['error_message'] = f"前置用例「{pre_case_name}」执行失败"
+                                            execution_logs.append(f"✗ 前置条件失败，跳过当前用例")
+                                            # 清理退出
+                                            try:
+                                                if not headless:
+                                                    try:
+                                                        await engine.page.wait_for_load_state('networkidle', timeout=5000)
+                                                    except:
+                                                        pass
+                                                    import asyncio
+                                                    await asyncio.sleep(1)
+                                                await engine.stop()
+                                            except:
+                                                pass
+                                            return False
+                                        execution_logs.append(f"✓ 前置用例「{pre_case_name}」执行通过")
+                                    execution_logs.append("")
+
+                                    # 前置条件执行完后，等待页面稳定再开始主用例步骤
+                                    try:
+                                        await engine.page.wait_for_load_state('networkidle', timeout=10000)
+                                    except:
+                                        pass
+                                    await engine.page.wait_for_timeout(2000)
+                                    execution_logs.append("✓ 前置条件执行完毕，页面已稳定")
+
                                 execution_logs.append("========== 执行测试步骤 ==========")
                                 step_count = len(steps_data)
                                 execution_logs.append(f"共有 {step_count} 个步骤需要执行")
@@ -5521,7 +5746,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     try:
                                         execution_logs.append(f"  [调试] 准备执行步骤...")
                                         success, step_log, screenshot_base64 = await engine.execute_step(step,
-                                                                                                          element_data or {})
+                                                                                                           element_data or {},
+                                                                                                           context_variables)
                                         execution_logs.append(f"  [调试] 步骤执行完成, success={success}")
 
                                         execution_logs.append(f"  {step_log}")
@@ -5639,6 +5865,57 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
                                 # 所有步骤都成功
                                 execution_logs.append(f"========== 执行完成 ({step_count} 个步骤全部通过) ==========")
+
+                                # 执行后置条件SQL（清理数据）
+                                if test_case.postcondition_sql and test_case.postcondition_sql.strip():
+                                    execution_logs.append("")
+                                    execution_logs.append("========== 执行后置条件SQL ==========")
+                                    try:
+                                        from .variable_resolver import resolve_variables
+                                        resolved_sql = resolve_variables(test_case.postcondition_sql, context_variables)
+                                        execution_logs.append(f"  清理SQL: {resolved_sql[:200]}")
+
+                                        # 获取项目的数据库连接配置
+                                        project = test_case.project
+                                        if project.target_db_engine:
+                                            import sqlalchemy
+                                            db_url = None
+                                            if project.target_db_engine == 'mysql':
+                                                db_url = f"mysql+pymysql://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port}/{project.target_db_name}"
+                                            elif project.target_db_engine == 'postgresql':
+                                                db_url = f"postgresql+psycopg2://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port}/{project.target_db_name}"
+                                            elif project.target_db_engine == 'sqlite':
+                                                db_url = f"sqlite:///{project.target_db_name}"
+                                            elif project.target_db_engine == 'oracle':
+                                                db_url = f"oracle+cx_oracle://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port}/{project.target_db_name}"
+
+                                            if db_url:
+                                                engine_db = sqlalchemy.create_engine(db_url)
+                                                with engine_db.connect() as conn:
+                                                    # 分割多条SQL语句
+                                                    sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip()]
+                                                    total_affected = 0
+                                                    for sql_stmt in sql_statements:
+                                                        # 安全检查：只允许 DELETE/UPDATE/TRUNCATE
+                                                        sql_upper = sql_stmt.strip().upper()
+                                                        if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
+                                                            execution_logs.append(f"  ✗ 跳过不安全的SQL: {sql_stmt[:50]}...")
+                                                            continue
+                                                        result = conn.execute(sqlalchemy.text(sql_stmt))
+                                                        conn.commit()
+                                                        affected = result.rowcount
+                                                        total_affected += affected
+                                                        execution_logs.append(f"  ✓ 执行: {sql_stmt[:80]}... (影响 {affected} 行)")
+                                                engine_db.dispose()
+                                                execution_logs.append(f"✓ 后置条件SQL执行完成，共影响 {total_affected} 行")
+                                            else:
+                                                execution_logs.append(f"  ✗ 不支持的数据库类型: {project.target_db_engine}")
+                                        else:
+                                            execution_logs.append("  ⚠ 未配置项目数据库连接，跳过后置条件SQL执行")
+                                    except Exception as e:
+                                        execution_logs.append(f"  ✗ 后置条件SQL执行失败: {str(e)}")
+                                        # 后置条件失败不影响用例结果
+
                                 return True
 
                             else:
@@ -5657,6 +5934,12 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     asyncio.set_event_loop(loop)
                     try:
                         loop.run_until_complete(run_test())
+                    except Exception as thread_exc:
+                        # 捕获异步测试中未处理的异常，避免线程静默失败
+                        logger.error(f"[Playwright执行线程异常] {str(thread_exc)}", exc_info=True)
+                        execution_logs.append(f"✗ 执行过程发生异常: {str(thread_exc)}")
+                        execution_result['status'] = 'failed'
+                        execution_result['error_message'] = f"执行过程发生异常: {str(thread_exc)}"
                     finally:
                         loop.close()
 
@@ -6102,6 +6385,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                         'wait_time': step.wait_time,
                                         'assert_type': step.assert_type,
                                         'assert_value': step.assert_value,
+                                        'output_var': step.output_var,
                                     }
 
                                     if step.element:
@@ -6220,7 +6504,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                         }
                                         browser_type = browser_map.get(task.browser, 'chromium')
 
-                                        engine = PlaywrightTestEngine(browser_type=browser_type, headless=task.headless)
+                                        engine = PlaywrightTestEngine(browser_type=browser_type, headless=task.headless, base_url=test_case.project.base_url)
 
                                         try:
                                             # 启动浏览器

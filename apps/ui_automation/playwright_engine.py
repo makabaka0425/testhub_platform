@@ -16,16 +16,18 @@ logger = logging.getLogger(__name__)
 class PlaywrightTestEngine:
     """Playwright测试执行引擎"""
 
-    def __init__(self, browser_type='chromium', headless=True):
+    def __init__(self, browser_type='chromium', headless=True, base_url=None):
         """
         初始化测试引擎
 
         Args:
             browser_type: 浏览器类型 (chromium, firefox, webkit)
             headless: 是否无头模式
+            base_url: 项目基础URL，用于navigate步骤拼接完整路径
         """
         self.browser_type = browser_type
         self.headless = headless
+        self.base_url = base_url
         self.playwright = None
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
@@ -193,30 +195,39 @@ class PlaywrightTestEngine:
         except Exception as e:
             logger.error(f"关闭浏览器失败: {str(e)}")
 
-    async def execute_step(self, step, element_data: Dict) -> Tuple[bool, str, Optional[str]]:
+    async def execute_step(self, step, element_data: Dict, context_variables: Dict = None) -> Tuple[bool, str, Optional[str]]:
         """
         执行单个测试步骤
 
         Args:
             step: 测试步骤对象
             element_data: 元素数据字典 {locator_strategy, locator_value, name}
+            context_variables: 可选，用例级变量表，用于变量解析和output_var捕获
+                               注意：navigate步骤使用self.base_url拼接URL，不依赖element_data
 
         Returns:
             (是否成功, 日志信息, 截图base64)
         """
+        if context_variables is None:
+            context_variables = {}
+        
         action_type = step.action_type
         
         # 预先解析变量
         resolved_input_value = step.input_value
         if step.input_value:
-            resolved_input_value = resolve_variables(step.input_value)
+            resolved_input_value = resolve_variables(step.input_value, context_variables)
             
         resolved_assert_value = step.assert_value
         if step.assert_value:
-            resolved_assert_value = resolve_variables(step.assert_value)
+            resolved_assert_value = resolve_variables(step.assert_value, context_variables)
             
         start_time = time.time()
         screenshot_base64 = None
+        # 预设默认值，防止不需要定位器的操作类型在异常处理中引用未定义变量
+        element_name = '未知元素'
+        locator_strategy = ''
+        locator_value = ''
 
         try:
             # wait和screenshot操作不需要元素定位器
@@ -293,11 +304,56 @@ class PlaywrightTestEngine:
                 await target_page.bring_to_front()
                 # 更新引擎的当前页面引用
                 self.page = target_page
-                
+
+                # 等待新页面加载稳定
+                try:
+                    await self.page.wait_for_load_state('networkidle', timeout=10000)
+                except:
+                    try:
+                        await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
+                    except:
+                        pass
+                await asyncio.sleep(1.5)
+
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 切换标签页成功\n"
                 log += f"  - 目标索引: {final_target_index}\n"
                 log += f"  - 页面标题: {await self.page.title()}\n"
+                log += f"  - 执行时间: {execution_time}秒"
+                return True, log, None
+
+            elif action_type == 'navigate':
+                # 路由跳转：在当前页面中导航到指定路径（不需要元素定位器）
+                target_path = resolved_input_value or ''
+                # 计算超时时间：navigate需要较长超时，最少15秒
+                if step.wait_time and step.wait_time > 5000:
+                    timeout_ms = step.wait_time
+                else:
+                    timeout_ms = 30000  # 默认30秒（页面导航可能较慢）
+
+                # 拼接完整URL：优先使用项目base_url，否则从当前页面URL提取origin
+                from urllib.parse import urlparse, urljoin
+                if self.base_url:
+                    # base_url 可能是 https://xxx.com/app 这种带路径前缀的
+                    # target_path 是 /system/user 这种相对路径
+                    # 需要拼接为 https://xxx.com/app/system/user
+                    base = self.base_url.rstrip('/')
+                    path = target_path.lstrip('/')
+                    target_url = f"{base}/{path}"
+                else:
+                    # 回退：从当前页面提取origin
+                    current_url = self.page.url
+                    parsed = urlparse(current_url)
+                    base_url = f"{parsed.scheme}://{parsed.netloc}"
+                    target_url = urljoin(base_url + '/', target_path.lstrip('/'))
+
+                await self.page.goto(target_url, wait_until='networkidle', timeout=timeout_ms)
+                # SPA页面网络空闲后还需等待Vue渲染
+                await asyncio.sleep(2)
+                execution_time = round(time.time() - start_time, 2)
+                log = f"✓ 路由跳转成功\n"
+                log += f"  - 目标路径: {target_path}\n"
+                log += f"  - 完整URL: {target_url}\n"
                 log += f"  - 执行时间: {execution_time}秒"
                 return True, log, None
 
@@ -323,7 +379,7 @@ class PlaywrightTestEngine:
                 elif step.wait_time:
                     timeout_ms = step.wait_time
                 else:
-                    timeout_ms = 5000  # 默认5秒
+                    timeout_ms = 10000  # 默认10秒
 
                 # 根据定位策略获取元素
                 if locator_strategy.lower() == 'id':
@@ -682,30 +738,103 @@ class PlaywrightTestEngine:
                         return False, error_log, screenshot_base64
                 else:
                     # 普通元素：正常点击
-                    # 如果启用了强制操作，先等待元素在 DOM 中，不要求可见
-                    if force_action:
-                        try:
-                            await locator.wait_for(state='attached', timeout=timeout_ms)
-                        except:
-                            pass  # 如果已经在 DOM 中，继续
-                    
-                    await locator.click(timeout=timeout_ms, force=force_action)
-                    execution_time = round(time.time() - start_time, 2)
-                    log = f"✓ 点击元素 '{element_name}' 成功\n"
-                    log += f"  - 定位器: {locator_strategy}={locator_value}\n"
-                    log += f"  - 超时设置: {timeout_ms/1000}秒\n"
-                    if force_action:
-                        log += f"  - 强制操作: 是（跳过可见性检查，等待attached）\n"
-                    log += f"  - 执行时间: {execution_time}秒"
-                    return True, log, None
+                    # 检测是否是自定义下拉框容器（Ant Design / Element Plus）
+                    # 点击容器 div 本身不会触发下拉，需要点击内部触发器
+                    is_custom_select_container = False
+                    try:
+                        js_detect = """
+                            (() => {
+                                document.querySelectorAll('[data-pw-select-mark]').forEach(el => el.removeAttribute('data-pw-select-mark'));
+                                let el = null;
+                        """
+                        if locator_strategy.lower() in ['css', 'css selector']:
+                            js_detect += f"    try {{ el = document.querySelector({repr(locator_value)}); }} catch(e) {{ el = null; }}\n"
+                        elif locator_strategy.lower() == 'xpath':
+                            js_detect += f"    el = document.evaluate({repr(locator_value)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;\n"
+                        else:
+                            js_detect += f"    try {{ el = document.querySelector({repr(locator_value)}); }} catch(e) {{ el = null; }}\n"
+
+                        js_detect += """
+                                if (!el) return { isSelect: false };
+                                // Ant Design TreeSelect
+                                const antTreeSelect = (el.classList && el.classList.contains('ant-tree-select')) ? el : (el.closest ? el.closest('.ant-tree-select') : null);
+                                if (antTreeSelect) {
+                                    const trigger = antTreeSelect.querySelector('.ant-select-selector');
+                                    if (trigger) {
+                                        antTreeSelect.setAttribute('data-pw-select-mark', '1');
+                                        return { isSelect: true, framework: 'antd-tree', triggerSelector: '[data-pw-select-mark="1"] .ant-select-selector' };
+                                    }
+                                }
+                                // Ant Design Select
+                                const antSelect = (el.classList && el.classList.contains('ant-select')) ? el : (el.closest ? el.closest('.ant-select') : null);
+                                if (antSelect) {
+                                    const trigger = antSelect.querySelector('.ant-select-selector');
+                                    if (trigger) {
+                                        antSelect.setAttribute('data-pw-select-mark', '1');
+                                        return { isSelect: true, framework: 'antd', triggerSelector: '[data-pw-select-mark="1"] .ant-select-selector' };
+                                    }
+                                }
+                                // Element Plus
+                                const elSelect = (el.classList && el.classList.contains('el-select')) ? el : (el.closest ? el.closest('.el-select') : null);
+                                if (elSelect) {
+                                    const trigger = elSelect.querySelector('.el-select__wrapper') || elSelect.querySelector('.el-input__inner');
+                                    if (trigger) {
+                                        elSelect.setAttribute('data-pw-select-mark', '1');
+                                        return { isSelect: true, framework: 'element-plus', triggerSelector: '[data-pw-select-mark="1"] .el-select__wrapper' };
+                                    }
+                                }
+                                return { isSelect: false };
+                            })()
+                        """
+                        detect_result = await self.page.evaluate(js_detect)
+
+                        if detect_result.get('isSelect'):
+                            is_custom_select_container = True
+                            trigger_sel = detect_result['triggerSelector']
+                            framework = detect_result.get('framework', '')
+                            logger.info(f"[click] 检测到{framework}下拉框容器，点击内部触发器")
+                            trigger_locator = self.page.locator(trigger_sel).first
+                            await trigger_locator.scroll_into_view_if_needed(timeout=3000)
+                            await trigger_locator.click(timeout=timeout_ms)
+                            await asyncio.sleep(0.8)
+                            execution_time = round(time.time() - start_time, 2)
+                            log = f"✓ 点击下拉框触发器 '{element_name}' 成功 ({framework})\n"
+                            log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                            log += f"  - 执行时间: {execution_time}秒"
+                            return True, log, None
+                    except Exception as e:
+                        logger.warning(f"[click] 自定义下拉框检测失败，回退到普通点击: {str(e)[:100]}")
+
+                    if not is_custom_select_container:
+                        # 如果启用了强制操作，先等待元素在 DOM 中，不要求可见
+                        if force_action:
+                            try:
+                                await locator.wait_for(state='attached', timeout=timeout_ms)
+                            except:
+                                pass  # 如果已经在 DOM 中，继续
+
+                        await locator.first.click(timeout=timeout_ms, force=force_action)
+                        execution_time = round(time.time() - start_time, 2)
+                        log = f"✓ 点击元素 '{element_name}' 成功\n"
+                        log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                        log += f"  - 超时设置: {timeout_ms/1000}秒\n"
+                        if force_action:
+                            log += f"  - 强制操作: 是（跳过可见性检查，等待attached）\n"
+                        log += f"  - 执行时间: {execution_time}秒"
+                        return True, log, None
 
             elif action_type == 'fill':
-                await locator.fill(resolved_input_value, timeout=timeout_ms, force=force_action)
+                await locator.first.fill(resolved_input_value, timeout=timeout_ms, force=force_action)
                 execution_time = round(time.time() - start_time, 2)
 
                 # 输入成功后短暂等待，确保表单验证生效
                 # 特别是在服务器环境下，需要给Vue/React等框架时间处理
                 await asyncio.sleep(0.3)
+
+                # 捕获 output_var
+                output_var_name = getattr(step, 'output_var', None)
+                if output_var_name:
+                    context_variables[output_var_name] = resolved_input_value
 
                 log = f"✓ 在元素 '{element_name}' 中输入文本成功\n"
                 log += f"  - 定位器: {locator_strategy}={locator_value}\n"
@@ -719,8 +848,21 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             elif action_type == 'getText':
-                text = await locator.inner_text(timeout=timeout_ms)
+                # 先等待元素出现（弹窗等场景元素可能延迟出现）
+                try:
+                    await locator.first.wait_for(state='visible', timeout=timeout_ms)
+                except Exception:
+                    # wait_for 失败则直接尝试 text_content，让 Playwright 抛出原始超时错误
+                    pass
+                # 使用 text_content() 而非 inner_text()，因为 text_content 包含隐藏子元素的文本
+                text = await locator.first.text_content(timeout=timeout_ms)
                 execution_time = round(time.time() - start_time, 2)
+
+                # 捕获 output_var
+                output_var_name = getattr(step, 'output_var', None)
+                if output_var_name:
+                    context_variables[output_var_name] = text.strip() if text else ''
+
                 log = f"✓ 获取元素 '{element_name}' 的文本成功\n"
                 log += f"  - 定位器: {locator_strategy}={locator_value}\n"
                 log += f"  - 文本内容: '{text}'\n"
@@ -729,7 +871,19 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             elif action_type == 'waitFor':
-                await locator.wait_for(state='visible', timeout=timeout_ms)
+                # 检测是否是下拉框选项（可能在 DOM 中但不可见）
+                is_dropdown_option = (
+                    (locator_strategy.lower() == 'xpath' and '//li' in locator_value) or
+                    'el-select-dropdown' in locator_value.lower() or
+                    'ant-select-item' in locator_value.lower() or
+                    'role="option"' in locator_value.lower() or
+                    ('li' in locator_value.lower() and ('ul' in locator_value.lower() or 'ol' in locator_value.lower()))
+                )
+                if is_dropdown_option:
+                    # 下拉框选项只需在 DOM 中，不要求可见
+                    await locator.wait_for(state='attached', timeout=timeout_ms)
+                else:
+                    await locator.wait_for(state='visible', timeout=timeout_ms)
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 等待元素 '{element_name}' 出现成功\n"
                 log += f"  - 定位器: {locator_strategy}={locator_value}\n"
@@ -738,7 +892,7 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             elif action_type == 'hover':
-                await locator.hover(timeout=timeout_ms, force=force_action)
+                await locator.first.hover(timeout=timeout_ms, force=force_action)
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 在元素 '{element_name}' 上悬停成功\n"
                 log += f"  - 定位器: {locator_strategy}={locator_value}\n"
@@ -749,7 +903,7 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             elif action_type == 'scroll':
-                await locator.scroll_into_view_if_needed(timeout=timeout_ms)
+                await locator.first.scroll_into_view_if_needed(timeout=timeout_ms)
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 滚动到元素 '{element_name}' 成功\n"
                 log += f"  - 定位器: {locator_strategy}={locator_value}\n"
@@ -758,15 +912,29 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             elif action_type == 'assert':
+                # 断言前等待页面稳定
+                try:
+                    await self.page.wait_for_load_state('domcontentloaded', timeout=3000)
+                except:
+                    pass
+
+                # 断言至少10秒超时
+                assert_timeout = max(timeout_ms, 10000)
+
                 # 根据断言类型执行不同的断言
                 if step.assert_type == 'textContains':
-                    text = await locator.inner_text(timeout=timeout_ms)
+                    # 跳过空断言值
+                    if not resolved_assert_value:
+                        log = f"⚠ 断言跳过: 未指定断言期望值"
+                        return True, log, None
+                    text = await locator.first.text_content(timeout=assert_timeout)
+                    text = (text or '').strip()
                     if resolved_assert_value in text:
                         log = f"✓ 断言通过: 文本包含 '{resolved_assert_value}'\n"
                         if resolved_assert_value != step.assert_value:
                              log += f"  - 变量解析: '{step.assert_value}' => '{resolved_assert_value}'\n"
                         log += f"  - 实际文本: '{text}'\n"
-                        log += f"  - 超时设置: {timeout_ms/1000}秒"
+                        log += f"  - 超时设置: {assert_timeout/1000}秒"
                         return True, log, None
                     else:
                         log = f"✗ 断言失败: 文本不包含 '{resolved_assert_value}'\n"
@@ -778,18 +946,19 @@ class PlaywrightTestEngine:
                         return False, log, screenshot_base64
 
                 elif step.assert_type == 'textEquals':
-                    text = await locator.inner_text(timeout=timeout_ms)
-                    if text == resolved_assert_value:
+                    text = await locator.first.text_content(timeout=assert_timeout)
+                    text = (text or '').strip()
+                    if text == resolved_assert_value.strip():
                         log = f"✓ 断言通过: 文本等于 '{resolved_assert_value}'\n"
                         if resolved_assert_value != step.assert_value:
                              log += f"  - 变量解析: '{step.assert_value}' => '{resolved_assert_value}'\n"
-                        log += f"  - 超时设置: {timeout_ms/1000}秒"
+                        log += f"  - 超时设置: {assert_timeout/1000}秒"
                         return True, log, None
                     else:
                         log = f"✗ 断言失败: 文本不等于 '{resolved_assert_value}'\n"
                         if resolved_assert_value != step.assert_value:
                              log += f"  - 变量解析: '{step.assert_value}' => '{resolved_assert_value}'\n"
-                        log += f"  - 期望: '{resolved_assert_value}'\n"
+                        log += f"  - 期望: '{resolved_assert_value.strip()}'\n"
                         log += f"  - 实际: '{text}'"
                         screenshot = await self.page.screenshot()
                         screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
@@ -819,54 +988,65 @@ class PlaywrightTestEngine:
 
                 elif step.assert_type in ('tableContains', 'tableNotContains'):
                     # 表格包含/不包含文本断言：自动查找表格容器，不需要元素定位器
-                    try:
-                        table_result = await self.page.evaluate(f"""(() => {{
-                            const tbl = document.querySelector('.ant-table') ||
-                                        document.querySelector('.el-table') ||
-                                        document.querySelector('table');
-                            if (!tbl) return {{ found: false }};
-                            const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
-                            const matchingRows = [];
-                            for (const row of rows) {{
-                                const text = (row.textContent || '').trim();
-                                if (text.includes({repr(resolved_assert_value)})) {{
-                                    matchingRows.push(text.substring(0, 100));
+                    # tableContains 带重试机制：保存/提交后表格数据可能还没刷新
+                    max_retries = 10 if step.assert_type == 'tableContains' else 1
+                    retry_interval = 1  # 秒
+
+                    for retry in range(max_retries):
+                        try:
+                            table_result = await self.page.evaluate(f"""(() => {{
+                                const tbl = document.querySelector('.ant-table') ||
+                                            document.querySelector('.el-table') ||
+                                            document.querySelector('table');
+                                if (!tbl) return {{ found: false }};
+                                const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
+                                const matchingRows = [];
+                                for (const row of rows) {{
+                                    const text = (row.textContent || '').trim();
+                                    if (text.includes({repr(resolved_assert_value)})) {{
+                                        matchingRows.push(text.substring(0, 100));
+                                    }}
                                 }}
-                            }}
-                            return {{ found: true, totalRows: rows.length, matchingCount: matchingRows.length }};
-                        }})()""")
+                                return {{ found: true, totalRows: rows.length, matchingCount: matchingRows.length }};
+                            }})()""")
 
-                        if not table_result.get('found'):
-                            log = f"✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
+                            if not table_result.get('found'):
+                                log = f"✗ 断言失败: 页面上未找到表格(.ant-table/.el-table/table)"
+                                screenshot = await self.page.screenshot()
+                                screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                                return False, log, screenshot_base64
+
+                            total = table_result.get('totalRows', 0)
+                            matching = table_result.get('matchingCount', 0)
+
+                            if step.assert_type == 'tableContains':
+                                if matching > 0:
+                                    log = f"✓ 断言通过: 表格共{total}行，找到{matching}行包含'{resolved_assert_value}'"
+                                    if retry > 0:
+                                        log += f"（第{retry+1}次尝试成功）"
+                                    return True, log, None
+                                elif retry < max_retries - 1:
+                                    # 未找到但还有重试机会，等待后重试
+                                    await asyncio.sleep(retry_interval)
+                                    continue
+                                else:
+                                    log = f"✗ 断言失败: 表格共{total}行，未找到包含'{resolved_assert_value}'的行（重试{max_retries}次）"
+                                    screenshot = await self.page.screenshot()
+                                    screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                                    return False, log, screenshot_base64
+                            else:  # tableNotContains
+                                if matching == 0:
+                                    log = f"✓ 断言通过: 表格共{total}行，未找到包含'{resolved_assert_value}'的行"
+                                    return True, log, None
+                                else:
+                                    log = f"✗ 断言失败: 表格共{total}行，找到{matching}行包含'{resolved_assert_value}'，期望不包含"
+                                    screenshot = await self.page.screenshot()
+                                    screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                                    return False, log, screenshot_base64
+
+                        except Exception as e:
+                            log = f"✗ 表格断言异常: {str(e)[:80]}"
                             screenshot = await self.page.screenshot()
-                            screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
-                            return False, log, screenshot_base64
-
-                        total = table_result.get('totalRows', 0)
-                        matching = table_result.get('matchingCount', 0)
-
-                        if step.assert_type == 'tableContains':
-                            if matching > 0:
-                                log = f"✓ 断言通过: 表格共{total}行，找到{matching}行包含'{resolved_assert_value}'"
-                                return True, log, None
-                            else:
-                                log = f"✗ 断言失败: 表格共{total}行，未找到包含'{resolved_assert_value}'的行"
-                                screenshot = await self.page.screenshot()
-                                screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
-                                return False, log, screenshot_base64
-                        else:  # tableNotContains
-                            if matching == 0:
-                                log = f"✓ 断言通过: 表格共{total}行，未找到包含'{resolved_assert_value}'的行"
-                                return True, log, None
-                            else:
-                                log = f"✗ 断言失败: 表格共{total}行，找到{matching}行包含'{resolved_assert_value}'，期望不包含"
-                                screenshot = await self.page.screenshot()
-                                screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
-                                return False, log, screenshot_base64
-
-                    except Exception as e:
-                        log = f"✗ 表格断言异常: {str(e)[:80]}"
-                        screenshot = await self.page.screenshot()
                         screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
                         return False, log, screenshot_base64
 
@@ -931,11 +1111,333 @@ class PlaywrightTestEngine:
                         screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
                         return False, log, screenshot_base64
 
+            elif action_type == 'select':
+                # 选择下拉选项
+                # 支持原生<select>和Ant Design / Element Plus等自定义下拉组件
+                select_value = resolved_input_value or ''
+                # 按逗号分隔多个选项
+                options = [opt.strip() for opt in select_value.split(',') if opt.strip()]
 
+                # 捕获 output_var
+                output_var_name = getattr(step, 'output_var', None) or ''
+
+                if locator and locator_strategy and locator_value:
+                    try:
+                        # 第一步：先尝试原生 <select> 的 select_option
+                        try:
+                            if len(options) == 1:
+                                try:
+                                    await locator.select_option(value=options[0], timeout=timeout_ms)
+                                except Exception:
+                                    await locator.select_option(label=options[0], timeout=timeout_ms)
+                            else:
+                                try:
+                                    await locator.select_option(value=options, timeout=timeout_ms)
+                                except Exception:
+                                    await locator.select_option(label=options, timeout=timeout_ms)
+                            # 原生 select 成功
+                            execution_time = round(time.time() - start_time, 2)
+                            actual_value = ','.join(options)
+                            if output_var_name:
+                                context_variables[output_var_name] = actual_value
+                            log = f"✓ 选择下拉选项成功\n"
+                            log += f"  - 元素: '{element_name}'\n"
+                            log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                            if resolved_input_value != step.input_value:
+                                log += f"  - 变量解析: '{step.input_value}' => '{resolved_input_value}'\n"
+                            log += f"  - 选中选项: {actual_value}\n"
+                            log += f"  - 执行时间: {execution_time}秒"
+                            return True, log, None
+                        except Exception:
+                            # 原生 select_option 失败（自定义下拉组件），回退到点击模式
+                            pass
+
+                        # 第二步：自定义下拉组件处理（Ant Design / Element Plus 等）
+                        # 通过 JS 检测 UI 框架类型，定位触发器并点击打开
+                        is_multi = len(options) > 1
+                        select_opened = False
+
+                        try:
+                            # 构造基础选择器字符串（用于 JS 中的 querySelector）
+                            if locator_strategy.lower() == 'xpath':
+                                css_selector_for_js = ''  # XPath 不适合 querySelector，留空
+                                xpath_value_for_js = locator_value
+                            else:
+                                css_selector_for_js = locator_value
+                                xpath_value_for_js = ''
+
+                            js_open = """
+                                (() => {
+                                    document.querySelectorAll('[data-pw-select-mark]').forEach(el => el.removeAttribute('data-pw-select-mark'));
+                                    let el = null;
+                            """
+                            if css_selector_for_js:
+                                js_open += f"    try {{ el = document.querySelector({repr(css_selector_for_js)}); }} catch(e) {{ el = null; }}\n"
+                            if xpath_value_for_js:
+                                js_open += f"    if (!el) {{ el = document.evaluate({repr(xpath_value_for_js)}, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; }}\n"
+                            js_open += """
+                                    if (!el) return { opened: false, reason: 'element-not-found' };
+                                    // Ant Design TreeSelect（优先检测，因为 TreeSelect 也包含 .ant-select）
+                                    const antTreeSelect = (el.classList && el.classList.contains('ant-tree-select')) ? el : (el.closest ? el.closest('.ant-tree-select') : null);
+                                    if (antTreeSelect) {
+                                        const trigger = antTreeSelect.querySelector('.ant-select-selector');
+                                        if (trigger) {
+                                            antTreeSelect.setAttribute('data-pw-select-mark', '1');
+                                            return { opened: true, framework: 'antd-tree', triggerSelector: '[data-pw-select-mark="1"] .ant-select-selector', dropdownSelector: '.ant-tree-select-dropdown', optionSelector: '.ant-select-tree-treenode' };
+                                        }
+                                    }
+                                    // Ant Design Select
+                                    const antSelect = (el.classList && el.classList.contains('ant-select')) ? el : (el.closest ? el.closest('.ant-select') : null);
+                                    if (antSelect) {
+                                        const trigger = antSelect.querySelector('.ant-select-selector');
+                                        if (trigger) {
+                                            antSelect.setAttribute('data-pw-select-mark', '1');
+                                            return { opened: true, framework: 'antd', triggerSelector: '[data-pw-select-mark="1"] .ant-select-selector', dropdownSelector: '.ant-select-dropdown', optionSelector: '.ant-select-item-option' };
+                                        }
+                                    }
+                                    // Element Plus
+                                    const elSelect = (el.classList && el.classList.contains('el-select')) ? el : (el.closest ? el.closest('.el-select') : null);
+                                    if (elSelect) {
+                                        const trigger = elSelect.querySelector('.el-select__wrapper') || elSelect.querySelector('.el-input__inner');
+                                        if (trigger) {
+                                            elSelect.setAttribute('data-pw-select-mark', '1');
+                                            return { opened: true, framework: 'element-plus', triggerSelector: '[data-pw-select-mark="1"] .el-select__wrapper', dropdownSelector: '.el-select-dropdown', optionSelector: '.el-select-dropdown__item' };
+                                        }
+                                    }
+                                    // 非 UI 框架下拉框
+                                    return { opened: false, reason: 'not-select-component' };
+                                })()
+                            """
+
+                            open_result = await self.page.evaluate(js_open)
+
+                            if open_result.get('opened'):
+                                # UI 框架下拉框：点击触发器打开
+                                trigger_sel = open_result['triggerSelector']
+                                trigger_locator = self.page.locator(trigger_sel).first
+                                await trigger_locator.scroll_into_view_if_needed(timeout=3000)
+                                await trigger_locator.click(timeout=timeout_ms)
+                                await asyncio.sleep(0.8)
+                                select_opened = True
+                                framework = open_result.get('framework', '')
+                                dropdown_sel = open_result.get('dropdownSelector', '')
+                                option_sel = open_result.get('optionSelector', '')
+                                logger.info(f"[select] 检测到{framework}下拉框，已打开")
+                            else:
+                                # 非 UI 框架下拉框，直接点击元素本身尝试打开
+                                await locator.click(timeout=timeout_ms)
+                                await asyncio.sleep(0.8)
+                                select_opened = True
+                                framework = 'native'
+                                trigger_sel = ''
+                                dropdown_sel = ''
+                                option_sel = ''
+                                logger.info(f"[select] 非 UI 框架下拉框，直接点击元素")
+                        except Exception as e:
+                            logger.warning(f"[select] 下拉框打开异常: {str(e)[:100]}")
+
+                        # 第三步：在下拉面板中查找并点击目标选项
+                        if select_opened:
+                            selected_options = []
+                            select_errors = []
+
+                            for opt_idx, opt_text in enumerate(options):
+                                opt_selected = False
+                                try:
+                                    if framework == 'antd-tree':
+                                        # Ant Design TreeSelect：展开所有折叠节点
+                                        js_expand = """(() => {
+                                            const dropdowns = document.querySelectorAll('.ant-tree-select-dropdown');
+                                            for (const dd of dropdowns) {
+                                                if (dd.style.display !== 'none' && dd.offsetParent !== null) {
+                                                    const closedSwitchers = dd.querySelectorAll('.ant-select-tree-switcher_close:not(.ant-select-tree-switcher-leaf)');
+                                                    let expanded = 0;
+                                                    for (const sw of closedSwitchers) {
+                                                        try { sw.click(); expanded++; } catch(e) {}
+                                                    }
+                                                    return { expanded: expanded };
+                                                }
+                                            }
+                                            return { expanded: 0 };
+                                        })()"""
+                                        expand_result = await self.page.evaluate(js_expand)
+                                        if expand_result.get('expanded', 0) > 0:
+                                            await asyncio.sleep(0.5)
+
+                                        # 在 .ant-select-tree-title 中模糊匹配
+                                        js_match = f"""
+                                            (() => {{
+                                                const dropdowns = document.querySelectorAll('.ant-tree-select-dropdown');
+                                                for (const dd of dropdowns) {{
+                                                    if (dd.style.display !== 'none' && dd.offsetParent !== null) {{
+                                                        const titles = dd.querySelectorAll('.ant-select-tree-title');
+                                                        for (const title of titles) {{
+                                                            const text = (title.textContent || '').trim();
+                                                            if (text.includes({repr(opt_text)})) {{
+                                                                const contentWrapper = title.closest('.ant-select-tree-node-content-wrapper');
+                                                                if (contentWrapper) {{
+                                                                    contentWrapper.setAttribute('data-pw-opt-mark', '1');
+                                                                    return {{ found: true, text: text, selector: '.ant-select-tree-node-content-wrapper[data-pw-opt-mark="1"]' }};
+                                                                }}
+                                                            }}
+                                                        }}
+                                                    }}
+                                                }}
+                                                return {{ found: false }};
+                                            }})()
+                                        """
+                                    elif framework == 'antd':
+                                        # Ant Design Select：在 .ant-select-dropdown 中找 .ant-select-item-option
+                                        js_match = f"""
+                                            (() => {{
+                                                const dropdowns = document.querySelectorAll('.ant-select-dropdown');
+                                                for (const dd of dropdowns) {{
+                                                    if (dd.style.display !== 'none' && dd.offsetParent !== null) {{
+                                                        const items = dd.querySelectorAll('.ant-select-item-option');
+                                                        for (const item of items) {{
+                                                            const text = (item.textContent || '').trim();
+                                                            if (text.includes({repr(opt_text)})) {{
+                                                                item.setAttribute('data-pw-opt-mark', '1');
+                                                                return {{ found: true, text: text, selector: '.ant-select-dropdown:not([style*="display: none"]) .ant-select-item-option[data-pw-opt-mark="1"]' }};
+                                                            }}
+                                                        }}
+                                                    }}
+                                                }}
+                                                return {{ found: false }};
+                                            }})()
+                                        """
+                                    elif framework == 'element-plus':
+                                        # Element Plus：在 .el-select-dropdown 中找 .el-select-dropdown__item
+                                        js_match = f"""
+                                            (() => {{
+                                                const dropdowns = document.querySelectorAll('.el-select-dropdown');
+                                                for (const dd of dropdowns) {{
+                                                    if (dd.style.display !== 'none' && dd.offsetParent !== null) {{
+                                                        const items = dd.querySelectorAll('.el-select-dropdown__item');
+                                                        for (const item of items) {{
+                                                            const text = (item.textContent || '').trim();
+                                                            if (text.includes({repr(opt_text)})) {{
+                                                                item.setAttribute('data-pw-opt-mark', '1');
+                                                                return {{ found: true, text: text, selector: '.el-select-dropdown:not([style*="display: none"]) .el-select-dropdown__item[data-pw-opt-mark="1"]' }};
+                                                            }}
+                                                        }}
+                                                    }}
+                                                }}
+                                                return {{ found: false }};
+                                            }})()
+                                        """
+                                    else:
+                                        # 原生或其他：尝试用通用方式定位
+                                        js_match = f"""
+                                            (() => {{
+                                                const items = document.querySelectorAll('li[role="option"], .ant-select-item-option, .el-select-dropdown__item');
+                                                for (const item of items) {{
+                                                    if (item.offsetParent === null) continue;
+                                                    const text = (item.textContent || '').trim();
+                                                    if (text.includes({repr(opt_text)})) {{
+                                                        item.setAttribute('data-pw-opt-mark', '1');
+                                                        return {{ found: true, text: text, selector: '[data-pw-opt-mark="1"]' }};
+                                                    }}
+                                                }}
+                                                return {{ found: false }};
+                                            }})()
+                                        """
+
+                                    match_result = await self.page.evaluate(js_match)
+
+                                    if match_result.get('found'):
+                                        opt_selector = match_result['selector']
+                                        matched_text = match_result.get('text', '')
+                                        opt_locator = self.page.locator(opt_selector).first
+                                        await opt_locator.click(timeout=3000)
+                                        await asyncio.sleep(0.5)
+                                        opt_selected = True
+                                        selected_options.append(matched_text)
+                                        logger.info(f"[select] 选中选项: '{matched_text}' (匹配'{opt_text}')")
+
+                                        # 选中后关闭下拉面板（点击空白处，不用 Escape 避免关闭弹窗）
+                                        try:
+                                            await self.page.click('body', position={'x': 10, 'y': 10}, timeout=2000)
+                                            await asyncio.sleep(0.3)
+                                        except:
+                                            pass
+
+                                        # 清除临时标记
+                                        try:
+                                            await self.page.evaluate("document.querySelectorAll('[data-pw-opt-mark]').forEach(el => el.removeAttribute('data-pw-opt-mark'))")
+                                        except:
+                                            pass
+
+                                        # 多选时：重新打开下拉选择下一个
+                                        if is_multi and opt_idx < len(options) - 1:
+                                            await asyncio.sleep(0.3)
+                                            if trigger_sel:
+                                                try:
+                                                    await self.page.locator(trigger_sel).first.click(timeout=3000)
+                                                    await asyncio.sleep(0.5)
+                                                except:
+                                                    pass
+                                    else:
+                                        select_errors.append(f'未找到匹配"{opt_text}"的选项')
+                                        logger.warning(f"[select] 未找到匹配'{opt_text}'的选项")
+
+                                except Exception as e:
+                                    select_errors.append(f'选择"{opt_text}"异常: {str(e)[:60]}')
+                                    logger.warning(f"[select] 选择选项异常: {str(e)[:80]}")
+
+                            if selected_options:
+                                execution_time = round(time.time() - start_time, 2)
+                                actual_value = ','.join(selected_options)
+                                if output_var_name:
+                                    context_variables[output_var_name] = actual_value
+                                fw_text = {'antd': 'Ant Design', 'antd-tree': 'Ant Design TreeSelect', 'element-plus': 'Element Plus', 'native': '原生'}.get(framework, framework)
+                                log = f"✓ 选择下拉选项成功（{fw_text}）\n"
+                                log += f"  - 元素: '{element_name}'\n"
+                                log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                                if resolved_input_value != step.input_value:
+                                    log += f"  - 变量解析: '{step.input_value}' => '{resolved_input_value}'\n"
+                                log += f"  - 选中选项: {actual_value}\n"
+                                if select_errors:
+                                    log += f"  - 部分选项失败: {'; '.join(select_errors)}\n"
+                                log += f"  - 执行时间: {execution_time}秒"
+                                return True, log, None
+                            else:
+                                execution_time = round(time.time() - start_time, 2)
+                                log = f"✗ 选择下拉选项失败\n"
+                                log += f"  - 元素: '{element_name}'\n"
+                                log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                                log += f"  - 错误: {'; '.join(select_errors)}\n"
+                                log += f"  - 执行时间: {execution_time}秒"
+                                screenshot = await self.page.screenshot()
+                                screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                                return False, log, screenshot_base64
+                        else:
+                            execution_time = round(time.time() - start_time, 2)
+                            log = f"✗ 选择下拉选项失败: 无法打开下拉框\n"
+                            log += f"  - 元素: '{element_name}'\n"
+                            log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                            log += f"  - 执行时间: {execution_time}秒"
+                            screenshot = await self.page.screenshot()
+                            screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                            return False, log, screenshot_base64
+
+                    except Exception as e:
+                        execution_time = round(time.time() - start_time, 2)
+                        log = f"✗ 选择下拉选项失败\n"
+                        log += f"  - 元素: '{element_name}'\n"
+                        log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                        log += f"  - 错误: {str(e)}\n"
+                        log += f"  - 执行时间: {execution_time}秒"
+                        screenshot = await self.page.screenshot()
+                        screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
+                        return False, log, screenshot_base64
+                else:
+                    log = f"✗ 选择下拉选项失败: 未指定元素定位器\n"
+                    return False, log, None
 
             else:
-                log = f"⚠ 未知的操作类型: {action_type}"
-                return True, log, None
+                log = f"✗ 未知的操作类型: {action_type}"
+                return False, log, None
 
         except PlaywrightTimeout as e:
             execution_time = round(time.time() - start_time, 2)
