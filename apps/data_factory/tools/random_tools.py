@@ -50,7 +50,7 @@ class RandomTools:
 
     @staticmethod
     def random_string(length: int = 10, char_type: str = 'all', count: int = 1) -> Dict[str, Any]:
-        """生成随机字符串"""
+        """生成随机字符串，char_type 支持 + 组合，如 lowercase+digits"""
         try:
             char_sets = {
                 'all': string.ascii_letters + string.digits + string.punctuation,
@@ -64,10 +64,25 @@ class RandomTools:
                 'special': string.punctuation
             }
 
-            if char_type not in char_sets:
+            # 支持 + 组合，如 lowercase+digits, uppercase+digits
+            if '+' in char_type:
+                combined = ''
+                unknown = []
+                for part in char_type.split('+'):
+                    part = part.strip()
+                    if part in char_sets:
+                        combined += char_sets[part]
+                    else:
+                        unknown.append(part)
+                if unknown:
+                    return {'result': False, 'error': f'不支持的字符类型: {", ".join(unknown)}'}
+                if not combined:
+                    return {'result': False, 'error': f'组合后字符集为空: {char_type}'}
+                chars = combined
+            elif char_type in char_sets:
+                chars = char_sets[char_type]
+            else:
                 return {'result': False, 'error': f'不支持的字符类型: {char_type}'}
-
-            chars = char_sets[char_type]
             if count == 1:
                 result = ''.join(random.choice(chars) for _ in range(length))
                 return {'success': True, 'result': result, 'length': len(result)}
