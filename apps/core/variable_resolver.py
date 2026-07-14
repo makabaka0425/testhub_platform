@@ -149,6 +149,45 @@ class VariableResolver:
         
         return re.sub(pattern, replace_func, text)
     
+    def resolve_with_context(self, text, context_variables):
+        """解析文本中的变量表达式，优先从上下文变量表取值
+        
+        当 ${var_name} 中的 var_name 存在于 context_variables 中时，直接取变量值；
+        否则走原有的函数解析逻辑（如 ${random_phone()} 等数据工厂函数）。
+        
+        Args:
+            text: 包含变量表达式的文本
+            context_variables: 变量表 dict，如 {'created_username': 'abc12345'}
+            
+        Returns:
+            解析后的文本
+        """
+        if not isinstance(text, str):
+            return text
+        
+        pattern = r'\$\{([^}]+)\}'
+        
+        def replace_func(match):
+            expression = match.group(1).strip()
+            # 优先从变量表查找：纯变量名（不含括号）直接匹配
+            if expression in context_variables:
+                return str(context_variables[expression])
+            # 也可能是变量名后面跟了其他内容，尝试提取变量名部分
+            # 但通常变量名就是整个 expression（不含括号）
+            # 如果不是变量名，走函数解析
+            try:
+                return str(self._evaluate_expression(expression))
+            except Exception as e:
+                if isinstance(e, UnicodeEncodeError):
+                    return match.group(0)
+                try:
+                    print(f"[WARNING] Variable resolution failed: ${{{expression}}} - {str(e)}")
+                except UnicodeEncodeError:
+                    print(f"[WARNING] Variable resolution failed: ${{{expression}}}")
+                return match.group(0)
+        
+        return re.sub(pattern, replace_func, text)
+    
     def _evaluate_expression(self, expression):
         """评估单个表达式
         
@@ -612,11 +651,17 @@ class VariableResolver:
 _resolver = VariableResolver()
 
 
-def resolve_variables(text):
+def resolve_variables(text, context_variables=None):
     """解析文本中的变量表达式
+    
     Args:
         text: 包含变量表达式的文本
+        context_variables: 用例级变量表 dict，如 {'created_username': 'abc12345'}
+                          如果提供，优先从变量表取值，找不到再走函数解析
+    
     Returns:
         解析后的文本
     """
+    if context_variables:
+        return _resolver.resolve_with_context(text, context_variables)
     return _resolver.resolve(text)
