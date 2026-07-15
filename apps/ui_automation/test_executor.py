@@ -29,6 +29,7 @@ class TestExecutor:
         self.test_cases = []
         self.results = []
         self.context_variables = {}  # 用例级变量表，存储步骤输出变量
+        self._protected_vars = set()  # 套件模式下已定义的变量名（首次定义受保护，不可覆盖）
 
     def create_execution_record(self):
         """创建测试执行记录"""
@@ -165,6 +166,7 @@ class TestExecutor:
                         'action_wait': step.action_wait,
                         'assert_type': step.assert_type,
                         'assert_value': step.assert_value,
+                    'output_var': step.output_var,
                         'output_var': step.output_var,
                         'element': None
                     }
@@ -311,6 +313,7 @@ class TestExecutor:
                         'action_wait': step.action_wait,
                         'assert_type': step.assert_type,
                         'assert_value': step.assert_value,
+                    'output_var': step.output_var,
                         'output_var': step.output_var,
                         'element': None
                     }
@@ -433,6 +436,14 @@ class TestExecutor:
             }
             case_data['steps'] = []
 
+            # 预取后置SQL和输出变量列表（用于套件级变量共享和后置SQL延迟执行）
+            case_data['postcondition_sql'] = test_case.postcondition_sql or ''
+            case_data['output_vars'] = []
+            # 收集该用例所有步骤的输出变量名
+            for step in test_case.steps.filter(is_cleanup=False).order_by('step_number'):
+                if step.output_var and step.output_var.strip():
+                    case_data['output_vars'].append(step.output_var.strip())
+
             # 获取步骤并预先加载所有相关数据（正常执行时跳过清理步骤）
             steps = test_case.steps.select_related('element', 'element__locator_strategy').filter(
                 is_cleanup=False
@@ -448,6 +459,7 @@ class TestExecutor:
                     'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
+                    'output_var': step.output_var,
                     'element': None
                 }
 
@@ -481,6 +493,32 @@ class TestExecutor:
                 # 注意：不设置 started_at，等用例实际开始执行时再设置
             )
             case_executions[case_data['id']] = case_execution
+
+        # 检测变量覆盖：收集所有用例的输出变量，发现同名时报错
+        all_output_vars = {}  # var_name -> case_name
+        var_conflicts = []
+        for case_data in test_cases_data:
+            for var_name in case_data.get('output_vars', []):
+                if var_name in all_output_vars:
+                    var_conflicts.append(
+                        f"用例「{case_data['name']}」与用例「{all_output_vars[var_name]}」的输出变量「{var_name}」同名"
+                    )
+                else:
+                    all_output_vars[var_name] = case_data['name']
+
+        if var_conflicts:
+            conflict_msg = "检测到变量覆盖冲突:\n" + "\n".join(var_conflicts)
+            print(f"[变量覆盖检测] ⚠️ {conflict_msg}")
+            print(f"[变量覆盖检测] 后续同名变量将被忽略，保留首次定义的值")
+
+        # 套件级共享变量池
+        suite_context_variables = {}
+        # 已定义的变量名集合（用于覆盖防护，保留首次定义）
+        defined_vars = set()
+        # 失败用例的输出变量集合（标记为不可用）
+        failed_vars = set()
+        # 收集后置SQL，最后统一反序执行
+        pending_postconditions = []  # [(case_data, case_result), ...]
 
         # 执行每个测试用例
         print(f"准备执行 {len(test_cases_data)} 个测试用例")
@@ -554,16 +592,52 @@ class TestExecutor:
                         case_execution.save()
 
                         try:
+                            # 检查该用例是否依赖了失败用例的输出变量
+                            dep_failed = self._check_dependency_failed(case_data, failed_vars)
+                            if dep_failed:
+                                # 依赖失败，跳过该用例
+                                print(f"[依赖检查] 用例「{case_data['name']}」依赖了失败用例的输出变量，跳过执行")
+                                case_result = {
+                                    'test_case_id': case_data['id'],
+                                    'test_case_name': case_data['name'],
+                                    'status': 'skipped',
+                                    'steps': [],
+                                    'error': f"依赖失败: 用例引用了失败用例的输出变量 ({dep_failed})",
+                                    'start_time': datetime.now().isoformat(),
+                                    'end_time': datetime.now().isoformat(),
+                                    'screenshots': []
+                                }
+                                self.results.append(case_result)
+                                case_execution.status = 'skipped'
+                                case_execution.finished_at = timezone.now()
+                                case_execution.error_message = case_result['error']
+                                case_execution.save()
+                                skipped += 1
+                                continue
+
                             # 共享会话模式下，登录后应保持当前页面状态直接执行用例
                             # 不再导航回 base_url（那通常是登录页，会覆盖已登录的会话）
                             # 如果用例需要从特定页面开始，应在用例步骤中自行导航
                             current_url = self.current_page.url
                             print(f"[共享会话] 当前页面URL: {current_url}")
+                            print(f"[变量共享] 当前套件变量: {list(suite_context_variables.keys())}")
 
-                            # 执行测试用例
-                            case_result = self.execute_test_case_playwright_no_db(case_data)
+                            # 使用套件级共享变量池执行测试用例
+                            case_result = self.execute_test_case_playwright_no_db(
+                                case_data, suite_context_variables, defer_postcondition=True
+                            )
                             self.results.append(case_result)
                             print(f"✓ 用例执行完成，状态: {case_result['status']}")
+
+                            # 收集后置SQL，稍后统一执行
+                            if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
+                                pending_postconditions.append((case_data, case_result))
+
+                            # 用例失败时，标记该用例的输出变量为不可用
+                            if case_result['status'] == 'failed':
+                                for var_name in case_data.get('output_vars', []):
+                                    failed_vars.add(var_name)
+                                print(f"[变量共享] 用例失败，标记不可用变量: {case_data.get('output_vars', [])}")
 
                             # 更新执行记录
                             case_execution.status = case_result['status']
@@ -598,6 +672,9 @@ class TestExecutor:
                                 'screenshots': []
                             })
                             failed += 1
+                            # 异常用例的输出变量也标记为不可用
+                            for var_name in case_data.get('output_vars', []):
+                                failed_vars.add(var_name)
                             case_execution.status = 'failed'
                             case_execution.finished_at = timezone.now()
                             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
@@ -625,6 +702,30 @@ class TestExecutor:
                     print(f"\n{'=' * 60}")
                     print(f"正在执行第 {i}/{len(test_cases_data)} 个用例: {case_data['name']}")
                     print(f"{'=' * 60}")
+
+                    # 检查该用例是否依赖了失败用例的输出变量
+                    dep_failed = self._check_dependency_failed(case_data, failed_vars)
+                    if dep_failed:
+                        print(f"[依赖检查] 用例「{case_data['name']}」依赖了失败用例的输出变量，跳过执行")
+                        case_result = {
+                            'test_case_id': case_data['id'],
+                            'test_case_name': case_data['name'],
+                            'status': 'skipped',
+                            'steps': [],
+                            'error': f"依赖失败: 用例引用了失败用例的输出变量 ({dep_failed})",
+                            'start_time': datetime.now().isoformat(),
+                            'end_time': datetime.now().isoformat(),
+                            'screenshots': []
+                        }
+                        self.results.append(case_result)
+                        case_execution = case_executions[case_data['id']]
+                        case_execution.status = 'skipped'
+                        case_execution.started_at = timezone.now()
+                        case_execution.finished_at = timezone.now()
+                        case_execution.error_message = case_result['error']
+                        case_execution.save()
+                        skipped += 1
+                        continue
 
                     # 记录用例实际开始执行时间
                     case_execution = case_executions[case_data['id']]
@@ -701,14 +802,30 @@ class TestExecutor:
                                     'screenshots': []
                                 })
                                 failed += 1
+                                # 导航失败也标记输出变量不可用
+                                for var_name in case_data.get('output_vars', []):
+                                    failed_vars.add(var_name)
                                 browser.close()
                                 print(f"✓ 浏览器已关闭")
                                 continue
 
-                        # 执行测试用例（不再传递page参数，使用self.current_page）
-                        case_result = self.execute_test_case_playwright_no_db(case_data)
+                        # 使用套件级共享变量池执行测试用例
+                        print(f"[变量共享] 当前套件变量: {list(suite_context_variables.keys())}")
+                        case_result = self.execute_test_case_playwright_no_db(
+                            case_data, suite_context_variables, defer_postcondition=True
+                        )
                         self.results.append(case_result)
                         print(f"✓ 用例执行完成，状态: {case_result['status']}")
+
+                        # 收集后置SQL，稍后统一执行
+                        if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
+                            pending_postconditions.append((case_data, case_result))
+
+                        # 用例失败时，标记该用例的输出变量为不可用
+                        if case_result['status'] == 'failed':
+                            for var_name in case_data.get('output_vars', []):
+                                failed_vars.add(var_name)
+                            print(f"[变量共享] 用例失败，标记不可用变量: {case_data.get('output_vars', [])}")
 
                         # 立即更新该用例的执行记录（包含准确的执行时间）
                         case_execution = case_executions[case_data['id']]
@@ -746,6 +863,9 @@ class TestExecutor:
                             'screenshots': []
                         })
                         failed += 1
+                        # 异常用例的输出变量也标记为不可用
+                        for var_name in case_data.get('output_vars', []):
+                            failed_vars.add(var_name)
 
                         # 更新执行记录
                         case_execution = case_executions[case_data['id']]
@@ -769,6 +889,13 @@ class TestExecutor:
                             print(f"✓ 浏览器已关闭\n")
                         except:
                             pass
+
+        # 套件执行完毕，统一反序执行后置SQL
+        if pending_postconditions:
+            print(f"\n{'=' * 60}")
+            print(f"[后置清理] 开始反序执行 {len(pending_postconditions)} 个用例的后置SQL")
+            print(f"{'=' * 60}")
+            self._execute_postconditions_reverse_order(pending_postconditions, suite_context_variables)
 
         # 注意：每个用例的执行记录已在执行过程中实时更新，不需要在这里统一更新
 
@@ -809,8 +936,11 @@ class TestExecutor:
                     'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
+                    'output_var': step.output_var,
                     'element': None
                 }
+
+                # 如果有元素，预先获取元素数据
                 if step.element:
                     step_data['element'] = {
                         'id': step.element.id,
@@ -859,11 +989,66 @@ class TestExecutor:
             traceback.print_exc()
             return False
 
-    def execute_test_case_playwright_no_db(self, case_data):
+    def _check_dependency_failed(self, case_data, failed_vars):
+        """检查用例是否依赖了失败用例的输出变量
+
+        遍历用例所有步骤的 input_value 和 assert_value，检测是否引用了 ${var}
+        其中 var 在 failed_vars 中。
+
+        Returns:
+            None: 没有依赖失败变量
+            str: 依赖的失败变量名列表（逗号分隔）
+        """
+        if not failed_vars:
+            return None
+
+        import re
+        dep_failed_vars = set()
+        var_pattern = re.compile(r'\$\{(\w+)\}')
+
+        for step_data in case_data.get('steps', []):
+            # 检查 input_value
+            input_val = step_data.get('input_value', '') or ''
+            for match in var_pattern.finditer(input_val):
+                var_name = match.group(1)
+                if var_name in failed_vars:
+                    dep_failed_vars.add(var_name)
+            # 检查 assert_value
+            assert_val = step_data.get('assert_value', '') or ''
+            for match in var_pattern.finditer(assert_val):
+                var_name = match.group(1)
+                if var_name in failed_vars:
+                    dep_failed_vars.add(var_name)
+            # 检查后置SQL中的变量引用
+            post_sql = case_data.get('postcondition_sql', '') or ''
+            for match in var_pattern.finditer(post_sql):
+                var_name = match.group(1)
+                if var_name in failed_vars:
+                    dep_failed_vars.add(var_name)
+
+        if dep_failed_vars:
+            return ', '.join(sorted(dep_failed_vars))
+        return None
+
+    def _set_output_var(self, var_name, var_value):
+        """安全地设置输出变量，遵循覆盖防护规则
+
+        套件模式下，首次定义的变量受保护，后续同名变量将被忽略（保留首次定义的值）
+        单用例模式下（_protected_vars为空），允许随意覆盖
+        """
+        if var_name in self._protected_vars:
+            print(f"[变量覆盖防护] 输出变量「{var_name}」已被定义，忽略重复赋值 (当前值: {self.context_variables.get(var_name)})")
+            return
+        self.context_variables[var_name] = var_value
+        self._protected_vars.add(var_name)
+
+    def execute_test_case_playwright_no_db(self, case_data, shared_variables=None, defer_postcondition=False):
         """使用 Playwright 执行单个测试用例（不访问数据库）
 
         Args:
             case_data: 预先准备的用例数据字典，包含id, name, project_id, steps等
+            shared_variables: 套件级共享变量池（可选），传入后步骤变量写入此池
+            defer_postcondition: 是否延迟执行后置SQL（套件模式下由套件层面统一反序执行）
 
         Note:
             使用 self.current_page 作为当前活动页面，switchTab会更新这个实例变量
@@ -879,6 +1064,12 @@ class TestExecutor:
         }
 
         try:
+            # 如果提供了套件级共享变量池，使用共享池
+            # 这样 execute_step_playwright 中的 output_var 捕获会自动写入共享池
+            original_context_variables = self.context_variables
+            if shared_variables is not None:
+                self.context_variables = shared_variables
+
             # 遍历预先准备好的步骤数据
             just_switched_tab = False  # 跟踪是否刚切换了标签页
             for step_data in case_data['steps']:
@@ -907,8 +1098,6 @@ class TestExecutor:
                 # 步骤执行完后添加短暂延迟，确保页面状态稳定
                 # 特别是点击操作后，可能触发动画、下拉框展开等
                 if step_result['success'] and step_data['action_type'] in ['click', 'fill', 'hover']:
-                    import asyncio
-                    import time as sync_time
                     # 点击操作后等待更长时间（下拉框展开动画）
                     if step_data['action_type'] == 'click':
                         self.current_page.wait_for_timeout(800)  # 等待800ms，确保下拉框完全展开
@@ -1014,8 +1203,13 @@ class TestExecutor:
 
         result['end_time'] = datetime.now().isoformat()
 
-        # 执行后置清理SQL
-        self._execute_postcondition_sql(case_data, result)
+        # 恢复原始变量表
+        if shared_variables is not None:
+            self.context_variables = original_context_variables
+
+        # 执行后置清理SQL（单用例执行时立即执行，套件模式下延迟执行）
+        if not defer_postcondition:
+            self._execute_postcondition_sql(case_data, result)
 
         return result
         self.current_page = page
@@ -1449,7 +1643,7 @@ class TestExecutor:
 
                     # 捕获输出变量
                     if step_data.get('output_var'):
-                        self.context_variables[step_data['output_var']] = resolved_value
+                        self._set_output_var(step_data['output_var'], resolved_value)
                         step_result['output_var'] = step_data['output_var']
                         print(f"  ✓ 输出变量: {step_data['output_var']} = {resolved_value}")
 
@@ -1713,7 +1907,7 @@ class TestExecutor:
                             # 捕获输出变量（select操作存入实际选中的值）
                             if step_data.get('output_var'):
                                 output_value = ','.join(selected_options) if isinstance(selected_options, list) else str(selected_options)
-                                self.context_variables[step_data['output_var']] = output_value
+                                self._set_output_var(step_data['output_var'], output_value)
                                 step_result['output_var'] = step_data['output_var']
                                 print(f"  ✓ 输出变量: {step_data['output_var']} = {output_value}")
                         else:
@@ -1727,7 +1921,7 @@ class TestExecutor:
 
                     # 捕获输出变量
                     if step_data.get('output_var') and text is not None:
-                        self.context_variables[step_data['output_var']] = text.strip() if text else ''
+                        self._set_output_var(step_data['output_var'], text.strip() if text else '')
                         step_result['output_var'] = step_data['output_var']
                         print(f"  ✓ 输出变量: {step_data['output_var']} = {text.strip() if text else ''}")
 
@@ -2399,6 +2593,7 @@ class TestExecutor:
                     'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
+                    'output_var': step.output_var,
                     'element': None
                 }
 
@@ -3249,7 +3444,7 @@ class TestExecutor:
 
                             # 捕获输出变量
                             if step_data.get('output_var'):
-                                self.context_variables[step_data['output_var']] = resolved_value
+                                self._set_output_var(step_data['output_var'], resolved_value)
                                 step_result['output_var'] = step_data['output_var']
                                 print(f"  ✓ 输出变量: {step_data['output_var']} = {resolved_value}")
 
@@ -3279,7 +3474,7 @@ class TestExecutor:
 
                             # 捕获输出变量
                             if step_data.get('output_var') and text is not None:
-                                self.context_variables[step_data['output_var']] = text.strip() if text else ''
+                                self._set_output_var(step_data['output_var'], text.strip() if text else '')
                                 step_result['output_var'] = step_data['output_var']
                                 print(f"  ✓ 输出变量: {step_data['output_var']} = {text.strip() if text else ''}")
 
@@ -3735,6 +3930,138 @@ class TestExecutor:
 
         return step_result
 
+    def _execute_postconditions_reverse_order(self, pending_postconditions, suite_context_variables):
+        """反序执行套件中所有用例的后置SQL（后进先出，类似栈释放）
+
+        Args:
+            pending_postconditions: [(case_data, case_result), ...] 按执行顺序排列
+            suite_context_variables: 套件级共享变量池（所有用例执行完毕后变量全部可见）
+        """
+        # 反序遍历
+        for case_data, case_result in reversed(pending_postconditions):
+            print(f"\n[后置清理] 执行用例「{case_data['name']}」的后置SQL")
+            # 使用套件级共享变量池解析SQL
+            self._execute_postcondition_sql_with_vars(case_data, case_result, suite_context_variables)
+
+    def _execute_postcondition_sql_with_vars(self, case_data, result, context_variables):
+        """执行用例的后置清理SQL（使用指定的变量池）
+
+        Args:
+            case_data: 用例数据字典
+            result: 用例执行结果字典
+            context_variables: 用于变量解析的变量池
+        """
+        cleanup_sql = case_data.get('postcondition_sql', '')
+        if not cleanup_sql or not cleanup_sql.strip():
+            return
+
+        # 变量替换
+        resolved_sql = resolve_variables(cleanup_sql, context_variables)
+
+        print(f"[后置清理] 执行清理SQL: {resolved_sql[:200]}")
+
+        # 复用清理SQL执行逻辑
+        import re
+        from .models import TestCase
+        try:
+            test_case = TestCase.objects.get(id=case_data['id'])
+        except TestCase.DoesNotExist:
+            result['postcondition'] = {
+                'executed': False,
+                'error': f'未找到用例(ID={case_data["id"]})'
+            }
+            return
+
+        project = test_case.project
+        if not project.target_db_type:
+            result['postcondition'] = {
+                'executed': False,
+                'error': '项目未配置被测数据库连接'
+            }
+            return
+
+        sqls = [s.strip() for s in re.split(r';\s*\n', resolved_sql) if s.strip() and not s.strip().startswith('--')]
+        db_type = project.target_db_type.lower()
+        details = []
+        total_affected = 0
+        conn = None
+
+        try:
+            if db_type == 'mysql':
+                import pymysql
+                conn = pymysql.connect(
+                    host=project.target_db_host,
+                    port=project.target_db_port or 3306,
+                    user=project.target_db_user,
+                    password=project.target_db_password,
+                    database=project.target_db_name,
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.Cursor,
+                    connect_timeout=10
+                )
+            elif db_type in ('postgresql', 'postgres'):
+                import psycopg2
+                conn = psycopg2.connect(
+                    host=project.target_db_host,
+                    port=project.target_db_port or 5432,
+                    user=project.target_db_user,
+                    password=project.target_db_password,
+                    dbname=project.target_db_name,
+                    connect_timeout=10
+                )
+            elif db_type == 'sqlite':
+                import sqlite3
+                conn = sqlite3.connect(project.target_db_name)
+            elif db_type == 'oracle':
+                import cx_Oracle
+                dsn = cx_Oracle.makedsn(project.target_db_host, project.target_db_port or 1521, service_name=project.target_db_name)
+                conn = cx_Oracle.connect(user=project.target_db_user, password=project.target_db_password, dsn=dsn)
+            else:
+                result['postcondition'] = {'executed': False, 'error': f'不支持的数据库类型: {db_type}'}
+                return
+
+            with conn.cursor() as cursor:
+                for sql in sqls:
+                    sql_upper = sql.strip().upper()
+                    if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
+                        details.append({'sql': sql, 'error': '只允许 DELETE/UPDATE/TRUNCATE 语句', 'affected': 0})
+                        continue
+                    try:
+                        cursor.execute(sql)
+                        affected = cursor.rowcount if cursor.rowcount >= 0 else 0
+                        details.append({'sql': sql, 'affected': affected})
+                        total_affected += affected
+                    except Exception as e:
+                        details.append({'sql': sql, 'error': str(e), 'affected': 0})
+
+            conn.commit()
+            result['postcondition'] = {
+                'executed': True,
+                'sql_count': len(sqls),
+                'total_affected': total_affected,
+                'details': details
+            }
+            print(f"[后置清理] 用例「{case_data['name']}」后置SQL执行完成，影响 {total_affected} 行")
+
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
+            result['postcondition'] = {
+                'executed': False,
+                'error': f'后置SQL执行失败: {str(e)}',
+                'details': details
+            }
+            print(f"[后置清理] 用例「{case_data['name']}」后置SQL执行失败: {str(e)}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+
     def _execute_postcondition_sql(self, case_data, result):
         """执行用例的后置清理SQL"""
         from .models import TestCase
@@ -3880,6 +4207,7 @@ class TestExecutor:
                     'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
+                    'output_var': step.output_var,
                     'output_var': step.output_var,
                     'element': None
                 }

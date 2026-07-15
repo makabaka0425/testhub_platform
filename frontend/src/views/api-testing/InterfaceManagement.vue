@@ -2766,7 +2766,7 @@ const useLocalVariableCategories = () => {
 
 <style scoped>
 .interface-management {
-  height: 100vh;
+  height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
   background: #f5f7fa;

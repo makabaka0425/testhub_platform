@@ -14,15 +14,16 @@ import json
 import re
 import random
 import time
+import asyncio
 
 from .models import (
     UiProject, LocatorStrategy, Element, TestScript, TestSuite,
     TestSuiteScript, TestExecution, Screenshot,
     ElementGroup, PageObject, PageObjectElement, ScriptStep, ScriptElementUsage,
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
-    TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
-    AICase, AIExecutionRecord, LoginConfig
+    AICase, AIExecutionRecord, LoginConfig,
+    UiTestPlan, UiTestPlanItem
 )
 from .serializers import (
     UiProjectSerializer, UiProjectCreateSerializer, UiProjectUpdateSerializer,
@@ -41,7 +42,9 @@ from .serializers import (
     OperationRecordSerializer,
     UiScheduledTaskSerializer, UiNotificationLogSerializer, UiTaskNotificationSettingSerializer,
     AICaseSerializer, AIExecutionRecordSerializer,
-    LoginConfigSerializer, LoginConfigCreateSerializer, LoginConfigUpdateSerializer
+    LoginConfigSerializer, LoginConfigCreateSerializer, LoginConfigUpdateSerializer,
+    UiTestPlanSerializer, UiTestPlanCreateSerializer, UiTestPlanUpdateSerializer,
+    UiTestPlanItemSerializer
 )
 from .operation_logger import log_operation
 
@@ -1111,7 +1114,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         import uuid
         import time
         import threading
-        import asyncio
         os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
 
         url = request.data.get('url', '').strip()
@@ -1248,7 +1250,6 @@ class ElementViewSet(viewsets.ModelViewSet):
     def ai_extract_manual_capture(self, request):
         """手动交互模式 — 提取当前页面元素（通过专用线程事件循环执行）"""
         import time
-        import asyncio
 
         session_id = request.data.get('session_id')
         page_name = request.data.get('page_name', '').strip()
@@ -1384,7 +1385,6 @@ class ElementViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='ai_extract_manual/finish')
     def ai_extract_manual_finish(self, request):
         """手动交互模式 — 完成提取，汇总所有结果"""
-        import asyncio
 
         session_id = request.data.get('session_id')
 
@@ -1496,7 +1496,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         loop = session.get('loop')
         try:
             if loop and loop.is_running():
-                import asyncio
                 async def do_close():
                     try:
                         await session['browser'].close()
@@ -1528,7 +1527,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         import uuid
         import time
         import threading
-        import asyncio
         os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
 
         url = request.data.get('url', '').strip()
@@ -1704,7 +1702,6 @@ class ElementViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='ai_pick/finish')
     def ai_pick_finish(self, request):
         """交互式选取模式 — 完成选取，关闭浏览器，返回所有元素"""
-        import asyncio
 
         session_id = request.data.get('session_id')
         if not session_id or session_id not in self._pick_sessions:
@@ -1748,7 +1745,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         loop = session.get('loop')
         try:
             if loop and loop.is_running():
-                import asyncio
                 async def do_close():
                     try:
                         await session['browser'].close()
@@ -2265,7 +2261,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         """使用 LLM 分析单个元素，返回结构化元素信息"""
         from langchain_openai import ChatOpenAI
         from apps.requirement_analysis.models import AIModelConfig
-        import asyncio
         import json
         import re
 
@@ -2369,7 +2364,6 @@ class ElementViewSet(viewsets.ModelViewSet):
 
     async def _async_execute_login_step(self, page, step_data):
         """async版本 — 在页面上执行单个登录步骤"""
-        import asyncio
         try:
             action = step_data.get('action_type')
             element_info = step_data.get('element')
@@ -3751,7 +3745,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         """使用 LLM 分析 DOM 元素，返回结构化元素列表"""
         from langchain_openai import ChatOpenAI
         from apps.requirement_analysis.models import AIModelConfig
-        import asyncio
 
         # 获取 AI 配置
         config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
@@ -5293,7 +5286,6 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         }]
                     }, status=status.HTTP_400_BAD_REQUEST)
             else:
-                import asyncio
                 import threading
                 from .playwright_engine import PlaywrightTestEngine
 
@@ -5720,7 +5712,6 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                         await engine.page.wait_for_load_state('networkidle', timeout=5000)
                                                     except:
                                                         pass
-                                                    import asyncio
                                                     await asyncio.sleep(1)
                                                 await engine.stop()
                                             except:
@@ -6516,7 +6507,6 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                         engine.stop()
 
                                 else:  # Playwright
-                                    import asyncio
                                     from asgiref.sync import sync_to_async
                                     from .playwright_engine import PlaywrightTestEngine
 
@@ -6680,6 +6670,98 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                     'task_id': task.id,
                     'task_name': task.name,
                     'test_case_count': test_case_count,
+                    'engine': task.engine,
+                    'browser': task.browser,
+                    'headless': task.headless
+                }, status=status.HTTP_200_OK)
+
+            elif task.task_type == 'TEST_PLAN':
+                # 执行测试计划
+                if not task.test_plan:
+                    return Response({
+                        'error': '该任务未配置测试计划'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                test_plan = task.test_plan
+                plan_items = test_plan.plan_items.all()
+                if plan_items.count() == 0:
+                    return Response({
+                        'error': '该测试计划未包含任何用例或套件，无法执行'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # 检查 Playwright 环境
+                if task.engine == 'playwright':
+                    from .playwright_engine import PlaywrightTestEngine
+                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
+                    if not is_ready:
+                        return Response({
+                            'error': error_msg,
+                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试计划任务'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
+                # 更新计划执行状态
+                test_plan.execution_status = 'running'
+                test_plan.save()
+
+                # 在后台线程中执行测试计划
+                import threading
+                from .plan_executor import PlanExecutor
+
+                def run_test_plan():
+                    try:
+                        executor = PlanExecutor(
+                            test_plan=test_plan,
+                            engine=task.engine,
+                            browser=task.browser,
+                            headless=task.headless,
+                            executed_by=task.created_by
+                        )
+                        executor.run()
+
+                        # 刷新计划对象状态
+                        test_plan.refresh_from_db()
+
+                        if test_plan.execution_status == 'passed':
+                            task.successful_runs += 1
+                            task.last_result = {
+                                'status': 'success',
+                                'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
+                            }
+                            task.error_message = ''
+                            task.save()
+                            self._send_task_notification(task, success=True)
+                        else:
+                            task.failed_runs += 1
+                            task.last_result = {
+                                'status': 'failed',
+                                'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
+                            }
+                            task.error_message = f'{test_plan.failed_count}个用例执行失败'
+                            task.save()
+                            self._send_task_notification(task, success=False)
+
+                    except Exception as e:
+                        logger.error(f"执行测试计划任务失败: {str(e)}")
+                        task.failed_runs += 1
+                        task.last_result = {'status': 'failed', 'message': str(e)}
+                        task.error_message = str(e)
+                        test_plan.execution_status = 'failed'
+                        test_plan.save()
+                        task.save()
+                        self._send_task_notification(task, success=False)
+
+                thread = threading.Thread(target=run_test_plan)
+                thread.daemon = True
+                thread.start()
+
+                log_operation('run', 'scheduled_task', task.id, task.name, request.user)
+
+                return Response({
+                    'message': '测试计划开始执行',
+                    'task_id': task.id,
+                    'task_name': task.name,
+                    'test_plan': test_plan.name,
+                    'plan_item_count': plan_items.count(),
                     'engine': task.engine,
                     'browser': task.browser,
                     'headless': task.headless
@@ -8109,3 +8191,249 @@ class UiDashboardViewSet(viewsets.ViewSet):
             'suite_count': suite_test_case_count,
             'execution_count': total_execution_count
         })
+
+
+class UiTestPlanViewSet(viewsets.ModelViewSet):
+    """测试计划视图集"""
+    queryset = UiTestPlan.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['project', 'execution_status']
+    search_fields = ['name', 'description']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        return UiTestPlan.objects.all()
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return UiTestPlanCreateSerializer
+        elif self.action in ('update', 'partial_update'):
+            return UiTestPlanUpdateSerializer
+        return UiTestPlanSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['get'])
+    def plan_items(self, request, pk=None):
+        """获取计划项列表"""
+        test_plan = self.get_object()
+        items = test_plan.plan_items.all()
+        serializer = UiTestPlanItemSerializer(items, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def add_item(self, request, pk=None):
+        """向计划添加项目（用例或套件）"""
+        test_plan = self.get_object()
+        item_type = request.data.get('item_type')
+        test_case_id = request.data.get('test_case_id')
+        test_suite_id = request.data.get('test_suite_id')
+        order = request.data.get('order', 0)
+
+        if item_type not in ('test_case', 'test_suite'):
+            return Response({'error': 'item_type 必须为 test_case 或 test_suite'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if item_type == 'test_case' and not test_case_id:
+            return Response({'error': '添加用例时 test_case_id 不能为空'}, status=status.HTTP_400_BAD_REQUEST)
+        if item_type == 'test_suite' and not test_suite_id:
+            return Response({'error': '添加套件时 test_suite_id 不能为空'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 检查重复添加
+        existing = UiTestPlanItem.objects.filter(
+            test_plan=test_plan,
+            item_type=item_type,
+            test_case_id=test_case_id if item_type == 'test_case' else None,
+            test_suite_id=test_suite_id if item_type == 'test_suite' else None,
+        )
+        if existing.exists():
+            return Response({'error': '该项目已存在于计划中'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 如果未指定order，自动放到末尾
+        if order == 0:
+            max_order = test_plan.plan_items.aggregate(max_order=models.Max('order'))['max_order']
+            order = (max_order or 0) + 1
+
+        try:
+            item = UiTestPlanItem.objects.create(
+                test_plan=test_plan,
+                item_type=item_type,
+                test_case_id=test_case_id if item_type == 'test_case' else None,
+                test_suite_id=test_suite_id if item_type == 'test_suite' else None,
+                order=order
+            )
+            # 更新计划的用例总数
+            self._update_plan_counts(test_plan)
+            serializer = UiTestPlanItemSerializer(item)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def add_items_batch(self, request, pk=None):
+        """批量添加项目"""
+        test_plan = self.get_object()
+        items = request.data.get('items', [])
+
+        if not items:
+            return Response({'error': '项目列表不能为空'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_order = test_plan.plan_items.aggregate(max_order=models.Max('order'))['max_order']
+        next_order = (max_order or 0) + 1
+        created_items = []
+
+        for item_data in items:
+            item_type = item_data.get('item_type')
+            test_case_id = item_data.get('test_case_id')
+            test_suite_id = item_data.get('test_suite_id')
+
+            if item_type not in ('test_case', 'test_suite'):
+                continue
+
+            # 检查重复
+            existing = UiTestPlanItem.objects.filter(
+                test_plan=test_plan,
+                item_type=item_type,
+                test_case_id=test_case_id if item_type == 'test_case' else None,
+                test_suite_id=test_suite_id if item_type == 'test_suite' else None,
+            )
+            if existing.exists():
+                continue
+
+            try:
+                item = UiTestPlanItem.objects.create(
+                    test_plan=test_plan,
+                    item_type=item_type,
+                    test_case_id=test_case_id if item_type == 'test_case' else None,
+                    test_suite_id=test_suite_id if item_type == 'test_suite' else None,
+                    order=next_order
+                )
+                created_items.append(item)
+                next_order += 1
+            except Exception:
+                continue
+
+        self._update_plan_counts(test_plan)
+        serializer = UiTestPlanItemSerializer(created_items, many=True)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'])
+    def remove_item(self, request, pk=None):
+        """从计划移除项目"""
+        test_plan = self.get_object()
+        item_id = request.data.get('item_id')
+
+        try:
+            item = UiTestPlanItem.objects.get(id=item_id, test_plan=test_plan)
+            item.delete()
+            self._update_plan_counts(test_plan)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except UiTestPlanItem.DoesNotExist:
+            return Response({'error': '该项目不存在于计划中'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'])
+    def update_item_order(self, request, pk=None):
+        """更新计划项顺序"""
+        test_plan = self.get_object()
+        item_orders = request.data.get('item_orders', [])
+
+        try:
+            for item_data in item_orders:
+                UiTestPlanItem.objects.filter(
+                    id=item_data['item_id'],
+                    test_plan=test_plan
+                ).update(order=item_data['order'])
+            return Response({'message': '顺序更新成功'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def run_plan(self, request, pk=None):
+        """执行测试计划"""
+        test_plan = self.get_object()
+
+        # 检查计划是否包含项目
+        if test_plan.plan_items.count() == 0:
+            return Response({'error': '该测试计划未包含任何项目，无法执行'}, status=status.HTTP_400_BAD_REQUEST)
+
+        engine = request.data.get('engine', 'playwright')
+        browser = request.data.get('browser', 'chrome')
+        headless = request.data.get('headless', False)
+
+        # 检查引擎环境
+        if engine == 'selenium':
+            from .selenium_engine import SeleniumTestEngine
+            is_ready, error_msg = SeleniumTestEngine.check_execution_environment(browser)
+            if not is_ready:
+                return Response({'error': error_msg}, status=status.HTTP_400_BAD_REQUEST)
+        elif engine == 'playwright':
+            from .playwright_engine import PlaywrightTestEngine
+            is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(browser)
+            if not is_ready:
+                return Response({'error': error_msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 更新计划执行状态
+        test_plan.execution_status = 'running'
+        test_plan.save()
+
+        log_operation('run', 'plan', test_plan.id, test_plan.name, request.user)
+
+        # 后台线程执行
+        import threading
+        import traceback
+
+        def run_test():
+            try:
+                print(f"[测试计划] 开始执行: {test_plan.name} (ID: {test_plan.id})")
+                from .plan_executor import PlanExecutor
+                executor = PlanExecutor(
+                    test_plan=test_plan,
+                    engine=engine,
+                    browser=browser,
+                    headless=headless,
+                    executed_by=request.user
+                )
+                executor.run()
+                print(f"[测试计划] 执行完成: {test_plan.name}")
+            except Exception as e:
+                print(f"[测试计划] 执行异常: {test_plan.name}")
+                print(f"[测试计划] 错误: {str(e)}")
+                traceback.print_exc()
+                try:
+                    test_plan.execution_status = 'failed'
+                    test_plan.save()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=run_test, daemon=False)
+        thread.start()
+
+        return Response({
+            'message': '测试计划开始执行',
+            'plan_id': test_plan.id,
+            'plan_item_count': test_plan.plan_items.count(),
+            'engine': engine,
+            'browser': browser,
+            'headless': headless
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def execution_history(self, request, pk=None):
+        """获取计划的执行历史"""
+        test_plan = self.get_object()
+        executions = TestExecution.objects.filter(test_plan=test_plan).order_by('-created_at')
+        from .serializers import TestExecutionSerializer
+        serializer = TestExecutionSerializer(executions, many=True)
+        return Response(serializer.data)
+
+    def _update_plan_counts(self, test_plan):
+        """更新计划的用例统计"""
+        total = 0
+        for item in test_plan.plan_items.all():
+            if item.item_type == 'test_case' and item.test_case:
+                total += 1
+            elif item.item_type == 'test_suite' and item.test_suite:
+                total += item.test_suite.suite_test_cases.count()
+        test_plan.total_cases = total
+        test_plan.save(update_fields=['total_cases'])

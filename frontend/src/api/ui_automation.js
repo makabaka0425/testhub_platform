@@ -291,7 +291,114 @@ export function runSuiteDbCleanup(suiteId) {
   })
 }
 
-// 测试执行相关API
+// ==================== 测试计划相关API ====================
+
+// 获取测试计划列表
+export function getTestPlans(params) {
+  return request({
+    url: '/ui-automation/test-plans/',
+    method: 'get',
+    params
+  })
+}
+
+// 获取测试计划详情
+export function getTestPlan(id) {
+  return request({
+    url: `/ui-automation/test-plans/${id}/`,
+    method: 'get'
+  })
+}
+
+// 创建测试计划
+export function createTestPlan(data) {
+  return request({
+    url: '/ui-automation/test-plans/',
+    method: 'post',
+    data
+  })
+}
+
+// 更新测试计划
+export function updateTestPlan(id, data) {
+  return request({
+    url: `/ui-automation/test-plans/${id}/`,
+    method: 'patch',
+    data
+  })
+}
+
+// 删除测试计划
+export function deleteTestPlan(id) {
+  return request({
+    url: `/ui-automation/test-plans/${id}/`,
+    method: 'delete'
+  })
+}
+
+// 获取计划项列表
+export function getPlanItems(planId) {
+  return request({
+    url: `/ui-automation/test-plans/${planId}/plan_items/`,
+    method: 'get'
+  })
+}
+
+// 向计划添加项目
+export function addPlanItem(planId, data) {
+  return request({
+    url: `/ui-automation/test-plans/${planId}/add_item/`,
+    method: 'post',
+    data
+  })
+}
+
+// 批量添加计划项
+export function addPlanItemsBatch(planId, data) {
+  return request({
+    url: `/ui-automation/test-plans/${planId}/add_items_batch/`,
+    method: 'post',
+    data
+  })
+}
+
+// 从计划移除项目
+export function removePlanItem(planId, itemId) {
+  return request({
+    url: `/ui-automation/test-plans/${planId}/remove_item/`,
+    method: 'delete',
+    data: { item_id: itemId }
+  })
+}
+
+// 更新计划项顺序
+export function updatePlanItemOrder(planId, itemOrders) {
+  return request({
+    url: `/ui-automation/test-plans/${planId}/update_item_order/`,
+    method: 'post',
+    data: { item_orders: itemOrders }
+  })
+}
+
+// 执行测试计划
+export function runTestPlan(planId, data) {
+  return request({
+    url: `/ui-automation/test-plans/${planId}/run_plan/`,
+    method: 'post',
+    data,
+    timeout: 30000
+  })
+}
+
+// 获取计划执行历史
+export function getPlanExecutionHistory(planId) {
+  return request({
+    url: `/ui-automation/test-plans/${planId}/execution_history/`,
+    method: 'get'
+  })
+}
+
+// ==================== 测试执行相关API ====================
 
 // 获取测试执行列表
 export function getTestExecutions(params) {
@@ -783,6 +890,15 @@ export function getTestCases(params) {
     url: '/ui-automation/test-cases/',
     method: 'get',
     params
+  })
+}
+
+// 获取所有测试用例（不分页，用于选择器）
+export function getTestCasesAll(params) {
+  return request({
+    url: '/ui-automation/test-cases/',
+    method: 'get',
+    params: { ...params, page_size: 9999 }
   })
 }
 

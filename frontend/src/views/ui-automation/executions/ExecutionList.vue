@@ -29,6 +29,7 @@
               <el-option :label="$t('uiAutomation.status.passed')" value="passed" />
               <el-option :label="$t('uiAutomation.status.failed')" value="failed" />
               <el-option :label="$t('uiAutomation.status.error')" value="error" />
+              <el-option label="跳过" value="skipped" />
             </el-select>
           </el-form-item>
           <el-form-item :label="$t('uiAutomation.execution.browserFilter')">
@@ -53,6 +54,7 @@
         </el-form>
       </div>
 
+      <div class="table-scroll-area">
       <el-table :data="executions" v-loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="55" align="center" />
         <el-table-column prop="id" label="ID" width="80" align="center" />
@@ -105,8 +107,9 @@
             {{ formatDuration(row.execution_time) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right" align="center">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right" align="left">
           <template #default="{ row }">
+            <div style="padding-left: 12px;">
             <el-button size="small" type="primary" link @click="viewExecutionDetail(row)">
               {{ $t('uiAutomation.common.details') }}
             </el-button>
@@ -126,9 +129,11 @@
             >
               {{ $t('uiAutomation.common.delete') }}
             </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
+      </div>
 
       <div class="pagination-container">
         <el-pagination
@@ -367,7 +372,8 @@ const getStatusType = (status) => {
     'running': 'warning',
     'passed': 'success',
     'failed': 'danger',
-    'error': 'danger'
+    'error': 'danger',
+    'skipped': 'warning'
   }
   return statusMap[status] || 'info'
 }
@@ -379,7 +385,8 @@ const getStatusText = (status) => {
     'running': t('uiAutomation.status.running'),
     'passed': t('uiAutomation.status.passed'),
     'failed': t('uiAutomation.status.failed'),
-    'error': t('uiAutomation.status.error')
+    'error': t('uiAutomation.status.error'),
+    'skipped': '跳过'
   }
   return statusMap[status] || status
 }
@@ -623,9 +630,11 @@ onMounted(async () => {
 <style scoped lang="scss">
 .page-container {
   padding: 20px;
-  height: 100%;
-  overflow-y: auto;
+  height: calc(100vh - 100px);
+  overflow: hidden;
   background: #f5f5f5;
+  display: flex;
+  flex-direction: column;
 }
 
 .page-header {
@@ -636,6 +645,7 @@ onMounted(async () => {
   background: white;
   padding: 20px;
   border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .page-title {
@@ -649,16 +659,29 @@ onMounted(async () => {
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .filter-bar {
   margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.table-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .pagination-container {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .execution-detail {

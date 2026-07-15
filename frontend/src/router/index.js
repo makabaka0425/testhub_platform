@@ -291,6 +291,18 @@ const routes = [
                 component: UiSuiteList
             },
             {
+                path: 'test-plans',
+                name: 'UiTestPlans',
+                component: () => import('@/views/ui-automation/test-plans/TestPlanList.vue'),
+                meta: { title: '测试计划' }
+            },
+            {
+                path: 'test-plans/:id',
+                name: 'UiTestPlanDetail',
+                component: () => import('@/views/ui-automation/test-plans/TestPlanDetail.vue'),
+                meta: { title: '计划详情' }
+            },
+            {
                 path: 'login-configs',
                 name: 'UiLoginConfigs',
                 component: () => import('@/views/ui-automation/login-configs/LoginConfigList.vue'),

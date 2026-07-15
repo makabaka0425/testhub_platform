@@ -22,7 +22,8 @@ from .views import (
     UiNotificationLogViewSet,
     OperationRecordViewSet,
     UiDashboardViewSet,
-    LoginConfigViewSet
+    LoginConfigViewSet,
+    UiTestPlanViewSet
 )
 from .views_config import EnvironmentConfigViewSet, AIIntelligentModeConfigViewSet
 
@@ -36,6 +37,7 @@ router.register(r'test-scripts', TestScriptViewSet)
 router.register(r'page-objects', PageObjectViewSet)
 router.register(r'steps', ScriptStepViewSet)
 router.register(r'test-suites', TestSuiteViewSet)
+router.register(r'test-plans', UiTestPlanViewSet)
 router.register(r'test-executions', TestExecutionViewSet)
 router.register(r'screenshots', ScreenshotViewSet)
 router.register(r'test-cases', TestCaseViewSet)

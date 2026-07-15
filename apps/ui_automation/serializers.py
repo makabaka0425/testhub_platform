@@ -6,7 +6,8 @@ from .models import (
     ElementGroup, PageObject, PageObjectElement, ScriptStep, ScriptElementUsage,
     TestCase, TestCaseStep, TestCaseExecution, TestCasePrecondition, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
-    AICase, AIExecutionRecord, LoginConfig
+    AICase, AIExecutionRecord, LoginConfig,
+    UiTestPlan, UiTestPlanItem
 )
 from django.contrib.auth import get_user_model
 
@@ -1095,4 +1096,53 @@ class UiTaskNotificationSettingSerializer(serializers.ModelSerializer):
         if 'webhook' in types:
             type_names.append('Webhook机器人')
         return ', '.join(type_names) if type_names else "无"
+
+
+# ==================== 测试计划序列化器 ====================
+
+class UiTestPlanItemSerializer(serializers.ModelSerializer):
+    """测试计划项序列化器"""
+    test_case_name = serializers.CharField(source='test_case.name', read_only=True, default='')
+    test_suite_name = serializers.CharField(source='test_suite.name', read_only=True, default='')
+    item_type_display = serializers.CharField(source='get_item_type_display', read_only=True)
+
+    class Meta:
+        model = UiTestPlanItem
+        fields = ('id', 'test_plan', 'item_type', 'item_type_display',
+                  'test_case', 'test_case_name', 'test_suite', 'test_suite_name', 'order')
+        read_only_fields = ('id',)
+
+
+class UiTestPlanSerializer(serializers.ModelSerializer):
+    """测试计划 - 读取序列化器"""
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    plan_items = UiTestPlanItemSerializer(many=True, read_only=True)
+    plan_item_count = serializers.SerializerMethodField()
+    login_config_name = serializers.CharField(source='login_config.name', read_only=True, default='')
+    execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True, default='')
+
+    class Meta:
+        model = UiTestPlan
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at', 'execution_status', 'total_cases', 'passed_count', 'failed_count', 'created_by')
+
+    def get_plan_item_count(self, obj):
+        return obj.plan_items.count()
+
+
+class UiTestPlanCreateSerializer(serializers.ModelSerializer):
+    """测试计划 - 创建序列化器"""
+    class Meta:
+        model = UiTestPlan
+        fields = ('id', 'project', 'name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
+        read_only_fields = ('id',)
+
+
+class UiTestPlanUpdateSerializer(serializers.ModelSerializer):
+    """测试计划 - 更新序列化器"""
+    class Meta:
+        model = UiTestPlan
+        fields = ('name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
+
 

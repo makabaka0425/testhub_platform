@@ -431,7 +431,7 @@ export default {
 .notification-configs-container {
   padding: 24px;
   background: #f5f7fa;
-  min-height: 100vh;
+  min-height: calc(100vh - 100px);
 }
 
 .page-header {
