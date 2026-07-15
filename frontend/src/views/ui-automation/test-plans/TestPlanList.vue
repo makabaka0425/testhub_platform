@@ -117,35 +117,6 @@
           <el-input v-model="form.cleanup_sql" type="textarea" :rows="3" placeholder="计划执行完毕后执行的清理SQL，多条用分号分隔" />
         </el-form-item>
 
-        <!-- 计划项管理（编辑模式） -->
-        <el-form-item v-if="isEditing" label="计划项">
-          <div class="plan-items-container">
-            <div class="plan-items-toolbar">
-              <el-button type="primary" size="small" @click="showAddCaseDialog = true">添加用例</el-button>
-              <el-button type="success" size="small" @click="showAddSuiteDialog = true">添加套件</el-button>
-            </div>
-            <el-table :data="planItems" style="width: 100%" empty-text="暂无计划项">
-              <el-table-column label="类型" width="100">
-                <template #default="{ row }">
-                  <el-tag size="small" :type="row.item_type === 'test_suite' ? 'warning' : ''">
-                    {{ row.item_type === 'test_suite' ? '套件' : '用例' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="名称" min-width="200">
-                <template #default="{ row }">
-                  {{ row.item_type === 'test_suite' ? row.test_suite_name : row.test_case_name }}
-                </template>
-              </el-table-column>
-              <el-table-column label="顺序" width="80" prop="order" />
-              <el-table-column label="操作" width="80">
-                <template #default="{ row }">
-                  <el-button link type="danger" @click="removeItem(row)">移除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </el-form-item>
       </el-form>
 
       <template #footer>
