@@ -1105,11 +1105,18 @@ class UiTestPlanItemSerializer(serializers.ModelSerializer):
     test_case_name = serializers.CharField(source='test_case.name', read_only=True, default='')
     test_suite_name = serializers.CharField(source='test_suite.name', read_only=True, default='')
     item_type_display = serializers.CharField(source='get_item_type_display', read_only=True)
+    test_case_count = serializers.SerializerMethodField()
+
+    def get_test_case_count(self, obj):
+        if obj.item_type == 'test_suite' and obj.test_suite:
+            return obj.test_suite.test_cases.count()
+        return 0
 
     class Meta:
         model = UiTestPlanItem
         fields = ('id', 'test_plan', 'item_type', 'item_type_display',
-                  'test_case', 'test_case_name', 'test_suite', 'test_suite_name', 'order')
+                  'test_case', 'test_case_name', 'test_suite', 'test_suite_name',
+                  'test_case_count', 'order')
         read_only_fields = ('id',)
 
 
