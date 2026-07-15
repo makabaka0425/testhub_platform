@@ -71,6 +71,7 @@ class TestExecutor:
         # 更新套件统计
         self.test_suite.passed_count = passed
         self.test_suite.failed_count = failed
+        self.test_suite.skipped_count = skipped
         self.test_suite.execution_status = 'passed' if failed == 0 and passed > 0 else 'failed'
         self.test_suite.save()
 

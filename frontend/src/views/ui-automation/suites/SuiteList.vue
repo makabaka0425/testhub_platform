@@ -74,6 +74,11 @@
             <span style="color: #f56c6c; font-weight: bold;">{{ row.failed_count || 0 }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="跳过" width="90">
+          <template #default="{ row }">
+            <span style="color: #e6a23c; font-weight: bold;">{{ row.skipped_count || 0 }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
         <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
         <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
