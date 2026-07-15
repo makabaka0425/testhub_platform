@@ -68,7 +68,7 @@
         <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="goToDetail(row.id)">编辑</el-button>
+            <el-button link type="primary" @click="editPlan(row.id)">编辑</el-button>
             <el-button link type="success" @click="runPlan(row)">执行</el-button>
             <el-button link type="danger" @click="deletePlan(row.id)">删除</el-button>
           </template>
