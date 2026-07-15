@@ -541,6 +541,7 @@ class UiTestPlan(models.Model):
     total_cases = models.IntegerField(default=0, verbose_name='总用例数')
     passed_count = models.IntegerField(default=0, verbose_name='通过数')
     failed_count = models.IntegerField(default=0, verbose_name='失败数')
+    skipped_count = models.IntegerField(default=0, verbose_name='跳过数')
 
     # 登录配置和执行模式
     login_config = models.ForeignKey('LoginConfig', on_delete=models.SET_NULL,

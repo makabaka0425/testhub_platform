@@ -628,20 +628,22 @@ class PlanExecutor:
             return
 
         total_passed = sum(1 for r in self.item_results if r.get('status') == 'passed')
-        total_failed = sum(1 for r in self.item_results if r.get('status') != 'passed')
+        total_failed = sum(1 for r in self.item_results if r.get('status') == 'failed')
+        total_skipped = sum(1 for r in self.item_results if r.get('status') == 'skipped')
         overall_status = 'SUCCESS' if total_failed == 0 else 'FAILED'
 
         self.plan_execution.status = overall_status
         self.plan_execution.passed_cases = total_passed
         self.plan_execution.failed_cases = total_failed
-        self.plan_execution.total_cases = total_passed + total_failed
+        self.plan_execution.total_cases = total_passed + total_failed + total_skipped
         self.plan_execution.finished_at = timezone.now()
         self.plan_execution.result_data = {
             'plan_items': self.item_results,
             'summary': {
-                'total': total_passed + total_failed,
+                'total': total_passed + total_failed + total_skipped,
                 'passed': total_passed,
                 'failed': total_failed,
+                'skipped': total_skipped,
             }
         }
         self.plan_execution.save()
@@ -650,6 +652,7 @@ class PlanExecutor:
         self.test_plan.execution_status = 'passed' if total_failed == 0 else 'failed'
         self.test_plan.passed_count = total_passed
         self.test_plan.failed_count = total_failed
+        self.test_plan.skipped_count = total_skipped
         self.test_plan.save()
 
     def _execute_cleanup_sql(self):
