@@ -458,6 +458,7 @@ class TestSuite(models.Model):
     execution_status = models.CharField(max_length=20, choices=EXECUTION_STATUS_CHOICES, default='not_run', verbose_name='执行状态')
     passed_count = models.IntegerField(default=0, verbose_name='通过数')
     failed_count = models.IntegerField(default=0, verbose_name='失败数')
+    skipped_count = models.IntegerField(default=0, verbose_name='跳过数')
 
     # 登录配置和执行模式
     login_config = models.ForeignKey('LoginConfig', on_delete=models.SET_NULL,
