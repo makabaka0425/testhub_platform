@@ -650,7 +650,7 @@ onMounted(() => {
 .page-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100vh - 100px);
   padding: 20px;
   box-sizing: border-box;
   overflow: hidden;
@@ -754,7 +754,7 @@ onMounted(() => {
 @media (max-width: 1200px) {
   .page-container {
     height: auto;
-    min-height: 100vh;
+    min-height: calc(100vh - 100px);
     overflow-y: auto;
   }
   

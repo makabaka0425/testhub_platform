@@ -165,8 +165,8 @@
             <el-table-column prop="test_case_name" :label="$t('uiAutomation.report.testCase')" min-width="200" />
             <el-table-column :label="$t('uiAutomation.report.executionStatus')" width="100" align="center">
               <template #default="{ row }">
-                <el-tag :type="row.status === 'passed' ? 'success' : 'danger'">
-                  {{ row.status === 'passed' ? $t('uiAutomation.report.casePassed') : $t('uiAutomation.report.caseFailed') }}
+                <el-tag :type="row.status === 'passed' ? 'success' : row.status === 'skipped' ? 'warning' : 'danger'">
+                  {{ row.status === 'passed' ? $t('uiAutomation.report.casePassed') : row.status === 'skipped' ? '跳过' : $t('uiAutomation.report.caseFailed') }}
                 </el-tag>
               </template>
             </el-table-column>

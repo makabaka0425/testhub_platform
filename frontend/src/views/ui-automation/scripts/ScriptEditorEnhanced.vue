@@ -574,7 +574,7 @@ onMounted(async () => {
 
 <style scoped>
 .script-editor-enhanced {
-  height: 100vh;
+  height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
 }

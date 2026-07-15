@@ -517,6 +517,82 @@ class TestSuiteTestCase(models.Model):
         return f'{self.test_suite.name} - {self.test_case.name}'
 
 
+class UiTestPlan(models.Model):
+    """测试计划模型 — 支持按计划批量组织用例和套件"""
+    EXECUTION_STATUS_CHOICES = [
+        ('not_run', '未执行'),
+        ('passed', '通过'),
+        ('failed', '失败'),
+        ('running', '执行中'),
+    ]
+
+    EXECUTION_MODE_CHOICES = [
+        ('per_case', '独立模式'),
+        ('shared_session', '共享会话模式'),
+    ]
+
+    project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='test_plans', verbose_name='所属项目')
+    name = models.CharField(max_length=200, verbose_name='计划名称')
+    description = models.TextField(blank=True, verbose_name='计划描述')
+
+    # 执行统计字段
+    execution_status = models.CharField(max_length=20, choices=EXECUTION_STATUS_CHOICES, default='not_run', verbose_name='执行状态')
+    total_cases = models.IntegerField(default=0, verbose_name='总用例数')
+    passed_count = models.IntegerField(default=0, verbose_name='通过数')
+    failed_count = models.IntegerField(default=0, verbose_name='失败数')
+
+    # 登录配置和执行模式
+    login_config = models.ForeignKey('LoginConfig', on_delete=models.SET_NULL,
+                                     null=True, blank=True,
+                                     related_name='test_plans', verbose_name='登录配置')
+    execution_mode = models.CharField(max_length=20, choices=EXECUTION_MODE_CHOICES,
+                                      default='per_case', verbose_name='执行模式')
+
+    # 清理测试数据SQL配置
+    cleanup_sql = models.TextField(blank=True, default='', verbose_name='清理SQL',
+                                    help_text='清理测试数据的SQL语句，多条用分号分隔')
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='创建人')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_test_plans'
+        verbose_name = 'UI测试计划'
+        verbose_name_plural = 'UI测试计划'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+class UiTestPlanItem(models.Model):
+    """测试计划项 — 关联单用例或套件"""
+    ITEM_TYPE_CHOICES = [
+        ('test_case', '单用例'),
+        ('test_suite', '测试套件'),
+    ]
+
+    test_plan = models.ForeignKey(UiTestPlan, on_delete=models.CASCADE, related_name='plan_items', verbose_name='测试计划')
+    item_type = models.CharField(max_length=20, choices=ITEM_TYPE_CHOICES, verbose_name='项目类型')
+    test_case = models.ForeignKey('TestCase', on_delete=models.CASCADE, null=True, blank=True, verbose_name='测试用例')
+    test_suite = models.ForeignKey(TestSuite, on_delete=models.CASCADE, null=True, blank=True, verbose_name='测试套件')
+    order = models.IntegerField(default=0, verbose_name='执行顺序')
+
+    class Meta:
+        db_table = 'ui_test_plan_items'
+        verbose_name = '测试计划项'
+        verbose_name_plural = '测试计划项'
+        ordering = ['order']
+
+    def __str__(self):
+        if self.item_type == 'test_case' and self.test_case:
+            return f'{self.test_plan.name} - 用例: {self.test_case.name}'
+        elif self.item_type == 'test_suite' and self.test_suite:
+            return f'{self.test_plan.name} - 套件: {self.test_suite.name}'
+        return f'{self.test_plan.name} - 计划项 #{self.id}'
+
+
 class TestExecution(models.Model):
     """测试执行记录模型"""
     STATUS_CHOICES = [
@@ -538,6 +614,7 @@ class TestExecution(models.Model):
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='executions', verbose_name='所属项目')
     test_suite = models.ForeignKey(TestSuite, on_delete=models.CASCADE, related_name='executions', null=True, blank=True, verbose_name='测试套件')
     test_script = models.ForeignKey(TestScript, on_delete=models.CASCADE, related_name='executions', null=True, blank=True, verbose_name='测试脚本')
+    test_plan = models.ForeignKey(UiTestPlan, on_delete=models.CASCADE, related_name='executions', null=True, blank=True, verbose_name='测试计划')
     environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES, verbose_name='执行环境', default='CHROME')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, verbose_name='执行状态', default='PENDING')
 
@@ -572,7 +649,9 @@ class TestExecution(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        if self.test_suite:
+        if self.test_plan:
+            return f'Plan: {self.test_plan.name} - {self.get_status_display()}'
+        elif self.test_suite:
             return f'Suite: {self.test_suite.name} - {self.get_status_display()}'
         elif self.test_script:
             return f'Script: {self.test_script.name} - {self.get_status_display()}'
@@ -758,6 +837,7 @@ class TestCaseExecution(models.Model):
     test_case = models.ForeignKey(TestCase, on_delete=models.CASCADE, related_name='executions', verbose_name='测试用例')
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='test_case_executions', verbose_name='项目')
     test_suite = models.ForeignKey('TestSuite', on_delete=models.CASCADE, null=True, blank=True, related_name='case_executions', verbose_name='所属测试套件')
+    test_plan = models.ForeignKey('UiTestPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='case_executions', verbose_name='所属测试计划')
     execution_source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual', verbose_name='执行来源')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='执行状态')
     engine = models.CharField(max_length=20, choices=ENGINE_CHOICES, default='playwright', verbose_name='测试引擎')
@@ -832,6 +912,7 @@ class UiScheduledTask(models.Model):
     TASK_TYPE_CHOICES = [
         ('TEST_SUITE', '测试套件执行'),
         ('TEST_CASE', '测试用例执行'),
+        ('TEST_PLAN', '测试计划执行'),
     ]
 
     STATUS_CHOICES = [
@@ -865,6 +946,8 @@ class UiScheduledTask(models.Model):
     project = models.ForeignKey('UiProject', on_delete=models.CASCADE, verbose_name='关联项目')
     test_suite = models.ForeignKey('TestSuite', on_delete=models.CASCADE, null=True, blank=True,
                                    verbose_name='测试套件')
+    test_plan = models.ForeignKey('UiTestPlan', on_delete=models.CASCADE, null=True, blank=True,
+                                  verbose_name='测试计划')
     test_cases = models.JSONField(default=list, blank=True, verbose_name='测试用例列表',
                                  help_text='测试用例ID列表，用于TEST_CASE类型任务')
 

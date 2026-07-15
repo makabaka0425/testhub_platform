@@ -94,6 +94,7 @@
         </div>
 
         <!-- 用例表格 -->
+        <div class="table-scroll-area">
         <el-table
           ref="tableRef"
           :data="paginatedCases(run.run_cases)"
@@ -156,6 +157,7 @@
             </template>
           </el-table-column>
         </el-table>
+        </div>
 
         <!-- 分页组件 -->
         <div v-if="run.run_cases && run.run_cases.length > 0" class="pagination-container">
@@ -534,9 +536,12 @@ onMounted(() => {
   --font-display: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
 
-  padding: 24px;
+  padding: 0;
   background: var(--g-bg-soft);
-  min-height: 100vh;
+  height: calc(100vh - 100px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   font-family: var(--font-body);
   color: var(--g-ink);
 }
@@ -549,6 +554,7 @@ onMounted(() => {
   box-shadow: var(--g-shadow);
   padding: 20px 24px;
   margin-bottom: 24px;
+  flex-shrink: 0;
 }
 
 .plan-header__title-row {
@@ -619,6 +625,11 @@ onMounted(() => {
   box-shadow: var(--g-shadow);
   padding: 20px 24px;
   margin-bottom: 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .run-card__head {
@@ -779,6 +790,14 @@ onMounted(() => {
   margin-bottom: 16px;
   display: flex;
   justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+/* —— 表格滚动区域 —— */
+.table-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* —— 表格：Grafana 化 —— */
@@ -833,8 +852,10 @@ onMounted(() => {
 /* —— 分页 —— */
 .pagination-container {
   margin-top: 16px;
+  margin-bottom: 0;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 /* —— 空态 —— */

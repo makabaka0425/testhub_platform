@@ -394,7 +394,7 @@ onMounted(() => {
 <style scoped lang="scss">
 .assistant-layout {
   display: flex;
-  height: 100vh;
+  height: calc(100vh - 100px);
   background: #fff;
   overflow: hidden;
 }

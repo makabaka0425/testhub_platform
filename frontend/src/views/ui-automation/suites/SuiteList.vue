@@ -787,7 +787,7 @@ const handleNewSuite = async () => {
 .page-container {
   padding: 20px;
   background: #f5f5f5;
-  min-height: 100vh;
+  min-height: calc(100vh - 100px);
 }
 
 .page-header {

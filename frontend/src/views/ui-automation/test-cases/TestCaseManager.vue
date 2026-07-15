@@ -78,7 +78,6 @@
       <div class="right-panel">
         <div v-if="selectedTestCase" class="test-case-detail">
           <div class="detail-header">
-            <h3>{{ selectedTestCase.name }}</h3>
             <div class="detail-actions">
               <el-button size="small" @click="addStep">
                 <el-icon><Plus /></el-icon>
@@ -1356,7 +1355,6 @@ const saveTestCaseForm = async () => {
       preconditions: testCaseForm.preconditions,
       postcondition_sql: testCaseForm.postcondition_sql,
       project: projectId.value,
-      steps: []
     }
 
     if (editingTestCase.value) {
@@ -1364,10 +1362,14 @@ const saveTestCaseForm = async () => {
       await updateTestCase(editingTestCase.value.id, data)
       ElMessage.success(t('uiAutomation.testCase.update.success'))
 
-      // 更新本地数据
+      // 更新本地数据（保留原有的 steps，不覆盖）
       const index = testCases.value.findIndex(tc => tc.id === editingTestCase.value.id)
       if (index !== -1) {
         testCases.value[index] = { ...testCases.value[index], ...data }
+        // 如果当前选中的就是这个用例，也更新选中状态
+        if (selectedTestCase.value?.id === editingTestCase.value.id) {
+          selectedTestCase.value = { ...selectedTestCase.value, ...data }
+        }
       }
     } else {
       // 创建新用例
@@ -1525,9 +1527,10 @@ onMounted(async () => {
 }
 
 .test-case-manager {
-  height: 100vh;
+  height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .page-header {
