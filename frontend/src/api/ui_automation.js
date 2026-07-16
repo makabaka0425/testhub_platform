@@ -580,6 +580,46 @@ export function getElementGroupTree(params) {
   })
 }
 
+// 用例分组相关API
+export function getTestCaseGroups(params) {
+  return request({
+    url: '/ui-automation/test-case-groups/',
+    method: 'get',
+    params
+  })
+}
+
+export function createTestCaseGroup(data) {
+  return request({
+    url: '/ui-automation/test-case-groups/',
+    method: 'post',
+    data
+  })
+}
+
+export function updateTestCaseGroup(id, data) {
+  return request({
+    url: `/ui-automation/test-case-groups/${id}/`,
+    method: 'patch',
+    data
+  })
+}
+
+export function deleteTestCaseGroup(id) {
+  return request({
+    url: `/ui-automation/test-case-groups/${id}/`,
+    method: 'delete'
+  })
+}
+
+export function getTestCaseGroupTree(params) {
+  return request({
+    url: '/ui-automation/test-case-groups/tree/',
+    method: 'get',
+    params
+  })
+}
+
 // 元素增强功能API
 export function validateElementLocator(id) {
   return request({
@@ -951,6 +991,15 @@ export function copyTestCase(id) {
   return request({
     url: `/ui-automation/test-cases/${id}/copy_case/`,
     method: 'post'
+  })
+}
+
+// 批量更新用例排序
+export function batchReorderTestCases(orders) {
+  return request({
+    url: '/ui-automation/test-cases/batch_reorder/',
+    method: 'post',
+    data: { orders }
   })
 }
 

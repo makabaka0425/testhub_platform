@@ -132,9 +132,21 @@
 
     <!-- 添加用例对话框 -->
     <el-dialog v-model="showAddCaseDialog" title="添加用例" width="600px">
-      <el-input v-model="addCaseSearch" placeholder="搜索用例名称" clearable style="margin-bottom: 15px">
-        <template #prefix><el-icon><Search /></el-icon></template>
-      </el-input>
+      <div style="display: flex; margin-bottom: 15px">
+        <el-tree-select
+          v-model="planGroupFilter"
+          :data="planGroupTree"
+          :props="{ children: 'children', label: 'name', value: 'id' }"
+          placeholder="全部分组"
+          clearable
+          check-strictly
+          size="small"
+          style="width: 140px; margin-right: 8px;"
+        />
+        <el-input v-model="addCaseSearch" placeholder="搜索用例名称" clearable>
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+      </div>
       <el-table :data="filteredAvailableCases" height="400" @selection-change="handleCaseSelectionChange">
         <el-table-column type="selection" width="55" :selectable="row => !isCaseAlreadyAdded(row.id)" />
         <el-table-column prop="name" label="用例名称" min-width="200" show-overflow-tooltip />
@@ -207,7 +219,7 @@ import { Plus, Search } from '@element-plus/icons-vue'
 import {
   getTestPlans, getTestPlan, createTestPlan, updateTestPlan, deleteTestPlan,
   getPlanItems, addPlanItem, addPlanItemsBatch, removePlanItem, runTestPlan,
-  getUiProjects, getTestCasesAll, getTestSuites, getLoginConfigs
+  getUiProjects, getTestCasesAll, getTestSuites, getLoginConfigs, getTestCaseGroupTree
 } from '@/api/ui_automation'
 
 const router = useRouter()
@@ -253,6 +265,8 @@ const currentRunPlan = ref(null)
 // 添加用例
 const addCaseSearch = ref('')
 const selectedCases = ref([])
+const planGroupFilter = ref(null)
+const planGroupTree = ref([])
 const addSuiteSearch = ref('')
 const selectedSuites = ref([])
 
@@ -264,9 +278,15 @@ const filteredPlans = computed(() => {
 })
 
 const filteredAvailableCases = computed(() => {
-  if (!addCaseSearch.value) return allTestCases.value
+  let result = allTestCases.value
+  // 按分组筛选
+  if (planGroupFilter.value) {
+    result = result.filter(tc => tc.group === planGroupFilter.value)
+  }
+  // 文本搜索
+  if (!addCaseSearch.value) return result
   const kw = addCaseSearch.value.toLowerCase()
-  return allTestCases.value.filter(c => c.name.toLowerCase().includes(kw))
+  return result.filter(c => c.name.toLowerCase().includes(kw))
 })
 
 const filteredAvailableSuites = computed(() => {
@@ -346,6 +366,14 @@ async function loadSuites() {
     const res = await getTestSuites({ project: projectId.value })
     allSuites.value = res.data.results || res.data || []
   } catch (e) { console.error(e) }
+}
+
+const loadPlanGroupTree = async () => {
+  if (!projectId.value) { planGroupTree.value = []; return }
+  try {
+    const response = await getTestCaseGroupTree({ project: projectId.value })
+    planGroupTree.value = response.data || []
+  } catch (error) { console.error('获取用例分组树失败:', error) }
 }
 
 async function loadPlanItems(planId) {

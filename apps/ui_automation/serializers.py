@@ -7,7 +7,7 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, TestCasePrecondition, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
-    UiTestPlan, UiTestPlanItem
+    UiTestPlan, UiTestPlanItem, TestCaseGroup
 )
 from django.contrib.auth import get_user_model
 
@@ -375,6 +375,35 @@ class ElementGroupSerializer(serializers.ModelSerializer):
         return ElementGroupSerializer(children, many=True, context=self.context).data
 
 
+class TestCaseGroupSerializer(serializers.ModelSerializer):
+    """用例分组序列化器"""
+    project = UiProjectSerializer(read_only=True)
+    project_id = serializers.IntegerField(write_only=True)
+    test_cases_count = serializers.SerializerMethodField()
+    children = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TestCaseGroup
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at')
+
+    def get_test_cases_count(self, obj):
+        """获取分组下的用例数量"""
+        return obj.test_cases.count()
+
+    def get_children(self, obj):
+        """获取子分组"""
+        children = obj.testcasegroup_set.all()
+        return TestCaseGroupSerializer(children, many=True, context=self.context).data
+
+
+class TestCaseGroupCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TestCaseGroup
+        fields = ('id', 'project', 'name', 'description', 'parent_group', 'order')
+        read_only_fields = ('id',)
+
+
 class ElementGroupCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ElementGroup
@@ -626,11 +655,12 @@ class TestCaseSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
     preconditions = serializers.PrimaryKeyRelatedField(many=True, queryset=TestCase.objects.all(), required=False)
     preconditions_data = serializers.SerializerMethodField()
+    group_name = serializers.CharField(source='group.name', read_only=True, default=None)
 
     class Meta:
         model = TestCase
         fields = [
-            'id', 'name', 'description', 'project', 'project_name', 'status', 'priority',
+            'id', 'name', 'description', 'project', 'project_name', 'group', 'group_name', 'status', 'priority', 'order',
             'preconditions', 'preconditions_data', 'postcondition_sql',
             'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps'
         ]

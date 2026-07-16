@@ -23,7 +23,7 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
-    UiTestPlan, UiTestPlanItem
+    UiTestPlan, UiTestPlanItem, TestCaseGroup
 )
 from .serializers import (
     UiProjectSerializer, UiProjectCreateSerializer, UiProjectUpdateSerializer,
@@ -44,7 +44,8 @@ from .serializers import (
     AICaseSerializer, AIExecutionRecordSerializer,
     LoginConfigSerializer, LoginConfigCreateSerializer, LoginConfigUpdateSerializer,
     UiTestPlanSerializer, UiTestPlanCreateSerializer, UiTestPlanUpdateSerializer,
-    UiTestPlanItemSerializer
+    UiTestPlanItemSerializer,
+    TestCaseGroupSerializer, TestCaseGroupCreateSerializer
 )
 from .operation_logger import log_operation
 
@@ -4042,6 +4043,40 @@ class ElementGroupViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+class TestCaseGroupViewSet(viewsets.ModelViewSet):
+    """用例分组ViewSet"""
+    queryset = TestCaseGroup.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['project', 'parent_group']
+    search_fields = ['name', 'description']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return TestCaseGroupCreateSerializer
+        return TestCaseGroupSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        accessible_projects = UiProject.objects.filter(
+            models.Q(owner=user) | models.Q(members=user)
+        ).distinct()
+        return TestCaseGroup.objects.filter(project__in=accessible_projects).select_related('project',
+                                                                                            'parent_group').order_by(
+            'order', 'name')
+
+    @action(detail=False, methods=['get'])
+    def tree(self, request):
+        """获取用例分组树形结构"""
+        project_id = request.query_params.get('project')
+        if not project_id:
+            return Response({'error': '需要指定项目ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        groups = self.get_queryset().filter(project_id=project_id, parent_group__isnull=True)
+        serializer = TestCaseGroupSerializer(groups, many=True)
+        return Response(serializer.data)
+
+
 class PageObjectViewSet(viewsets.ModelViewSet):
     queryset = PageObject.objects.all()
     permission_classes = [IsAuthenticated]
@@ -4876,8 +4911,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description']
     ordering_fields = ['created_at', 'updated_at', 'name', 'priority', 'status']
-    ordering = ['-created_at']
-    filterset_fields = ['project', 'status', 'priority', 'created_by']
+    ordering = ['order', '-created_at']
+    filterset_fields = ['project', 'status', 'priority', 'created_by', 'group']
 
     def get_queryset(self):
         # 只显示用户有权限访问的项目的测试用例
@@ -4885,14 +4920,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
         accessible_projects = UiProject.objects.filter(
             models.Q(owner=user) | models.Q(members=user)
         ).distinct()
-
-    def get_queryset(self):
-        # 只显示用户有权限访问的项目的测试用例
-        user = self.request.user
-        accessible_projects = UiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
-        return TestCase.objects.filter(project__in=accessible_projects).select_related('project', 'created_by')
+        return TestCase.objects.filter(project__in=accessible_projects).select_related('project', 'created_by', 'group').order_by('order', '-created_at')
 
     def perform_create(self, serializer):
         # 创建测试用例
@@ -4947,6 +4975,18 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     logger.error(f"步骤数据: {step_data}")
 
             logger.info(f"成功创建了 {created_count} 个新步骤")
+
+    @action(detail=False, methods=['post'])
+    def batch_reorder(self, request):
+        """批量更新用例排序"""
+        orders = request.data.get('orders', [])
+        if not orders:
+            return Response({'error': '需要提供排序数据'}, status=status.HTTP_400_BAD_REQUEST)
+
+        for item in orders:
+            TestCase.objects.filter(id=item.get('id')).update(order=item.get('order', 0))
+
+        return Response({'status': 'success'})
 
     @action(detail=True, methods=['post'])
     def copy_case(self, request, pk=None):
