@@ -14,6 +14,43 @@
     </div>
 
     <div class="main-content">
+      <!-- 最左侧：用例分组 -->
+      <div class="group-panel">
+        <div class="group-header">
+          <h3>用例分组</h3>
+          <el-icon class="group-add-btn" @click="showCreateGroupDialog = true"><Plus /></el-icon>
+        </div>
+        <div class="group-tree-wrapper">
+          <div
+            class="group-all-node"
+            :class="{ active: selectedGroupId === null }"
+            @click="selectedGroupId = null; currentPage = 1"
+          >
+            <el-icon><Folder /></el-icon>
+            <span>全部</span>
+          </div>
+          <el-tree
+            ref="groupTreeRef"
+            :data="testCaseGroupTree"
+            :props="{ children: 'children', label: 'name' }"
+            node-key="id"
+            :expand-on-click-node="false"
+            :default-expanded-keys="groupExpandedKeys"
+            highlight-current
+            @node-click="onGroupNodeClick"
+            @node-contextmenu="onGroupRightClick"
+          >
+            <template #default="{ node, data }">
+              <div class="group-tree-node">
+                <el-icon><Folder /></el-icon>
+                <span class="group-node-label">{{ node.label }}</span>
+                <span class="group-count">({{ data.test_cases_count || 0 }})</span>
+              </div>
+            </template>
+          </el-tree>
+        </div>
+      </div>
+
       <!-- 左侧：测试用例列表 -->
       <div class="left-panel">
         <div class="panel-header">
@@ -33,10 +70,12 @@
 
         <div class="test-case-table-wrapper">
           <el-table
+            ref="testCaseTableRef"
             :data="paginatedTestCases"
             size="small"
             @current-change="handleTableCurrentChange"
             :row-class-name="tableRowClassName"
+            row-key="id"
             style="width: 100%"
           >
             <el-table-column prop="name" label="用例名称" min-width="140" show-overflow-tooltip />
@@ -522,6 +561,17 @@
         <el-form-item :label="t('uiAutomation.testCase.caseName')" required>
           <el-input v-model="testCaseForm.name" :placeholder="t('uiAutomation.testCase.caseNamePlaceholder')" />
         </el-form-item>
+        <el-form-item label="所属分组">
+          <el-tree-select
+            v-model="testCaseForm.group"
+            :data="groupTreeSelectData"
+            :props="{ children: 'children', label: 'name', value: 'id' }"
+            placeholder="不选择则为未分组"
+            clearable
+            check-strictly
+            style="width: 100%"
+          />
+        </el-form-item>
         <el-form-item :label="t('uiAutomation.testCase.caseDescription')">
           <el-input
             v-model="testCaseForm.description"
@@ -576,6 +626,45 @@
         </span>
       </template>
     </el-dialog>
+
+    <!-- 分组创建/编辑对话框 -->
+    <el-dialog
+      v-model="showCreateGroupDialog"
+      :title="editingGroup ? '编辑分组' : '新增分组'"
+      width="450px"
+      :close-on-click-modal="false"
+    >
+      <el-form :model="groupForm" label-width="80px">
+        <el-form-item label="分组名称" required>
+          <el-input v-model="groupForm.name" placeholder="请输入分组名称" />
+        </el-form-item>
+        <el-form-item label="父分组">
+          <el-tree-select
+            v-model="groupForm.parent_group"
+            :data="groupTreeSelectData"
+            :props="{ children: 'children', label: 'name', value: 'id' }"
+            placeholder="无（顶级分组）"
+            clearable
+            check-strictly
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="groupForm.description" type="textarea" :rows="2" placeholder="分组描述（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCreateGroupDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveGroupForm">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 分组右键菜单 -->
+    <div v-if="showGroupContextMenu" class="group-context-menu" :style="{ left: groupContextMenuX + 'px', top: groupContextMenuY + 'px' }">
+      <div class="context-menu-item" @click="editGroupNode">编辑</div>
+      <div class="context-menu-item" @click="addSubGroup">新增子分组</div>
+      <div class="context-menu-item danger" @click="deleteGroupNode">删除</div>
+    </div>
 
     <!-- 截图预览对话框 -->
     <el-dialog
@@ -644,12 +733,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search, Plus, Edit, Delete, Check, CaretRight, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick
+  Search, Plus, Edit, Delete, Check, CaretRight, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder
 } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
+import Sortable from 'sortablejs'
 import DataFactorySelector from '@/components/DataFactorySelector.vue'
 import { useI18n } from 'vue-i18n'
 
@@ -666,7 +756,12 @@ import {
   getTestCases,
   runTestCase as runTestCaseApi,
   copyTestCase as copyTestCaseApi,
-  getLocatorStrategies
+  getLocatorStrategies,
+  getTestCaseGroupTree,
+  createTestCaseGroup,
+  updateTestCaseGroup,
+  deleteTestCaseGroup,
+  batchReorderTestCases
 } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
 
@@ -701,6 +796,37 @@ const currentStepForDataFactory = ref(null)
 const currentFieldForDataFactory = ref('')
 const variableCategories = ref([])
 const loading = ref(false)
+const testCaseTableRef = ref(null)
+const sortableInstance = ref(null)
+const isDragging = ref(false)
+
+// 分组相关
+const testCaseGroupTree = ref([])
+const selectedGroupId = ref(null)
+const groupExpandedKeys = ref([])
+const groupTreeRef = ref(null)
+const showCreateGroupDialog = ref(false)
+const editingGroup = ref(null)
+const groupForm = reactive({
+  name: '',
+  description: '',
+  parent_group: null
+})
+const showGroupContextMenu = ref(false)
+const groupContextMenuX = ref(0)
+const groupContextMenuY = ref(0)
+const rightClickedGroupNode = ref(null)
+
+// 分组树select数据（过滤掉当前编辑的分组，防止循环引用）
+const groupTreeSelectData = computed(() => {
+  const filterNode = (nodes) => {
+    if (!nodes) return []
+    return nodes
+      .filter(n => !editingGroup.value || n.id !== editingGroup.value.id)
+      .map(n => ({ ...n, children: filterNode(n.children) }))
+  }
+  return filterNode(testCaseGroupTree.value)
+})
 
 // 前置条件/后置条件（详情面板编辑）
 const selectedPreconditions = ref([])
@@ -725,7 +851,8 @@ const testCaseForm = reactive({
   description: '',
   priority: 'medium',
   preconditions: [],
-  postcondition_sql: ''
+  postcondition_sql: '',
+  group: null
 })
 
 // 可选的前置条件用例列表（同项目下的其他用例）
@@ -739,11 +866,19 @@ const availablePreconditions = computed(() => {
 
 // 计算属性
 const filteredTestCases = computed(() => {
-  if (!searchKeyword.value) return testCases.value
-  return testCases.value.filter(tc =>
-    tc.name.includes(searchKeyword.value) ||
-    tc.description?.includes(searchKeyword.value)
-  )
+  let result = testCases.value
+  // 按分组筛选
+  if (selectedGroupId.value) {
+    result = result.filter(tc => tc.group === selectedGroupId.value)
+  }
+  // 按关键词筛选
+  if (searchKeyword.value) {
+    result = result.filter(tc =>
+      tc.name.includes(searchKeyword.value) ||
+      tc.description?.includes(searchKeyword.value)
+    )
+  }
+  return result
 })
 
 // 分页后的用例列表
@@ -759,6 +894,7 @@ watch(searchKeyword, () => {
 
 // 表格行点击选中
 const handleTableCurrentChange = (row) => {
+  if (isDragging.value) return
   if (row) selectTestCase(row)
 }
 
@@ -875,10 +1011,12 @@ const onProjectChange = async () => {
   selectedTestCase.value = null
   currentSteps.value = []
   executionResult.value = null
+  selectedGroupId.value = null
 
   await Promise.all([
     loadTestCases(),
-    loadElements()
+    loadElements(),
+    loadTestCaseGroups()
   ])
 }
 
@@ -1121,6 +1259,7 @@ const editTestCase = (testCase) => {
   testCaseForm.name = testCase.name
   testCaseForm.description = testCase.description || ''
   testCaseForm.priority = testCase.priority || 'medium'
+  testCaseForm.group = testCase.group || null
   // 加载前置条件（preconditions_data 是 [{id, name, order}] 格式，转为 id 列表）
   testCaseForm.preconditions = (testCase.preconditions_data || []).map(pc => pc.id)
   testCaseForm.postcondition_sql = testCase.postcondition_sql || ''
@@ -1386,6 +1525,7 @@ const saveTestCaseForm = async () => {
       priority: testCaseForm.priority,
       preconditions: testCaseForm.preconditions,
       postcondition_sql: testCaseForm.postcondition_sql,
+      group: testCaseForm.group || null,
       project: projectId.value,
     }
 
@@ -1413,6 +1553,7 @@ const saveTestCaseForm = async () => {
     showCreateDialog.value = false
     editingTestCase.value = null
     resetForm()
+    await loadTestCaseGroups()  // 刷新分组用例计数
   } catch (error) {
     console.error('保存测试用例失败:', error)
     if (error.response?.data?.preconditions) {
@@ -1429,6 +1570,7 @@ const resetForm = () => {
   testCaseForm.priority = 'medium'
   testCaseForm.preconditions = []
   testCaseForm.postcondition_sql = ''
+  testCaseForm.group = null
 }
 
 // 辅助方法
@@ -1519,6 +1661,174 @@ const previewScreenshot = (screenshot) => {
   showScreenshotPreview.value = true
 }
 
+// ====== 分组相关方法 ======
+const loadTestCaseGroups = async () => {
+  if (!projectId.value) {
+    testCaseGroupTree.value = []
+    return
+  }
+  try {
+    const response = await getTestCaseGroupTree({ project: projectId.value })
+    testCaseGroupTree.value = response.data || []
+  } catch (error) {
+    console.error('获取用例分组树失败:', error)
+  }
+}
+
+const onGroupNodeClick = (data) => {
+  selectedGroupId.value = data.id
+  currentPage.value = 1
+}
+
+const onGroupRightClick = (event, data) => {
+  event.preventDefault()
+  rightClickedGroupNode.value = data
+  groupContextMenuX.value = event.clientX
+  groupContextMenuY.value = event.clientY
+  showGroupContextMenu.value = true
+}
+
+// 点击其他地方关闭右键菜单
+watch(showGroupContextMenu, (val) => {
+  if (val) {
+    const closeMenu = () => {
+      showGroupContextMenu.value = false
+      document.removeEventListener('click', closeMenu)
+    }
+    setTimeout(() => document.addEventListener('click', closeMenu), 0)
+  }
+})
+
+const editGroupNode = () => {
+  showGroupContextMenu.value = false
+  const node = rightClickedGroupNode.value
+  editingGroup.value = node
+  groupForm.name = node.name
+  groupForm.description = node.description || ''
+  groupForm.parent_group = node.parent_group || null
+  showCreateGroupDialog.value = true
+}
+
+const addSubGroup = () => {
+  showGroupContextMenu.value = false
+  const node = rightClickedGroupNode.value
+  editingGroup.value = null
+  groupForm.name = ''
+  groupForm.description = ''
+  groupForm.parent_group = node.id
+  showCreateGroupDialog.value = true
+}
+
+const deleteGroupNode = async () => {
+  showGroupContextMenu.value = false
+  const node = rightClickedGroupNode.value
+  try {
+    await ElMessageBox.confirm(`确定删除分组「${node.name}」？该分组下的用例将变为未分组。`, '删除分组', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await deleteTestCaseGroup(node.id)
+    ElMessage.success('分组已删除')
+    if (selectedGroupId.value === node.id) {
+      selectedGroupId.value = null
+    }
+    await loadTestCaseGroups()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除分组失败:', error)
+      ElMessage.error('删除分组失败')
+    }
+  }
+}
+
+const saveGroupForm = async () => {
+  if (!groupForm.name.trim()) {
+    ElMessage.warning('请输入分组名称')
+    return
+  }
+  try {
+    const data = {
+      name: groupForm.name,
+      description: groupForm.description,
+      parent_group: groupForm.parent_group || null,
+      project: projectId.value
+    }
+    if (editingGroup.value) {
+      await updateTestCaseGroup(editingGroup.value.id, data)
+      ElMessage.success('分组已更新')
+    } else {
+      await createTestCaseGroup(data)
+      ElMessage.success('分组已创建')
+    }
+    showCreateGroupDialog.value = false
+    editingGroup.value = null
+    groupForm.name = ''
+    groupForm.description = ''
+    groupForm.parent_group = null
+    await loadTestCaseGroups()
+  } catch (error) {
+    console.error('保存分组失败:', error)
+    ElMessage.error('保存分组失败')
+  }
+}
+
+// 初始化表格行拖拽排序
+const initSortable = () => {
+  nextTick(() => {
+    const tableEl = testCaseTableRef.value?.$el
+    if (!tableEl) return
+    const tbody = tableEl.querySelector('.el-table__body-wrapper tbody')
+    if (!tbody) return
+
+    // 销毁旧实例
+    if (sortableInstance.value) {
+      sortableInstance.value.destroy()
+    }
+
+    sortableInstance.value = Sortable.create(tbody, {
+      animation: 150,
+      onStart: () => {
+        isDragging.value = true
+      },
+      onEnd: async (evt) => {
+        isDragging.value = false
+        const { oldIndex, newIndex } = evt
+        if (oldIndex === newIndex) return
+
+        // 更新 filteredTestCases 的顺序
+        const list = [...filteredTestCases.value]
+        const [moved] = list.splice(oldIndex, 1)
+        list.splice(newIndex, 0, moved)
+
+        // 同步更新 testCases 数组中对应元素的 order
+        const orders = list.map((tc, index) => ({ id: tc.id, order: index }))
+        
+        // 更新本地 testCases 数组的 order
+        orders.forEach(item => {
+          const tc = testCases.value.find(t => t.id === item.id)
+          if (tc) tc.order = item.order
+        })
+
+        // 调用后端批量排序API持久化
+        try {
+          await batchReorderTestCases(orders)
+        } catch (error) {
+          console.error('保存用例排序失败:', error)
+          ElMessage.error('保存排序失败')
+          // 回滚：重新加载
+          await loadTestCases()
+        }
+      }
+    })
+  })
+}
+
+// 监听 filteredTestCases 变化重新初始化拖拽
+watch(filteredTestCases, () => {
+  initSortable()
+}, { deep: false })
+
 // 组件挂载
 onMounted(async () => {
   console.log('TestCaseManager onMounted 开始执行...')
@@ -1531,6 +1841,7 @@ onMounted(async () => {
     projectId.value = projects.value[0].id
     await onProjectChange()
   }
+  initSortable()
 })
 </script>
 
@@ -1590,9 +1901,117 @@ onMounted(async () => {
   overflow: hidden;
 }
 
+.group-panel {
+  width: 200px;
+  height: 788px;
+  border-right: 1px solid #e6e6e6;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid #e6e6e6;
+  box-sizing: border-box;
+}
+
+.group-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.group-add-btn {
+  cursor: pointer;
+  color: #1890ff;
+  font-size: 16px;
+}
+
+.group-add-btn:hover {
+  color: #40a9ff;
+}
+
+.group-tree-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.group-all-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+}
+
+.group-all-node:hover {
+  background: #f5f7fa;
+}
+
+.group-all-node.active {
+  background: #e6f7ff;
+  color: #1890ff;
+}
+
+.group-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.group-node-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-count {
+  color: #999;
+  font-size: 12px;
+}
+
+.group-context-menu {
+  position: fixed;
+  z-index: 2000;
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  padding: 4px 0;
+}
+
+.group-context-menu .context-menu-item {
+  padding: 6px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+}
+
+.group-context-menu .context-menu-item:hover {
+  background: #f5f7fa;
+}
+
+.group-context-menu .context-menu-item.danger {
+  color: #f56c6c;
+}
+
+.group-context-menu .context-menu-item.danger:hover {
+  background: #fef0f0;
+}
+
 .left-panel {
-  width: 45%;
-  min-width: 400px;
+  flex: 1;
+  min-width: 300px;
   border-right: 1px solid #e6e6e6;
   background: white;
   display: flex;

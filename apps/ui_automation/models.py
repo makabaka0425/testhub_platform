@@ -708,6 +708,26 @@ class Screenshot(models.Model):
         return self.name
 
 
+class TestCaseGroup(models.Model):
+    """用例分组模型"""
+    name = models.CharField(max_length=200, verbose_name='分组名称')
+    description = models.TextField(blank=True, verbose_name='分组描述')
+    project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='test_case_groups', verbose_name='所属项目')
+    parent_group = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, verbose_name='父分组')
+    order = models.IntegerField(default=0, verbose_name='排序')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_test_case_groups'
+        verbose_name = '用例分组'
+        verbose_name_plural = '用例分组'
+        ordering = ['order', 'name']
+
+    def __str__(self):
+        return self.name
+
+
 class TestCase(models.Model):
     """UI自动化测试用例模型"""
     STATUS_CHOICES = [
@@ -727,10 +747,12 @@ class TestCase(models.Model):
     name = models.CharField(max_length=200, verbose_name='用例名称')
     description = models.TextField(blank=True, verbose_name='用例描述')
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='test_cases', verbose_name='所属项目')
+    group = models.ForeignKey(TestCaseGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name='test_cases', verbose_name='所属分组')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft', verbose_name='状态')
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium', verbose_name='优先级')
     preconditions = models.ManyToManyField('self', symmetrical=False, blank=True, through='TestCasePrecondition', verbose_name='前置条件')
     postcondition_sql = models.TextField(blank=True, default='', verbose_name='后置清理SQL', help_text='用例执行后自动执行的清理SQL，支持${变量名}引用步骤输出变量')
+    order = models.IntegerField(default=0, verbose_name='排序')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_test_cases', verbose_name='创建人')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
@@ -739,7 +761,7 @@ class TestCase(models.Model):
         db_table = 'ui_test_cases'
         verbose_name = 'UI测试用例'
         verbose_name_plural = 'UI测试用例'
-        ordering = ['-created_at']
+        ordering = ['order', '-created_at']
 
     def __str__(self):
         return self.name

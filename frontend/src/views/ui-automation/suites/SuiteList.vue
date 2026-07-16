@@ -140,17 +140,29 @@
             <div class="selector-panel">
               <div class="panel-header">
                 <h4>{{ $t('uiAutomation.suite.availableCases') }}</h4>
-                <el-input
-                  v-model="testCaseSearchText"
-                  :placeholder="$t('uiAutomation.suite.searchCases')"
-                  size="small"
-                  clearable
-                  style="width: 200px;"
-                >
-                  <template #prefix>
-                    <el-icon><Search /></el-icon>
-                  </template>
-                </el-input>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <el-tree-select
+                    v-model="suiteGroupFilter"
+                    :data="suiteGroupTree"
+                    :props="{ children: 'children', label: 'name', value: 'id' }"
+                    placeholder="全部分组"
+                    clearable
+                    check-strictly
+                    size="small"
+                    style="width: 140px;"
+                  />
+                  <el-input
+                    v-model="testCaseSearchText"
+                    :placeholder="$t('uiAutomation.suite.searchCases')"
+                    size="small"
+                    clearable
+                    style="width: 200px;"
+                  >
+                    <template #prefix>
+                      <el-icon><Search /></el-icon>
+                    </template>
+                  </el-input>
+                </div>
               </div>
               <div class="panel-content">
                 <el-table
@@ -296,7 +308,8 @@ import {
   removeTestCaseFromTestSuite,
   updateTestCaseOrder,
   runTestSuite,
-  getLoginConfigs
+  getLoginConfigs,
+  getTestCaseGroupTree
 } from '@/api/ui_automation'
 import { useI18n } from 'vue-i18n'
 
@@ -340,6 +353,8 @@ const formRules = computed(() => ({
 const availableTestCases = ref([])
 const selectedTestCases = ref([])
 const testCaseSearchText = ref('')
+const suiteGroupFilter = ref(null)
+const suiteGroupTree = ref([])
 
 // 运行配置
 const runConfig = reactive({
@@ -351,13 +366,19 @@ const currentRunningSuite = ref(null)
 
 // 计算属性 - 过滤后的可用测试用例
 const filteredAvailableTestCases = computed(() => {
-  if (!testCaseSearchText.value) {
-    return availableTestCases.value
+  let result = availableTestCases.value
+  // 按分组筛选
+  if (suiteGroupFilter.value) {
+    result = result.filter(tc => tc.group === suiteGroupFilter.value)
   }
-  return availableTestCases.value.filter(tc =>
-    tc.name.toLowerCase().includes(testCaseSearchText.value.toLowerCase()) ||
-    (tc.description && tc.description.toLowerCase().includes(testCaseSearchText.value.toLowerCase()))
-  )
+  // 按关键词筛选
+  if (testCaseSearchText.value) {
+    result = result.filter(tc =>
+      tc.name.toLowerCase().includes(testCaseSearchText.value.toLowerCase()) ||
+      (tc.description && tc.description.toLowerCase().includes(testCaseSearchText.value.toLowerCase()))
+    )
+  }
+  return result
 })
 
 // 加载项目列表
@@ -416,6 +437,19 @@ const loadAvailableTestCases = async () => {
   } catch (error) {
     console.error('获取测试用例列表失败:', error)
     ElMessage.error(t('uiAutomation.suite.messages.loadCasesFailed'))
+  }
+}
+
+const loadSuiteGroupTree = async () => {
+  if (!projectId.value) {
+    suiteGroupTree.value = []
+    return
+  }
+  try {
+    const response = await getTestCaseGroupTree({ project: projectId.value })
+    suiteGroupTree.value = response.data || []
+  } catch (error) {
+    console.error('获取用例分组树失败:', error)
   }
 }
 
@@ -542,7 +576,7 @@ const editSuite = async (id) => {
     selectedTestCases.value = response.data.map(item => item.test_case).sort((a, b) => a.order - b.order)
 
     // 加载可用测试用例和登录配置
-    await Promise.all([loadAvailableTestCases(), loadLoginConfigs()])
+    await Promise.all([loadAvailableTestCases(), loadLoginConfigs(), loadSuiteGroupTree()])
 
     showCreateDialog.value = true
   } catch (error) {

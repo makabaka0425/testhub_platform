@@ -2287,11 +2287,12 @@ const updatePage = async () => {
 }
 
 .sidebar {
-  width: 300px;
+  width: 277px;
+  height: 855px;
   border-right: 1px solid #e4e7ed;
   display: flex;
   flex-direction: column;
-  background: #f5f7fa;
+  background: #fff;
 }
 
 .sidebar-header {
