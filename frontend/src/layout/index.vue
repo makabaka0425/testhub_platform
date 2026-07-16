@@ -2,7 +2,7 @@
   <div class="layout">
     <el-container>
       <!-- 侧边栏 -->
-      <el-aside width="240px">
+      <el-aside width="160px">
         <div class="logo" @click="router.push('/home')" style="cursor: pointer;">
           <img :src="logoImage" alt="TestHub" class="logo-img" />
         </div>
@@ -531,7 +531,7 @@ const handleCommand = (command) => {
   flex-direction: column;
   overflow: hidden;
   transition: width 0.3s ease;
-  width: 240px !important;
+  width: 160px !important;
 
   .el-menu {
     flex: 1;
@@ -675,7 +675,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1920px) {
   .el-aside {
-    width: 220px !important;
+    width: 160px !important;
   }
   
   .el-main {
@@ -685,7 +685,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1600px) {
   .el-aside {
-    width: 200px !important;
+    width: 160px !important;
   }
   
   .el-main {
@@ -702,7 +702,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1440px) {
   .el-aside {
-    width: 180px !important;
+    width: 160px !important;
   }
   
   .el-main {
@@ -719,7 +719,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1366px) {
   .el-aside {
-    width: 180px !important;
+    width: 160px !important;
   }
   
   .el-main {
@@ -766,7 +766,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1024px) {
   .el-aside {
-    width: 140px !important;
+    width: 160px !important;
   }
   
   .el-main {
@@ -800,7 +800,7 @@ const handleCommand = (command) => {
     left: 0;
     top: 0;
     z-index: 1000;
-    width: 240px !important;
+    width: 160px !important;
     transform: translateX(-100%);
     transition: transform 0.3s ease;
     
@@ -832,7 +832,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 480px) {
   .el-aside {
-    width: 220px !important;
+    width: 160px !important;
   }
   
   .el-main {
