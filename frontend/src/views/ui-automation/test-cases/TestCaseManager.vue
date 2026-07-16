@@ -124,42 +124,33 @@
 
           <!-- 测试步骤编辑 -->
           <div class="steps-container" v-show="showSteps">
-            <!-- 前置条件 -->
-            <div class="precondition-section">
-              <div class="section-header" @click="showPreconditions = !showPreconditions">
-                <h4>前置条件</h4>
-                <el-icon><component :is="showPreconditions ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
-              </div>
-              <div v-if="showPreconditions" class="section-content">
-                <el-select
-                  v-model="selectedPreconditions"
-                  multiple
-                  filterable
-                  placeholder="选择前置条件用例（按选择顺序执行）"
-                  style="width: 100%"
-                  size="small"
-                >
-                  <el-option
-                    v-for="tc in availablePreconditions"
-                    :key="tc.id"
-                    :label="tc.name"
-                    :value="tc.id"
-                  />
-                </el-select>
-                <div v-if="selectedPreconditions.length > 0" class="precondition-list">
-                  <div v-for="(pcId, idx) in selectedPreconditions" :key="pcId" class="precondition-item">
-                    <span class="precondition-order">{{ idx + 1 }}</span>
-                    <span class="precondition-name">{{ getTestCaseName(pcId) }}</span>
-                    <el-button size="small" text type="danger" @click="removePrecondition(idx)">
-                      <el-icon><Delete /></el-icon>
-                    </el-button>
-                  </div>
-                </div>
-                <div style="color: #909399; font-size: 12px; margin-top: 4px;">
-                  单用例执行时自动先执行，套件执行时忽略
-                </div>
-              </div>
-            </div>
+             <!-- 前置条件 -->
+             <div class="precondition-section">
+               <div class="section-header" @click="showPreconditions = !showPreconditions">
+                 <h4>前置条件</h4>
+                 <el-icon><component :is="showPreconditions ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+               </div>
+               <div v-if="showPreconditions" class="section-content">
+                 <el-select
+                   v-model="selectedPreconditions"
+                   multiple
+                   filterable
+                   placeholder="选择前置条件用例（按选择顺序执行）"
+                   style="width: 100%"
+                   size="small"
+                 >
+                   <el-option
+                     v-for="tc in availablePreconditions"
+                     :key="tc.id"
+                     :label="tc.name"
+                     :value="tc.id"
+                   />
+                 </el-select>
+                 <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+                   单用例执行时自动先执行，套件执行时忽略
+                 </div>
+               </div>
+             </div>
 
             <div class="steps-header">
               <h4>{{ t('uiAutomation.testCase.testSteps') }}</h4>
@@ -181,58 +172,11 @@
                       <div class="step-header">
                         <div class="step-left">
                           <el-icon class="drag-handle"><Rank /></el-icon>
-                          <span class="step-number">{{ index + 1 }}</span>
-                          <el-select
-                            v-model="element.action_type"
-                            :placeholder="t('uiAutomation.testCase.selectAction')"
-                            size="small"
-                            style="width: 120px"
-                            @change="onActionTypeChange(element)"
-                          >
-                            <el-option :label="t('uiAutomation.testCase.actionClick')" value="click" />
-                            <el-option :label="t('uiAutomation.testCase.actionFill')" value="fill" />
-                            <el-option label="选择下拉选项" value="select" />
-                            <el-option :label="t('uiAutomation.testCase.actionGetText')" value="getText" />
-                            <el-option :label="t('uiAutomation.testCase.actionWaitFor')" value="waitFor" />
-                            <el-option :label="t('uiAutomation.testCase.actionHover')" value="hover" />
-                            <el-option :label="t('uiAutomation.testCase.actionScroll')" value="scroll" />
-                            <el-option :label="t('uiAutomation.testCase.actionScreenshot')" value="screenshot" />
-                            <el-option :label="t('uiAutomation.testCase.actionAssert')" value="assert" />
-                            <el-option :label="t('uiAutomation.testCase.actionWait')" value="wait" />
-                            <el-option :label="t('uiAutomation.testCase.actionSwitchTab')" value="switchTab" />
-                            <el-option label="路由跳转" value="navigate" />
-                          </el-select>
-                          <el-tree-select
-                            v-if="needsElement(element.action_type, element.assert_type)"
-                            v-model="element.element_id"
-                            :data="elementTreeData"
-                            :props="elementTreeProps"
-                            node-key="id"
-                            :placeholder="t('uiAutomation.testCase.selectElement')"
-                            size="small"
-                            style="width: 260px"
-                            filterable
-                            check-strictly
-                            :render-after-expand="false"
-                            default-expand-all
-                            @change="onElementChange(element)"
-                          >
-                            <template #default="{ node, data }">
-                              <div class="element-tree-node">
-                                <span class="element-tree-node-label">{{ node.label }}</span>
-                                <span v-if="data.type === 'element'" class="element-type-tag" :class="data.element_type?.toLowerCase()">
-                                  {{ getElementTypeLabel(data.element_type) }}
-                                </span>
-                              </div>
-                            </template>
-                          </el-tree-select>
-                          <el-input
-                            v-if="['fill', 'getText', 'select'].includes(element.action_type)"
-                            v-model="element.output_var"
-                            placeholder="输出变量名"
-                            size="small"
-                            style="width: 120px"
-                          />
+                          <span class="step-number">{{ index + 1 }}.</span>
+                          <span
+                            class="step-desc-text"
+                            @click="element.expanded = !element.expanded"
+                          >{{ element.description || getStepPlaceholder(element) }}</span>
                         </div>
                         <div class="step-right">
                           <el-button
@@ -251,14 +195,85 @@
                       </div>
 
                       <div v-if="element.expanded" class="step-content">
+                        <!-- 步骤描述 -->
+                        <div class="step-param">
+                          <label>{{ t('uiAutomation.testCase.stepDescription') }}</label>
+                          <el-input
+                            v-model="element.description"
+                            :placeholder="getStepPlaceholder(element)"
+                            size="small"
+                            style="width: 500px"
+                          />
+                        </div>
+
+                        <!-- 操作类型 -->
+                        <div class="step-param">
+                          <label>操作类型</label>
+                          <el-select
+                            v-model="element.action_type"
+                            :placeholder="t('uiAutomation.testCase.selectAction')"
+                            size="small"
+                            style="width: 200px"
+                            @change="onActionTypeChange(element)"
+                          >
+                            <el-option :label="t('uiAutomation.testCase.actionClick')" value="click" />
+                            <el-option :label="t('uiAutomation.testCase.actionFill')" value="fill" />
+                            <el-option label="选择下拉选项" value="select" />
+                            <el-option :label="t('uiAutomation.testCase.actionGetText')" value="getText" />
+                            <el-option :label="t('uiAutomation.testCase.actionWaitFor')" value="waitFor" />
+                            <el-option :label="t('uiAutomation.testCase.actionHover')" value="hover" />
+                            <el-option :label="t('uiAutomation.testCase.actionScroll')" value="scroll" />
+                            <el-option :label="t('uiAutomation.testCase.actionScreenshot')" value="screenshot" />
+                            <el-option :label="t('uiAutomation.testCase.actionAssert')" value="assert" />
+                            <el-option :label="t('uiAutomation.testCase.actionWait')" value="wait" />
+                            <el-option :label="t('uiAutomation.testCase.actionSwitchTab')" value="switchTab" />
+                            <el-option label="路由跳转" value="navigate" />
+                          </el-select>
+                        </div>
+
+                        <!-- 元素选择 -->
+                        <div v-if="needsElement(element.action_type, element.assert_type)" class="step-param">
+                          <label>操作元素</label>
+                          <el-tree-select
+                            v-model="element.element_id"
+                            :data="elementTreeData"
+                            :props="elementTreeProps"
+                            node-key="id"
+                            :placeholder="t('uiAutomation.testCase.selectElement')"
+                            size="small"
+                            style="width: 200px"
+                            check-strictly
+                            :render-after-expand="false"
+                            default-expand-all
+                            @change="onElementChange(element)"
+                          >
+                            <template #default="{ node, data }">
+                              <div class="element-tree-node">
+                                <span class="element-tree-node-label">{{ node.label }}</span>
+                                <span v-if="data.type === 'element'" class="element-type-tag" :class="data.element_type?.toLowerCase()">
+                                  {{ getElementTypeLabel(data.element_type) }}
+                                </span>
+                              </div>
+                            </template>
+                          </el-tree-select>
+                          <el-input
+                            :model-value="getElementDescription(element.element_id)"
+                            placeholder="元素描述"
+                            size="small"
+                            style="width: 300px"
+                            readonly
+                          />
+                        </div>
+
                         <!-- 输入参数 -->
                         <div v-if="needsInputValue(element.action_type)" class="step-param">
                           <label>{{ t('uiAutomation.testCase.inputValue') }}</label>
-                          <div style="display: flex; gap: 5px; flex: 1">
+                          <div style="display: flex; gap: 5px">
                             <el-input
                               v-model="element.input_value"
                               :placeholder="element.action_type === 'select' ? '选项文本，多个用逗号分隔' : element.action_type === 'switchTab' ? t('uiAutomation.testCase.switchTabPlaceholder') : element.action_type === 'navigate' ? '输入路由路径，如 /user/list' : t('uiAutomation.testCase.inputPlaceholder')"
                               size="small"
+                              style="width: 500px"
                             >
                               <template #append>
                                 <el-button
@@ -276,6 +291,17 @@
                               </el-button>
                             </el-tooltip>
                           </div>
+                        </div>
+
+                        <!-- 输出变量名 -->
+                        <div v-if="['fill', 'getText', 'select'].includes(element.action_type)" class="step-param">
+                          <label>输出变量</label>
+                          <el-input
+                            v-model="element.output_var"
+                            placeholder="输出变量名"
+                            size="small"
+                            style="width: 200px"
+                          />
                         </div>
 
                         <!-- 等待时间 -->
@@ -300,6 +326,7 @@
                             :step="1"
                             size="small"
                             placeholder="0"
+                            style="width: 200px"
                           />
                         </div>
 
@@ -339,16 +366,6 @@
                               </el-button>
                             </el-tooltip>
                           </div>
-                        </div>
-
-                        <!-- 步骤描述 -->
-                        <div class="step-param">
-                          <label>{{ t('uiAutomation.testCase.stepDescription') }}</label>
-                          <el-input
-                            v-model="element.description"
-                            :placeholder="t('uiAutomation.testCase.stepDescPlaceholder')"
-                            size="small"
-                          />
                         </div>
                       </div>
                     </div>
@@ -942,6 +959,21 @@ const onElementChange = (step) => {
   if (element) {
     step.description = element.description || `${getActionTypeText(step.action_type)}${element.name}`
   }
+}
+
+// 获取元素描述
+const getElementDescription = (elementId) => {
+  if (!elementId) return ''
+  const element = availableElements.value.find(e => String(e.id) === String(elementId))
+  return element?.description || ''
+}
+
+// 步骤描述为空时，显示操作类型+元素名作为兜底placeholder
+const getStepPlaceholder = (step) => {
+  const actionText = getActionTypeText(step.action_type)
+  const element = availableElements.value.find(e => e.id === step.element_id)
+  const elementName = element ? element.name : ''
+  return elementName ? `${actionText}${elementName}` : actionText || '步骤描述'
 }
 
 const needsInputValue = (actionType) => {
@@ -1570,11 +1602,17 @@ onMounted(async () => {
 }
 
 .panel-header {
-  padding: 12px 15px 12px 12px;
-  border-bottom: 1px solid #e6e6e6;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  height: 48px;
+  padding: 0 15px 0 12px;
+  border-bottom: 1px solid #e6e6e6;
+  box-sizing: border-box;
+}
+
+.panel-header h3 {
+  margin: 0;
 }
 
 .panel-header h3 {
@@ -1651,7 +1689,7 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 20px;
+  padding: 0 20px 20px 20px;
   overflow: hidden;
   height: 100%;
 }
@@ -1660,9 +1698,12 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  height: 48px;
   margin-bottom: 20px;
-  padding-bottom: 15px;
+  padding: 0 12px 0 12px;
   border-bottom: 1px solid #e6e6e6;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .detail-header h3 {
@@ -1671,7 +1712,12 @@ onMounted(async () => {
 
 .detail-actions {
   display: flex;
+  align-items: center;
   gap: 10px;
+}
+
+.detail-actions .el-button {
+  margin: 0;
 }
 
 .steps-container {
@@ -1747,16 +1793,11 @@ onMounted(async () => {
 }
 
 .precondition-order {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #409eff;
-  color: #fff;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #303133;
   flex-shrink: 0;
+  min-width: 20px;
 }
 
 .precondition-name {
@@ -1812,7 +1853,7 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 15px;
+  padding: 6px 12px;
   background: #fafafa;
   border-radius: 6px 6px 0 0;
 }
@@ -1829,16 +1870,25 @@ onMounted(async () => {
 }
 
 .step-number {
-  background: #409eff;
-  color: white;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: bold;
+  font-size: 13px;
+  font-weight: 500;
+  color: #303133;
+  flex-shrink: 0;
+  min-width: 20px;
+}
+
+.step-desc-text {
+  flex: 1;
+  font-size: 13px;
+  color: #303133;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-desc-text:hover {
+  color: #409eff;
 }
 
 .step-right {
@@ -1847,14 +1897,14 @@ onMounted(async () => {
 }
 
 .step-content {
-  padding: 15px;
+  padding: 10px 12px;
   border-top: 1px solid #e6e6e6;
 }
 
 .step-param {
   display: flex;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   gap: 10px;
 }
 
