@@ -4583,6 +4583,36 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['post'])
+    def add_test_cases(self, request, pk=None):
+        """批量向测试套件添加测试用例"""
+        test_suite = self.get_object()
+        test_case_ids = request.data.get('test_case_ids', [])
+
+        try:
+            from .models import TestSuiteTestCase
+            added = []
+            existing = set(TestSuiteTestCase.objects.filter(
+                test_suite=test_suite
+            ).values_list('test_case_id', flat=True))
+            max_order = TestSuiteTestCase.objects.filter(
+                test_suite=test_suite
+            ).aggregate(max_order=models.Max('order'))['max_order'] or 0
+
+            for i, tc_id in enumerate(test_case_ids):
+                if tc_id in existing:
+                    continue
+                max_order += 1
+                suite_tc = TestSuiteTestCase.objects.create(
+                    test_suite=test_suite,
+                    test_case_id=tc_id,
+                    order=max_order
+                )
+                added.append(TestSuiteTestCaseSerializer(suite_tc).data)
+            return Response({'added': added, 'added_count': len(added)}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=True, methods=['delete'])
     def remove_test_case(self, request, pk=None):
         """从测试套件移除测试用例"""
@@ -4599,6 +4629,22 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         except TestSuiteTestCase.DoesNotExist:
             return Response({'error': '测试用例不存在于该测试套件中'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['delete'])
+    def remove_test_cases(self, request, pk=None):
+        """批量从测试套件移除测试用例"""
+        test_suite = self.get_object()
+        test_case_ids = request.data.get('test_case_ids', [])
+
+        try:
+            from .models import TestSuiteTestCase
+            removed = TestSuiteTestCase.objects.filter(
+                test_suite=test_suite,
+                test_case_id__in=test_case_ids
+            ).delete()
+            return Response({'removed_count': removed[0]}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'])
     def update_test_case_order(self, request, pk=None):
@@ -5701,6 +5747,86 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     return False
 
                             if steps_data:
+                                # 执行前置数据SQL（在登录和前置条件之前执行）
+                                if test_case.precondition_sql and test_case.precondition_sql.strip():
+                                    execution_logs.append("")
+                                    execution_logs.append("========== 执行前置数据SQL ==========")
+                                    try:
+                                        from .variable_resolver import resolve_variables
+                                        resolved_sql = resolve_variables(test_case.precondition_sql, context_variables)
+                                        execution_logs.append(f"  前置SQL: {resolved_sql[:200]}")
+
+                                        project = test_case.project
+                                        if project.target_db_engine:
+                                            import sqlalchemy
+                                            db_url = None
+                                            if project.target_db_engine == 'mysql':
+                                                db_url = f"mysql+pymysql://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port or 3306}/{project.target_db_name}"
+                                            elif project.target_db_engine == 'postgresql':
+                                                db_url = f"postgresql+psycopg2://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port or 5432}/{project.target_db_name}"
+                                            elif project.target_db_engine == 'sqlite':
+                                                db_url = f"sqlite:///{project.target_db_name}"
+                                            elif project.target_db_engine == 'oracle':
+                                                db_url = f"oracle+cx_oracle://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port or 1521}/?service_name={project.target_db_name}"
+
+                                            if db_url:
+                                                engine_db = sqlalchemy.create_engine(db_url)
+                                                pre_sql_failed = False
+                                                with engine_db.connect() as conn:
+                                                    sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip() and not s.strip().startswith('--')]
+                                                    for sql_stmt in sql_statements:
+                                                        sql_upper = sql_stmt.strip().upper()
+                                                        # 安全检查：仅禁止DROP
+                                                        if sql_upper.startswith('DROP'):
+                                                            execution_logs.append(f"  ✗ 跳过危险SQL(DROP): {sql_stmt[:50]}...")
+                                                            continue
+                                                        try:
+                                                            result_sql = conn.execute(sqlalchemy.text(sql_stmt))
+                                                            conn.commit()
+                                                            affected = result_sql.rowcount if result_sql.rowcount >= 0 else 0
+                                                            execution_logs.append(f"  ✓ 执行成功: {sql_stmt[:60]}... (影响 {affected} 行)")
+                                                        except Exception as sql_err:
+                                                            execution_logs.append(f"  ✗ 执行失败: {sql_stmt[:60]}... 错误: {str(sql_err)}")
+                                                            pre_sql_failed = True
+
+                                                if pre_sql_failed:
+                                                    execution_logs.append("✗ 前置数据SQL执行失败，用例跳过")
+                                                    execution_result['status'] = 'skipped'
+                                                    execution_result['error_message'] = '前置数据SQL执行失败'
+                                                    # 清理退出
+                                                    try:
+                                                        if not headless:
+                                                            try:
+                                                                await engine.page.wait_for_load_state('networkidle', timeout=5000)
+                                                            except:
+                                                                pass
+                                                            await asyncio.sleep(1)
+                                                        await engine.stop()
+                                                    except:
+                                                        pass
+                                                    return False
+                                                else:
+                                                    execution_logs.append("✓ 前置数据SQL执行完成")
+                                            else:
+                                                execution_logs.append("  ⚠ 不支持的数据库类型，跳过前置SQL执行")
+                                        else:
+                                            execution_logs.append("  ⚠ 项目未配置被测数据库连接，跳过前置SQL执行")
+                                    except Exception as e:
+                                        execution_logs.append(f"  ✗ 前置数据SQL执行失败: {str(e)}")
+                                        execution_result['status'] = 'skipped'
+                                        execution_result['error_message'] = f'前置数据SQL执行失败: {str(e)}'
+                                        try:
+                                            if not headless:
+                                                try:
+                                                    await engine.page.wait_for_load_state('networkidle', timeout=5000)
+                                                except:
+                                                    pass
+                                                await asyncio.sleep(1)
+                                            await engine.stop()
+                                        except:
+                                            pass
+                                        return False
+
                                 # 执行前置条件（单条用例执行时，使用预取数据避免异步上下文中的ORM访问）
                                 if preconditions_data:
                                     execution_logs.append("========== 执行前置条件 ==========")
@@ -5742,7 +5868,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                 break
 
                                         if not pre_passed:
-                                            execution_result['status'] = 'failed'
+                                            execution_result['status'] = 'skipped'
                                             execution_result['error_message'] = f"前置用例「{pre_case_name}」执行失败"
                                             execution_logs.append(f"✗ 前置条件失败，跳过当前用例")
                                             # 清理退出
@@ -6031,6 +6157,14 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             execution.screenshots = screenshots
             execution.save()
             logger.info(f"[调试] 执行结果已保存: execution.status = {execution.status}")
+
+            # 回写用例状态：执行结果映射为 TestCase.status
+            status_map = {'passed': 'passed', 'failed': 'failed', 'skipped': 'skipped'}
+            new_status = status_map.get(execution.status)
+            if new_status and test_case.status != new_status:
+                test_case.status = new_status
+                test_case.save(update_fields=['status', 'updated_at'])
+                logger.info(f"[状态更新] 用例「{test_case.name}」状态更新为: {new_status}")
 
             serializer = TestCaseExecutionSerializer(execution)
             # 格式化错误信息为统一的对象格式

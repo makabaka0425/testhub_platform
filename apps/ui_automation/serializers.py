@@ -658,7 +658,7 @@ class TestCaseSerializer(serializers.ModelSerializer):
         model = TestCase
         fields = [
             'id', 'name', 'description', 'project', 'project_name', 'group', 'group_name', 'status', 'priority', 'order',
-            'preconditions', 'preconditions_data', 'postcondition_sql',
+            'preconditions', 'preconditions_data', 'postcondition_sql', 'precondition_sql',
             'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps'
         ]
         read_only_fields = ['created_by']

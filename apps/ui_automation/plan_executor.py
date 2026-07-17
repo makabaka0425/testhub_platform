@@ -249,6 +249,13 @@ class PlanExecutor:
         case_execution.finished_at = timezone.now()
         case_execution.save()
 
+        # 回写用例状态
+        status_map = {'passed': 'passed', 'failed': 'failed', 'skipped': 'skipped'}
+        new_status = status_map.get(case_execution.status)
+        if new_status and test_case.status != new_status:
+            test_case.status = new_status
+            test_case.save(update_fields=['status', 'updated_at'])
+
         return {
             'item_type': 'test_case',
             'item_id': test_case.id,
@@ -306,6 +313,13 @@ class PlanExecutor:
             case_execution.finished_at = timezone.now()
             case_execution.save()
 
+            # 回写用例状态
+            status_map = {'passed': 'passed', 'failed': 'failed', 'skipped': 'skipped'}
+            new_status = status_map.get(case_execution.status)
+            if new_status and case.status != new_status:
+                case.status = new_status
+                case.save(update_fields=['status', 'updated_at'])
+
             if case_execution.status in ('passed',):
                 passed += 1
             else:
@@ -351,6 +365,13 @@ class PlanExecutor:
         case_execution.execution_time = time.time() - start_time
         case_execution.finished_at = timezone.now()
         case_execution.save()
+
+        # 回写用例状态
+        status_map = {'passed': 'passed', 'failed': 'failed', 'skipped': 'skipped'}
+        new_status = status_map.get(case_execution.status)
+        if new_status and test_case.status != new_status:
+            test_case.status = new_status
+            test_case.save(update_fields=['status', 'updated_at'])
 
         return {
             'item_type': 'test_case',
@@ -414,6 +435,13 @@ class PlanExecutor:
             case_execution.finished_at = timezone.now()
             case_execution.save()
 
+            # 回写用例状态
+            status_map = {'passed': 'passed', 'failed': 'failed', 'skipped': 'skipped'}
+            new_status = status_map.get(case_execution.status)
+            if new_status and case.status != new_status:
+                case.status = new_status
+                case.save(update_fields=['status', 'updated_at'])
+
             if case_execution.status == 'passed':
                 passed += 1
             else:
@@ -464,6 +492,13 @@ class PlanExecutor:
         case_execution.execution_time = time.time() - start_time
         case_execution.finished_at = timezone.now()
         case_execution.save()
+
+        # 回写用例状态
+        status_map = {'passed': 'passed', 'failed': 'failed', 'skipped': 'skipped'}
+        new_status = status_map.get(case_execution.status)
+        if new_status and test_case.status != new_status:
+            test_case.status = new_status
+            test_case.save(update_fields=['status', 'updated_at'])
 
         return {
             'item_type': 'test_case',

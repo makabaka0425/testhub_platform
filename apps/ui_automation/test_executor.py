@@ -439,6 +439,8 @@ class TestExecutor:
 
             # 预取后置SQL和输出变量列表（用于套件级变量共享和后置SQL延迟执行）
             case_data['postcondition_sql'] = test_case.postcondition_sql or ''
+            # 预取前置数据SQL（始终执行）
+            case_data['precondition_sql'] = test_case.precondition_sql or ''
             case_data['output_vars'] = []
             # 收集该用例所有步骤的输出变量名
             for step in test_case.steps.filter(is_cleanup=False).order_by('step_number'):
@@ -613,6 +615,14 @@ class TestExecutor:
                                 case_execution.finished_at = timezone.now()
                                 case_execution.error_message = case_result['error']
                                 case_execution.save()
+                                # 回写用例状态为skipped
+                                try:
+                                    tc = TestCase.objects.get(id=case_data['id'])
+                                    if tc.status != 'skipped':
+                                        tc.status = 'skipped'
+                                        tc.save(update_fields=['status', 'updated_at'])
+                                except TestCase.DoesNotExist:
+                                    pass
                                 skipped += 1
                                 continue
 
@@ -725,6 +735,14 @@ class TestExecutor:
                         case_execution.finished_at = timezone.now()
                         case_execution.error_message = case_result['error']
                         case_execution.save()
+                        # 回写用例状态为skipped
+                        try:
+                            tc = TestCase.objects.get(id=case_data['id'])
+                            if tc.status != 'skipped':
+                                tc.status = 'skipped'
+                                tc.save(update_fields=['status', 'updated_at'])
+                        except TestCase.DoesNotExist:
+                            pass
                         skipped += 1
                         continue
 
@@ -1026,6 +1044,12 @@ class TestExecutor:
                 var_name = match.group(1)
                 if var_name in failed_vars:
                     dep_failed_vars.add(var_name)
+            # 检查前置数据SQL中的变量引用
+            pre_sql = case_data.get('precondition_sql', '') or ''
+            for match in var_pattern.finditer(pre_sql):
+                var_name = match.group(1)
+                if var_name in failed_vars:
+                    dep_failed_vars.add(var_name)
 
         if dep_failed_vars:
             return ', '.join(sorted(dep_failed_vars))
@@ -1070,6 +1094,15 @@ class TestExecutor:
             original_context_variables = self.context_variables
             if shared_variables is not None:
                 self.context_variables = shared_variables
+
+            # 执行前置数据SQL（在步骤执行前，支持变量引用）
+            pre_sql_ok = self._execute_precondition_sql(case_data, result, shared_variables)
+            if not pre_sql_ok:
+                # 前置SQL失败，result已被标记为skipped
+                result['end_time'] = datetime.now().isoformat()
+                if shared_variables is not None:
+                    self.context_variables = original_context_variables
+                return result
 
             # 遍历预先准备好的步骤数据
             just_switched_tab = False  # 跟踪是否刚切换了标签页
@@ -1260,6 +1293,18 @@ class TestExecutor:
             if result['error']:
                 case_execution.error_message = result['error']
             case_execution.save()
+
+            # 回写用例状态
+            status_map = {'passed': 'passed', 'failed': 'failed', 'skipped': 'skipped'}
+            new_status = status_map.get(result['status'])
+            if new_status:
+                try:
+                    tc = TestCase.objects.get(id=case_data['id'])
+                    if tc.status != new_status:
+                        tc.status = new_status
+                        tc.save(update_fields=['status', 'updated_at'])
+                except TestCase.DoesNotExist:
+                    pass
 
         except Exception as e:
             result['status'] = 'failed'
@@ -3179,6 +3224,18 @@ class TestExecutor:
                 case_execution.error_message = result['error']
             case_execution.save()
 
+            # 回写用例状态
+            status_map = {'passed': 'passed', 'failed': 'failed', 'skipped': 'skipped'}
+            new_status = status_map.get(result['status'])
+            if new_status:
+                try:
+                    tc = TestCase.objects.get(id=case_data['id'])
+                    if tc.status != new_status:
+                        tc.status = new_status
+                        tc.save(update_fields=['status', 'updated_at'])
+                except TestCase.DoesNotExist:
+                    pass
+
         except Exception as e:
             result['status'] = 'failed'
             result['error'] = str(e)
@@ -4061,6 +4118,148 @@ class TestExecutor:
                 try:
                     conn.close()
                 except:
+                    pass
+
+    def _execute_precondition_sql(self, case_data, result, context_variables=None):
+        """执行用例的前置数据SQL（在登录和步骤执行之前执行）
+
+        Args:
+            case_data: 用例数据字典
+            result: 结果字典，失败时标记status为skipped
+            context_variables: 变量池（套件模式下使用共享变量池）
+
+        Returns:
+            bool: True表示执行成功或无前置SQL，False表示执行失败（应标记为skipped）
+        """
+        precondition_sql = case_data.get('precondition_sql', '')
+        if not precondition_sql or not precondition_sql.strip():
+            return True
+
+        # 确定变量池
+        vars_pool = context_variables if context_variables is not None else self.context_variables
+
+        # 变量替换
+        from .variable_resolver import resolve_variables
+        resolved_sql = resolve_variables(precondition_sql, vars_pool)
+
+        print(f"[前置数据] 执行前置数据SQL: {resolved_sql[:200]}")
+
+        # 获取项目数据库配置
+        from .models import TestCase
+        try:
+            test_case = TestCase.objects.get(id=case_data['id'])
+        except TestCase.DoesNotExist:
+            return True
+
+        project = test_case.project
+        if not project.target_db_type:
+            result['precondition_sql'] = {
+                'executed': False,
+                'error': '项目未配置被测数据库连接'
+            }
+            result['status'] = 'skipped'
+            result['error'] = '前置数据SQL无法执行: 项目未配置被测数据库连接'
+            return False
+
+        # 解析SQL
+        import re
+        sqls = [s.strip() for s in re.split(r';\s*\n', resolved_sql) if s.strip() and not s.strip().startswith('--')]
+        db_type = project.target_db_type.lower()
+        details = []
+        total_affected = 0
+        conn = None
+        has_error = False
+
+        try:
+            if db_type == 'mysql':
+                import pymysql
+                conn = pymysql.connect(
+                    host=project.target_db_host,
+                    port=project.target_db_port or 3306,
+                    user=project.target_db_user,
+                    password=project.target_db_password,
+                    database=project.target_db_name,
+                    charset='utf8mb4',
+                    cursorclass=pymysql.cursors.Cursor,
+                    connect_timeout=10
+                )
+            elif db_type in ('postgresql', 'postgres'):
+                import psycopg2
+                conn = psycopg2.connect(
+                    host=project.target_db_host,
+                    port=project.target_db_port or 5432,
+                    user=project.target_db_user,
+                    password=project.target_db_password,
+                    dbname=project.target_db_name,
+                    connect_timeout=10
+                )
+            elif db_type == 'sqlite':
+                import sqlite3
+                conn = sqlite3.connect(project.target_db_name)
+            elif db_type == 'oracle':
+                import cx_Oracle
+                dsn = cx_Oracle.makedsn(project.target_db_host, project.target_db_port or 1521, service_name=project.target_db_name)
+                conn = cx_Oracle.connect(user=project.target_db_user, password=project.target_db_password, dsn=dsn)
+            else:
+                result['precondition_sql'] = {'executed': False, 'error': f'不支持的数据库类型: {db_type}'}
+                result['status'] = 'skipped'
+                result['error'] = f'前置数据SQL无法执行: 不支持的数据库类型 {db_type}'
+                return False
+
+            with conn.cursor() as cursor:
+                for sql in sqls:
+                    sql_upper = sql.strip().upper()
+                    # 安全检查：仅禁止DROP语句
+                    if sql_upper.startswith('DROP'):
+                        details.append({'sql': sql, 'error': '禁止执行DROP语句', 'affected': 0})
+                        print(f"[前置数据] ✗ 跳过危险SQL: {sql[:50]}...")
+                        continue
+                    try:
+                        cursor.execute(sql)
+                        affected = cursor.rowcount if cursor.rowcount >= 0 else 0
+                        details.append({'sql': sql, 'affected': affected})
+                        total_affected += affected
+                        print(f"[前置数据] ✓ 执行成功: {sql[:50]}... 影响 {affected} 行")
+                    except Exception as e:
+                        details.append({'sql': sql, 'error': str(e), 'affected': 0})
+                        has_error = True
+                        print(f"[前置数据] ✗ 执行失败: {sql[:50]}... 错误: {str(e)}")
+            conn.commit()
+
+            if has_error:
+                result['precondition_sql'] = {
+                    'executed': True,
+                    'has_error': True,
+                    'total_affected': total_affected,
+                    'details': details
+                }
+                result['status'] = 'skipped'
+                result['error'] = '前置数据SQL执行失败，用例跳过'
+                print(f"[前置数据] 执行存在错误，用例标记为skipped")
+                return False
+            else:
+                result['precondition_sql'] = {
+                    'executed': True,
+                    'total_affected': total_affected,
+                    'details': details
+                }
+                print(f"[前置数据] 执行完成，影响 {total_affected} 行")
+                return True
+
+        except Exception as e:
+            result['precondition_sql'] = {
+                'executed': False,
+                'error': str(e)
+            }
+            result['status'] = 'skipped'
+            result['error'] = f'前置数据SQL执行失败: {str(e)}'
+            print(f"[前置数据] 执行失败: {str(e)}")
+            return False
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
                     pass
 
     def _execute_postcondition_sql(self, case_data, result):
