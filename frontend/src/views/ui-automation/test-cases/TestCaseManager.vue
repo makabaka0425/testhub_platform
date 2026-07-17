@@ -410,6 +410,24 @@
                 </div>
               </div>
 
+              <!-- 前置数据SQL -->
+              <div class="condition-section precondition-sql-section">
+                <div class="section-header" @click="showPreconditionSql = !showPreconditionSql">
+                  <h4>前置数据SQL</h4>
+                  <el-icon><component :is="showPreconditionSql ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+                </div>
+                <div v-if="showPreconditionSql" class="section-content">
+                  <el-input
+                    v-model="preconditionSql"
+                    type="textarea"
+                    :rows="3"
+                    size="small"
+                    placeholder="用例执行前自动执行的数据准备SQL，多条用分号分隔&#10;例如：INSERT INTO users (username, password) VALUES ('${username}', '123456');&#10;支持 INSERT/UPDATE/DELETE，仅禁止 DROP，可用 ${变量名} 引用变量"
+                  />
+                  <div class="section-tip">在登录和步骤执行前执行，始终运行（套件/计划中也不例外）；需先在项目配置中设置数据库连接</div>
+                </div>
+              </div>
+
               <!-- 后置清理SQL -->
               <div class="condition-section postcondition-section">
                 <div class="section-header" @click="showPostcondition = !showPostcondition">
@@ -601,6 +619,17 @@
           </el-select>
           <div style="color: var(--gray-500); font-size: 12px; margin-top: 4px;">
             前置条件在单用例执行时自动先执行，套件执行时忽略
+          </div>
+        </el-form-item>
+        <el-form-item label="前置数据SQL">
+          <el-input
+            v-model="testCaseForm.precondition_sql"
+            type="textarea"
+            :rows="4"
+            placeholder="用例执行前自动执行的数据准备SQL，多条用分号分隔&#10;例如：INSERT INTO users (username, password) VALUES ('${username}', '123456');&#10;支持 INSERT/UPDATE/DELETE，仅禁止 DROP，可用 ${变量名} 引用变量"
+          />
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            在登录和步骤执行前执行，始终运行；需先在项目配置中设置数据库连接
           </div>
         </el-form-item>
         <el-form-item label="后置清理SQL">
@@ -828,8 +857,10 @@ const groupTreeSelectData = computed(() => {
 // 前置条件/后置条件（详情面板编辑）
 const selectedPreconditions = ref([])
 const postconditionSql = ref('')
+const preconditionSql = ref('')
 const showPreconditions = ref(false)
 const showPostcondition = ref(false)
+const showPreconditionSql = ref(false)
 const showTestSteps = ref(true)
 
 const getTestCaseName = (id) => {
@@ -850,6 +881,7 @@ const testCaseForm = reactive({
   priority: 'medium',
   preconditions: [],
   postcondition_sql: '',
+  precondition_sql: '',
   group: null
 })
 
@@ -1038,8 +1070,10 @@ const selectTestCase = (testCase) => {
   // 加载前置条件和后置条件
   selectedPreconditions.value = (testCase.preconditions_data || []).map(pc => pc.id)
   postconditionSql.value = testCase.postcondition_sql || ''
+  preconditionSql.value = testCase.precondition_sql || ''
   showPreconditions.value = selectedPreconditions.value.length > 0
   showPostcondition.value = !!testCase.postcondition_sql
+  showPreconditionSql.value = !!testCase.precondition_sql
   // 只有在切换到不同用例时才清空执行结果
   executionResult.value = null
   showSteps.value = true
@@ -1166,7 +1200,8 @@ const saveTestCase = async () => {
       ...selectedTestCase.value,
       steps: currentSteps.value,
       preconditions: selectedPreconditions.value,
-      postcondition_sql: postconditionSql.value
+      postcondition_sql: postconditionSql.value,
+      precondition_sql: preconditionSql.value
     }
 
     await updateTestCase(selectedTestCase.value.id, updateData)
@@ -1263,6 +1298,7 @@ const editTestCase = (testCase) => {
   // 加载前置条件（preconditions_data 是 [{id, name, order}] 格式，转为 id 列表）
   testCaseForm.preconditions = (testCase.preconditions_data || []).map(pc => pc.id)
   testCaseForm.postcondition_sql = testCase.postcondition_sql || ''
+  testCaseForm.precondition_sql = testCase.precondition_sql || ''
   showCreateDialog.value = true
 }
 
@@ -1525,6 +1561,7 @@ const saveTestCaseForm = async () => {
       priority: testCaseForm.priority,
       preconditions: testCaseForm.preconditions,
       postcondition_sql: testCaseForm.postcondition_sql,
+      precondition_sql: testCaseForm.precondition_sql,
       group: testCaseForm.group || null,
       project: projectId.value,
     }
@@ -1570,6 +1607,7 @@ const resetForm = () => {
   testCaseForm.priority = 'medium'
   testCaseForm.preconditions = []
   testCaseForm.postcondition_sql = ''
+  testCaseForm.precondition_sql = ''
   testCaseForm.group = null
 }
 
@@ -1578,7 +1616,8 @@ const getStatusTag = (status) => {
   const tagMap = {
     'normal': 'info',
     'passed': 'success',
-    'failed': 'danger'
+    'failed': 'danger',
+    'skipped': 'warning'
   }
   return tagMap[status] || 'info'
 }
@@ -1587,7 +1626,8 @@ const getStatusText = (status) => {
   const textMap = {
     'normal': '正常',
     'passed': '通过',
-    'failed': '失败'
+    'failed': '失败',
+    'skipped': '跳过'
   }
   return textMap[status] || '未知'
 }
@@ -2175,6 +2215,11 @@ onMounted(async () => {
 .status-tag.status-failed {
   background: var(--error-bg);
   color: #dc2626;
+}
+
+.status-tag.status-skipped {
+  background: var(--warning-bg, #fef3c7);
+  color: #d97706;
 }
 
 /* 操作按钮 */
