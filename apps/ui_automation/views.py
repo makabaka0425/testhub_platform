@@ -3977,7 +3977,11 @@ DOM数据：
                 'type': 'element',
                 'element_type': element.element_type,
                 'locator_strategy': element.locator_strategy.name if element.locator_strategy else None,
+                'locator_strategy_id': element.locator_strategy_id,
                 'locator_value': element.locator_value,
+                'wait_timeout': element.wait_timeout,
+                'force_action': element.force_action,
+                'description': element.description or '',
                 'validation_status': element.validation_status,
                 'usage_count': element.usage_count,
                 'group_id': element.group_id,  # 用于前端关联到页面
@@ -6192,6 +6196,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
             return Response({
                 'success': execution.status == 'passed',
+                'status': execution.status,
                 'logs': execution.execution_logs,
                 'screenshots': screenshots,
                 'execution_time': execution.execution_time,
