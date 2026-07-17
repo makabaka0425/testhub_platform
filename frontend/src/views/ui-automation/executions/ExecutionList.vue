@@ -629,36 +629,17 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .page-container {
-  padding: 20px;
   height: calc(100vh - 100px);
-  overflow: hidden;
-  background: #f5f5f5;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
   flex-shrink: 0;
 }
 
-.page-title {
-  margin: 0;
-  font-size: 24px;
-  color: #303133;
-}
-
 .card-container {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -667,7 +648,6 @@ onMounted(async () => {
 }
 
 .filter-bar {
-  margin-bottom: 20px;
   flex-shrink: 0;
 }
 
@@ -679,8 +659,6 @@ onMounted(async () => {
 
 .pagination-container {
   margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
   flex-shrink: 0;
 }
 

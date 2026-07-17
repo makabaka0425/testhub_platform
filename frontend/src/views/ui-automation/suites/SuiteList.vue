@@ -2,33 +2,35 @@
   <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">{{ $t('uiAutomation.suite.title') }}</h1>
-      <el-select v-model="projectId" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px; margin-right: 15px" @change="onProjectChange">
-        <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
-      </el-select>
-      <el-button type="primary" @click="handleNewSuite">
-        <el-icon><Plus /></el-icon>
-        {{ $t('uiAutomation.suite.newSuite') }}
-      </el-button>
+      <div class="header-actions">
+        <el-select v-model="projectId" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px" @change="onProjectChange">
+          <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+        </el-select>
+        <el-button type="primary" @click="handleNewSuite">
+          <el-icon><Plus /></el-icon>
+          {{ $t('uiAutomation.suite.newSuite') }}
+        </el-button>
+      </div>
     </div>
 
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
-            <el-input
-              v-model="searchText"
-              :placeholder="$t('uiAutomation.suite.searchPlaceholder')"
-              clearable
-              @input="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-col>
-        </el-row>
-      </div>
+    <div class="filter-bar">
+      <el-form :inline="true">
+        <el-form-item>
+          <el-input
+            v-model="searchText"
+            :placeholder="$t('uiAutomation.suite.searchPlaceholder')"
+            clearable
+            @input="handleSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
+      </el-form>
+    </div>
 
+    <div class="table-scroll-area">
       <el-table :data="suites" v-loading="loading" style="width: 100%">
         <el-table-column type="selection" width="55" />
         <el-table-column prop="name" :label="$t('uiAutomation.suite.suiteName')" min-width="200">
@@ -84,7 +86,7 @@
         <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="editSuite(row.id)">{{ $t('uiAutomation.common.edit') }}</el-button>
-            <el-button link type="success" @click="runSuite(row)">{{ $t('uiAutomation.common.run') }}</el-button>
+            <el-button link type="primary" @click="runSuite(row)">{{ $t('uiAutomation.common.run') }}</el-button>
             <el-button link type="danger" @click="deleteSuite(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
           </template>
         </el-table-column>
@@ -823,41 +825,10 @@ const handleNewSuite = async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  padding: 20px;
-  background: #f5f5f5;
-  min-height: calc(100vh - 100px);
-}
-
-.page-header {
+.header-actions {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 24px;
-}
-
-.card-container {
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
-}
-
-.filter-bar {
-  margin-bottom: 20px;
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
+  gap: 12px;
 }
 
 // 测试用例选择器样式

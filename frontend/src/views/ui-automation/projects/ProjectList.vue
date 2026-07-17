@@ -8,31 +8,31 @@
       </el-button>
     </div>
     
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
-            <el-input
-              v-model="searchText"
-              :placeholder="$t('uiAutomation.project.searchPlaceholder')"
-              clearable
-              @input="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-col>
-          <el-col :span="4">
-            <el-select v-model="statusFilter" :placeholder="$t('uiAutomation.project.statusFilter')" clearable @change="handleFilter">
-              <el-option :label="$t('uiAutomation.status.notStarted')" value="NOT_STARTED" />
-              <el-option :label="$t('uiAutomation.status.inProgress')" value="IN_PROGRESS" />
-              <el-option :label="$t('uiAutomation.status.completed')" value="COMPLETED" />
-            </el-select>
-          </el-col>
-        </el-row>
-      </div>
+    <div class="filter-bar">
+      <el-form :inline="true">
+        <el-form-item>
+          <el-input
+            v-model="searchText"
+            :placeholder="$t('uiAutomation.project.searchPlaceholder')"
+            clearable
+            @input="handleSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item>
+          <el-select v-model="statusFilter" :placeholder="$t('uiAutomation.project.statusFilter')" clearable @change="handleFilter">
+            <el-option :label="$t('uiAutomation.status.notStarted')" value="NOT_STARTED" />
+            <el-option :label="$t('uiAutomation.status.inProgress')" value="IN_PROGRESS" />
+            <el-option :label="$t('uiAutomation.status.completed')" value="COMPLETED" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+    </div>
       
+    <div class="table-scroll-area">
       <el-table :data="projects" v-loading="loading" style="width: 100%">
         <el-table-column prop="name" :label="$t('uiAutomation.project.projectName')" min-width="200">
           <template #default="{ row }">
@@ -54,13 +54,13 @@
         <el-table-column :label="$t('uiAutomation.common.operation')" width="240" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="goToProjectDetail(row.id)">{{ $t('uiAutomation.common.view') }}</el-button>
-            <el-button link @click="editProject(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
-            <el-button link type="warning" @click="showCleanDialog(row)">清理数据</el-button>
+            <el-button link type="primary" @click="editProject(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
+            <el-button link type="danger" @click="showCleanDialog(row)">清理数据</el-button>
             <el-button link type="danger" @click="deleteProject(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
-      
+
       <div class="pagination-container">
         <el-pagination
           v-model:current-page="pagination.currentPage"
@@ -762,39 +762,3 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
-.page-container {
-  padding: 20px;
-  height: 100%;
-  overflow-y: auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 24px;
-}
-
-.card-container {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.filter-bar {
-  margin-bottom: 20px;
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
-</style>

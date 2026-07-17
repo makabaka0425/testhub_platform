@@ -1,47 +1,49 @@
 <template>
   <div class="page-container">
-    <div class="page-header" style="display: flex; align-items: center;">
-      <h1 class="page-title" style="margin-right: 20px; margin-bottom: 0;">{{ $t('uiAutomation.element.title') }}</h1>
-      <el-select v-model="projectId" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px; margin-right: 15px" @change="onProjectChange">
-        <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
-      </el-select>
-      <el-button type="primary" @click="handleShowCreateDialog">
-        <el-icon><Plus /></el-icon>
-        {{ $t('uiAutomation.element.newElement') }}
-      </el-button>
-      <el-button type="success" @click="showAiExtractDialog = true">
-        AI 智能提取
-      </el-button>
+    <div class="page-header">
+      <h1 class="page-title">{{ $t('uiAutomation.element.title') }}</h1>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <el-select v-model="projectId" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px;" @change="onProjectChange">
+          <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+        </el-select>
+        <el-button type="primary" @click="handleShowCreateDialog">
+          <el-icon><Plus /></el-icon>
+          {{ $t('uiAutomation.element.newElement') }}
+        </el-button>
+        <el-button type="success" @click="showAiExtractDialog = true">
+          AI 智能提取
+        </el-button>
+      </div>
     </div>
     
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
-            <el-input
-              v-model="searchText"
-              :placeholder="$t('uiAutomation.element.searchPlaceholder')"
-              clearable
-              @input="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-col>
-          <el-col :span="4">
-            <el-select v-model="strategyFilter" :placeholder="$t('uiAutomation.element.strategyFilter')" clearable @change="handleFilter">
-              <el-option v-for="strategy in strategies" :key="strategy.id" :label="strategy.name" :value="strategy.id" />
-            </el-select>
-          </el-col>
-          <el-col :span="4">
-            <el-select v-model="pageFilter" :placeholder="$t('uiAutomation.element.pageFilter')" clearable @change="handleFilter">
-              <el-option v-for="page in pages" :key="page" :label="page" :value="page" />
-            </el-select>
-          </el-col>
-        </el-row>
-      </div>
-      
+    <div class="filter-bar">
+      <el-form :inline="true">
+        <el-form-item>
+          <el-input
+            v-model="searchText"
+            :placeholder="$t('uiAutomation.element.searchPlaceholder')"
+            clearable
+            @input="handleSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item>
+          <el-select v-model="strategyFilter" :placeholder="$t('uiAutomation.element.strategyFilter')" clearable @change="handleFilter">
+            <el-option v-for="strategy in strategies" :key="strategy.id" :label="strategy.name" :value="strategy.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-select v-model="pageFilter" :placeholder="$t('uiAutomation.element.pageFilter')" clearable @change="handleFilter">
+            <el-option v-for="page in pages" :key="page" :label="page" :value="page" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+    </div>
+
+    <div class="table-scroll-area">
       <el-table :data="elements" v-loading="loading" style="width: 100%">
         <el-table-column type="selection" width="55" />
         <el-table-column prop="name" :label="$t('uiAutomation.element.elementName')" min-width="150">
@@ -63,18 +65,9 @@
         <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
         <el-table-column :label="$t('uiAutomation.common.operation')" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" @click="showElementDetail(row.id)">
-              <el-icon><View /></el-icon>
-              {{ $t('uiAutomation.common.view') }}
-            </el-button>
-            <el-button size="small" @click="editElement(row)">
-              <el-icon><Edit /></el-icon>
-              {{ $t('uiAutomation.common.edit') }}
-            </el-button>
-            <el-button size="small" type="danger" @click="handleDeleteElement(row.id)">
-              <el-icon><Delete /></el-icon>
-              {{ $t('uiAutomation.common.delete') }}
-            </el-button>
+            <el-button link type="primary" @click="showElementDetail(row.id)">{{ $t('uiAutomation.common.view') }}</el-button>
+            <el-button link type="primary" @click="editElement(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
+            <el-button link type="danger" @click="handleDeleteElement(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -307,7 +300,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, View, Edit, Delete, Loading } from '@element-plus/icons-vue'
+import { Plus, Search, Loading } from '@element-plus/icons-vue'
 import {
   getUiProjects,
   getElements,
@@ -853,38 +846,5 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.page-container {
-  padding: 20px;
-  height: 100%;
-  overflow-y: auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 24px;
-}
-
-.card-container {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.filter-bar {
-  margin-bottom: 20px;
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
+/* 页面样式统一使用 global.scss 中的全局类 */
 </style>

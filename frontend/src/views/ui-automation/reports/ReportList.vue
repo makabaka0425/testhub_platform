@@ -1,7 +1,7 @@
 <template>
-  <div class="report-view">
-    <div class="header">
-      <h3>{{ $t('uiAutomation.report.title') }}</h3>
+  <div class="page-container">
+    <div class="page-header">
+      <h1 class="page-title">{{ $t('uiAutomation.report.title') }}</h1>
       <div class="actions">
         <el-select v-model="selectedProject" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px; margin-right: 15px" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
@@ -13,7 +13,7 @@
       </div>
     </div>
 
-    <div class="content">
+    <div class="table-scroll-area">
       <el-table :data="reports" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="test_suite_name" :label="$t('uiAutomation.report.testSuite')" min-width="200" />
@@ -76,18 +76,18 @@
           </template>
         </el-table-column>
       </el-table>
+    </div>
 
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="pagination.currentPage"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="total"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
-        />
-      </div>
+    <div class="pagination-container">
+      <el-pagination
+        v-model:current-page="pagination.currentPage"
+        v-model:page-size="pagination.pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="total"
+        @size-change="handleSizeChange"
+        @current-change="handleCurrentChange"
+      />
     </div>
 
     <!-- 报告详情对话框 -->
@@ -516,47 +516,9 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.report-view {
-  padding: 20px;
-  height: 100%;
+.actions {
   display: flex;
-  flex-direction: column;
-  background: #f5f5f5;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
-
-  h3 {
-    margin: 0;
-    color: #303133;
-    font-size: 24px;
-  }
-
-  .actions {
-    display: flex;
-    align-items: center;
-  }
-}
-
-.content {
-  flex: 1;
-  overflow: auto;
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
 }
 
 // 报告详情样式

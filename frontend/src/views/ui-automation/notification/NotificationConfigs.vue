@@ -1,20 +1,13 @@
 <template>
-  <div class="notification-configs-container">
+  <div class="page-container">
     <!-- 页面说明 -->
-    <div class="page-header">
-      <h1 class="page-title">
-        <el-icon class="title-icon">
-          <Setting/>
-        </el-icon>
-        {{ $t('uiAutomation.notification.configs.pageTitle') }}
-      </h1>
-      <p class="page-description">
-        {{ $t('uiAutomation.notification.configs.pageDesc') }}
-      </p>
+    <div class="page-info">
+      <h1 class="page-title">{{ $t('uiAutomation.notification.configs.pageTitle') }}</h1>
+      <p class="page-desc">{{ $t('uiAutomation.notification.configs.pageDesc') }}</p>
     </div>
 
     <!-- Tab切换 -->
-    <div class="content-wrapper">
+    <div class="card-container">
       <el-tabs v-model="activeTab" class="notification-tabs">
 
         <!-- 飞书机器人Tab -->
@@ -428,140 +421,30 @@ export default {
 </script>
 
 <style scoped>
-.notification-configs-container {
-  padding: 24px;
-  background: #f5f7fa;
-  min-height: calc(100vh - 100px);
-}
-
-.page-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 32px 24px;
-  border-radius: 12px;
-  margin-bottom: 24px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.page-title {
-  font-size: 28px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-  display: flex;
-  align-items: center;
-}
-
-.title-icon {
-  margin-right: 12px;
-  font-size: 24px;
-}
-
-.page-description {
-  font-size: 16px;
-  opacity: 0.9;
-  margin: 0;
-}
-
-.content-wrapper {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  overflow: hidden;
-}
-
 .notification-tabs :deep(.el-tabs__nav-wrap) {
-  background: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
-}
-
-.notification-tabs :deep(.el-tabs__nav-scroll) {
-  padding: 0;
-}
-
-.notification-tabs :deep(.el-tabs__nav) {
-  display: flex;
-  background: #f8f9fa;
+  background: #f5f7fa;
+  border-bottom: 1px solid #ebeef5;
 }
 
 .notification-tabs :deep(.el-tabs__item) {
-  padding: 16px 32px;
-  font-size: 15px;
   font-weight: 500;
-  color: #6c757d;
-  border: none;
-  position: relative;
-}
-
-.notification-tabs :deep(.el-tabs__item:hover) {
-  color: #667eea;
-  background: rgba(102, 126, 234, 0.08);
-}
-
-.notification-tabs :deep(.el-tabs__item.is-active) {
-  color: #667eea;
-  background: white;
-  border-bottom: 2px solid #667eea;
-}
-
-.notification-tabs :deep(.el-tabs__active-bar) {
-  background-color: #667eea;
-  height: 2px;
-}
-
-.notification-tabs :deep(.el-tabs__content) {
-  padding: 0;
 }
 
 .tab-content {
-  min-height: 600px;
-  padding: 24px;
-}
-
-.config-section {
+  min-height: 400px;
   padding: 20px 0;
-}
-
-.config-section h3 {
-  margin: 0 0 20px 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
 }
 
 .form-item-hint {
   font-size: 12px;
-  color: #999;
+  color: #909399;
   margin-top: 4px;
 }
 
 .form-actions {
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid #ebeef5;
   text-align: right;
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .notification-configs-container {
-    padding: 16px;
-  }
-
-  .page-header {
-    padding: 24px 16px;
-  }
-
-  .page-title {
-    font-size: 24px;
-  }
-
-  .notification-tabs :deep(.el-tabs__item) {
-    padding: 12px 20px;
-    font-size: 14px;
-  }
-
-  .tab-content {
-    padding: 16px;
-  }
 }
 </style>

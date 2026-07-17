@@ -1,9 +1,6 @@
 // ============================================================
-// TestHub 全局样式 — 基于 Design Token 系统
-// 所有硬编码值已替换为 CSS 变量引用
+// TestHub 全局样式
 // ============================================================
-
-@use './tokens/index';
 
 // ========== 基础重置 ==========
 * {
@@ -19,61 +16,129 @@ html, body {
 }
 
 body {
-  background-color: var(--color-bg-page);
-  font-size: var(--font-size-base);
-  color: var(--color-text-regular);
-  font-family: var(--font-family-primary);
+  background-color: #f5f7fa;
+  font-size: 14px;
+  color: #606266;
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-// ========== 页面容器 (兼容过渡期，逐步替换为 ThPageContainer) ==========
+// ========== 页面容器 ==========
 .page-container {
-  padding: var(--space-5);
+  padding: 20px;
+  min-height: calc(100vh - 100px);
 
   .page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: var(--space-5);
+    margin-bottom: 20px;
     flex-wrap: wrap;
-    gap: var(--space-3);
+    gap: 12px;
 
     .page-title {
-      font-size: var(--font-size-3xl);
-      font-weight: var(--font-weight-semibold);
-      color: var(--color-text-primary);
+      font-size: 20px;
+      font-weight: 500;
+      color: #303133;
+      margin: 0;
     }
   }
 }
 
-// ========== 卡片容器 (兼容过渡期，逐步替换为统一组件) ==========
-.card-container {
-  background: var(--color-bg-card);
-  border-radius: var(--radius-md);
-  padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border-lighter);
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+// ========== 页面说明区（标题+描述） ==========
+.page-info {
+  margin-bottom: 20px;
 
-  &:hover {
-    box-shadow: var(--shadow-md);
+  .page-title {
+    font-size: 20px;
+    font-weight: 500;
+    color: #303133;
+    margin: 0 0 8px 0;
+  }
+
+  .page-desc {
+    font-size: 12px;
+    color: #909399;
+    margin: 0;
   }
 }
 
-// ========== 状态标签 (兼容过渡期，逐步替换为 ThStatusTag) ==========
+// ========== 卡片容器 ==========
+.card-container {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  border: 1px solid #ebeef5;
+}
+
+// ========== 筛选栏 ==========
+.filter-bar {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border: 1px solid #ebeef5;
+
+  .el-form-item {
+    margin-bottom: 0;
+  }
+}
+
+// ========== 表格区域 ==========
+.table-scroll-area {
+  background: #ffffff;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #ebeef5;
+
+  .el-table {
+    border: none;
+
+    th.el-table__cell {
+      background: #f5f7fa;
+      color: #606266;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    td.el-table__cell {
+      font-size: 14px;
+      color: #606266;
+    }
+  }
+}
+
+// ========== 分页 ==========
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 0;
+}
+
+// ========== 操作按钮区 ==========
+.action-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  height: 48px;
+}
+
+// ========== 状态标签 ==========
 .status-tag {
-  &.active   { background-color: var(--color-success); color: #fff; }
-  &.inactive { background-color: var(--color-danger);  color: #fff; }
-  &.paused   { background-color: var(--color-warning); color: #fff; }
-  &.completed{ background-color: var(--color-info);    color: #fff; }
+  &.active   { background-color: #67c23a; color: #fff; }
+  &.inactive { background-color: #f56c6c; color: #fff; }
+  &.paused   { background-color: #e6a23c; color: #fff; }
+  &.completed{ background-color: #909399; color: #fff; }
 }
 
 .priority-tag {
-  &.low      { color: var(--color-success); }
-  &.medium   { color: var(--color-warning); }
-  &.high     { color: var(--color-danger); }
-  &.critical { color: var(--color-danger); font-weight: var(--font-weight-semibold); }
+  &.low      { color: #67c23a; }
+  &.medium   { color: #e6a23c; }
+  &.high     { color: #f56c6c; }
+  &.critical { color: #f56c6c; font-weight: 500; }
 }
 
 // ========== 工具类 ==========
@@ -83,39 +148,29 @@ body {
   text-overflow: ellipsis;
 }
 
-.text-primary { color: var(--color-text-primary); }
-.text-regular { color: var(--color-text-regular); }
-.text-secondary { color: var(--color-text-secondary); }
+.text-primary { color: #303133; }
+.text-regular { color: #606266; }
+.text-secondary { color: #909399; }
 
-// ========== 响应式 — 精简断点，使用 Token spacing ==========
-// 精简为 4 个关键断点，消除过于细碎的断点区分
-
+// ========== 响应式 ==========
 @media screen and (max-width: 1600px) {
-  .page-container { padding: var(--space-4); }
-  .page-header .page-title { font-size: var(--font-size-2xl); }
+  .page-container { padding: 16px; }
+  .page-header .page-title,
+  .page-info .page-title { font-size: 18px; }
 }
 
 @media screen and (max-width: 1366px) {
-  body { font-size: var(--font-size-sm); }
-  .page-container { padding: var(--space-3); }
-  .page-header .page-title { font-size: var(--font-size-xl); }
-  .card-container { padding: var(--space-4); }
+  body { font-size: 13px; }
+  .page-container { padding: 12px; }
+  .page-header .page-title,
+  .page-info .page-title { font-size: 16px; }
+  .card-container { padding: 16px; }
 }
 
 @media screen and (max-width: 1024px) {
-  body { font-size: var(--font-size-sm); }
-  .page-container { padding: var(--space-2); }
-  .page-header .page-title { font-size: var(--font-size-lg); }
-  .card-container { padding: var(--space-3); }
-}
-
-@media screen and (max-width: 768px) {
-  .page-container { padding: var(--space-2); }
-  .card-container { padding: var(--space-3); border-radius: var(--radius-sm); }
-
-  .page-header {
-    flex-direction: column;
-    align-items: flex-start;
-    .page-title { font-size: var(--font-size-lg); }
-  }
+  body { font-size: 12px; }
+  .page-container { padding: 8px; }
+  .page-header .page-title,
+  .page-info .page-title { font-size: 14px; }
+  .card-container { padding: 12px; }
 }

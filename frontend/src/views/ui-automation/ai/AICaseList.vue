@@ -19,28 +19,21 @@
         </el-input>
       </div>
 
-      <el-table :data="cases" v-loading="loading" style="width: 100%">
-        <el-table-column prop="name" :label="$t('uiAutomation.ai.caseList.caseName')" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="description" :label="$t('uiAutomation.common.description')" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="task_description" :label="$t('uiAutomation.ai.caseList.taskDescription')" min-width="300" show-overflow-tooltip />
-        <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="success" @click="runCase(row)">
-              <el-icon><VideoPlay /></el-icon>
-              {{ $t('uiAutomation.common.run') }}
-            </el-button>
-            <el-button size="small" type="primary" @click="editCase(row)">
-              <el-icon><Edit /></el-icon>
-              {{ $t('uiAutomation.common.edit') }}
-            </el-button>
-            <el-button size="small" type="danger" @click="deleteCase(row.id)">
-              <el-icon><Delete /></el-icon>
-              {{ $t('uiAutomation.common.delete') }}
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="table-scroll-area">
+        <el-table :data="cases" v-loading="loading" style="width: 100%">
+          <el-table-column prop="name" :label="$t('uiAutomation.ai.caseList.caseName')" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="description" :label="$t('uiAutomation.common.description')" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="task_description" :label="$t('uiAutomation.ai.caseList.taskDescription')" min-width="300" show-overflow-tooltip />
+          <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
+          <el-table-column :label="$t('uiAutomation.common.operation')" width="150" fixed="right">
+            <template #default="{ row }">
+              <el-button type="primary" link @click="runCase(row)">{{ $t('uiAutomation.common.run') }}</el-button>
+              <el-button type="primary" link @click="editCase(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
+              <el-button type="danger" link @click="deleteCase(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
 
       <div class="pagination-container">
         <el-pagination
@@ -239,37 +232,4 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.page-container {
-  padding: 20px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-
-  .page-title {
-    font-size: 20px;
-    font-weight: 600;
-    margin: 0;
-  }
-}
-
-.card-container {
-  background-color: #fff;
-  border-radius: 4px;
-  padding: 20px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
-
-.filter-bar {
-  margin-bottom: 20px;
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
 </style>
