@@ -596,23 +596,10 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .page-container {
-  padding: 20px;
   height: calc(100vh - 100px);
   overflow: hidden;
-  background: #f5f5f5;
   display: flex;
   flex-direction: column;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  background: white;
-  padding: 16px 20px;
-  border-radius: 4px;
-  flex-shrink: 0;
 }
 
 .header-left {
@@ -623,12 +610,6 @@ onMounted(async () => {
 .back-btn {
   font-size: 14px;
   padding: 0;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 20px;
-  color: #303133;
 }
 
 .header-actions {
@@ -666,7 +647,7 @@ onMounted(async () => {
   background: white;
   border-radius: 8px;
   padding: 16px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+  border: 1px solid #ebeef5;
 }
 
 .items-card {
