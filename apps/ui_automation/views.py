@@ -3090,7 +3090,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                         elif locator_strategy in ('XPath', 'xpath'):
                             locator = page.locator(f'xpath={locator_value}')
                         elif locator_strategy == 'ID':
-                            locator = page.locator(locator_value)
+                            # ID策略存储时不带#前缀，Playwright需要#来定位
+                            selector = locator_value if locator_value.startswith('#') else f'#{locator_value}'
+                            locator = page.locator(selector)
                         else:
                             # 未知策略，尝试作为CSS
                             locator = page.locator(locator_value)
