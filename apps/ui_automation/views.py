@@ -5055,6 +5055,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                 description=test_case.description,
                 priority=test_case.priority,
                 status=test_case.status,
+                group=test_case.group,
+                precondition_sql=test_case.precondition_sql,
+                postcondition_sql=test_case.postcondition_sql,
                 created_by=request.user
             )
 
@@ -5073,11 +5076,27 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     assert_type=step.assert_type,
                     assert_value=step.assert_value,
                     description=step.description,
+                    output_var=step.output_var,
                     is_cleanup=step.is_cleanup
                 ))
 
             if new_steps:
                 TestCaseStep.objects.bulk_create(new_steps)
+
+            # 3. 复制前置条件关联
+            from .models import TestCasePrecondition
+            precondition_rels = TestCasePrecondition.objects.filter(
+                test_case=test_case
+            ).order_by('order')
+            new_preconditions = []
+            for rel in precondition_rels:
+                new_preconditions.append(TestCasePrecondition(
+                    test_case=new_case,
+                    precondition=rel.precondition,
+                    order=rel.order
+                ))
+            if new_preconditions:
+                TestCasePrecondition.objects.bulk_create(new_preconditions)
 
             # 记录操作
             log_operation('create', 'test_case', new_case.id, new_case.name, request.user)

@@ -164,21 +164,19 @@
                   <el-icon><component :is="showPreconditions ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
                 </div>
                 <div v-if="showPreconditions" class="section-content">
-                  <el-select
+                  <el-tree-select
                     v-model="selectedPreconditions"
                     multiple
                     filterable
+                    :data="preconditionTreeData"
+                    :props="{ children: 'children', label: 'name', value: 'id', disabled: 'disabled' }"
+                    node-key="id"
                     placeholder="选择前置条件用例（按选择顺序执行）"
                     style="width: 100%"
                     size="small"
-                  >
-                    <el-option
-                      v-for="tc in availablePreconditions"
-                      :key="tc.id"
-                      :label="tc.name"
-                      :value="tc.id"
-                    />
-                  </el-select>
+                    check-strictly
+                    :render-after-expand="false"
+                  />
                   <div class="section-tip">单用例执行时自动先执行，套件执行时忽略</div>
                 </div>
               </div>
@@ -279,7 +277,6 @@
                                 class="step-input"
                                 check-strictly
                                 :render-after-expand="false"
-                                default-expand-all
                                 @change="onElementChange(element)"
                               >
                                 <template #default="{ node, data }">
@@ -603,21 +600,18 @@
           </el-select>
         </el-form-item>
         <el-form-item label="前置条件">
-          <el-select
+          <el-tree-select
             v-model="testCaseForm.preconditions"
             multiple
             filterable
+            :data="preconditionTreeData"
+            :props="{ children: 'children', label: 'name', value: 'id', disabled: 'disabled' }"
+            node-key="id"
             placeholder="选择前置条件用例（按选择顺序执行）"
             style="width: 100%"
-          >
-            <el-option
-              v-for="tc in availablePreconditions"
-              :key="tc.id"
-              :label="tc.name"
-              :value="tc.id"
-              :disabled="editingTestCase && tc.id === editingTestCase.id"
-            />
-          </el-select>
+            check-strictly
+            :render-after-expand="false"
+          />
           <div style="color: var(--gray-500); font-size: 12px; margin-top: 4px;">
             前置条件在单用例执行时自动先执行，套件执行时忽略
           </div>
@@ -893,12 +887,50 @@ const testCaseForm = reactive({
 })
 
 // 可选的前置条件用例列表（同项目下的其他用例）
-const availablePreconditions = computed(() => {
-  return testCases.value.filter(tc => {
-    // 排除当前正在编辑的用例自身
-    if (editingTestCase.value && tc.id === editingTestCase.value.id) return false
-    return true
-  })
+// 前置条件用例树数据：分组 + 用例
+const preconditionTreeData = computed(() => {
+  const groups = testCaseGroupTree.value || []
+  const cases = testCases.value || []
+  const currentId = editingTestCase.value?.id
+
+  // 递归构建分组节点，挂载用例
+  const buildGroupNode = (group) => {
+    const groupCases = cases.filter(tc => tc.group === group.id && tc.id !== currentId)
+    const caseNodes = groupCases.map(tc => ({
+      id: tc.id,
+      name: tc.name,
+      type: 'case',
+      disabled: false
+    }))
+    const childGroups = (group.children || []).map(buildGroupNode)
+    return {
+      id: `group-${group.id}`,
+      name: group.name,
+      type: 'group',
+      disabled: true,
+      children: [...childGroups, ...caseNodes]
+    }
+  }
+
+  const tree = groups.map(buildGroupNode)
+
+  // 未分组用例
+  const ungroupedCases = cases.filter(tc => !tc.group && tc.id !== currentId)
+  if (ungroupedCases.length > 0) {
+    tree.unshift({
+      id: 'group-unassigned',
+      name: '未分组',
+      type: 'group',
+      disabled: true,
+      children: ungroupedCases.map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        type: 'case',
+        disabled: false
+      }))
+    })
+  }
+  return tree
 })
 
 // 计算属性
