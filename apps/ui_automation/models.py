@@ -731,9 +731,7 @@ class TestCaseGroup(models.Model):
 class TestCase(models.Model):
     """UI自动化测试用例模型"""
     STATUS_CHOICES = [
-        ('draft', '草稿'),
-        ('ready', '就绪'),
-        ('running', '执行中'),
+        ('normal', '正常'),
         ('passed', '通过'),
         ('failed', '失败'),
     ]
@@ -748,7 +746,7 @@ class TestCase(models.Model):
     description = models.TextField(blank=True, verbose_name='用例描述')
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='test_cases', verbose_name='所属项目')
     group = models.ForeignKey(TestCaseGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name='test_cases', verbose_name='所属分组')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft', verbose_name='状态')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='normal', verbose_name='状态')
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium', verbose_name='优先级')
     preconditions = models.ManyToManyField('self', symmetrical=False, blank=True, through='TestCasePrecondition', verbose_name='前置条件')
     postcondition_sql = models.TextField(blank=True, default='', verbose_name='后置清理SQL', help_text='用例执行后自动执行的清理SQL，支持${变量名}引用步骤输出变量')
