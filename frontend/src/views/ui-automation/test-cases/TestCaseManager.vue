@@ -36,19 +36,12 @@
           </el-button>
         </div>
         <div class="panel__body group-tree-wrapper">
-          <div
-            class="group-all-node"
-            :class="{ active: selectedGroupId === null }"
-            @click="selectedGroupId = null; currentPage = 1"
-          >
-                <el-icon><Folder /></el-icon>
-            <span>全部</span>
-          </div>
           <el-tree
             ref="groupTreeRef"
-            :data="testCaseGroupTree"
+            :data="groupTreeWithAll"
             :props="{ children: 'children', label: 'name' }"
             node-key="id"
+            :current-node-key="selectedGroupId === null ? '__all__' : selectedGroupId"
             :expand-on-click-node="false"
             :default-expanded-keys="groupExpandedKeys"
             highlight-current
@@ -57,9 +50,9 @@
           >
             <template #default="{ node, data }">
               <div class="group-tree-node">
-            <el-icon><Folder /></el-icon>
+                <el-icon><Folder /></el-icon>
                 <span class="group-node-label">{{ node.label }}</span>
-                <span class="group-count">{{ data.test_cases_count || 0 }}</span>
+                <span v-if="data.id !== '__all__'" class="group-count">{{ data.test_cases_count || 0 }}</span>
               </div>
             </template>
           </el-tree>
@@ -115,10 +108,18 @@
             <el-table-column label="操作" width="300" align="left">
               <template #default="{ row }">
                 <div class="op-btns">
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)">{{ lastRunCaseId === row.id ? '重新运行' : '运行' }}</el-button>
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)">编辑</el-button>
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)">复制</el-button>
-                  <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)">删除</el-button>
+                  <el-tooltip :content="lastRunCaseId === row.id ? '重新运行' : '运行'" placement="top">
+                    <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)"><el-icon><VideoPlay /></el-icon></el-button>
+                  </el-tooltip>
+                  <el-tooltip content="编辑" placement="top">
+                    <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)"><el-icon><Edit /></el-icon></el-button>
+                  </el-tooltip>
+                  <el-tooltip content="复制" placement="top">
+                    <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)"><el-icon><CopyDocument /></el-icon></el-button>
+                  </el-tooltip>
+                  <el-tooltip content="删除" placement="top">
+                    <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)"><el-icon><Delete /></el-icon></el-button>
+                  </el-tooltip>
                 </div>
               </template>
             </el-table-column>
@@ -451,8 +452,8 @@
             <div v-if="executionResult" class="execution-result" v-show="!showSteps">
               <div class="result-header">
                 <h4>{{ t('uiAutomation.testCase.executionResult') }}</h4>
-                <el-tag :type="executionResult.success ? 'success' : 'danger'">
-                  {{ executionResult.success ? t('uiAutomation.testCase.executionSuccess') : t('uiAutomation.testCase.executionFailed') }}
+                <el-tag :type="executionResult.status === 'passed' ? 'success' : executionResult.status === 'skipped' ? 'warning' : 'danger'">
+                  {{ executionResult.status === 'passed' ? t('uiAutomation.testCase.executionSuccess') : executionResult.status === 'skipped' ? '跳过' : t('uiAutomation.testCase.executionFailed') }}
                 </el-tag>
               </div>
               <div class="result-content">
@@ -761,7 +762,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search, Plus, Edit, Delete, Check, CaretRight, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder
+  Search, Plus, Edit, Delete, Check, CaretRight, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument
 } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
@@ -830,6 +831,12 @@ const isDragging = ref(false)
 const testCaseGroupTree = ref([])
 const selectedGroupId = ref(null)
 const groupExpandedKeys = ref([])
+
+// 将"全部"节点合并到分组树中，保持同级对齐
+const groupTreeWithAll = computed(() => {
+  const allNode = { id: '__all__', name: '全部', children: [] }
+  return [allNode, ...testCaseGroupTree.value]
+})
 const groupTreeRef = ref(null)
 const showCreateGroupDialog = ref(false)
 const editingGroup = ref(null)
@@ -1244,11 +1251,23 @@ const runTestCase = async (testCase) => {
 
     if (response.data.success) {
       ElMessage.success(t('uiAutomation.testCase.run.success'))
+    } else if (response.data.status === 'skipped') {
+      ElMessage.warning('用例已跳过')
     } else {
       ElMessage.error(t('uiAutomation.testCase.run.failed'))
       // 如果有截图，自动切换到截图标签页
       if (response.data.screenshots && response.data.screenshots.length > 0) {
         resultActiveTab.value = 'screenshots'
+      }
+    }
+
+    // 刷新用例列表以更新状态
+    await loadTestCases()
+    // 刷新后更新当前选中用例的状态
+    if (selectedTestCase.value) {
+      const updated = testCases.value.find(tc => tc.id === selectedTestCase.value.id)
+      if (updated) {
+        selectedTestCase.value = updated
       }
     }
   } catch (error) {
@@ -1712,11 +1731,16 @@ const loadTestCaseGroups = async () => {
 }
 
 const onGroupNodeClick = (data) => {
-  selectedGroupId.value = data.id
+  if (data.id === '__all__') {
+    selectedGroupId.value = null
+  } else {
+    selectedGroupId.value = data.id
+  }
   currentPage.value = 1
 }
 
 const onGroupRightClick = (event, data) => {
+  if (data.id === '__all__') return  // "全部"节点不弹右键菜单
   event.preventDefault()
   rightClickedGroupNode.value = data
   groupContextMenuX.value = event.clientX
@@ -1993,30 +2017,6 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.group-all-node {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 var(--space-3);
-  margin: 2px 0;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--gray-700);
-  transition: background 0.15s;
-}
-
-.group-all-node:hover {
-  background: var(--gray-100);
-}
-
-.group-all-node.active {
-  background: var(--brand-50);
-  color: var(--brand-700);
-  font-weight: 500;
-}
-
 .group-tree-node {
   display: flex;
   align-items: center;
@@ -2226,16 +2226,20 @@ onMounted(async () => {
 .op-btns {
   display: flex;
   align-items: center;
-  gap: 0px;
-  flex-wrap: wrap;
+  gap: 2px;
+  flex-wrap: nowrap;
 }
 
 .op-btn {
   --el-button-text-color: var(--brand-500);
-  padding: 2px 4px !important;
+  padding: 2px !important;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 15px;
   transition: opacity 0.15s;
+}
+
+.op-btn .el-icon {
+  font-size: 15px;
 }
 
 .op-btn:hover {
