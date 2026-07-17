@@ -1,5 +1,5 @@
 <template>
-  <div class="element-manager">
+  <div class="page-container">
     <div class="element-layout">
       <!-- 左侧页面树 -->
       <div class="sidebar">
@@ -2274,8 +2274,9 @@ const updatePage = async () => {
 </script>
 
 <style scoped>
-.element-manager {
+.page-container {
   height: calc(100vh - 100px);
+  min-height: unset;
   display: flex;
   flex-direction: column;
 }
