@@ -1816,6 +1816,8 @@ class ElementViewSet(viewsets.ModelViewSet):
             session = self._pick_sessions.get(session_id)
             if session and 0 <= index < len(session['picked_elements']):
                 session['picked_elements'][index]['name'] = new_name
+                # 同步更新description，避免改名后description保留旧name
+                session['picked_elements'][index]['description'] = new_name
                 return True
             return False
 
@@ -3874,7 +3876,7 @@ DOM数据：
                 'locator_strategy': strategy,
                 'locator_value': value,
                 'backup_locators': backup,
-                'description': name,
+                'description': '',
                 'is_visible': elem.get('visible', True),
                 'validation_status': elem.get('validation_status', ''),
                 'validation_details': elem.get('validation_details', ''),
