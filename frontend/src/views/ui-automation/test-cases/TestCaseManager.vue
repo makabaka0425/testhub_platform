@@ -4,13 +4,23 @@
     <div class="page-titlebar">
       <h1 class="page-title">{{ t('uiAutomation.testCase.title') }}</h1>
       <div class="titlebar-actions">
+        <el-select v-model="selectedEngine" :placeholder="t('uiAutomation.testCase.selectEngine')" size="small" class="toolbar-select">
+          <el-option label="Playwright" value="playwright" />
+          <el-option label="Selenium" value="selenium" />
+        </el-select>
+        <el-select v-model="selectedBrowser" :placeholder="t('uiAutomation.testCase.selectBrowser')" size="small" class="toolbar-select">
+          <el-option label="Chrome" value="chrome" />
+          <el-option label="Firefox" value="firefox" />
+          <el-option label="Safari" value="safari" />
+          <el-option label="Edge" value="edge" />
+        </el-select>
+        <el-select v-model="headlessMode" :placeholder="t('uiAutomation.testCase.runModeLabel')" size="small" class="toolbar-select">
+          <el-option :label="t('uiAutomation.testCase.headedMode')" :value="false" />
+          <el-option :label="t('uiAutomation.testCase.headlessMode')" :value="true" />
+        </el-select>
         <el-select v-model="projectId" :placeholder="t('uiAutomation.project.selectProject')" class="titlebar-select" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
-        <el-button type="primary" @click="showCreateDialog = true">
-          <el-icon><Plus /></el-icon>
-          {{ t('uiAutomation.testCase.newTestCase') }}
-        </el-button>
       </div>
     </div>
 
@@ -31,7 +41,7 @@
             :class="{ active: selectedGroupId === null }"
             @click="selectedGroupId = null; currentPage = 1"
           >
-            <el-icon><Folder /></el-icon>
+                <el-icon><Folder /></el-icon>
             <span>全部</span>
           </div>
           <el-tree
@@ -47,7 +57,7 @@
           >
             <template #default="{ node, data }">
               <div class="group-tree-node">
-                <el-icon><Folder /></el-icon>
+            <el-icon><Folder /></el-icon>
                 <span class="group-node-label">{{ node.label }}</span>
                 <span class="group-count">{{ data.test_cases_count || 0 }}</span>
               </div>
@@ -59,6 +69,7 @@
       <!-- 中间：用例列表面板 -->
       <section class="panel list-panel">
         <div class="panel__header list-toolbar">
+          <span class="panel__title">用例列表</span>
           <el-input
             v-model="searchKeyword"
             :placeholder="t('uiAutomation.testCase.searchPlaceholder')"
@@ -72,7 +83,7 @@
           </el-input>
           <el-button type="primary" size="small" @click="showCreateDialog = true">
             <el-icon><Plus /></el-icon>
-            {{ t('uiAutomation.testCase.newTestCase') }}
+            新增
           </el-button>
         </div>
 
@@ -84,10 +95,9 @@
             @current-change="handleTableCurrentChange"
             :row-class-name="tableRowClassName"
             row-key="id"
-            style="width: 100%"
           >
-            <el-table-column prop="name" label="用例名称" min-width="180" show-overflow-tooltip />
-            <el-table-column label="步骤" width="70" align="center">
+            <el-table-column prop="name" label="用例名称" min-width="280" show-overflow-tooltip />
+            <el-table-column label="步骤" width="100" align="center">
               <template #default="{ row }">
                 <span class="step-count">{{ row.steps?.length || 0 }}</span>
               </template>
@@ -97,17 +107,19 @@
                 <span class="update-time">{{ formatTime(row.updated_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="80" align="center">
+            <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
                 <span class="status-tag" :class="`status-${row.status || 'normal'}`">{{ getStatusText(row.status) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="210" align="left">
+            <el-table-column label="操作" width="300" align="left">
               <template #default="{ row }">
-                <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)">运行</el-button>
-                <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)">编辑</el-button>
-                <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)">复制</el-button>
-                <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)">删除</el-button>
+                <div class="op-btns">
+                  <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)">{{ lastRunCaseId === row.id ? '重新运行' : '运行' }}</el-button>
+                  <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)">编辑</el-button>
+                  <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)">复制</el-button>
+                  <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)">删除</el-button>
+                </div>
               </template>
             </el-table-column>
           </el-table>
@@ -120,7 +132,6 @@
             :page-sizes="[10, 20, 50]"
             :total="filteredTestCases.length"
             layout="total, sizes, prev, pager, next"
-            small
           />
         </div>
       </section>
@@ -129,51 +140,19 @@
       <section class="panel detail-panel">
         <div class="panel__header">
           <span class="panel__title">用例详情</span>
+          <div v-if="selectedTestCase" class="detail-header-actions">
+            <el-button size="small" @click="executionResult ? toggleView() : addStep()">
+              <el-icon><Plus v-if="!executionResult" /><Edit v-else /></el-icon>
+              {{ executionResult ? '编辑步骤' : t('uiAutomation.testCase.addStep') }}
+            </el-button>
+            <el-button size="small" type="primary" @click="saveTestCase">
+              <el-icon><Check /></el-icon>
+              {{ t('uiAutomation.testCase.saveTestCase') }}
+            </el-button>
+          </div>
         </div>
         <div class="panel__body detail-body">
           <div v-if="selectedTestCase" class="test-case-detail">
-            <div class="detail-toolbar">
-              <el-button size="small" @click="addStep">
-                <el-icon><Plus /></el-icon>
-                {{ t('uiAutomation.testCase.addStep') }}
-              </el-button>
-              <el-button size="small" type="primary" @click="saveTestCase">
-                <el-icon><Check /></el-icon>
-                {{ t('uiAutomation.testCase.saveTestCase') }}
-              </el-button>
-              <el-select v-model="selectedEngine" :placeholder="t('uiAutomation.testCase.selectEngine')" size="small" class="toolbar-select">
-                <el-option label="Playwright" value="playwright" />
-                <el-option label="Selenium" value="selenium" />
-              </el-select>
-              <el-select v-model="selectedBrowser" :placeholder="t('uiAutomation.testCase.selectBrowser')" size="small" class="toolbar-select">
-                <el-option label="Chrome" value="chrome" />
-                <el-option label="Firefox" value="firefox" />
-                <el-option label="Safari" value="safari" />
-                <el-option label="Edge" value="edge" />
-              </el-select>
-              <el-select v-model="headlessMode" :placeholder="t('uiAutomation.testCase.runModeLabel')" size="small" class="toolbar-select">
-                <el-option :label="t('uiAutomation.testCase.headedMode')" :value="false" />
-                <el-option :label="t('uiAutomation.testCase.headlessMode')" :value="true" />
-              </el-select>
-              <el-button size="small" type="success" @click="runTestCase(selectedTestCase)" :loading="isRunning">
-                <el-icon v-if="!isRunning"><CaretRight /></el-icon>
-                {{ isRunning ? t('uiAutomation.testCase.running') : t('uiAutomation.testCase.runLabel') }}
-              </el-button>
-              <el-button size="small" v-if="executionResult" @click="toggleView">
-                <el-icon><component :is="showSteps ? 'View' : 'Edit'" /></el-icon>
-                {{ showSteps ? t('uiAutomation.testCase.viewResult') : t('uiAutomation.testCase.editSteps') }}
-              </el-button>
-              <el-button
-                size="small"
-                v-if="executionResult && !showSteps"
-                type="success"
-                @click="runTestCase(selectedTestCase)"
-                :loading="isRunning"
-              >
-                <el-icon v-if="!isRunning"><Refresh /></el-icon>
-                {{ t('uiAutomation.testCase.rerun') }}
-              </el-button>
-            </div>
 
             <!-- 测试步骤编辑 -->
             <div class="steps-container" v-show="showSteps">
@@ -203,14 +182,17 @@
                 </div>
               </div>
 
-              <div class="steps-header">
+              <div class="steps-header" @click="showTestSteps = !showTestSteps">
                 <h4>{{ t('uiAutomation.testCase.testSteps') }}</h4>
-                <el-button size="small" text @click="expandAllSteps">
-                  {{ allStepsExpanded ? t('uiAutomation.testCase.foldAll') : t('uiAutomation.testCase.expandAll') }}
-                </el-button>
+                <div class="steps-header-actions">
+                  <el-button size="small" text @click.stop="expandAllSteps">
+                    {{ allStepsExpanded ? t('uiAutomation.testCase.foldAll') : t('uiAutomation.testCase.expandAll') }}
+                  </el-button>
+                  <el-icon><component :is="showTestSteps ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+                </div>
               </div>
 
-              <div class="steps-scroll-container">
+              <div class="steps-scroll-container" v-show="showTestSteps">
                 <div class="steps-list">
                   <draggable
                     v-model="currentSteps"
@@ -474,7 +456,7 @@
                           </div>
                         </div>
                       </div>
-                      <el-empty :description="t('uiAutomation.testCase.noLogs')" />
+                      <el-empty v-if="!parsedExecutionLogs.length" :description="t('uiAutomation.testCase.noLogs')" />
                     </div>
                   </el-tab-pane>
                   <el-tab-pane :label="t('uiAutomation.testCase.failedScreenshots')" name="screenshots" v-if="executionResult.screenshots && executionResult.screenshots.length > 0">
@@ -617,7 +599,7 @@
               :disabled="editingTestCase && tc.id === editingTestCase.id"
             />
           </el-select>
-          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+          <div style="color: var(--gray-500); font-size: 12px; margin-top: 4px;">
             前置条件在单用例执行时自动先执行，套件执行时忽略
           </div>
         </el-form-item>
@@ -793,6 +775,7 @@ const pageSize = ref(10)
 const showCreateDialog = ref(false)
 const editingTestCase = ref(null)
 const executionResult = ref(null)
+const lastRunCaseId = ref(null)  // 记录最近运行的用例ID
 const resultActiveTab = ref('logs')
 const allStepsExpanded = ref(false)
 const showSteps = ref(true)
@@ -847,6 +830,7 @@ const selectedPreconditions = ref([])
 const postconditionSql = ref('')
 const showPreconditions = ref(false)
 const showPostcondition = ref(false)
+const showTestSteps = ref(true)
 
 const getTestCaseName = (id) => {
   const tc = testCases.value.find(t => t.id === id)
@@ -1219,6 +1203,7 @@ const runTestCase = async (testCase) => {
     })
 
     executionResult.value = response.data
+    lastRunCaseId.value = testCase.id
     resultActiveTab.value = 'logs'
     showSteps.value = false  // 自动切换到结果视图
 
@@ -1255,6 +1240,7 @@ const runTestCase = async (testCase) => {
       execution_time: 0,
       errors: errors
     }
+    lastRunCaseId.value = testCase.id
     resultActiveTab.value = 'logs'
     showSteps.value = false  // 切换到结果视图显示错误
 
@@ -1899,8 +1885,6 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--space-6);
-  background: var(--gray-0);
-  border-bottom: 1px solid var(--gray-100);
 }
 
 .page-title {
@@ -1931,7 +1915,7 @@ onMounted(async () => {
 }
 
 /* ============================================================
-   面板通用（覆盖 global .panel__body padding 以适配各列）
+   面板通用
    ============================================================ */
 .workspace .panel {
   min-height: 0;
@@ -2133,14 +2117,14 @@ onMounted(async () => {
 }
 
 .list-panel :deep(.el-table th.el-table__cell) {
-  background: var(--gray-50);
+  background: var(--gray-100);
   color: var(--gray-500);
   font-size: 12px;
   font-weight: 500;
 }
 
 .list-panel :deep(.el-table .el-table__cell) {
-  padding: 7px 0;
+  padding: 8px 0;
 }
 
 .list-panel :deep(.el-table .el-table__body tr) {
@@ -2171,15 +2155,15 @@ onMounted(async () => {
 /* 状态标签 */
 .status-tag {
   display: inline-block;
-  padding: 2px 10px;
-  border-radius: 10px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 20px;
   font-weight: 500;
 }
 
 .status-tag.status-normal {
-  background: var(--brand-50);
+  background: var(--info-bg);
   color: var(--brand-700);
 }
 
@@ -2194,16 +2178,23 @@ onMounted(async () => {
 }
 
 /* 操作按钮 */
+.op-btns {
+  display: flex;
+  align-items: center;
+  gap: 0px;
+  flex-wrap: wrap;
+}
+
 .op-btn {
   --el-button-text-color: var(--brand-500);
-  padding: 2px 8px !important;
+  padding: 2px 4px !important;
   border-radius: var(--radius-sm);
   font-size: 13px;
-  transition: background 0.15s;
+  transition: opacity 0.15s;
 }
 
 .op-btn:hover {
-  background: var(--brand-50);
+  opacity: 0.8;
   color: var(--brand-600) !important;
 }
 
@@ -2212,8 +2203,8 @@ onMounted(async () => {
 }
 
 .op-btn--danger:hover {
-  background: var(--error-bg);
-  color: #c81e1e !important;
+  opacity: 0.8;
+  color: var(--error) !important;
 }
 
 /* 分页 */
@@ -2221,7 +2212,7 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  padding: var(--space-3) var(--space-4);
+  padding: 12px 16px;
   border-top: 1px solid var(--gray-100);
   flex-shrink: 0;
   background: var(--gray-0);
@@ -2275,8 +2266,8 @@ onMounted(async () => {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding: var(--space-2) var(--space-2) var(--space-3);
-  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) 0;
+  gap: var(--space-2);
 }
 
 /* 可折叠条件区块 */
@@ -2318,7 +2309,7 @@ onMounted(async () => {
 .section-tip {
   color: var(--gray-500);
   font-size: 12px;
-  margin-top: var(--space-1);
+  margin-top: var(--space-3);
 }
 
 /* 步骤列表标题 */
@@ -2326,8 +2317,28 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px var(--space-2);
+  padding: 8px var(--space-3);
+  cursor: pointer;
+  user-select: none;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
   flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.steps-header:hover {
+  background: var(--gray-100);
+}
+
+.steps-header:hover {
+  background: var(--gray-50);
+}
+
+.steps-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .steps-header h4 {
@@ -2387,6 +2398,12 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   padding: 6px var(--space-3);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.step-header:hover {
+  background: var(--gray-50);
 }
 
 .step-left {
@@ -2399,18 +2416,18 @@ onMounted(async () => {
 
 .drag-handle {
   cursor: move;
-  color: var(--gray-500);
+  color: var(--gray-300);
   flex-shrink: 0;
 }
 
 .drag-handle:hover {
-  color: var(--gray-700);
+  color: var(--gray-500);
 }
 
 .step-number {
   font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-700);
+  font-weight: 500;
+  color: var(--gray-900);
   flex-shrink: 0;
   min-width: 20px;
 }
@@ -2418,6 +2435,7 @@ onMounted(async () => {
 .step-desc-text {
   flex: 1;
   font-size: 13px;
+  font-weight: 500;
   color: var(--gray-900);
   cursor: pointer;
   overflow: hidden;
@@ -2435,17 +2453,26 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
-.step-content {
-  padding: var(--space-3);
-  border-top: 1px solid var(--brand-100);
+.step-right :deep(.el-button--danger) {
+  --el-button-text-color: var(--gray-300);
 }
 
-/* 步骤表单（窄列布局：标签在上，控件在下） */
+.step-right :deep(.el-button--danger:hover) {
+  --el-button-text-color: var(--error);
+  background: var(--error-bg);
+}
+
+.step-content {
+  padding: var(--space-3);
+  border-top: 1px solid var(--gray-100);
+}
+
+/* 步骤表单（标签和控件同行） */
 .step-param {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .step-param:last-child {
@@ -2456,19 +2483,31 @@ onMounted(async () => {
   font-size: 12px;
   font-weight: 500;
   color: var(--gray-700);
+  flex-shrink: 0;
+  width: 90px;
+  text-align: left;
 }
 
 .step-input {
   width: 100% !important;
 }
 
+.step-param :deep(.el-input__wrapper),
+.step-param :deep(.el-select .el-input__wrapper),
+.step-param :deep(.el-textarea__inner) {
+  border-radius: var(--radius-md);
+}
+
 .step-input-group {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
 }
 
 .step-input-group--col {
+  flex-direction: column;
   gap: var(--space-2);
 }
 

@@ -9,8 +9,8 @@
         <el-menu
           :default-active="$route.path"
           router
-          background-color="#001529"
-          text-color="#fff"
+          background-color="#F8F9FA"
+          text-color="#333"
           active-text-color="#1890ff"
         >
           <!-- AI用例生成模块菜单 -->
@@ -512,9 +512,9 @@ const handleCommand = (command) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #001529;
-  color: white;
-  border-bottom: 1px solid #1f1f1f;
+  background-color: #F8F9FA;
+  color: #333;
+  border-bottom: 1px solid #edf0f2;
   flex-shrink: 0;
 
 		.logo-img {
@@ -525,7 +525,7 @@ const handleCommand = (command) => {
 	}
 
 .el-aside {
-  background-color: #001529;
+  background-color: #F8F9FA;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -546,9 +546,62 @@ const handleCommand = (command) => {
 }
 
 .el-menu {
+  border-right: none;
+
   :deep(.el-sub-menu__title),
   :deep(.el-menu-item) {
+    height: 48px;
+    line-height: 48px;
     font-size: 14px;
+    padding: 0 16px !important;
+    display: flex;
+    align-items: center;
+
+    .el-icon {
+      font-size: 20px;
+      color: #666;
+      margin-right: 12px;
+    }
+
+    span {
+      line-height: 22px;
+      color: #333;
+    }
+  }
+
+  /* 悬停状态 */
+  :deep(.el-menu-item:hover),
+  :deep(.el-sub-menu__title:hover) {
+    background-color: #F5F7FA !important;
+
+    .el-icon {
+      color: #333;
+    }
+  }
+
+  /* 选中状态 */
+  :deep(.el-menu-item.is-active) {
+    background-color: #EBF3FE !important;
+    color: #1890FF !important;
+    position: relative;
+
+    .el-icon {
+      color: #1890FF;
+    }
+
+    span {
+      color: #1890FF;
+    }
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: #1890FF;
+    }
   }
 }
 

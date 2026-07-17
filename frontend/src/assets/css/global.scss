@@ -26,10 +26,12 @@
   // Semantic
   --success: #10b981;
   --success-bg: #ecfdf5;
+  --success-600: #059669;
   --warning: #f59e0b;
   --warning-bg: #fffbeb;
   --error: #ef4444;
   --error-bg: #fef2f2;
+  --error-600: #dc2626;
   --info: #4f8cff;
   --info-bg: #edf5ff;
 
@@ -61,8 +63,9 @@
   // Layout
   --sidebar-w: 220px;
   --header-h: 56px;
+  --title-h: 64px;
   --group-w: 240px;
-  --detail-w: 380px;
+  --detail-w: 480px;
 }
 
 // ========== 基础重置 ==========
@@ -194,17 +197,17 @@ body {
 
 // ========== 状态标签 ==========
 .status-tag {
-  &.active   { background-color: #67c23a; color: #fff; }
-  &.inactive { background-color: #f56c6c; color: #fff; }
-  &.paused   { background-color: #e6a23c; color: #fff; }
-  &.completed{ background-color: #909399; color: #fff; }
+  &.active   { background-color: var(--success); color: #fff; }
+  &.inactive { background-color: var(--error); color: #fff; }
+  &.paused   { background-color: var(--warning); color: #fff; }
+  &.completed{ background-color: var(--gray-500); color: #fff; }
 }
 
 .priority-tag {
-  &.low      { color: #67c23a; }
-  &.medium   { color: #e6a23c; }
-  &.high     { color: #f56c6c; }
-  &.critical { color: #f56c6c; font-weight: 500; }
+  &.low      { color: var(--success); }
+  &.medium   { color: var(--warning); }
+  &.high     { color: var(--error); }
+  &.critical { color: var(--error); font-weight: 500; }
 }
 
 // ========== 工具类 ==========
@@ -214,9 +217,9 @@ body {
   text-overflow: ellipsis;
 }
 
-.text-primary { color: #303133; }
-.text-regular { color: #606266; }
-.text-secondary { color: #909399; }
+.text-primary { color: var(--gray-900); }
+.text-regular { color: var(--gray-700); }
+.text-secondary { color: var(--gray-500); }
 
 // ========== 面板（Panel） ==========
 .panel {
