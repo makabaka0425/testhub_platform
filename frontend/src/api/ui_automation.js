@@ -244,12 +244,30 @@ export function addTestCaseToTestSuite(id, data) {
   })
 }
 
+// 批量向测试套件添加测试用例
+export function addTestCasesToTestSuite(id, data) {
+  return request({
+    url: `/ui-automation/test-suites/${id}/add_test_cases/`,
+    method: 'post',
+    data
+  })
+}
+
 // 从测试套件移除测试用例
 export function removeTestCaseFromTestSuite(suiteId, testCaseId) {
   return request({
     url: `/ui-automation/test-suites/${suiteId}/remove_test_case/`,
     method: 'delete',
     data: { test_case_id: testCaseId }
+  })
+}
+
+// 批量从测试套件移除测试用例
+export function removeTestCasesFromTestSuite(suiteId, testCaseIds) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/remove_test_cases/`,
+    method: 'delete',
+    data: { test_case_ids: testCaseIds }
   })
 }
 
