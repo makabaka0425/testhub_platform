@@ -1,5 +1,5 @@
 <template>
-  <div class="test-case-manager">
+  <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">{{ t('uiAutomation.testCase.title') }}</h1>
       <div class="header-actions">
@@ -89,19 +89,17 @@
                 <span style="font-size: 12px; color: #888; white-space: nowrap;">{{ formatTime(row.updated_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120" align="center">
+            <el-table-column label="操作" width="150" align="center">
               <template #default="{ row }">
-                <div class="row-actions">
-                  <el-icon class="row-action-btn" @click.stop="runTestCase(row)" title="运行"><CaretRight /></el-icon>
-                  <el-icon class="row-action-btn" @click.stop="editTestCase(row)" title="编辑"><Edit /></el-icon>
-                  <el-icon class="row-action-btn" @click.stop="copyTestCase(row)" title="复制"><CopyDocument /></el-icon>
-                  <el-icon class="row-action-btn danger" @click.stop="deleteTestCase(row)" title="删除"><Delete /></el-icon>
-                </div>
+                <el-button type="primary" link @click.stop="runTestCase(row)">运行</el-button>
+                <el-button type="primary" link @click.stop="editTestCase(row)">编辑</el-button>
+                <el-button type="primary" link @click.stop="copyTestCase(row)">复制</el-button>
+                <el-button type="danger" link @click.stop="deleteTestCase(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
         </div>
-        <div class="pagination-wrapper">
+        <div class="pagination-container">
           <el-pagination
             v-model:current-page="currentPage"
             v-model:page-size="pageSize"
@@ -1869,7 +1867,8 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
-.test-case-manager {
+/* 页面容器：覆盖 global 的 min-height，使用固定高度 */
+.page-container {
   height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
@@ -1877,17 +1876,9 @@ onMounted(async () => {
 }
 
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 20px 20px 12px;
+  padding: 12px 20px 12px 12px;
   border-bottom: 1px solid #e6e6e6;
   background: white;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 24px;
 }
 
 .header-actions {
@@ -2045,11 +2036,9 @@ onMounted(async () => {
   min-height: 0;
 }
 
-.pagination-wrapper {
+.pagination-container {
   padding: 8px 15px;
   border-top: 1px solid #e6e6e6;
-  display: flex;
-  justify-content: flex-end;
   flex-shrink: 0;
   background: white;
 }
@@ -2068,33 +2057,10 @@ onMounted(async () => {
   background-color: #e6f0ff !important;
 }
 
-/* 操作按钮行内排列 */
-.row-actions {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-}
-
-/* 表格第一列与标题对齐：padding-left=10px与上方标题对齐 */
+/* 表格第一列与标题对齐 */
 :deep(.el-table .el-table__body-wrapper td:first-child .cell),
 :deep(.el-table .el-table__header-wrapper th:first-child .cell) {
   padding-left: 10px;
-}
-
-.row-action-btn {
-  cursor: pointer;
-  color: #606266;
-  font-size: 16px;
-  transition: color 0.2s;
-}
-
-.row-action-btn:hover {
-  color: #409eff;
-}
-
-.row-action-btn.danger:hover {
-  color: #f56c6c;
 }
 
 .right-panel {

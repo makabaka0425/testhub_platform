@@ -16,46 +16,44 @@
     </div>
 
     <div class="card-container">
-      <el-table
-        :data="records"
-        v-loading="loading"
-        style="width: 100%"
-        @selection-change="handleSelectionChange"
-        ref="tableRef"
-      >
-        <el-table-column type="selection" width="55" />
-        <el-table-column :label="$t('uiAutomation.ai.executionRecords.serialNumber')" width="80">
-          <template #default="{ $index }">
-            {{ getSerialNumber($index) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="case_name" :label="$t('uiAutomation.ai.executionRecords.caseName')" min-width="200" show-overflow-tooltip />
+      <div class="table-scroll-area">
+        <el-table
+          :data="records"
+          v-loading="loading"
+          style="width: 100%"
+          @selection-change="handleSelectionChange"
+          ref="tableRef"
+        >
+          <el-table-column type="selection" width="55" />
+          <el-table-column :label="$t('uiAutomation.ai.executionRecords.serialNumber')" width="80">
+            <template #default="{ $index }">
+              {{ getSerialNumber($index) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="case_name" :label="$t('uiAutomation.ai.executionRecords.caseName')" min-width="200" show-overflow-tooltip />
 
-        <el-table-column prop="status" :label="$t('uiAutomation.ai.executionRecords.status')" width="120">
-          <template #default="{ row }">
-            <el-tag :type="getStatusTag(row.status)">
-              {{ getStatusText(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="duration" :label="$t('uiAutomation.ai.executionRecords.durationSeconds')" width="120">
-          <template #default="{ row }">
-            {{ row.duration ? row.duration.toFixed(2) : '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="start_time" :label="$t('uiAutomation.ai.executionRecords.startTime')" width="180" :formatter="formatDate" />
-        <el-table-column prop="executed_by.username" :label="$t('uiAutomation.ai.executionRecords.executor')" width="120" />
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="viewDetail(row)">
-              {{ $t('uiAutomation.ai.executionRecords.viewDetail') }}
-            </el-button>
-            <el-button size="small" type="success" @click="viewReport(row)">
-              {{ $t('uiAutomation.ai.executionRecords.viewReport') }}
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          <el-table-column prop="status" :label="$t('uiAutomation.ai.executionRecords.status')" width="120">
+            <template #default="{ row }">
+              <el-tag :type="getStatusTag(row.status)">
+                {{ getStatusText(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="duration" :label="$t('uiAutomation.ai.executionRecords.durationSeconds')" width="120">
+            <template #default="{ row }">
+              {{ row.duration ? row.duration.toFixed(2) : '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="start_time" :label="$t('uiAutomation.ai.executionRecords.startTime')" width="180" :formatter="formatDate" />
+          <el-table-column prop="executed_by.username" :label="$t('uiAutomation.ai.executionRecords.executor')" width="120" />
+          <el-table-column :label="$t('uiAutomation.common.operation')" width="150" fixed="right">
+            <template #default="{ row }">
+              <el-button type="primary" link @click="viewDetail(row)">{{ $t('uiAutomation.ai.executionRecords.viewDetail') }}</el-button>
+              <el-button type="primary" link @click="viewReport(row)">{{ $t('uiAutomation.ai.executionRecords.viewReport') }}</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
 
       <div class="pagination-container">
         <el-pagination
@@ -321,41 +319,6 @@ onUnmounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.page-container {
-  padding: 20px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-
-  .page-title {
-    font-size: 20px;
-    font-weight: 600;
-    margin: 0;
-  }
-
-  .header-actions {
-    display: flex;
-    align-items: center;
-  }
-}
-
-.card-container {
-  background-color: #fff;
-  border-radius: 4px;
-  padding: 20px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
-
 .record-detail {
   .detail-item {
     margin-bottom: 15px;

@@ -1,15 +1,16 @@
 <template>
-  <div class="notification-logs-container">
-    <!-- 页面操作栏 -->
-    <div class="page-actions">
-      <el-row :gutter="20" class="filter-row">
-        <el-col :span="6">
+  <div class="page-container">
+    <!-- 筛选栏 -->
+    <div class="filter-bar">
+      <el-form :inline="true">
+        <el-form-item>
           <el-input
               v-model="searchForm.taskName"
               :placeholder="$t('uiAutomation.notification.logs.searchTaskName')"
               clearable
               @clear="handleSearch"
               @keyup.enter="handleSearch"
+              style="width: 200px"
           >
             <template #prefix>
               <el-icon>
@@ -17,8 +18,8 @@
               </el-icon>
             </template>
           </el-input>
-        </el-col>
-        <el-col :span="6">
+        </el-form-item>
+        <el-form-item>
           <el-date-picker
               v-model="searchForm.dateRange"
               type="daterange"
@@ -28,12 +29,13 @@
               value-format="YYYY-MM-DD"
               @change="handleSearch"
           />
-        </el-col>
-        <el-col :span="6">
+        </el-form-item>
+        <el-form-item>
           <el-select
               v-model="searchForm.status"
               :placeholder="$t('uiAutomation.notification.logs.notificationStatus')"
               clearable
+              style="width: 160px"
               @change="handleSearch"
           >
             <el-option :label="$t('uiAutomation.notification.logs.allStatus')" value=""/>
@@ -41,28 +43,20 @@
             <el-option :label="$t('uiAutomation.notification.logs.statusFailed')" value="FAILED"/>
             <el-option :label="$t('uiAutomation.notification.logs.statusRetrying')" value="RETRYING"/>
           </el-select>
-        </el-col>
-        <el-col :span="6">
-          <el-button type="primary" @click="handleSearch">
-            <el-icon>
-              <Search/>
-            </el-icon>
-            {{ $t('uiAutomation.common.search') }}
-          </el-button>
-          <el-button @click="handleReset">
-            {{ $t('uiAutomation.common.reset') }}
-          </el-button>
-        </el-col>
-      </el-row>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">{{ $t('uiAutomation.common.search') }}</el-button>
+          <el-button @click="handleReset">{{ $t('uiAutomation.common.reset') }}</el-button>
+        </el-form-item>
+      </el-form>
     </div>
 
     <!-- 通知列表 -->
-    <div class="logs-table-container">
+    <div class="table-scroll-area">
       <el-table
           :data="logsData"
           v-loading="loading"
           :element-loading-text="$t('uiAutomation.notification.logs.messages.loading')"
-          stripe
           style="width: 100%"
           @sort-change="handleSortChange"
       >
@@ -552,35 +546,6 @@ export default {
 </script>
 
 <style scoped>
-.notification-logs-container {
-  padding: 20px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
-
-.page-actions {
-  margin-bottom: 20px;
-  padding: 20px;
-  background: #f8f9fa;
-  border-radius: 6px;
-}
-
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.logs-table-container {
-  margin-top: 20px;
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
 
 .notification-detail-form :deep(.el-form-item) {
   margin-bottom: 18px;

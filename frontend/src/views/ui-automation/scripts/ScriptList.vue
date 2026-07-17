@@ -1,9 +1,9 @@
 <template>
-  <div class="script-list">
+  <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">{{ $t('uiAutomation.script.title') }}</h1>
       <div class="header-actions">
-        <el-select v-model="selectedProject" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px; margin-right: 15px" @change="onProjectChange">
+        <el-select v-model="selectedProject" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
         <el-button type="primary" @click="goToScriptEditor">
@@ -13,8 +13,8 @@
       </div>
     </div>
 
-    <div class="main-content">
-      <el-table :data="scripts" stripe style="width: 100%">
+    <div class="table-scroll-area">
+      <el-table :data="scripts" style="width: 100%">
         <el-table-column type="index" :label="$t('uiAutomation.script.index')" width="60" />
         <el-table-column :label="$t('uiAutomation.script.projectColumn')" width="150">
           <template #default="{ row }">
@@ -43,15 +43,15 @@
         </el-table-column>
         <el-table-column :label="$t('uiAutomation.script.operationColumn')" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button link @click="viewScript(row)">{{ $t('uiAutomation.script.viewDetail') }}</el-button>
-            <el-button link @click="editScript(row)">{{ $t('uiAutomation.script.edit') }}</el-button>
-            <el-button link @click="renameScript(row)">{{ $t('uiAutomation.script.rename') }}</el-button>
+            <el-button link type="primary" @click="viewScript(row)">{{ $t('uiAutomation.script.viewDetail') }}</el-button>
+            <el-button link type="primary" @click="editScript(row)">{{ $t('uiAutomation.script.edit') }}</el-button>
+            <el-button link type="primary" @click="renameScript(row)">{{ $t('uiAutomation.script.rename') }}</el-button>
             <el-button link type="danger" @click="deleteScript(row)">{{ $t('uiAutomation.script.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <div class="pagination">
+      <div class="pagination-container">
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
@@ -370,42 +370,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.script-list {
-  height: calc(100vh - 100px);
-  display: flex;
-  flex-direction: column;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #e6e6e6;
-  background: white;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 24px;
-}
-
 .header-actions {
   display: flex;
   align-items: center;
-}
-
-.main-content {
-  flex: 1;
-  padding: 20px;
-  overflow: auto;
-  background: #f5f5f5;
-}
-
-.pagination {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
+  gap: 12px;
 }
 
 .script-detail {

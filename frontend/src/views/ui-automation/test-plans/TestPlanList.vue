@@ -15,16 +15,17 @@
 
     <div class="card-container">
       <div class="filter-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
+        <el-form :inline="true">
+          <el-form-item>
             <el-input v-model="searchText" placeholder="搜索计划名称" clearable @input="handleSearch">
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
-          </el-col>
-        </el-row>
+          </el-form-item>
+        </el-form>
       </div>
 
-      <el-table :data="filteredPlans" v-loading="loading" style="width: 100%">
+      <div class="table-scroll-area">
+        <el-table :data="filteredPlans" v-loading="loading" style="width: 100%">
         <el-table-column prop="name" label="计划名称" min-width="200">
           <template #default="{ row }">
             <el-link @click="goToDetail(row.id)" type="primary">{{ row.name }}</el-link>
@@ -79,6 +80,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </div>
 
       <div class="pagination-container">
         <el-pagination
@@ -588,58 +590,18 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .page-container {
-  padding: 20px;
   height: calc(100vh - 100px);
   overflow: hidden;
-  background: #f5f5f5;
   display: flex;
   flex-direction: column;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 24px;
-  color: #303133;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-}
-
 .card-container {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-}
-
-.filter-bar {
-  margin-bottom: 20px;
-  flex-shrink: 0;
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-  flex-shrink: 0;
 }
 
 .mode-desc {

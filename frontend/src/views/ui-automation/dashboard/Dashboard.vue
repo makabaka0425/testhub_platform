@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-container">
+  <div class="page-container">
     <!-- 数据概览 -->
     <div class="stats-section">
       <el-row :gutter="20">
@@ -340,10 +340,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.dashboard-container {
-  width: 100%;
-}
-
 .stats-section {
   margin-bottom: 40px;
 }

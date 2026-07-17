@@ -1,7 +1,7 @@
 <template>
-  <div class="scheduled-tasks">
-    <div class="header">
-      <h3>{{ $t('uiAutomation.scheduledTask.title') }}</h3>
+  <div class="page-container">
+    <div class="page-header">
+      <h1 class="page-title">{{ $t('uiAutomation.scheduledTask.title') }}</h1>
       <el-button type="primary" @click="handleCreateClick">
         <el-icon><Plus /></el-icon>
         {{ $t('uiAutomation.scheduledTask.newTask') }}
@@ -9,38 +9,38 @@
     </div>
 
     <!-- 筛选条件 -->
-    <div class="filters">
-      <el-row :gutter="20">
-        <el-col :span="6">
-          <el-select v-model="filters.task_type" :placeholder="$t('uiAutomation.scheduledTask.taskType')" clearable>
+    <div class="filter-bar">
+      <el-form :inline="true">
+        <el-form-item>
+          <el-select v-model="filters.task_type" :placeholder="$t('uiAutomation.scheduledTask.taskType')" clearable style="width: 160px">
             <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testSuite')" value="TEST_SUITE" />
             <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testCase')" value="TEST_CASE" />
           </el-select>
-        </el-col>
-        <el-col :span="6">
-          <el-select v-model="filters.trigger_type" :placeholder="$t('uiAutomation.scheduledTask.triggerType')" clearable>
+        </el-form-item>
+        <el-form-item>
+          <el-select v-model="filters.trigger_type" :placeholder="$t('uiAutomation.scheduledTask.triggerType')" clearable style="width: 160px">
             <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.cron')" value="CRON" />
             <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.interval')" value="INTERVAL" />
             <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.once')" value="ONCE" />
           </el-select>
-        </el-col>
-        <el-col :span="6">
-          <el-select v-model="filters.status" :placeholder="$t('uiAutomation.scheduledTask.status')" clearable>
+        </el-form-item>
+        <el-form-item>
+          <el-select v-model="filters.status" :placeholder="$t('uiAutomation.scheduledTask.status')" clearable style="width: 160px">
             <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.active')" value="ACTIVE" />
             <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.paused')" value="PAUSED" />
             <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.completed')" value="COMPLETED" />
             <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.failed')" value="FAILED" />
           </el-select>
-        </el-col>
-        <el-col :span="6">
-          <el-button @click="resetFilters">{{ $t('uiAutomation.common.reset') }}</el-button>
+        </el-form-item>
+        <el-form-item>
           <el-button type="primary" @click="loadTasks">{{ $t('uiAutomation.common.search') }}</el-button>
-        </el-col>
-      </el-row>
+          <el-button @click="resetFilters">{{ $t('uiAutomation.common.reset') }}</el-button>
+        </el-form-item>
+      </el-form>
     </div>
 
     <!-- 任务列表 -->
-    <div class="task-list">
+    <div class="table-scroll-area">
       <el-table :data="tasks" v-loading="loading">
         <el-table-column prop="name" :label="$t('uiAutomation.scheduledTask.taskName')" min-width="200" />
         <el-table-column prop="task_type" :label="$t('uiAutomation.scheduledTask.taskType')" width="120">
@@ -96,13 +96,14 @@
             {{ formatDateTime(scope.row.last_run_time) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right" align="left">
           <template #default="scope">
-            <el-button size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
+            <div style="padding-left: 12px;">
+            <el-button link type="primary" size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
               {{ $t('uiAutomation.scheduledTask.runNow') }}
             </el-button>
             <el-dropdown @command="(command) => handleTaskAction(command, scope.row)">
-              <el-button size="small">
+              <el-button link type="primary" size="small">
                 {{ $t('uiAutomation.scheduledTask.more') }}<el-icon><arrow-down /></el-icon>
               </el-button>
               <template #dropdown>
@@ -114,13 +115,14 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
     </div>
 
     <!-- 分页 -->
-    <div class="pagination">
+    <div class="pagination-container">
       <el-pagination
         v-model:current-page="pagination.current"
         v-model:page-size="pagination.size"
@@ -710,38 +712,6 @@ const deleteTask = async (task) => {
 </script>
 
 <style scoped>
-.scheduled-tasks {
-  padding: 20px;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.filters {
-  margin-bottom: 20px;
-  background: #f8f9fa;
-  padding: 20px;
-  border-radius: 8px;
-}
-
-.task-list {
-  flex: 1;
-  overflow: hidden;
-}
-
-.pagination {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
-
 .cron-help {
   margin-top: 8px;
   font-size: 12px;

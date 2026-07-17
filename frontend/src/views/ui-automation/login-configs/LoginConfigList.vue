@@ -13,24 +13,24 @@
       </div>
     </div>
 
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
-            <el-input
-              v-model="searchText"
-              placeholder="搜索登录配置名称"
-              clearable
-              @input="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-col>
-        </el-row>
-      </div>
+    <div class="filter-bar">
+      <el-form :inline="true">
+        <el-form-item>
+          <el-input
+            v-model="searchText"
+            placeholder="搜索登录配置名称"
+            clearable
+            @input="handleSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
+      </el-form>
+    </div>
 
+    <div class="table-scroll-area">
       <el-table :data="loginConfigs" v-loading="loading" style="width: 100%">
         <el-table-column prop="name" label="名称" min-width="150">
           <template #default="{ row }">
@@ -422,40 +422,5 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  padding: 20px;
-  background: #f5f5f5;
-  min-height: calc(100vh - 100px);
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 24px;
-}
-
-.card-container {
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
-}
-
-.filter-bar {
-  margin-bottom: 20px;
-}
-
-.pagination-container {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
+/* 页面样式统一使用 global.scss 中的全局类 */
 </style>
