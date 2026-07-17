@@ -220,12 +220,9 @@ class LoginConfigCreateSerializer(serializers.ModelSerializer):
 
     def validate_login_test_case(self, value):
         if value:
-            if value.status == 'draft':
-                # 草稿用例仅警告，不阻止（方便开发调试）
-                pass
-            elif value.status not in ('ready', 'passed', 'draft'):
+            if value.status not in ('normal', 'passed'):
                 raise serializers.ValidationError(
-                    f"登录用例当前状态为「{value.get_status_display()}」，建议使用「就绪」或「通过」状态的用例"
+                    f"登录用例当前状态为「{value.get_status_display()}」，建议使用「正常」或「通过」状态的用例"
                 )
         return value
 

@@ -79,6 +79,11 @@
             style="width: 100%"
           >
             <el-table-column prop="name" label="用例名称" min-width="140" show-overflow-tooltip />
+            <el-table-column label="状态" width="80" align="center">
+              <template #default="{ row }">
+                <el-tag :type="getStatusTag(row.status)" size="small">{{ getStatusText(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="步骤" width="55" align="center">
               <template #default="{ row }">
                 <span class="step-count">{{ row.steps?.length || 0 }}</span>
@@ -1574,9 +1579,7 @@ const resetForm = () => {
 // 辅助方法
 const getStatusTag = (status) => {
   const tagMap = {
-    'draft': 'info',
-    'ready': 'success',
-    'running': 'warning',
+    'normal': 'info',
     'passed': 'success',
     'failed': 'danger'
   }
@@ -1585,13 +1588,11 @@ const getStatusTag = (status) => {
 
 const getStatusText = (status) => {
   const textMap = {
-    'draft': t('uiAutomation.testCase.status.draft'),
-    'ready': t('uiAutomation.testCase.status.ready'),
-    'running': t('uiAutomation.testCase.status.running'),
-    'passed': t('uiAutomation.testCase.status.passed'),
-    'failed': t('uiAutomation.testCase.status.failed')
+    'normal': '正常',
+    'passed': '通过',
+    'failed': '失败'
   }
-  return textMap[status] || t('uiAutomation.testCase.status.unknown')
+  return textMap[status] || '未知'
 }
 
 const getActionTypeText = (actionType) => {
