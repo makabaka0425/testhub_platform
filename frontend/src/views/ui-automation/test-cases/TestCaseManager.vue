@@ -50,7 +50,6 @@
           >
             <template #default="{ node, data }">
               <div class="group-tree-node">
-                <el-icon><Folder /></el-icon>
                 <span class="group-node-label">{{ node.label }}</span>
                 <span v-if="data.id !== '__all__'" class="group-count">{{ data.test_cases_count || 0 }}</span>
               </div>
@@ -2052,10 +2051,11 @@ onMounted(async () => {
 .group-tree-node {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   font-size: 13px;
   flex: 1;
   overflow: hidden;
+  padding-left: 2px;
 }
 
 .group-node-label {
