@@ -1158,6 +1158,9 @@ class TestExecutor:
                         print(f"🔍 开始捕获失败截图 (步骤 {step_data['step_number']})...")
                         print(f"   当前page对象URL: {self.current_page.url}")
                         print(f"   当前page对象标题: {self.current_page.title()}")
+                        # 先滚动到页面顶部，确保顶部查询区域可见
+                        self.current_page.evaluate("window.scrollTo(0, 0)")
+                        self.current_page.wait_for_timeout(300)
                         screenshot_bytes = self.current_page.screenshot(timeout=5000)  # 5秒超时
                         print(f"   截图字节大小: {len(screenshot_bytes)} bytes")
 
@@ -1202,6 +1205,9 @@ class TestExecutor:
                 import base64
                 # 增加超时设置，避免截图等待时间过长
                 print(f"🔍 开始捕获异常截图...")
+                # 先滚动到页面顶部，确保顶部查询区域可见
+                self.current_page.evaluate("window.scrollTo(0, 0)")
+                self.current_page.wait_for_timeout(300)
                 screenshot_bytes = self.current_page.screenshot(timeout=5000)  # 5秒超时
                 print(f"   截图字节大小: {len(screenshot_bytes)} bytes")
 

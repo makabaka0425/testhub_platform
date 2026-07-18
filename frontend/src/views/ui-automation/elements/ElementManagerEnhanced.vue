@@ -84,7 +84,7 @@
           <span class="panel__title">元素列表</span>
         </div>
         <div class="panel__body">
-          <el-table :data="filteredElements" highlight-current-row size="small" :row-class-name="getElementRowClass">
+          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass">
             <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip />
             <el-table-column prop="element_type" label="类型" width="80">
               <template #default="{ row }">
@@ -122,6 +122,16 @@
             </el-table-column>
           </el-table>
           <div v-if="filteredElements.length === 0" class="no-data-tip">暂无元素</div>
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="elementCurrentPage"
+              v-model:page-size="elementPageSize"
+              :page-sizes="[10, 20, 50]"
+              :total="filteredElements.length"
+              layout="total, sizes, prev, pager, next"
+              small
+            />
+          </div>
         </div>
       </section>
     </div>
@@ -549,6 +559,18 @@ const filteredElements = computed(() => {
     result = result.filter(e => e.locator_strategy_id === searchStrategy.value)
   }
   return result
+})
+
+// 元素列表分页
+const elementCurrentPage = ref(1)
+const elementPageSize = ref(10)
+const pagedElements = computed(() => {
+  const start = (elementCurrentPage.value - 1) * elementPageSize.value
+  return filteredElements.value.slice(start, start + elementPageSize.value)
+})
+// 筛选条件或页面切换时重置到第1页
+watch([searchName, searchType, searchStrategy, selectedPageId], () => {
+  elementCurrentPage.value = 1
 })
 
 // 页面分组点击
