@@ -136,23 +136,46 @@
         </div>
       </section>
 
-      <!-- 右侧：用例详情面板 -->
-      <section class="panel detail-panel">
-        <div class="panel__header">
-          <span class="panel__title">用例详情</span>
-          <div v-if="selectedTestCase" class="detail-header-actions">
-            <el-button size="small" @click="executionResult ? toggleView() : addStep()">
-              <el-icon><Plus v-if="!executionResult" /><Edit v-else /></el-icon>
-              {{ executionResult ? '编辑步骤' : t('uiAutomation.testCase.addStep') }}
-            </el-button>
-            <el-button size="small" type="primary" @click="saveTestCase">
-              <el-icon><Check /></el-icon>
-              {{ t('uiAutomation.testCase.saveTestCase') }}
-            </el-button>
-          </div>
+      <!-- 右侧：用例详情抽屉 -->
+      <el-drawer
+        v-model="detailDrawerVisible"
+        :with-header="false"
+        :size="detailDrawerSize"
+        direction="rtl"
+        :modal="false"
+        :append-to-body="false"
+        modal-class="detail-drawer-overlay"
+        :class="['detail-drawer', { 'detail-drawer--collapsed': detailCollapsed }]"
+      >
+        <div class="detail-toggle" @click="toggleDetailCollapse" :title="detailCollapsed ? '展开详情' : '收起详情'">
+          <span class="detail-toggle__btn">
+            <el-icon><component :is="detailCollapsed ? 'CaretLeft' : 'CaretRight'" /></el-icon>
+          </span>
         </div>
-        <div class="panel__body detail-body">
-          <div v-if="selectedTestCase" class="test-case-detail">
+        <div class="detail-resizer" v-show="!detailCollapsed" @mousedown="startResize"></div>
+        <div class="detail-drawer-body" v-show="!detailCollapsed">
+          <div class="panel__header">
+            <span class="panel__title">用例详情</span>
+            <div v-if="selectedTestCase" class="detail-header-actions">
+              <el-button size="small" @click="executionResult ? toggleView() : addStep()">
+                <el-icon><Plus v-if="!executionResult" /><Edit v-else /></el-icon>
+                {{ executionResult ? '编辑步骤' : t('uiAutomation.testCase.addStep') }}
+              </el-button>
+              <el-button size="small" type="primary" @click="saveTestCase">
+                <el-icon><Check /></el-icon>
+                {{ t('uiAutomation.testCase.saveTestCase') }}
+              </el-button>
+              <el-button size="small" type="success" @click="runTestCase(selectedTestCase)">
+                <el-icon><VideoPlay /></el-icon>
+                {{ lastRunCaseId === selectedTestCase.id ? '重新运行' : '运行' }}
+              </el-button>
+              <el-button size="small" @click="closeDetailDrawer">
+                <el-icon><Close /></el-icon>
+              </el-button>
+            </div>
+          </div>
+          <div class="panel__body detail-body">
+            <div v-if="selectedTestCase" class="test-case-detail">
 
             <!-- 测试步骤编辑 -->
             <div class="steps-container" v-show="showSteps">
@@ -557,8 +580,9 @@
           <div v-else class="no-selection">
             <el-empty :description="t('uiAutomation.testCase.selectTestCase')" />
           </div>
+          </div>
         </div>
-      </section>
+      </el-drawer>
     </div>
 
     <!-- 新建/编辑测试用例对话框 -->
@@ -755,7 +779,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search, Plus, Edit, Delete, Check, CaretRight, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument
+  Search, Plus, Edit, Delete, Check, CaretRight, CaretLeft, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument, Close
 } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
@@ -789,6 +813,10 @@ const projects = ref([])
 const projectId = ref('')
 const testCases = ref([])
 const selectedTestCase = ref(null)
+const detailDrawerVisible = ref(false)
+const detailDrawerWidth = ref(600)
+const detailCollapsed = ref(false)
+const detailDrawerSize = computed(() => detailCollapsed.value ? '20px' : `${detailDrawerWidth.value}px`)
 const currentSteps = ref([])
 const availableElements = ref([])
 const elementTreeData = ref([])
@@ -960,6 +988,20 @@ watch(searchKeyword, () => {
   currentPage.value = 1
 })
 
+// selectedTestCase 被外部置空时同步关闭抽屉
+watch(selectedTestCase, (val) => {
+  if (!val) detailDrawerVisible.value = false
+})
+
+// 抽屉关闭时（ESC/外部触发）同步清空选中用例
+watch(detailDrawerVisible, (val) => {
+  if (!val && selectedTestCase.value) {
+    selectedTestCase.value = null
+    currentSteps.value = []
+    executionResult.value = null
+  }
+})
+
 // 表格行点击选中
 const handleTableCurrentChange = (row) => {
   if (isDragging.value) return
@@ -1115,6 +1157,46 @@ const selectTestCase = (testCase) => {
   // 只有在切换到不同用例时才清空执行结果
   executionResult.value = null
   showSteps.value = true
+  // 打开详情抽屉
+  detailDrawerVisible.value = true
+  // 切换用例时若抽屉处于收起状态，自动展开
+  if (detailCollapsed.value) detailCollapsed.value = false
+}
+
+// 关闭详情抽屉
+const closeDetailDrawer = () => {
+  detailDrawerVisible.value = false
+  detailCollapsed.value = false
+  selectedTestCase.value = null
+  currentSteps.value = []
+  executionResult.value = null
+}
+
+// 切换抽屉收起/展开（保留用例数据不清空）
+const toggleDetailCollapse = () => {
+  detailCollapsed.value = !detailCollapsed.value
+}
+
+// 拖拽调整抽屉宽度
+const startResize = (e) => {
+  e.preventDefault()
+  const startX = e.clientX
+  const startWidth = detailDrawerWidth.value
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  const onMove = (ev) => {
+    const delta = startX - ev.clientX
+    const newWidth = Math.max(400, Math.min(window.innerWidth - 320, startWidth + delta))
+    detailDrawerWidth.value = newWidth
+  }
+  const onUp = () => {
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
 }
 
 const addStep = () => {
@@ -2300,17 +2382,92 @@ onMounted(async () => {
 }
 
 /* ============================================================
-   右侧：用例详情面板
+   右侧：用例详情抽屉
    ============================================================ */
-.detail-panel {
-  width: var(--detail-w);
+/* 让 overlay 不拦截底层点击，抽屉本身仍可交互 */
+:deep(.detail-drawer) {
+  position: absolute;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+  pointer-events: auto;
+  transition: width 0.2s ease;
+  overflow: visible !important;
+}
+
+/* 收起状态下阴影减弱 */
+:deep(.detail-drawer--collapsed) {
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
+}
+
+/* 让 __body 不裁剪浮在外侧的 toggle 按钮 */
+:deep(.detail-drawer .el-drawer__body) {
+  padding: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: visible !important;
+}
+
+/* 左边缘三角切换按钮 - 浮动胶囊样式 */
+.detail-toggle {
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  cursor: pointer;
+}
+
+.detail-toggle__btn {
+  width: 20px;
+  height: 40px;
+  border-radius: 6px;
+  background: var(--gray-0);
+  border: 1px solid var(--gray-200);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-500);
+  transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.detail-toggle:hover .detail-toggle__btn {
+  background: var(--brand-50);
+  border-color: var(--brand-300);
+  color: var(--brand-600);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+/* 关闭按钮样式 */
+.detail-close-btn {
+  margin-left: var(--space-2);
+}
+
+.detail-resizer {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--gray-200);
   flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.detail-resizer:hover {
+  background: var(--brand-400);
+}
+
+.detail-drawer-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--gray-0);
 }
 
 .detail-body {
   padding: 0 !important;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  overflow: hidden;
 }
 
 .test-case-detail {
