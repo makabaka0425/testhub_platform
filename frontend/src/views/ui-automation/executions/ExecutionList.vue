@@ -2,59 +2,61 @@
   <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">{{ $t('uiAutomation.execution.title') }}</h1>
-      <el-select v-model="projectId" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px; margin-right: 15px" @change="onProjectChange">
-        <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
-      </el-select>
+      <div class="header-actions">
+        <el-select v-model="projectId" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px" @change="onProjectChange">
+          <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+        </el-select>
+      </div>
     </div>
 
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-form :inline="true" :model="queryParams" class="demo-form-inline">
-          <el-form-item :label="$t('uiAutomation.common.search')">
-            <el-input
-              v-model="queryParams.search"
-              :placeholder="$t('uiAutomation.execution.searchPlaceholder')"
-              clearable
-              @keyup.enter="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-form-item>
-          <el-form-item :label="$t('uiAutomation.common.status')">
-            <el-select v-model="queryParams.status" :placeholder="$t('uiAutomation.execution.statusFilter')" clearable>
-              <el-option :label="$t('uiAutomation.status.pending')" value="pending" />
-              <el-option :label="$t('uiAutomation.status.running')" value="running" />
-              <el-option :label="$t('uiAutomation.status.passed')" value="passed" />
-              <el-option :label="$t('uiAutomation.status.failed')" value="failed" />
-              <el-option :label="$t('uiAutomation.status.error')" value="error" />
-              <el-option label="跳过" value="skipped" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="$t('uiAutomation.execution.browserFilter')">
-            <el-select v-model="queryParams.browser" :placeholder="$t('uiAutomation.execution.browserFilter')" clearable>
-              <el-option label="Chrome" value="chrome" />
-              <el-option label="Firefox" value="firefox" />
-              <el-option label="Safari" value="safari" />
-              <el-option label="Edge" value="edge" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleSearch">{{ $t('uiAutomation.common.query') }}</el-button>
-            <el-button @click="resetQuery">{{ $t('uiAutomation.common.reset') }}</el-button>
-            <el-button
-              type="danger"
-              :disabled="selectedIds.length === 0"
-              @click="handleBatchDelete"
-            >
-              {{ $t('uiAutomation.common.batchDelete') }}
-            </el-button>
-          </el-form-item>
-        </el-form>
-      </div>
+    <div class="filter-bar">
+      <el-form :inline="true" :model="queryParams">
+        <el-form-item :label="$t('uiAutomation.common.search')">
+          <el-input
+            v-model="queryParams.search"
+            :placeholder="$t('uiAutomation.execution.searchPlaceholder')"
+            clearable
+            style="width: 200px"
+            @keyup.enter="handleSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item :label="$t('uiAutomation.common.status')">
+          <el-select v-model="queryParams.status" :placeholder="$t('uiAutomation.execution.statusFilter')" clearable style="width: 130px">
+            <el-option :label="$t('uiAutomation.status.pending')" value="pending" />
+            <el-option :label="$t('uiAutomation.status.running')" value="running" />
+            <el-option :label="$t('uiAutomation.status.passed')" value="passed" />
+            <el-option :label="$t('uiAutomation.status.failed')" value="failed" />
+            <el-option :label="$t('uiAutomation.status.error')" value="error" />
+            <el-option label="跳过" value="skipped" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$t('uiAutomation.execution.browserFilter')">
+          <el-select v-model="queryParams.browser" :placeholder="$t('uiAutomation.execution.browserFilter')" clearable style="width: 130px">
+            <el-option label="Chrome" value="chrome" />
+            <el-option label="Firefox" value="firefox" />
+            <el-option label="Safari" value="safari" />
+            <el-option label="Edge" value="edge" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">{{ $t('uiAutomation.common.query') }}</el-button>
+          <el-button @click="resetQuery">{{ $t('uiAutomation.common.reset') }}</el-button>
+          <el-button
+            type="danger"
+            :disabled="selectedIds.length === 0"
+            @click="handleBatchDelete"
+          >
+            {{ $t('uiAutomation.common.batchDelete') }}
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </div>
 
-      <div class="table-scroll-area">
+    <div class="table-scroll-area">
       <el-table :data="executions" v-loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="55" align="center" />
         <el-table-column prop="id" label="ID" width="80" align="center" />
@@ -109,38 +111,38 @@
         </el-table-column>
         <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right" align="left">
           <template #default="{ row }">
-            <div style="padding-left: 12px;">
-            <el-button size="small" type="primary" link @click="viewExecutionDetail(row)">
-              {{ $t('uiAutomation.common.details') }}
-            </el-button>
-            <el-button
-              v-if="row.status === 'failed' || row.status === 'error'"
-              size="small"
-              type="warning"
-              link
-              @click="showRerunDialog(row)"
-            >
-              {{ $t('uiAutomation.common.rerun') }}
-            </el-button>
-            <el-button
-              link
-              type="danger"
-              @click="handleDelete(row)"
-            >
-              {{ $t('uiAutomation.common.delete') }}
-            </el-button>
+            <div class="op-btns">
+              <el-button class="op-btn" type="primary" link size="small" @click="viewExecutionDetail(row)">
+                {{ $t('uiAutomation.common.details') }}
+              </el-button>
+              <el-button
+                v-if="row.status === 'failed' || row.status === 'error'"
+                class="op-btn"
+                type="warning"
+                link
+                size="small"
+                @click="showRerunDialog(row)"
+              >
+                {{ $t('uiAutomation.common.rerun') }}
+              </el-button>
+              <el-button
+                class="op-btn op-btn--danger"
+                link
+                size="small"
+                @click="handleDelete(row)"
+              >
+                {{ $t('uiAutomation.common.delete') }}
+              </el-button>
             </div>
           </template>
         </el-table-column>
       </el-table>
-      </div>
-
       <div class="pagination-container">
         <el-pagination
           v-model:current-page="pagination.currentPage"
           v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
+          :page-sizes="[10, 20, 50]"
+          layout="total, sizes, prev, pager, next"
           :total="total"
           @size-change="handleSizeChange"
           @current-change="handleCurrentChange"
@@ -639,27 +641,46 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
-.card-container {
-  flex: 1;
+.header-actions {
   display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+  align-items: center;
+  gap: 12px;
 }
 
-.filter-bar {
-  flex-shrink: 0;
-}
-
+/* 表格区域撑满剩余空间，内部表格独立滚动 */
 .table-scroll-area {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
+.table-scroll-area :deep(.el-table) {
+  flex: 1;
+  min-height: 0;
+}
+
+/* filter-bar 由 global 样式接管，不再覆盖 margin-bottom */
 .pagination-container {
-  margin-top: 20px;
   flex-shrink: 0;
+}
+
+/* 操作按钮组 */
+.op-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
 }
 
 .execution-detail {
