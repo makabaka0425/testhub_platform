@@ -79,6 +79,14 @@
                 </template>
               </el-input>
             </el-form-item>
+            <el-form-item label="状态">
+              <el-select v-model="searchStatus" placeholder="全部" clearable style="width: 130px">
+                <el-option label="正常" value="normal" />
+                <el-option label="通过" value="passed" />
+                <el-option label="失败" value="failed" />
+                <el-option label="跳过" value="skipped" />
+              </el-select>
+            </el-form-item>
           </el-form>
         </div>
 
@@ -831,6 +839,7 @@ const currentSteps = ref([])
 const availableElements = ref([])
 const elementTreeData = ref([])
 const searchKeyword = ref('')
+const searchStatus = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const showCreateDialog = ref(false)
@@ -984,6 +993,10 @@ const filteredTestCases = computed(() => {
       tc.description?.includes(searchKeyword.value)
     )
   }
+  // 按状态筛选
+  if (searchStatus.value) {
+    result = result.filter(tc => (tc.status || 'normal') === searchStatus.value)
+  }
   return result
 })
 
@@ -994,7 +1007,7 @@ const paginatedTestCases = computed(() => {
 })
 
 // 搜索时重置到第一页
-watch(searchKeyword, () => {
+watch([searchKeyword, searchStatus], () => {
   currentPage.value = 1
 })
 

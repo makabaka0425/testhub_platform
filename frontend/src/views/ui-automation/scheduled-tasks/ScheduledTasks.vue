@@ -11,21 +11,32 @@
     <!-- 筛选条件 -->
     <div class="filter-bar">
       <el-form :inline="true">
-        <el-form-item>
-          <el-select v-model="filters.task_type" :placeholder="$t('uiAutomation.scheduledTask.taskType')" clearable style="width: 160px">
+        <el-form-item :label="$t('uiAutomation.scheduledTask.taskName')">
+          <el-input
+            v-model="filters.search"
+            :placeholder="$t('uiAutomation.scheduledTask.taskName')"
+            clearable
+            style="width: 180px"
+            @keyup.enter="loadTasks"
+          >
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+        </el-form-item>
+        <el-form-item :label="$t('uiAutomation.scheduledTask.taskType')">
+          <el-select v-model="filters.task_type" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
             <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testSuite')" value="TEST_SUITE" />
             <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testCase')" value="TEST_CASE" />
           </el-select>
         </el-form-item>
-        <el-form-item>
-          <el-select v-model="filters.trigger_type" :placeholder="$t('uiAutomation.scheduledTask.triggerType')" clearable style="width: 160px">
+        <el-form-item :label="$t('uiAutomation.scheduledTask.triggerType')">
+          <el-select v-model="filters.trigger_type" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
             <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.cron')" value="CRON" />
             <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.interval')" value="INTERVAL" />
             <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.once')" value="ONCE" />
           </el-select>
         </el-form-item>
-        <el-form-item>
-          <el-select v-model="filters.status" :placeholder="$t('uiAutomation.scheduledTask.status')" clearable style="width: 160px">
+        <el-form-item :label="$t('uiAutomation.scheduledTask.status')">
+          <el-select v-model="filters.status" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
             <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.active')" value="ACTIVE" />
             <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.paused')" value="PAUSED" />
             <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.completed')" value="COMPLETED" />
@@ -336,6 +347,7 @@ const editingTask = ref(null)
 
 // 筛选条件
 const filters = reactive({
+  search: '',
   task_type: '',
   trigger_type: '',
   status: ''
@@ -507,6 +519,7 @@ const resetTaskForm = () => {
 // 重置筛选
 const resetFilters = () => {
   Object.assign(filters, {
+    search: '',
     task_type: '',
     trigger_type: '',
     status: ''

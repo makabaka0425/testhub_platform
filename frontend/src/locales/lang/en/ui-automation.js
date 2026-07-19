@@ -793,6 +793,7 @@ export default {
       failed: 'Failed',
       noError: 'None',
       // Date picker
+      dateRange: 'Date Range',
       dateRangeTo: 'to',
       startDate: 'Start Date',
       endDate: 'End Date',
