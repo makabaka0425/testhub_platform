@@ -21,6 +21,10 @@
         <el-select v-model="projectId" :placeholder="t('uiAutomation.project.selectProject')" class="titlebar-select" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
+        <el-button type="primary" size="small" @click="showCreateDialog = true">
+          <el-icon><Plus /></el-icon>
+          <span>新增</span>
+        </el-button>
       </div>
     </div>
 
@@ -58,26 +62,31 @@
         </div>
       </section>
 
-      <!-- 中间：用例列表面板 -->
-      <section class="panel list-panel">
-        <div class="panel__header list-toolbar">
-          <span class="panel__title">用例列表</span>
-          <el-input
-            v-model="searchKeyword"
-            :placeholder="t('uiAutomation.testCase.searchPlaceholder')"
-            clearable
-            size="small"
-            class="list-search"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-          <el-button type="primary" size="small" @click="showCreateDialog = true">
-            <el-icon><Plus /></el-icon>
-            新增
-          </el-button>
+      <!-- 中间列：搜索区域 + 用例列表 -->
+      <div class="list-column">
+        <!-- 搜索区域卡片（参照元素管理页） -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item label="用例名称">
+              <el-input
+                v-model="searchKeyword"
+                :placeholder="t('uiAutomation.testCase.searchPlaceholder')"
+                clearable
+                style="width: 220px"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+          </el-form>
         </div>
+
+        <!-- 用例列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">用例列表</span>
+          </div>
 
         <div class="panel__body test-case-table-wrapper">
           <el-table
@@ -134,7 +143,8 @@
             layout="total, sizes, prev, pager, next"
           />
         </div>
-      </section>
+        </section>
+      </div>
 
       <!-- 右侧：用例详情抽屉 -->
       <el-drawer
@@ -2226,19 +2236,24 @@ onMounted(async () => {
 }
 
 /* ============================================================
-   中间：用例列表面板
+   中间列：搜索区域 + 用例列表面板
    ============================================================ */
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 搜索区域卡片：覆盖 global 默认 margin-bottom，由 list-column 的 gap 接管间距 */
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
 .list-panel {
   flex: 1;
   min-width: 0;
-}
-
-.list-toolbar {
-  gap: var(--space-3);
-}
-
-.list-search {
-  width: 220px;
 }
 
 .list-panel .panel__body {
