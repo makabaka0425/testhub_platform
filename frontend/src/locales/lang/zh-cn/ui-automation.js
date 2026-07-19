@@ -793,6 +793,7 @@ export default {
       failed: '发送失败',
       noError: '无',
       // 日期选择器
+      dateRange: '日期范围',
       dateRangeTo: '至',
       startDate: '开始日期',
       endDate: '结束日期',

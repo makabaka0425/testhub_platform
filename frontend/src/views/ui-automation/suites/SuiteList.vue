@@ -13,13 +13,31 @@
       </div>
 
       <div class="filter-bar">
-        <el-input v-model="searchText" placeholder="搜索套件名称..." clearable @input="handleSearch" style="width: 240px">
-          <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
+        <el-form :inline="true">
+          <el-form-item label="套件名称">
+            <el-input v-model="searchText" placeholder="搜索套件名称..." clearable @input="handleSearch" style="width: 200px">
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+          </el-form-item>
+          <el-form-item label="执行模式">
+            <el-select v-model="filterExecutionMode" placeholder="全部" clearable style="width: 130px">
+              <el-option label="共享会话" value="shared_session" />
+              <el-option label="用例独立" value="per_case" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="执行状态">
+            <el-select v-model="filterExecutionStatus" placeholder="全部" clearable style="width: 130px">
+              <el-option label="未执行" value="not_run" />
+              <el-option label="通过" value="passed" />
+              <el-option label="失败" value="failed" />
+              <el-option label="执行中" value="running" />
+            </el-select>
+          </el-form-item>
+        </el-form>
       </div>
 
       <div class="table-scroll-area">
-        <el-table :data="suites" v-loading="loading" style="width: 100%">
+        <el-table :data="filteredSuites" v-loading="loading" style="width: 100%">
           <el-table-column prop="name" label="套件名称" min-width="200">
             <template #default="{ row }">
               <el-link @click="enterSuiteDetail(row)" type="primary">{{ row.name }}</el-link>
@@ -288,8 +306,22 @@ const groupTree = ref([])
 const suites = ref([])
 const loading = ref(false)
 const searchText = ref('')
+const filterExecutionMode = ref('')
+const filterExecutionStatus = ref('')
 const total = ref(0)
 const pagination = reactive({ currentPage: 1, pageSize: 20 })
+
+// 前端过滤当前页数据（执行模式/执行状态）
+const filteredSuites = computed(() => {
+  let result = suites.value
+  if (filterExecutionMode.value) {
+    result = result.filter(s => s.execution_mode === filterExecutionMode.value)
+  }
+  if (filterExecutionStatus.value) {
+    result = result.filter(s => s.execution_status === filterExecutionStatus.value)
+  }
+  return result
+})
 
 const loadProjects = async () => {
   try {
