@@ -360,15 +360,25 @@
         <el-table-column label="定位表达式" min-width="180">
           <template #default="{ row }"><el-input v-model="row.locator_value" size="small" /></template>
         </el-table-column>
-        <el-table-column label="验证" width="80" align="center">
+        <el-table-column label="验证" width="100" align="center">
           <template #default="{ row }">
             <el-tooltip v-if="row.validation_status" :content="row.validation_details || ''" placement="top" :show-after="300">
-              <el-tag v-if="row.validation_status === 'VALID'" type="success" size="small" effect="dark">有效</el-tag>
-              <el-tag v-else-if="row.validation_status === 'PARTIAL'" type="warning" size="small" effect="dark">部分</el-tag>
-              <el-tag v-else-if="row.validation_status === 'UNVALIDATED'" type="info" size="small" effect="dark">待验</el-tag>
-              <el-tag v-else type="danger" size="small" effect="dark">无效</el-tag>
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                <el-tag v-if="row.validation_status === 'VALID'" type="success" size="small" effect="dark">有效</el-tag>
+                <el-tag v-else-if="row.validation_status === 'PARTIAL'" type="warning" size="small" effect="dark">部分</el-tag>
+                <el-tag v-else-if="row.validation_status === 'UNVALIDATED'" type="info" size="small" effect="dark">待验</el-tag>
+                <el-tag v-else type="danger" size="small" effect="dark">无效</el-tag>
+              </div>
             </el-tooltip>
             <span v-else style="color: #c0c4cc; font-size: 12px;">-</span>
+            <el-tooltip
+              v-if="row.used_container_scope"
+              content="该元素id在页面中重复，已自动改用容器作用域组合定位（如 .el-dialog:visible #roleId）。执行用例时需确保对应弹窗已打开"
+              placement="top"
+              :show-after="200"
+            >
+              <el-tag type="warning" size="small" effect="plain" style="margin-top: 4px;">容器作用域</el-tag>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="来源" width="110">

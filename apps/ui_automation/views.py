@@ -647,20 +647,34 @@ class ElementViewSet(viewsets.ModelViewSet):
         validation_map = {}
         # 同时记录所有DOM提取阶段验证过的定位值集合（仅这些值经过了浏览器验证）
         dom_validated_values = set()
+        # 同时构建 containerSelector/id_duplicate/used_container_scope 的关联映射
+        # 用 auto_css / auto_xpath 作为 key，供 ai_elements 匹配透传
+        container_map = {}
+        id_duplicate_map = {}
+        used_container_scope_map = {}
         for dom_elem in dom_elements:
             v_status = dom_elem.get('validation_status', '')
             v_details = dom_elem.get('validation_details', '')
             if not v_status:
                 continue
+            container_sel = dom_elem.get('containerSelector', '')
+            id_dup = dom_elem.get('id_duplicate', False)
+            used_scope = dom_elem.get('used_container_scope', False)
             # 用 auto_css 和 auto_xpath 作为 key 建立索引
             auto_css = dom_elem.get('auto_css', '')
             auto_xpath = dom_elem.get('auto_xpath', '')
             if auto_css:
                 validation_map[auto_css] = (v_status, v_details)
                 dom_validated_values.add(auto_css)
+                container_map[auto_css] = container_sel
+                id_duplicate_map[auto_css] = id_dup
+                used_container_scope_map[auto_css] = used_scope
             if auto_xpath:
                 validation_map[auto_xpath] = (v_status, v_details)
                 dom_validated_values.add(auto_xpath)
+                container_map[auto_xpath] = container_sel
+                id_duplicate_map[auto_xpath] = id_dup
+                used_container_scope_map[auto_xpath] = used_scope
         
         # 为 ai_elements 匹配验证状态
         # 关键修复：仅当 locator_value 在 dom_validated_values 中（即经过浏览器验证的）才信任 validation_map
@@ -674,6 +688,16 @@ class ElementViewSet(viewsets.ModelViewSet):
                 # 该定位值确实在DOM提取阶段经过浏览器验证，可以信任
                 ai_elem['validation_status'], ai_elem['validation_details'] = validation_map[locator_value]
             # 其他情况（LLM修改了值、值不在DOM验证集合中）留空，由 _revalidate_locators 二次验证
+            
+            # 透传容器作用域 / 重复 id 标记（供前端展示提示和后续 _revalidate_locators 使用）
+            if locator_value in container_map:
+                ai_elem['containerSelector'] = container_map[locator_value]
+                ai_elem['id_duplicate'] = id_duplicate_map[locator_value]
+                ai_elem['used_container_scope'] = used_container_scope_map[locator_value]
+            else:
+                ai_elem.setdefault('containerSelector', '')
+                ai_elem.setdefault('id_duplicate', False)
+                ai_elem.setdefault('used_container_scope', False)
 
         # Step 2.5: 对LLM生成的locator_value进行二次验证
         # LLM可能修改了定位值（如去掉空格、改写选择器），需要重新在浏览器中验证
@@ -800,19 +824,32 @@ class ElementViewSet(viewsets.ModelViewSet):
         # 关联验证状态
         validation_map = {}
         dom_validated_values = set()
+        # 同时构建容器作用域/重复id标记关联映射
+        container_map = {}
+        id_duplicate_map = {}
+        used_container_scope_map = {}
         for dom_elem in dialog_elements:
             v_status = dom_elem.get('validation_status', '')
             v_details = dom_elem.get('validation_details', '')
             if not v_status:
                 continue
+            container_sel = dom_elem.get('containerSelector', '')
+            id_dup = dom_elem.get('id_duplicate', False)
+            used_scope = dom_elem.get('used_container_scope', False)
             auto_css = dom_elem.get('auto_css', '')
             auto_xpath = dom_elem.get('auto_xpath', '')
             if auto_css:
                 validation_map[auto_css] = (v_status, v_details)
                 dom_validated_values.add(auto_css)
+                container_map[auto_css] = container_sel
+                id_duplicate_map[auto_css] = id_dup
+                used_container_scope_map[auto_css] = used_scope
             if auto_xpath:
                 validation_map[auto_xpath] = (v_status, v_details)
                 dom_validated_values.add(auto_xpath)
+                container_map[auto_xpath] = container_sel
+                id_duplicate_map[auto_xpath] = id_dup
+                used_container_scope_map[auto_xpath] = used_scope
 
         for elem in ai_elements:
             locator_value = elem.get('locator_value', '')
@@ -823,6 +860,16 @@ class ElementViewSet(viewsets.ModelViewSet):
             else:
                 elem['validation_status'] = 'UNVALIDATED'
                 elem['validation_details'] = '未在DOM提取阶段验证'
+
+            # 透传容器作用域 / 重复 id 标记
+            if locator_value in container_map:
+                elem['containerSelector'] = container_map[locator_value]
+                elem['id_duplicate'] = id_duplicate_map[locator_value]
+                elem['used_container_scope'] = used_container_scope_map[locator_value]
+            else:
+                elem.setdefault('containerSelector', '')
+                elem.setdefault('id_duplicate', False)
+                elem.setdefault('used_container_scope', False)
 
             # 关联弹窗来源
             source = elem.get('source', '')
@@ -1023,6 +1070,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                     for elem in dialog_raw_elements:
                         elem['page_title'] = page_title
                         elem['source'] = dialog_title
+                        # 标记容器作用域，用于后续 _validate_locators 处理重复id场景
+                        # 弹窗内的元素若与主页面的id重复，需用 {container} #id 组合选择器定位
+                        elem['containerSelector'] = dialog_selector
                         css_selector = self._compute_css_selector(elem)
                         xpath = self._compute_xpath(elem)
                         validation = self._validate_locators(page, elem, css_selector, xpath)
@@ -1030,6 +1080,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                         elem['auto_xpath'] = validation['xpath']
                         elem['validation_status'] = validation['validation_status']
                         elem['validation_details'] = validation['validation_details']
+                        # 透传重复id标记，供前端提示和后续去重使用
+                        elem['id_duplicate'] = validation.get('id_duplicate', False)
+                        elem['used_container_scope'] = validation.get('used_container_scope', False)
                         all_dialog_elements.append(elem)
                         if validation['css_selector']:
                             dialog_css_list.append(validation['css_selector'])
@@ -1332,6 +1385,8 @@ class ElementViewSet(viewsets.ModelViewSet):
                     elem['page_title'] = page_title
                     if page_name:
                         elem['source'] = page_name
+                    # 手动模式批量提取，未限定弹窗容器，containerSelector 留空
+                    elem['containerSelector'] = ''
                     css_selector = self._compute_css_selector(elem)
                     xpath = self._compute_xpath(elem)
                     validation = await self._async_validate_locators(page, elem, css_selector, xpath)
@@ -1339,6 +1394,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                     elem['auto_xpath'] = validation['xpath']
                     elem['validation_status'] = validation['validation_status']
                     elem['validation_details'] = validation['validation_details']
+                    # 透传重复id标记
+                    elem['id_duplicate'] = validation.get('id_duplicate', False)
+                    elem['used_container_scope'] = validation.get('used_container_scope', False)
 
                 # AI分析
                 try:
@@ -1775,12 +1833,19 @@ class ElementViewSet(viewsets.ModelViewSet):
                 css_selector = self._compute_css_selector(element_data)
                 xpath = self._compute_xpath(element_data)
 
+                # 交互式选取场景：未识别弹窗容器作用域，containerSelector 留空
+                # 若 CSS 不唯一，复用 _async_validate_locators 内的回退逻辑处理重复id
+                element_data['containerSelector'] = ''
+
                 # 验证定位器
                 validation = await self._async_validate_locators(page, element_data, css_selector, xpath)
                 element_data['auto_css'] = validation['css_selector']
                 element_data['auto_xpath'] = validation['xpath']
                 element_data['validation_status'] = validation['validation_status']
                 element_data['validation_details'] = validation['validation_details']
+                # 透传重复id标记
+                element_data['id_duplicate'] = validation.get('id_duplicate', False)
+                element_data['used_container_scope'] = validation.get('used_container_scope', False)
 
                 # AI分析单个元素
                 try:
@@ -2492,8 +2557,13 @@ class ElementViewSet(viewsets.ModelViewSet):
             pass
 
     async def _async_validate_locators(self, page, elem, css_selector, xpath):
-        """async版本 — 在浏览器页面上即时验证定位策略"""
-        import re
+        """async版本 — 在浏览器页面上即时验证定位策略
+        
+        同 _validate_locators 的逻辑，增加重复id处理：
+        - 原 CSS 基于 #id 且匹配多个元素时标记 id_duplicate=True
+        - 有 containerSelector（如弹窗场景）时尝试 {container} #id 组合选择器
+        - 主页面场景（无 containerSelector）使用 _async_try_css_fallbacks 尝试其他属性定位
+        """
 
         result = {
             'css_selector': css_selector,
@@ -2501,35 +2571,113 @@ class ElementViewSet(viewsets.ModelViewSet):
             'css_valid': False,
             'xpath_valid': False,
             'validation_status': 'INVALID',
-            'validation_details': ''
+            'validation_details': '',
+            'id_duplicate': False,
+            'used_container_scope': False
         }
 
         details = []
 
-        # 验证 CSS Selector
+        container_scope = (elem.get('containerSelector') or '').strip()
+        elem_id = elem.get('id', '')
+        is_id_based = bool(elem_id) and css_selector == f'#{elem_id}'
+
+        # === 1. 验证 CSS Selector ===
         css_count = 0
         try:
             css_count = await page.locator(css_selector).count()
         except Exception as e:
             details.append(f'CSS异常: {str(e)[:60]}')
 
-        if css_count >= 1:
-            result['css_valid'] = True
-            if css_count == 1:
-                details.append(f'CSS有效(1个匹配)')
-            else:
-                details.append(f'CSS有效但多个匹配({css_count}个)')
-        else:
-            details.append(f'CSS无效(0匹配)')
-            fallback_css = await self._async_try_css_fallbacks(page, elem, css_selector)
-            if fallback_css:
-                result['css_selector'] = fallback_css
-                result['css_valid'] = True
-                details.append(f'CSS回退成功: {fallback_css}')
-            else:
-                details.append('CSS回退失败')
+        final_css = css_selector
+        final_css_count = css_count
 
-        # 验证 XPath
+        if css_count == 1:
+            result['css_valid'] = True
+            details.append(f'CSS有效(1个匹配)')
+        elif css_count > 1:
+            details.append(f'CSS有效但多个匹配({css_count}个)')
+            if is_id_based:
+                result['id_duplicate'] = True
+
+            resolved = False
+            # 尝试1：容器作用域组合选择器
+            if container_scope and css_selector:
+                try:
+                    scoped_selector = f'{container_scope} {css_selector}'
+                    scoped_count = await page.locator(scoped_selector).count()
+                    if scoped_count == 1:
+                        final_css = scoped_selector
+                        final_css_count = 1
+                        result['used_container_scope'] = True
+                        details.append(f'容器作用域组合唯一: {scoped_selector}')
+                        resolved = True
+                    elif scoped_count > 1:
+                        details.append(f'容器作用域组合仍多匹配({scoped_count}个)')
+                    else:
+                        details.append('容器作用域组合0匹配')
+                except Exception as e:
+                    details.append(f'容器作用域组合异常: {str(e)[:60]}')
+
+            # 尝试2：CSS 回退策略
+            if not resolved:
+                fallback_css = await self._async_try_css_fallbacks(page, elem, css_selector)
+                if fallback_css:
+                    try:
+                        fcount = await page.locator(fallback_css).count()
+                        if fcount >= 1:
+                            final_css = fallback_css
+                            final_css_count = fcount
+                            result['css_valid'] = True
+                            if fcount == 1:
+                                details.append(f'CSS回退唯一: {fallback_css}')
+                            else:
+                                details.append(f'CSS回退仍多匹配({fcount}个): {fallback_css}')
+                        else:
+                            details.append('CSS回退0匹配')
+                    except Exception:
+                        details.append('CSS回退验证异常')
+        else:
+            details.append('CSS无效(0匹配)')
+            resolved = False
+            # 0匹配场景下尝试容器作用域组合
+            if container_scope and css_selector:
+                try:
+                    scoped_selector = f'{container_scope} {css_selector}'
+                    scoped_count = await page.locator(scoped_selector).count()
+                    if scoped_count == 1:
+                        final_css = scoped_selector
+                        final_css_count = 1
+                        result['css_valid'] = True
+                        result['used_container_scope'] = True
+                        details.append(f'CSS无效后容器作用域组合唯一: {scoped_selector}')
+                        resolved = True
+                    elif scoped_count > 1:
+                        details.append(f'CSS无效后容器作用域组合多匹配({scoped_count}个)')
+                except Exception:
+                    pass
+            if not resolved:
+                fallback_css = await self._async_try_css_fallbacks(page, elem, css_selector)
+                if fallback_css:
+                    try:
+                        fcount = await page.locator(fallback_css).count()
+                        if fcount >= 1:
+                            final_css = fallback_css
+                            final_css_count = fcount
+                            result['css_valid'] = True
+                            details.append(f'CSS回退成功: {fallback_css}')
+                        else:
+                            details.append('CSS回退失败')
+                    except Exception:
+                        details.append('CSS回退验证异常')
+                else:
+                    details.append('CSS回退失败')
+
+        result['css_selector'] = final_css
+        if final_css_count >= 1:
+            result['css_valid'] = True
+
+        # === 2. 验证 XPath ===
         xpath_count = 0
         try:
             xpath_count = await page.locator(f'xpath={xpath}').count()
@@ -2552,12 +2700,18 @@ class ElementViewSet(viewsets.ModelViewSet):
             else:
                 details.append('XPath回退失败')
 
-        if result['css_valid'] and result['xpath_valid']:
+        # === 3. 综合判定 ===
+        css_precise = result['css_valid'] and final_css_count == 1
+        xpath_precise = result['xpath_valid'] and xpath_count == 1
+
+        if css_precise and xpath_precise:
             result['validation_status'] = 'VALID'
         elif result['css_valid'] or result['xpath_valid']:
             result['validation_status'] = 'PARTIAL'
-        result['validation_details'] = '; '.join(details)
+        else:
+            result['validation_status'] = 'INVALID'
 
+        result['validation_details'] = '; '.join(details)
         return result
 
     async def _async_try_css_fallbacks(self, page, elem, original_css):
@@ -2913,6 +3067,8 @@ class ElementViewSet(viewsets.ModelViewSet):
             validation_stats = {'valid': 0, 'partial': 0, 'invalid': 0}
             for i, elem in enumerate(raw_elements):
                 elem['page_title'] = page_title
+                # 主页面提取的元素 containerSelector 为空，重复id时由 _validate_locators 尝试回退
+                elem['containerSelector'] = ''
                 # 计算 CSS Selector
                 css_selector = self._compute_css_selector(elem)
                 xpath = self._compute_xpath(elem)
@@ -2925,6 +3081,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                 elem['auto_xpath'] = validation['xpath']
                 elem['validation_status'] = validation['validation_status']
                 elem['validation_details'] = validation['validation_details']
+                # 透传重复id标记，供前端提示使用
+                elem['id_duplicate'] = validation.get('id_duplicate', False)
+                elem['used_container_scope'] = validation.get('used_container_scope', False)
                 
                 # 统计验证结果
                 status = validation['validation_status']
@@ -3119,30 +3278,59 @@ class ElementViewSet(viewsets.ModelViewSet):
                         ai_elem['validation_details'] = f'二次验证有效(1个匹配)'
                         validated_count += 1
                     elif count > 1:
-                        # 匹配多个，不精确，尝试用backup_locators替换为更精确的定位
+                        # 匹配多个，不精确
                         replaced = False
-                        for bl in ai_elem.get('backup_locators', []):
-                            bl_strategy = bl.get('strategy', '')
-                            bl_value = bl.get('value', '')
-                            if not bl_value:
-                                continue
-                            try:
-                                if bl_strategy in ('XPath', 'xpath'):
-                                    bl_count = page.locator(f'xpath={bl_value}').count()
-                                else:
-                                    bl_count = page.locator(bl_value).count()
-                                if bl_count == 1:
-                                    # 用精确匹配1个的backup替换
-                                    ai_elem['locator_strategy'] = bl_strategy
-                                    ai_elem['locator_value'] = bl_value
-                                    ai_elem['validation_status'] = 'VALID'
-                                    ai_elem['validation_details'] = f'原定位匹配{count}个不精确，替换为精确backup({bl_strategy}): {bl_value}'
-                                    replaced = True
-                                    replaced_count += 1
-                                    validated_count += 1
-                                    break
-                            except Exception:
-                                continue
+                        
+                        # 优先尝试容器作用域组合选择器重写（弹窗内重复id的关键修复）
+                        # 当元素携带 containerSelector 且 locator_value 形如 #xxx 或 [id="xxx"]，
+                        # 重写为 {container} #xxx，可避免与主页面同名id冲突
+                        # 注意：_revalidate_locators 重新打开页面时弹窗未打开，
+                        # 无法直接验证组合选择器，但弹窗内同id元素唯一，组合选择器可信
+                        container_sel = (ai_elem.get('containerSelector') or '').strip()
+                        if container_sel and locator_strategy in ('CSS', 'css', 'ID', 'id', ''):
+                            rewritten = None
+                            if locator_value.startswith('#'):
+                                rewritten = f'{container_sel} {locator_value}'
+                            elif locator_value.startswith('[id='):
+                                import re as _re
+                                m = _re.match(r'\[id="([^"]+)"\]', locator_value)
+                                if m:
+                                    rewritten = f'{container_sel} #{m.group(1)}'
+                            if rewritten:
+                                ai_elem['locator_value'] = rewritten
+                                ai_elem['locator_strategy'] = 'CSS'
+                                ai_elem['used_container_scope'] = True
+                                ai_elem['id_duplicate'] = True
+                                ai_elem['validation_status'] = 'VALID'
+                                ai_elem['validation_details'] = f'原定位匹配{count}个不精确，已重写为容器作用域组合: {rewritten}'
+                                replaced = True
+                                replaced_count += 1
+                                validated_count += 1
+                        
+                        # backup_locators 替换
+                        if not replaced:
+                            for bl in ai_elem.get('backup_locators', []):
+                                bl_strategy = bl.get('strategy', '')
+                                bl_value = bl.get('value', '')
+                                if not bl_value:
+                                    continue
+                                try:
+                                    if bl_strategy in ('XPath', 'xpath'):
+                                        bl_count = page.locator(f'xpath={bl_value}').count()
+                                    else:
+                                        bl_count = page.locator(bl_value).count()
+                                    if bl_count == 1:
+                                        # 用精确匹配1个的backup替换
+                                        ai_elem['locator_strategy'] = bl_strategy
+                                        ai_elem['locator_value'] = bl_value
+                                        ai_elem['validation_status'] = 'VALID'
+                                        ai_elem['validation_details'] = f'原定位匹配{count}个不精确，替换为精确backup({bl_strategy}): {bl_value}'
+                                        replaced = True
+                                        replaced_count += 1
+                                        validated_count += 1
+                                        break
+                                except Exception:
+                                    continue
                         if not replaced:
                             # backup也没有精确匹配的，尝试Ant Design按钮子span模式
                             # 如 <button><span>新增</span></button>，用 //button[.//span[contains(text(),"新增")]]
@@ -3279,9 +3467,15 @@ class ElementViewSet(viewsets.ModelViewSet):
     def _validate_locators(self, page, elem, css_selector, xpath):
         """在浏览器页面上即时验证定位策略是否有效，失败时尝试回退策略
         
+        重复id处理：
+        - 当原 CSS 选择器（基于 #id）匹配多个元素时，标记 id_duplicate=True
+        - 若元素有 containerSelector（如弹窗场景 .el-dialog:visible），自动尝试
+          {container} #id 组合选择器，唯一匹配则使用组合选择器并标记 used_container_scope=True
+        - 主页面场景（无 containerSelector）使用 _try_css_fallbacks 尝试其他属性定位
+        
         Args:
             page: Playwright page 对象（仍存活）
-            elem: 元素字典（包含 tag, name, id, className, text, placeholder 等）
+            elem: 元素字典（包含 tag, name, id, className, text, placeholder, containerSelector 等）
             css_selector: 计算出的 CSS 选择器
             xpath: 计算出的 XPath
         
@@ -3292,7 +3486,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                 'css_valid': bool,
                 'xpath_valid': bool,
                 'validation_status': 'VALID'|'PARTIAL'|'INVALID',
-                'validation_details': 验证详情字符串
+                'validation_details': 验证详情字符串,
+                'id_duplicate': bool - 原CSS基于id且匹配多个元素,
+                'used_container_scope': bool - 已使用容器作用域组合选择器,
             }
         """
         import re
@@ -3303,10 +3499,18 @@ class ElementViewSet(viewsets.ModelViewSet):
             'css_valid': False,
             'xpath_valid': False,
             'validation_status': 'INVALID',
-            'validation_details': ''
+            'validation_details': '',
+            'id_duplicate': False,
+            'used_container_scope': False
         }
         
         details = []
+        
+        # 容器作用域（弹窗元素携带，主页元素为空字符串）
+        container_scope = (elem.get('containerSelector') or '').strip()
+        elem_id = elem.get('id', '')
+        # 判断原 CSS 是否基于 id 生成（用于重复id场景判定）
+        is_id_based = bool(elem_id) and css_selector == f'#{elem_id}'
         
         # === 1. 验证 CSS Selector ===
         css_count = 0
@@ -3315,22 +3519,97 @@ class ElementViewSet(viewsets.ModelViewSet):
         except Exception as e:
             details.append(f'CSS异常: {str(e)[:60]}')
         
-        if css_count >= 1:
+        # 跟踪最终选择器及其匹配数（综合判定用）
+        final_css = css_selector
+        final_css_count = css_count
+        
+        if css_count == 1:
             result['css_valid'] = True
-            if css_count == 1:
-                details.append(f'CSS有效(1个匹配)')
-            else:
-                details.append(f'CSS有效但多个匹配({css_count}个)')
+            details.append(f'CSS有效(1个匹配)')
+        elif css_count > 1:
+            details.append(f'CSS有效但多个匹配({css_count}个)')
+            # 标记重复id（用于前端提示）
+            if is_id_based:
+                result['id_duplicate'] = True
+            
+            resolved = False
+            # 尝试1：容器作用域组合选择器（弹窗内重复id首选方案）
+            # 形如 ".el-dialog:visible #roleId"，限定在弹窗DOM范围内定位
+            if container_scope and css_selector:
+                try:
+                    scoped_selector = f'{container_scope} {css_selector}'
+                    scoped_count = page.locator(scoped_selector).count()
+                    if scoped_count == 1:
+                        final_css = scoped_selector
+                        final_css_count = 1
+                        result['used_container_scope'] = True
+                        details.append(f'容器作用域组合唯一: {scoped_selector}')
+                        resolved = True
+                    elif scoped_count > 1:
+                        details.append(f'容器作用域组合仍多匹配({scoped_count}个)')
+                    else:
+                        details.append('容器作用域组合0匹配')
+                except Exception as e:
+                    details.append(f'容器作用域组合异常: {str(e)[:60]}')
+            
+            # 尝试2：_try_css_fallbacks（主页面场景的主要回退路径）
+            if not resolved:
+                fallback_css = self._try_css_fallbacks(page, elem, css_selector)
+                if fallback_css:
+                    try:
+                        fcount = page.locator(fallback_css).count()
+                        if fcount >= 1:
+                            final_css = fallback_css
+                            final_css_count = fcount
+                            result['css_valid'] = True
+                            if fcount == 1:
+                                details.append(f'CSS回退唯一: {fallback_css}')
+                            else:
+                                details.append(f'CSS回退仍多匹配({fcount}个): {fallback_css}')
+                        else:
+                            details.append('CSS回退0匹配')
+                    except Exception:
+                        details.append('CSS回退验证异常')
         else:
-            details.append(f'CSS无效(0匹配)')
-            # 尝试 CSS 回退策略
-            fallback_css = self._try_css_fallbacks(page, elem, css_selector)
-            if fallback_css:
-                result['css_selector'] = fallback_css
-                result['css_valid'] = True
-                details.append(f'CSS回退成功: {fallback_css}')
-            else:
-                details.append('CSS回退失败')
+            # css_count == 0
+            details.append('CSS无效(0匹配)')
+            resolved = False
+            # 0匹配场景下，若有 container_scope 也尝试组合（覆盖元素被弹窗容器包裹导致基础选择器失效的边界情况）
+            if container_scope and css_selector:
+                try:
+                    scoped_selector = f'{container_scope} {css_selector}'
+                    scoped_count = page.locator(scoped_selector).count()
+                    if scoped_count == 1:
+                        final_css = scoped_selector
+                        final_css_count = 1
+                        result['css_valid'] = True
+                        result['used_container_scope'] = True
+                        details.append(f'CSS无效后容器作用域组合唯一: {scoped_selector}')
+                        resolved = True
+                    elif scoped_count > 1:
+                        details.append(f'CSS无效后容器作用域组合多匹配({scoped_count}个)')
+                except Exception:
+                    pass
+            if not resolved:
+                fallback_css = self._try_css_fallbacks(page, elem, css_selector)
+                if fallback_css:
+                    try:
+                        fcount = page.locator(fallback_css).count()
+                        if fcount >= 1:
+                            final_css = fallback_css
+                            final_css_count = fcount
+                            result['css_valid'] = True
+                            details.append(f'CSS回退成功: {fallback_css}')
+                        else:
+                            details.append('CSS回退失败')
+                    except Exception:
+                        details.append('CSS回退验证异常')
+                else:
+                    details.append('CSS回退失败')
+        
+        result['css_selector'] = final_css
+        if final_css_count >= 1:
+            result['css_valid'] = True
         
         # === 2. 验证 XPath ===
         xpath_count = 0
@@ -3360,7 +3639,7 @@ class ElementViewSet(viewsets.ModelViewSet):
         # VALID: CSS和XPath都精确匹配(仅1个)
         # PARTIAL: 匹配到元素但不精确(多个匹配)，或仅CSS/XPath之一有效
         # INVALID: CSS和XPath都无效
-        css_precise = result['css_valid'] and css_count == 1
+        css_precise = result['css_valid'] and final_css_count == 1
         xpath_precise = result['xpath_valid'] and xpath_count == 1
         
         if css_precise and xpath_precise:
@@ -3570,7 +3849,12 @@ class ElementViewSet(viewsets.ModelViewSet):
         return f'//{tag}'
 
     def _enhance_css_selector(self, elem):
-        """当基础CSS选择器不唯一时，尝试生成更精确的选择器"""
+        """当基础CSS选择器不唯一时，尝试生成更精确的选择器
+        
+        若元素携带 containerSelector（弹窗场景），id 类选择器会自动转换为
+        {container} #id 组合形式，避免与主页面同名id冲突。
+        也会从 locator_value 推断（LLM 可能改写为 #id 形式但未保留 id 字段）。
+        """
         tag = elem.get('tag', '')
         text = elem.get('text', '').strip()
         class_name = elem.get('className', '')
@@ -3580,10 +3864,23 @@ class ElementViewSet(viewsets.ModelViewSet):
         name = elem.get('name', '')
         title_attr = elem.get('title', '')
         elem_id = elem.get('id', '')
+        container_sel = (elem.get('containerSelector') or '').strip()
+        locator_value = elem.get('locator_value', '')
 
         # 1. id 一定唯一
         if elem_id:
+            # 若元素携带容器作用域（弹窗场景），返回 {container} #id 组合选择器
+            # 避免与主页面同名id冲突，保证定位唯一性
+            if container_sel:
+                return 'CSS', f'{container_sel} #{elem_id}'
             return 'CSS', f'#{elem_id}'
+
+        # 1.1 兜底：LLM 改写 locator_value 为 #id 形式但未保留 id 字段时
+        # 从 locator_value 推断 id，叠加容器作用域
+        if not elem_id and locator_value.startswith('#') and container_sel:
+            inferred_id = locator_value[1:].strip()
+            if inferred_id and ' ' not in inferred_id:
+                return 'CSS', f'{container_sel} {locator_value}'
 
         # 2. name 属性（跳过含空格的name，不可靠）
         if name and ' ' not in name:
