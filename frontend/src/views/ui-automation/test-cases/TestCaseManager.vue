@@ -267,17 +267,6 @@
                         </div>
 
                         <div v-if="element.expanded" class="step-content">
-                          <!-- 步骤描述 -->
-                          <div class="step-param">
-                            <label>{{ t('uiAutomation.testCase.stepDescription') }}</label>
-                            <el-input
-                              v-model="element.description"
-                              :placeholder="getStepPlaceholder(element)"
-                              size="small"
-                              class="step-input"
-                            />
-                          </div>
-
                           <!-- 操作类型 -->
                           <div class="step-param">
                             <label>操作类型</label>
@@ -440,6 +429,17 @@
                                 </el-tooltip>
                               </div>
                             </div>
+                          </div>
+
+                          <!-- 步骤描述 -->
+                          <div class="step-param">
+                            <label>{{ t('uiAutomation.testCase.stepDescription') }}</label>
+                            <el-input
+                              v-model="element.description"
+                              :placeholder="getStepPlaceholder(element)"
+                              size="small"
+                              class="step-input"
+                            />
                           </div>
                         </div>
                       </div>

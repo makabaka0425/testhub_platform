@@ -1125,7 +1125,7 @@ export default {
     assertExists: 'Element Exists',
     assertHasAttribute: 'Attribute Value',
     expectedValue: 'Expected Value',
-    stepDescription: 'Step Description:',
+    stepDescription: 'Step Description',
     stepDescPlaceholder: 'Describe the purpose of this step',
     executionResult: 'Execution Result',
     executionSuccess: 'Execution Successful',
