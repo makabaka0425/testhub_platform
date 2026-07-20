@@ -499,6 +499,21 @@ const pages = ref([])
 const locatorStrategies = ref([])
 const treeData = ref([])
 
+// 仅包含页面节点的树（过滤掉元素节点），用于所属页面树形下拉
+const pageOnlyTree = computed(() => {
+  const filterPage = (nodes) => {
+    if (!nodes) return []
+    return nodes
+      .filter(n => n.type !== 'element')
+      .map(n => ({
+        ...n,
+        children: filterPage(n.children)
+      }))
+      .filter(n => n.type === 'page' || (n.children && n.children.length > 0))
+  }
+  return filterPage(treeData.value)
+})
+
 // 三栏布局相关
 const selectedPageId = ref(null)   // 当前选中的页面分组ID（null=全部）
 const pageExpandedKeys = ref([])
@@ -948,35 +963,6 @@ const saving = ref(false)
 const validating = ref(false)
 const generating = ref(false)
 const suggestions = ref([])
-
-
-// 将关键变量暴露到window对象，方便在控制台调试
-const exposeToWindow = () => {
-  if (typeof window !== 'undefined') {
-    window.ELEMENTS_DEBUG = {
-      treeData,
-      projects,
-      selectedElement,
-      loadElementTree,
-      pageTreeRef,
-      pageExpandedKeys,
-      pages,
-      $vm: { // 当前组件实例
-        treeData: treeData.value,
-        projects: projects.value,
-        pages: pages.value,
-        pageExpandedKeys: pageExpandedKeys.value
-      }
-    }
-    console.log('=== Vue组件调试信息已暴露 ===')
-    console.log('Window可用调试变量已设置')
-    console.log('控制台可直接访问:')
-    console.log('  window.ELEMENTS_DEBUG.treeData')
-    console.log('  window.ELEMENTS_DEBUG.projects')
-    console.log('  window.ELEMENTS_DEBUG.selectedElement')
-    console.log('==============================')
-  }
-}
 
 // 组件挂载
 // ========== AI智能提取相关方法 ==========
@@ -1461,7 +1447,6 @@ const handleBatchImport = async () => {
         const match = existingGroups.find(g => g.name === pageName)
         if (match) {
           targetGroupId = match.id
-          console.log(`[批量导入] 找到已有页面: ${pageName}, id=${targetGroupId}`)
         } else {
           // 创建新页面
           const createResponse = await createElementGroup({
@@ -1469,7 +1454,6 @@ const handleBatchImport = async () => {
             project: selectedProject.value
           })
           targetGroupId = createResponse.data?.id
-          console.log(`[批量导入] 创建新页面: ${pageName}, id=${targetGroupId}`)
         }
       } catch (err) {
         console.error('[批量导入] 查找/创建页面失败:', err)
@@ -1495,7 +1479,6 @@ const handleBatchImport = async () => {
         if (targetGroupId) {
           apiData.group_id = targetGroupId
         }
-        console.log(`[批量导入] 创建元素: name=${elem.name}, group_id=${apiData.group_id}, targetGroupId=${targetGroupId}, apiData=`, apiData)
         if (elem.backup_locators && elem.backup_locators.length > 0) {
           apiData.backup_locators = elem.backup_locators
         }
@@ -1522,25 +1505,13 @@ const handleBatchImport = async () => {
 }
 
 onMounted(async () => {
-  console.log('=== 组件挂载开始 ===')
-
   await loadProjects()
   await loadLocatorStrategies()
 
-  console.log('项目数量:', projects.value.length)
-  console.log('定位策略:', locatorStrategies.value.length)
-
   if (projects.value.length > 0) {
-    console.log('设置初始项目为:', projects.value[0].id)
     selectedProject.value = projects.value[0].id
     await onProjectChange()
-    console.log('onProjectChange完成')
   }
-
-  // 暴露调试信息
-  exposeToWindow()
-
-  console.log('=== 组件挂载完成 ===')
 })
 
 // 加载项目列表
@@ -1550,46 +1521,6 @@ const loadProjects = async () => {
     projects.value = response.data?.results || response.data || []
   } catch (error) {
     console.error('获取项目列表失败:', error)
-  }
-}
-
-// 提供控制台调试帮助函数
-const debugTree = () => {
-  if (typeof window !== 'undefined') {
-    console.log('=== 树数据调试 ===')
-    console.log('treeData:', treeData.value)
-    console.log('页面对象:',
-      treeData.value.map(p => ({
-        id: p.id,
-        name: p.name,
-        type: p.type,
-        children: p.children?.length || 0,
-        elementChildren: p.children?.filter(c => c.type === 'element').map(e => e.name) || []
-      }))
-    )
-
-    // 找出所有元素
-    const allElements = []
-    const findElements = (nodes, parent) => {
-      nodes.forEach(node => {
-        if (node.type === 'element') {
-          allElements.push({
-            name: node.name,
-            id: node.id,
-            parent: parent
-          })
-        } else if (node.type === 'page' && node.children) {
-          findElements(node.children, node.name)
-        }
-      })
-    }
-    findElements(treeData.value, null)
-    console.log('所有元素:', allElements)
-
-    // 暴露到window
-    window.debugTreeData = debugTree
-    console.log('调试函数已挂载到 window.debugTreeData()')
-    console.log('===============================')
   }
 }
 
@@ -1664,20 +1595,7 @@ const loadElementTree = async () => {
 
     const pageNodes = buildTree(pageTreeResponse.data || [])
 
-    // 调试信息 - 检查API返回的完整响应结构
-    console.log('=== 加载元素树调试 ===')
-    console.log('页面树响应:', pageTreeResponse)
-    console.log('元素响应:', elementsResponse)
-
-    // 打印原始数据进行分析
-    console.log('页面树原始数据:', JSON.parse(JSON.stringify(pageTreeResponse.data || []), null, 2))
-
     const elements = elementsResponse.data?.results || elementsResponse.data || []
-    console.log('提取的元素列表:', elements)
-
-    // 获取所有页面的ID，用于调试
-    const pageIds = pageNodes.map(page => page.id)
-    console.log('页面ID列表:', pageIds)
 
     // 将元素添加到对应页面下
     const attachedElementIds = new Set()
@@ -1691,8 +1609,6 @@ const loadElementTree = async () => {
           const elemGroupId = element.group_id ?? (element.group && element.group.id) ?? null
           return parseInt(elemGroupId) === pageOriginalId
         })
-        console.log(`页面 ${page.name} (ID: ${page.id}, originalId: ${pageOriginalId}) 找到 ${pageElements.length} 个关联元素`, pageElements.map(e => ({id: e.id, name: e.name, group_id: e.group_id})))
-
         const elementNodes = pageElements.map(element => {
           attachedElementIds.add(element.id)
           return {
@@ -1705,7 +1621,6 @@ const loadElementTree = async () => {
 
         // 将元素添加到页面的子节点中
         page.children = page.children ? [...page.children, ...elementNodes] : [...elementNodes]
-        console.log(`页面 ${page.name} 现在有 ${page.children.filter(c => c.type === 'element').length} 个子元素`)
 
         // 递归处理子页面
         if (page.children) {
@@ -1729,8 +1644,6 @@ const loadElementTree = async () => {
       return !attachedElementIds.has(element.id)
     })
 
-    console.log('未关联页面的元素:', unassignedElements)
-
     if (unassignedElements.length > 0) {
       const unassignedPage = {
         id: 'unassigned',
@@ -1745,27 +1658,14 @@ const loadElementTree = async () => {
         }))
       }
       pageNodes.unshift(unassignedPage) // 添加到列表最前面
-      console.log(`已添加 ${unassignedElements.length} 个未关联元素到"未关联页面"节点`)
       // 默认展开未关联页面节点
       pageExpandedKeys.value.push('unassigned')
     }
 
-    console.log('最终treeData:', pageNodes)
     treeData.value = pageNodes
 
     // 更新扁平化元素列表
     allElements.value = elements
-
-    // 将treeData暴露到window，方便在控制台调试
-    if (typeof window !== 'undefined') {
-      window.vue_treeData = treeData.value
-      console.log('treeData已挂载到window.vue_treeData，可在控制台查看')
-      console.log('当前treeData结构:', JSON.parse(JSON.stringify(treeData.value)).map(p => ({
-        name: p.name,
-        id: p.id,
-        children: p.children?.filter(c => c.type === 'element').length || 0
-      })))
-    }
   } catch (error) {
     console.error('获取元素树失败:', error)
     treeData.value = []
@@ -1777,25 +1677,11 @@ const onProjectChange = async () => {
   selectedElement.value = null
   suggestions.value = []
 
-  console.log('=== 项目切换调试 ===')
-  console.log('当前项目ID:', selectedProject.value)
-
   await Promise.all([
     loadPages(),
     loadElementTree(),
     loadLoginConfigs()
   ])
-
-  console.log('项目切换完成，检查treeData:', treeData.value)
-  console.log('treeData长度:', treeData.value.length)
-  if (treeData.value.length > 0) {
-    console.log('第一页信息:', {
-      id: treeData.value[0].id,
-      name: treeData.value[0].name,
-      type: treeData.value[0].type,
-      children: treeData.value[0].children?.length || 0
-    })
-  }
 
   // 项目切换时强制刷新树
   treeKey.value += 1
@@ -2072,22 +1958,14 @@ const deleteUnassignedElements = async () => {
 
 // 更新页面
 const updatePage = async () => {
-  console.log('Update page function called')
-  console.log('Edit page form ref:', editPageFormRef.value)
-
   if (!editPageFormRef.value) {
-    console.log('No edit page form ref')
     return
   }
 
   const validate = await editPageFormRef.value.validate()
-  console.log('Validation result:', validate)
   if (!validate) {
-    console.log('Validation failed')
     return
   }
-
-  console.log('Updating page with data:', editPageForm)
 
   try {
     // 构建更新页面的参数，正确处理父页面参数
