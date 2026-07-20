@@ -677,7 +677,10 @@ const onPageGroupRightClick = (event, data) => {
   groupContextMenuY.value = event.clientY
   showGroupContextMenu.value = true
   // 保存引用，便于后续清理
-  _hideMenuHandler = () => {
+  _hideMenuHandler = (e) => {
+    // 点击在菜单内部时不关闭，让菜单项的 @click 正常触发
+    const menuEl = document.querySelector('.group-context-menu')
+    if (menuEl && menuEl.contains(e.target)) return
     cleanupHideMenu()
   }
   // 延迟注册，避免当前右键事件立即触发
