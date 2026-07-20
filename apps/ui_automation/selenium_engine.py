@@ -945,31 +945,11 @@ class SeleniumTestEngine:
             return False, log, screenshot_base64
 
         except Exception as e:
-            print(f"\n🚨🚨🚨 捕获到 Selenium 异常！开始调试... 🚨🚨🚨\n")
             execution_time = round(time.time() - start_time, 2)
 
-            # 提取详细的错误信息（改进版 - 添加调试日志）
+            # 提取详细的错误信息
             error_type = type(e).__name__
             error_msg = ""
-
-            # 🔍 调试：打印异常对象的所有信息（使用 print 确保一定输出到控制台）
-            print(f"\n" + "=" * 60)
-            print(f"🔍 Selenium 异常调试信息 (selenium_engine.py):")
-            print(f"  异常类型: {error_type}")
-            print(f"  str(e): {repr(str(e))}")
-            print(f"  hasattr msg: {hasattr(e, 'msg')}")
-            if hasattr(e, 'msg'):
-                print(f"  e.msg 值: {repr(e.msg)}")
-                print(f"  e.msg 类型: {type(e.msg)}")
-            print(f"  hasattr args: {hasattr(e, 'args')}")
-            if hasattr(e, 'args'):
-                print(f"  e.args 长度: {len(e.args)}")
-                print(f"  e.args 内容: {e.args}")
-            print(f"  hasattr stacktrace: {hasattr(e, 'stacktrace')}")
-            if hasattr(e, 'stacktrace') and e.stacktrace:
-                print(f"  e.stacktrace 前200字符: {str(e.stacktrace)[:200]}")
-            print(f"  dir(e): {[attr for attr in dir(e) if not attr.startswith('_')]}")
-            print(f"=" * 60 + "\n")
 
             # 定义无意义的错误信息列表
             meaningless_messages = ['', 'Message', 'Message:', 'Message: ', 'Message:\n']

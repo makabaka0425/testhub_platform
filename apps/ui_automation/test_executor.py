@@ -2209,15 +2209,6 @@ class TestExecutor:
                         target_index = -1  # 默认切换到最新标签页
                         should_switch = False
 
-                        # 调试日志：打印当前页面状态
-                        print(f"  [Debug] 当前页面列表 (数量: {len(pages)}):")
-                        for idx, p in enumerate(pages):
-                            is_current = " (Current)" if p == current_page else ""
-                            try:
-                                print(f"    {idx}: {p.url} - {p.title()}{is_current}")
-                            except Exception as e:
-                                print(f"    {idx}: [Error getting info] {str(e)}")
-
                         if step_data['input_value'] and str(step_data['input_value']).isdigit():
                             # 指定索引的情况
                             idx = int(step_data['input_value'])
@@ -2356,15 +2347,6 @@ class TestExecutor:
                         pages = self.current_page.context.pages
                         target_index = -1  # 默认切换到最新标签页
                         should_switch = False
-
-                        # 调试日志：打印当前页面状态
-                        print(f"  [Debug] 当前页面列表 (数量: {len(pages)}):")
-                        for idx, p in enumerate(pages):
-                            is_current = " (Current)" if p == current_page else ""
-                            try:
-                                print(f"    {idx}: {p.url} - {p.title()}{is_current}")
-                            except Exception as e:
-                                print(f"    {idx}: [Error getting info] {str(e)}")
 
                         if step_data['input_value'] and str(step_data['input_value']).isdigit():
                             # 指定索引的情况
@@ -3904,28 +3886,9 @@ class TestExecutor:
             locator_info = f"{step_data['element']['locator_strategy']}={step_data['element']['locator_value']}" if step_data.get(
                 'element') else '无'
 
-            # 提取详细的错误信息（改进版 - 添加调试日志）
+            # 提取详细的错误信息
             error_type = type(e).__name__
             error_msg = ""
-
-            # 🔍 调试：打印异常对象的所有信息
-            print(f"=" * 60)
-            print(f"🔍 Selenium 异常调试信息 (test_executor):")
-            print(f"  异常类型: {error_type}")
-            print(f"  str(e): {repr(str(e))}")
-            print(f"  hasattr msg: {hasattr(e, 'msg')}")
-            if hasattr(e, 'msg'):
-                print(f"  e.msg 值: {repr(e.msg)}")
-                print(f"  e.msg 类型: {type(e.msg)}")
-            print(f"  hasattr args: {hasattr(e, 'args')}")
-            if hasattr(e, 'args'):
-                print(f"  e.args 长度: {len(e.args)}")
-                print(f"  e.args 内容: {e.args}")
-            print(f"  hasattr stacktrace: {hasattr(e, 'stacktrace')}")
-            if hasattr(e, 'stacktrace'):
-                print(f"  e.stacktrace 前200字符: {str(e.stacktrace)[:200]}")
-            print(f"  dir(e): {[attr for attr in dir(e) if not attr.startswith('_')]}")
-            print(f"=" * 60)
 
             # 定义无意义的错误信息列表
             meaningless_messages = ['', 'Message', 'Message:', 'Message: ', 'Message:\n']

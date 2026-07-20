@@ -1729,9 +1729,6 @@ class ElementViewSet(viewsets.ModelViewSet):
                         await page.goto(url, wait_until='networkidle', timeout=30000)
                         await asyncio.sleep(2)
 
-                        # 监听浏览器console输出，写入调试日志
-                        page.on('console', lambda msg: open('logs/pick_debug.log', 'a').write(f'[console.{msg.type}] {msg.text}\n') or None)
-
                         # 注入交互式选取脚本
                         await self._async_inject_pick_script(page, session_id)
 
@@ -1827,11 +1824,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         session = self._pick_sessions[session_id]
         all_elements = session['picked_elements']
         
-        # DEBUG: 记录finish返回的元素名称
-        with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
-            for i, e in enumerate(all_elements):
-                _f.write(f'[交互选取] finish elements[{i}]: name={e.get("name","?")}, desc={e.get("description","?")}\n')
-
         # 关闭浏览器
         loop = session['loop']
 
@@ -1891,9 +1883,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         # 先暴露 Python 函数，供 JS 在用户点击元素时调用
         async def on_element_clicked(element_data):
             """JS调用：用户点击元素后，计算定位器并AI分析"""
-            # 直接写文件日志，确保能看到
-            with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
-                _f.write(f'[交互选取] on_element_clicked 被调用, keys={list(element_data.keys())[:10]}\n')
             try:
                 # JS 已检测 containerSelector（弹窗内元素会设为 .el-dialog:visible 等）
                 # 不再硬编码为空，否则弹窗内重复id无法处理
@@ -1977,33 +1966,20 @@ class ElementViewSet(viewsets.ModelViewSet):
                     return ai_result
                 return None
             except Exception as e:
-                import traceback
-                with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
-                    _f.write(f'[交互选取] 元素处理失败: {str(e)}\n{traceback.format_exc()}\n')
+                logger.exception('[交互选取] 元素处理失败: %s', e)
                 return None
 
-        # 注册前写日志
-        with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
-            _f.write(f'[交互选取] 即将注册 __aiPickElement, session_id={session_id}\n')
         await page.expose_function('__aiPickElement', on_element_clicked)
-        with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
-            _f.write(f'[交互选取] __aiPickElement 注册完成\n')
 
         # 暴露改名函数
         async def on_element_renamed(index, new_name):
             """JS调用：用户在浮窗中修改元素名称"""
-            with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
-                _f.write(f'[交互选取] on_element_renamed 被调用, index={index}, new_name={new_name}\n')
             session = self._pick_sessions.get(session_id)
             if session and 0 <= index < len(session['picked_elements']):
                 session['picked_elements'][index]['name'] = new_name
                 # 同步更新description，避免改名后description保留旧name
                 session['picked_elements'][index]['description'] = new_name
-                with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
-                    _f.write(f'[交互选取] 改名成功, elements[{index}].name={session["picked_elements"][index]["name"]}\n')
                 return True
-            with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
-                _f.write(f'[交互选取] 改名失败, index={index}, len={len(session["picked_elements"]) if session else "no session"}\n')
             return False
 
         await page.expose_function('__aiPickRename', on_element_renamed)
