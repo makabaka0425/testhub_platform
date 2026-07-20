@@ -1410,7 +1410,16 @@ class ElementViewSet(viewsets.ModelViewSet):
                                     visible: true,
                                     rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
                                     isInTableRow: false,
-                                    tableRowIndex: -1
+                                    tableRowIndex: -1,
+                                    containerSelector: (() => {
+                                        const dlg = el.closest('.el-dialog:visible, .ant-modal:visible, .el-drawer:visible, .ant-drawer:visible, [role="dialog"]:visible');
+                                        if (!dlg) return '';
+                                        if (dlg.classList.contains('el-dialog')) return '.el-dialog:visible';
+                                        if (dlg.classList.contains('ant-modal')) return '.ant-modal:visible';
+                                        if (dlg.classList.contains('el-drawer')) return '.el-drawer:visible';
+                                        if (dlg.classList.contains('ant-drawer')) return '.ant-drawer:visible';
+                                        return '[role="dialog"]:visible';
+                                    })()
                                 });
                             });
                         } catch(e) {}
@@ -1427,8 +1436,8 @@ class ElementViewSet(viewsets.ModelViewSet):
                     elem['page_title'] = page_title
                     if page_name:
                         elem['source'] = page_name
-                    # 手动模式批量提取，未限定弹窗容器，containerSelector 留空
-                    elem['containerSelector'] = ''
+                    # 手动模式批量提取：containerSelector 由 JS 检测（弹窗内元素不为空）
+                    elem.setdefault('containerSelector', '')
                     css_selector = self._compute_css_selector(elem)
                     xpath = self._compute_xpath(elem)
                     elem['original_css'] = css_selector
@@ -1873,13 +1882,16 @@ class ElementViewSet(viewsets.ModelViewSet):
         async def on_element_clicked(element_data):
             """JS调用：用户点击元素后，计算定位器并AI分析"""
             try:
+                # JS 已检测 containerSelector（弹窗内元素会设为 .el-dialog:visible 等）
+                # 不再硬编码为空，否则弹窗内重复id无法处理
+                container_sel = (element_data.get('containerSelector') or '').strip()
+                
                 # 计算CSS和XPath
                 css_selector = self._compute_css_selector(element_data)
                 xpath = self._compute_xpath(element_data)
-
-                # 交互式选取场景：未识别弹窗容器作用域，containerSelector 留空
-                # 若 CSS 不唯一，复用 _async_validate_locators 内的回退逻辑处理重复id
-                element_data['containerSelector'] = ''
+                # 保存原始选择器（供后续关联和改写使用）
+                element_data['original_css'] = css_selector
+                element_data['original_xpath'] = xpath
 
                 # 验证定位器
                 validation = await self._async_validate_locators(page, element_data, css_selector, xpath)
@@ -1900,15 +1912,44 @@ class ElementViewSet(viewsets.ModelViewSet):
 
                 if ai_result:
                     ai_result['source'] = '交互选取'
+                    # 透传 containerSelector（AI分析可能不保留此字段）
+                    ai_result['containerSelector'] = container_sel
+
+                    # 关键修复：弹窗内元素 + id定位 → 自动改写为容器作用域组合形式
+                    # 如 #roleName → .el-dialog:visible #roleName
+                    # 避免与主页面同名id冲突，也避免去重时被误判为重复
+                    if container_sel and ai_result.get('locator_strategy', '') in ('ID', 'id', 'CSS', 'css', ''):
+                        lv = ai_result.get('locator_value', '')
+                        if lv:
+                            # ID策略存储时不带#前缀，补上#再组合
+                            if ai_result.get('locator_strategy') == 'ID' and not lv.startswith('#'):
+                                lv = f'#{lv}'
+                            if not lv.startswith(container_sel.split()[0]):
+                                scoped_lv = f'{container_sel} {lv}'
+                                ai_result['locator_value'] = scoped_lv
+                                ai_result['locator_strategy'] = 'CSS'
+                                ai_result['used_container_scope'] = True
+                                ai_result['id_duplicate'] = True
+                                ai_result['validation_status'] = 'VALID'
+                                ai_result['validation_details'] = f'弹窗元素自动改写为容器作用域组合: {scoped_lv}'
+                                print(f'[交互选取] 弹窗元素定位值自动改写: {lv} → {scoped_lv}')
 
                     # 验证AI返回的定位器，如果不唯一则尝试修正
                     ai_result = await self._validate_and_fix_locator(page, ai_result, element_data)
 
-                    # 存入session（去重：相同 locator_strategy + locator_value 不重复添加）
+                    # 存入session（去重：相同 locator_strategy + locator_value + containerSelector 不重复添加）
+                    # 关键修复：加入 containerSelector 区分主页面和弹窗的同id元素
                     session = self._pick_sessions.get(session_id)
                     if session:
-                        new_key = (ai_result.get('locator_strategy', ''), ai_result.get('locator_value', ''))
-                        existing_keys = {(e.get('locator_strategy', ''), e.get('locator_value', '')) for e in session['picked_elements']}
+                        new_key = (
+                            ai_result.get('locator_strategy', ''),
+                            ai_result.get('locator_value', ''),
+                            ai_result.get('containerSelector', '')
+                        )
+                        existing_keys = {
+                            (e.get('locator_strategy', ''), e.get('locator_value', ''), e.get('containerSelector', ''))
+                            for e in session['picked_elements']
+                        }
                         if new_key not in existing_keys:
                             session['picked_elements'].append(ai_result)
                     return ai_result
@@ -2154,6 +2195,20 @@ class ElementViewSet(viewsets.ModelViewSet):
                 // 收集元素DOM信息
                 const rect = el.getBoundingClientRect();
                 const parentEl = el.parentElement;
+                
+                // 检测元素是否在弹窗/抽屉容器内
+                // 若是，设置 containerSelector 供后续重复id处理使用
+                let containerSelector = '';
+                const dialogEl = el.closest('.el-dialog:visible, .ant-modal:visible, .el-drawer:visible, .ant-drawer:visible, [role="dialog"]:visible');
+                if (dialogEl) {
+                    // 优先使用 :visible 伪类的选择器（与批量提取保持一致）
+                    if (dialogEl.classList.contains('el-dialog')) containerSelector = '.el-dialog:visible';
+                    else if (dialogEl.classList.contains('ant-modal')) containerSelector = '.ant-modal:visible';
+                    else if (dialogEl.classList.contains('el-drawer')) containerSelector = '.el-drawer:visible';
+                    else if (dialogEl.classList.contains('ant-drawer')) containerSelector = '.ant-drawer:visible';
+                    else containerSelector = '[role="dialog"]:visible';
+                }
+                
                 const elementData = {
                     tag: el.tagName.toLowerCase(),
                     id: el.id || '',
@@ -2173,6 +2228,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                     isInTableRow: false,
                     tableRowIndex: -1,
                     outerHTML: el.outerHTML.substring(0, 500),
+                    containerSelector: containerSelector,
                     parentInfo: parentEl ? {
                         tag: parentEl.tagName.toLowerCase(),
                         className: (typeof parentEl.className === 'string') ? parentEl.className.substring(0, 100) : '',
