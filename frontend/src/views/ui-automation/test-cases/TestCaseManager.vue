@@ -143,6 +143,17 @@
                 <span v-else>{{ row.name }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="前置条件" min-width="180" align="left">
+              <template #default="{ row }">
+                <span v-if="!row.preconditions_data || row.preconditions_data.length === 0" class="precondition-empty">-</span>
+                <el-tooltip v-else placement="top" :show-after="300">
+                  <template #content>
+                    <div v-for="pc in row.preconditions_data" :key="pc.id">{{ pc.order }}. {{ pc.name }}</div>
+                  </template>
+                  <span class="precondition-text">{{ row.preconditions_data.map(pc => pc.name).join(' · ') }}</span>
+                </el-tooltip>
+              </template>
+            </el-table-column>
             <el-table-column label="步骤" width="100" align="center">
               <template #default="{ row }">
                 <span class="step-count">{{ row.steps?.length || 0 }}</span>
@@ -151,6 +162,12 @@
             <el-table-column label="更新时间" width="150" align="left">
               <template #default="{ row }">
                 <span class="update-time">{{ formatTime(row.updated_at) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="执行时间" width="150" align="left">
+              <template #default="{ row }">
+                <span v-if="row.last_execution_time" class="execution-time">{{ formatTime(row.last_execution_time) }}</span>
+                <span v-else class="precondition-empty">-</span>
               </template>
             </el-table-column>
             <el-table-column label="状态" width="100" align="center">
@@ -1329,6 +1346,8 @@ const handleTableCurrentChange = (row) => {
   if (isDragging.value) return
   // 批量编辑模式下禁止点击行打开步骤抽屉，避免干扰名称编辑
   if (batchEditMode.value) return
+  // 编辑弹窗打开期间（包括保存过程中数据刷新导致的 current-change）不打开抽屉
+  if (showCreateDialog.value) return
   if (row) selectTestCase(row)
 }
 
@@ -1454,6 +1473,16 @@ const onProjectChange = async () => {
   ])
 }
 
+// 根据前置条件 ID 列表，从当前用例集合中构造 preconditions_data（[{id,name,order}]）
+// 用于保存后实时更新列表/抽屉里展示的前置条件，避免刷新页面
+const buildPreconditionsData = (idList) => {
+  if (!idList || idList.length === 0) return []
+  return idList.map((pid, idx) => {
+    const tc = testCases.value.find(t => t.id === pid)
+    return { id: pid, name: tc?.name || `用例#${pid}`, order: idx + 1 }
+  })
+}
+
 const selectTestCase = (testCase) => {
   // 如果点击的是同一个用例，不做任何处理
   if (selectedTestCase.value && selectedTestCase.value.id === testCase.id) {
@@ -1478,8 +1507,7 @@ const selectTestCase = (testCase) => {
   showPreconditions.value = selectedPreconditions.value.length > 0
   showPostcondition.value = !!testCase.postcondition_sql
   showPreconditionSql.value = !!testCase.precondition_sql
-  // 只有在切换到不同用例时才清空执行结果
-  executionResult.value = null
+  // 只有在切换到不同用例时才清空执行结果  executionResult.value = null
   showSteps.value = true
   // 打开详情抽屉
   detailDrawerVisible.value = true
@@ -1650,6 +1678,10 @@ const saveTestCase = async () => {
 
     await updateTestCase(selectedTestCase.value.id, updateData)
     ElMessage.success(t('uiAutomation.testCase.save.success'))
+
+    // 保存后实时更新 preconditions_data，让列表展示的前置条件立即生效
+    const newPreconditionsData = buildPreconditionsData(selectedPreconditions.value)
+    updateData.preconditions_data = newPreconditionsData
 
     // 更新本地数据
     const index = testCases.value.findIndex(tc => tc.id === selectedTestCase.value.id)
@@ -2027,13 +2059,24 @@ const saveTestCaseForm = async () => {
       await updateTestCase(editingTestCase.value.id, data)
       ElMessage.success(t('uiAutomation.testCase.update.success'))
 
+      // 保存成功后实时更新 preconditions_data，列表/抽屉展示不受影响
+      const newPreconditionsData = buildPreconditionsData(testCaseForm.preconditions)
+
       // 更新本地数据（保留原有的 steps，不覆盖）
       const index = testCases.value.findIndex(tc => tc.id === editingTestCase.value.id)
       if (index !== -1) {
-        testCases.value[index] = { ...testCases.value[index], ...data }
+        testCases.value[index] = {
+          ...testCases.value[index],
+          ...data,
+          preconditions_data: newPreconditionsData
+        }
         // 如果当前选中的就是这个用例，也更新选中状态
         if (selectedTestCase.value?.id === editingTestCase.value.id) {
-          selectedTestCase.value = { ...selectedTestCase.value, ...data }
+          selectedTestCase.value = {
+            ...selectedTestCase.value,
+            ...data,
+            preconditions_data: newPreconditionsData
+          }
         }
       }
     } else {
@@ -2648,6 +2691,27 @@ onMounted(async () => {
 }
 
 .update-time {
+  font-size: 12px;
+  color: var(--gray-500);
+  white-space: nowrap;
+}
+
+.precondition-text {
+  font-size: 12px;
+  color: var(--gray-700);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.precondition-empty {
+  color: var(--gray-400);
+}
+
+.execution-time {
   font-size: 12px;
   color: var(--gray-500);
   white-space: nowrap;
