@@ -21,6 +21,10 @@
         <el-select v-model="projectId" :placeholder="t('uiAutomation.project.selectProject')" class="titlebar-select" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
+        <el-button type="primary" size="small" @click="showCreateDialog = true">
+          <el-icon><Plus /></el-icon>
+          <span>新增</span>
+        </el-button>
       </div>
     </div>
 
@@ -36,19 +40,12 @@
           </el-button>
         </div>
         <div class="panel__body group-tree-wrapper">
-          <div
-            class="group-all-node"
-            :class="{ active: selectedGroupId === null }"
-            @click="selectedGroupId = null; currentPage = 1"
-          >
-                <el-icon><Folder /></el-icon>
-            <span>全部</span>
-          </div>
           <el-tree
             ref="groupTreeRef"
-            :data="testCaseGroupTree"
+            :data="groupTreeWithAll"
             :props="{ children: 'children', label: 'name' }"
             node-key="id"
+            :current-node-key="selectedGroupId === null ? '__all__' : selectedGroupId"
             :expand-on-click-node="false"
             :default-expanded-keys="groupExpandedKeys"
             highlight-current
@@ -57,35 +54,47 @@
           >
             <template #default="{ node, data }">
               <div class="group-tree-node">
-            <el-icon><Folder /></el-icon>
                 <span class="group-node-label">{{ node.label }}</span>
-                <span class="group-count">{{ data.test_cases_count || 0 }}</span>
+                <span v-if="data.id !== '__all__'" class="group-count">{{ data.test_cases_count || 0 }}</span>
               </div>
             </template>
           </el-tree>
         </div>
       </section>
 
-      <!-- 中间：用例列表面板 -->
-      <section class="panel list-panel">
-        <div class="panel__header list-toolbar">
-          <span class="panel__title">用例列表</span>
-          <el-input
-            v-model="searchKeyword"
-            :placeholder="t('uiAutomation.testCase.searchPlaceholder')"
-            clearable
-            size="small"
-            class="list-search"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-          <el-button type="primary" size="small" @click="showCreateDialog = true">
-            <el-icon><Plus /></el-icon>
-            新增
-          </el-button>
+      <!-- 中间列：搜索区域 + 用例列表 -->
+      <div class="list-column">
+        <!-- 搜索区域卡片（参照元素管理页） -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item label="用例名称">
+              <el-input
+                v-model="searchKeyword"
+                :placeholder="t('uiAutomation.testCase.searchPlaceholder')"
+                clearable
+                style="width: 220px"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="状态">
+              <el-select v-model="searchStatus" placeholder="全部" clearable style="width: 130px">
+                <el-option label="正常" value="normal" />
+                <el-option label="通过" value="passed" />
+                <el-option label="失败" value="failed" />
+                <el-option label="跳过" value="skipped" />
+              </el-select>
+            </el-form-item>
+          </el-form>
         </div>
+
+        <!-- 用例列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">用例列表</span>
+          </div>
 
         <div class="panel__body test-case-table-wrapper">
           <el-table
@@ -115,10 +124,18 @@
             <el-table-column label="操作" width="300" align="left">
               <template #default="{ row }">
                 <div class="op-btns">
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)">{{ lastRunCaseId === row.id ? '重新运行' : '运行' }}</el-button>
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)">编辑</el-button>
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)">复制</el-button>
-                  <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)">删除</el-button>
+                  <el-tooltip :content="lastRunCaseId === row.id ? '重新运行' : '运行'" placement="top">
+                    <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)"><el-icon><VideoPlay /></el-icon></el-button>
+                  </el-tooltip>
+                  <el-tooltip content="编辑" placement="top">
+                    <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)"><el-icon><Edit /></el-icon></el-button>
+                  </el-tooltip>
+                  <el-tooltip content="复制" placement="top">
+                    <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)"><el-icon><CopyDocument /></el-icon></el-button>
+                  </el-tooltip>
+                  <el-tooltip content="删除" placement="top">
+                    <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)"><el-icon><Delete /></el-icon></el-button>
+                  </el-tooltip>
                 </div>
               </template>
             </el-table-column>
@@ -134,25 +151,49 @@
             layout="total, sizes, prev, pager, next"
           />
         </div>
-      </section>
+        </section>
+      </div>
 
-      <!-- 右侧：用例详情面板 -->
-      <section class="panel detail-panel">
-        <div class="panel__header">
-          <span class="panel__title">用例详情</span>
-          <div v-if="selectedTestCase" class="detail-header-actions">
-            <el-button size="small" @click="executionResult ? toggleView() : addStep()">
-              <el-icon><Plus v-if="!executionResult" /><Edit v-else /></el-icon>
-              {{ executionResult ? '编辑步骤' : t('uiAutomation.testCase.addStep') }}
-            </el-button>
-            <el-button size="small" type="primary" @click="saveTestCase">
-              <el-icon><Check /></el-icon>
-              {{ t('uiAutomation.testCase.saveTestCase') }}
-            </el-button>
-          </div>
+      <!-- 右侧：用例详情抽屉 -->
+      <el-drawer
+        v-model="detailDrawerVisible"
+        :with-header="false"
+        :size="detailDrawerSize"
+        direction="rtl"
+        :modal="false"
+        :append-to-body="false"
+        modal-class="detail-drawer-overlay"
+        :class="['detail-drawer', { 'detail-drawer--collapsed': detailCollapsed }]"
+      >
+        <div class="detail-toggle" @click="toggleDetailCollapse" :title="detailCollapsed ? '展开详情' : '收起详情'">
+          <span class="detail-toggle__btn">
+            <el-icon><component :is="detailCollapsed ? 'CaretLeft' : 'CaretRight'" /></el-icon>
+          </span>
         </div>
-        <div class="panel__body detail-body">
-          <div v-if="selectedTestCase" class="test-case-detail">
+        <div class="detail-resizer" v-show="!detailCollapsed" @mousedown="startResize"></div>
+        <div class="detail-drawer-body" v-show="!detailCollapsed">
+          <div class="panel__header">
+            <span class="panel__title">用例详情</span>
+            <div v-if="selectedTestCase" class="detail-header-actions">
+              <el-button size="small" @click="executionResult ? toggleView() : addStep()">
+                <el-icon><Plus v-if="!executionResult" /><Edit v-else /></el-icon>
+                {{ executionResult ? '编辑步骤' : t('uiAutomation.testCase.addStep') }}
+              </el-button>
+              <el-button size="small" type="primary" @click="saveTestCase">
+                <el-icon><Check /></el-icon>
+                {{ t('uiAutomation.testCase.saveTestCase') }}
+              </el-button>
+              <el-button size="small" type="success" @click="runTestCase(selectedTestCase)">
+                <el-icon><VideoPlay /></el-icon>
+                {{ lastRunCaseId === selectedTestCase.id ? '重新运行' : '运行' }}
+              </el-button>
+              <el-button size="small" @click="closeDetailDrawer">
+                <el-icon><Close /></el-icon>
+              </el-button>
+            </div>
+          </div>
+          <div class="panel__body detail-body">
+            <div v-if="selectedTestCase" class="test-case-detail">
 
             <!-- 测试步骤编辑 -->
             <div class="steps-container" v-show="showSteps">
@@ -163,21 +204,19 @@
                   <el-icon><component :is="showPreconditions ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
                 </div>
                 <div v-if="showPreconditions" class="section-content">
-                  <el-select
+                  <el-tree-select
                     v-model="selectedPreconditions"
                     multiple
                     filterable
+                    :data="preconditionTreeData"
+                    :props="{ children: 'children', label: 'name', value: 'id', disabled: 'disabled' }"
+                    node-key="id"
                     placeholder="选择前置条件用例（按选择顺序执行）"
                     style="width: 100%"
                     size="small"
-                  >
-                    <el-option
-                      v-for="tc in availablePreconditions"
-                      :key="tc.id"
-                      :label="tc.name"
-                      :value="tc.id"
-                    />
-                  </el-select>
+                    check-strictly
+                    :render-after-expand="false"
+                  />
                   <div class="section-tip">单用例执行时自动先执行，套件执行时忽略</div>
                 </div>
               </div>
@@ -278,7 +317,6 @@
                                 class="step-input"
                                 check-strictly
                                 :render-after-expand="false"
-                                default-expand-all
                                 @change="onElementChange(element)"
                               >
                                 <template #default="{ node, data }">
@@ -410,6 +448,24 @@
                 </div>
               </div>
 
+              <!-- 前置数据SQL -->
+              <div class="condition-section precondition-sql-section">
+                <div class="section-header" @click="showPreconditionSql = !showPreconditionSql">
+                  <h4>前置数据SQL</h4>
+                  <el-icon><component :is="showPreconditionSql ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+                </div>
+                <div v-if="showPreconditionSql" class="section-content">
+                  <el-input
+                    v-model="preconditionSql"
+                    type="textarea"
+                    :rows="3"
+                    size="small"
+                    placeholder="用例执行前自动执行的数据准备SQL，多条用分号分隔&#10;例如：INSERT INTO users (username, password) VALUES ('${username}', '123456');&#10;支持 INSERT/UPDATE/DELETE，仅禁止 DROP，可用 ${变量名} 引用变量"
+                  />
+                  <div class="section-tip">在登录和步骤执行前执行，始终运行（套件/计划中也不例外）；需先在项目配置中设置数据库连接</div>
+                </div>
+              </div>
+
               <!-- 后置清理SQL -->
               <div class="condition-section postcondition-section">
                 <div class="section-header" @click="showPostcondition = !showPostcondition">
@@ -433,8 +489,8 @@
             <div v-if="executionResult" class="execution-result" v-show="!showSteps">
               <div class="result-header">
                 <h4>{{ t('uiAutomation.testCase.executionResult') }}</h4>
-                <el-tag :type="executionResult.success ? 'success' : 'danger'">
-                  {{ executionResult.success ? t('uiAutomation.testCase.executionSuccess') : t('uiAutomation.testCase.executionFailed') }}
+                <el-tag :type="executionResult.status === 'passed' ? 'success' : executionResult.status === 'skipped' ? 'warning' : 'danger'">
+                  {{ executionResult.status === 'passed' ? t('uiAutomation.testCase.executionSuccess') : executionResult.status === 'skipped' ? '跳过' : t('uiAutomation.testCase.executionFailed') }}
                 </el-tag>
               </div>
               <div class="result-content">
@@ -542,8 +598,9 @@
           <div v-else class="no-selection">
             <el-empty :description="t('uiAutomation.testCase.selectTestCase')" />
           </div>
+          </div>
         </div>
-      </section>
+      </el-drawer>
     </div>
 
     <!-- 新建/编辑测试用例对话框 -->
@@ -584,23 +641,31 @@
           </el-select>
         </el-form-item>
         <el-form-item label="前置条件">
-          <el-select
+          <el-tree-select
             v-model="testCaseForm.preconditions"
             multiple
             filterable
+            :data="preconditionTreeData"
+            :props="{ children: 'children', label: 'name', value: 'id', disabled: 'disabled' }"
+            node-key="id"
             placeholder="选择前置条件用例（按选择顺序执行）"
             style="width: 100%"
-          >
-            <el-option
-              v-for="tc in availablePreconditions"
-              :key="tc.id"
-              :label="tc.name"
-              :value="tc.id"
-              :disabled="editingTestCase && tc.id === editingTestCase.id"
-            />
-          </el-select>
+            check-strictly
+            :render-after-expand="false"
+          />
           <div style="color: var(--gray-500); font-size: 12px; margin-top: 4px;">
             前置条件在单用例执行时自动先执行，套件执行时忽略
+          </div>
+        </el-form-item>
+        <el-form-item label="前置数据SQL">
+          <el-input
+            v-model="testCaseForm.precondition_sql"
+            type="textarea"
+            :rows="4"
+            placeholder="用例执行前自动执行的数据准备SQL，多条用分号分隔&#10;例如：INSERT INTO users (username, password) VALUES ('${username}', '123456');&#10;支持 INSERT/UPDATE/DELETE，仅禁止 DROP，可用 ${变量名} 引用变量"
+          />
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            在登录和步骤执行前执行，始终运行；需先在项目配置中设置数据库连接
           </div>
         </el-form-item>
         <el-form-item label="后置清理SQL">
@@ -732,7 +797,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search, Plus, Edit, Delete, Check, CaretRight, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder
+  Search, Plus, Edit, Delete, Check, CaretRight, CaretLeft, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument, Close
 } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
@@ -766,10 +831,15 @@ const projects = ref([])
 const projectId = ref('')
 const testCases = ref([])
 const selectedTestCase = ref(null)
+const detailDrawerVisible = ref(false)
+const detailDrawerWidth = ref(600)
+const detailCollapsed = ref(false)
+const detailDrawerSize = computed(() => detailCollapsed.value ? '20px' : `${detailDrawerWidth.value}px`)
 const currentSteps = ref([])
 const availableElements = ref([])
 const elementTreeData = ref([])
 const searchKeyword = ref('')
+const searchStatus = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const showCreateDialog = ref(false)
@@ -801,6 +871,12 @@ const isDragging = ref(false)
 const testCaseGroupTree = ref([])
 const selectedGroupId = ref(null)
 const groupExpandedKeys = ref([])
+
+// 将"全部"节点合并到分组树中，保持同级对齐
+const groupTreeWithAll = computed(() => {
+  const allNode = { id: '__all__', name: '全部', children: [] }
+  return [allNode, ...testCaseGroupTree.value]
+})
 const groupTreeRef = ref(null)
 const showCreateGroupDialog = ref(false)
 const editingGroup = ref(null)
@@ -828,8 +904,10 @@ const groupTreeSelectData = computed(() => {
 // 前置条件/后置条件（详情面板编辑）
 const selectedPreconditions = ref([])
 const postconditionSql = ref('')
+const preconditionSql = ref('')
 const showPreconditions = ref(false)
 const showPostcondition = ref(false)
+const showPreconditionSql = ref(false)
 const showTestSteps = ref(true)
 
 const getTestCaseName = (id) => {
@@ -850,16 +928,55 @@ const testCaseForm = reactive({
   priority: 'medium',
   preconditions: [],
   postcondition_sql: '',
+  precondition_sql: '',
   group: null
 })
 
 // 可选的前置条件用例列表（同项目下的其他用例）
-const availablePreconditions = computed(() => {
-  return testCases.value.filter(tc => {
-    // 排除当前正在编辑的用例自身
-    if (editingTestCase.value && tc.id === editingTestCase.value.id) return false
-    return true
-  })
+// 前置条件用例树数据：分组 + 用例
+const preconditionTreeData = computed(() => {
+  const groups = testCaseGroupTree.value || []
+  const cases = testCases.value || []
+  const currentId = editingTestCase.value?.id
+
+  // 递归构建分组节点，挂载用例
+  const buildGroupNode = (group) => {
+    const groupCases = cases.filter(tc => tc.group === group.id && tc.id !== currentId)
+    const caseNodes = groupCases.map(tc => ({
+      id: tc.id,
+      name: tc.name,
+      type: 'case',
+      disabled: false
+    }))
+    const childGroups = (group.children || []).map(buildGroupNode)
+    return {
+      id: `group-${group.id}`,
+      name: group.name,
+      type: 'group',
+      disabled: true,
+      children: [...childGroups, ...caseNodes]
+    }
+  }
+
+  const tree = groups.map(buildGroupNode)
+
+  // 未分组用例
+  const ungroupedCases = cases.filter(tc => !tc.group && tc.id !== currentId)
+  if (ungroupedCases.length > 0) {
+    tree.unshift({
+      id: 'group-unassigned',
+      name: '未分组',
+      type: 'group',
+      disabled: true,
+      children: ungroupedCases.map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        type: 'case',
+        disabled: false
+      }))
+    })
+  }
+  return tree
 })
 
 // 计算属性
@@ -876,6 +993,10 @@ const filteredTestCases = computed(() => {
       tc.description?.includes(searchKeyword.value)
     )
   }
+  // 按状态筛选
+  if (searchStatus.value) {
+    result = result.filter(tc => (tc.status || 'normal') === searchStatus.value)
+  }
   return result
 })
 
@@ -886,8 +1007,22 @@ const paginatedTestCases = computed(() => {
 })
 
 // 搜索时重置到第一页
-watch(searchKeyword, () => {
+watch([searchKeyword, searchStatus], () => {
   currentPage.value = 1
+})
+
+// selectedTestCase 被外部置空时同步关闭抽屉
+watch(selectedTestCase, (val) => {
+  if (!val) detailDrawerVisible.value = false
+})
+
+// 抽屉关闭时（ESC/外部触发）同步清空选中用例
+watch(detailDrawerVisible, (val) => {
+  if (!val && selectedTestCase.value) {
+    selectedTestCase.value = null
+    currentSteps.value = []
+    executionResult.value = null
+  }
 })
 
 // 表格行点击选中
@@ -1038,11 +1173,53 @@ const selectTestCase = (testCase) => {
   // 加载前置条件和后置条件
   selectedPreconditions.value = (testCase.preconditions_data || []).map(pc => pc.id)
   postconditionSql.value = testCase.postcondition_sql || ''
+  preconditionSql.value = testCase.precondition_sql || ''
   showPreconditions.value = selectedPreconditions.value.length > 0
   showPostcondition.value = !!testCase.postcondition_sql
+  showPreconditionSql.value = !!testCase.precondition_sql
   // 只有在切换到不同用例时才清空执行结果
   executionResult.value = null
   showSteps.value = true
+  // 打开详情抽屉
+  detailDrawerVisible.value = true
+  // 切换用例时若抽屉处于收起状态，自动展开
+  if (detailCollapsed.value) detailCollapsed.value = false
+}
+
+// 关闭详情抽屉
+const closeDetailDrawer = () => {
+  detailDrawerVisible.value = false
+  detailCollapsed.value = false
+  selectedTestCase.value = null
+  currentSteps.value = []
+  executionResult.value = null
+}
+
+// 切换抽屉收起/展开（保留用例数据不清空）
+const toggleDetailCollapse = () => {
+  detailCollapsed.value = !detailCollapsed.value
+}
+
+// 拖拽调整抽屉宽度
+const startResize = (e) => {
+  e.preventDefault()
+  const startX = e.clientX
+  const startWidth = detailDrawerWidth.value
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  const onMove = (ev) => {
+    const delta = startX - ev.clientX
+    const newWidth = Math.max(400, Math.min(window.innerWidth - 320, startWidth + delta))
+    detailDrawerWidth.value = newWidth
+  }
+  const onUp = () => {
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
 }
 
 const addStep = () => {
@@ -1166,7 +1343,8 @@ const saveTestCase = async () => {
       ...selectedTestCase.value,
       steps: currentSteps.value,
       preconditions: selectedPreconditions.value,
-      postcondition_sql: postconditionSql.value
+      postcondition_sql: postconditionSql.value,
+      precondition_sql: preconditionSql.value
     }
 
     await updateTestCase(selectedTestCase.value.id, updateData)
@@ -1209,11 +1387,23 @@ const runTestCase = async (testCase) => {
 
     if (response.data.success) {
       ElMessage.success(t('uiAutomation.testCase.run.success'))
+    } else if (response.data.status === 'skipped') {
+      ElMessage.warning('用例已跳过')
     } else {
       ElMessage.error(t('uiAutomation.testCase.run.failed'))
       // 如果有截图，自动切换到截图标签页
       if (response.data.screenshots && response.data.screenshots.length > 0) {
         resultActiveTab.value = 'screenshots'
+      }
+    }
+
+    // 刷新用例列表以更新状态
+    await loadTestCases()
+    // 刷新后更新当前选中用例的状态
+    if (selectedTestCase.value) {
+      const updated = testCases.value.find(tc => tc.id === selectedTestCase.value.id)
+      if (updated) {
+        selectedTestCase.value = updated
       }
     }
   } catch (error) {
@@ -1263,6 +1453,7 @@ const editTestCase = (testCase) => {
   // 加载前置条件（preconditions_data 是 [{id, name, order}] 格式，转为 id 列表）
   testCaseForm.preconditions = (testCase.preconditions_data || []).map(pc => pc.id)
   testCaseForm.postcondition_sql = testCase.postcondition_sql || ''
+  testCaseForm.precondition_sql = testCase.precondition_sql || ''
   showCreateDialog.value = true
 }
 
@@ -1525,6 +1716,7 @@ const saveTestCaseForm = async () => {
       priority: testCaseForm.priority,
       preconditions: testCaseForm.preconditions,
       postcondition_sql: testCaseForm.postcondition_sql,
+      precondition_sql: testCaseForm.precondition_sql,
       group: testCaseForm.group || null,
       project: projectId.value,
     }
@@ -1570,6 +1762,7 @@ const resetForm = () => {
   testCaseForm.priority = 'medium'
   testCaseForm.preconditions = []
   testCaseForm.postcondition_sql = ''
+  testCaseForm.precondition_sql = ''
   testCaseForm.group = null
 }
 
@@ -1578,7 +1771,8 @@ const getStatusTag = (status) => {
   const tagMap = {
     'normal': 'info',
     'passed': 'success',
-    'failed': 'danger'
+    'failed': 'danger',
+    'skipped': 'warning'
   }
   return tagMap[status] || 'info'
 }
@@ -1587,7 +1781,8 @@ const getStatusText = (status) => {
   const textMap = {
     'normal': '正常',
     'passed': '通过',
-    'failed': '失败'
+    'failed': '失败',
+    'skipped': '跳过'
   }
   return textMap[status] || '未知'
 }
@@ -1672,11 +1867,16 @@ const loadTestCaseGroups = async () => {
 }
 
 const onGroupNodeClick = (data) => {
-  selectedGroupId.value = data.id
+  if (data.id === '__all__') {
+    selectedGroupId.value = null
+  } else {
+    selectedGroupId.value = data.id
+  }
   currentPage.value = 1
 }
 
 const onGroupRightClick = (event, data) => {
+  if (data.id === '__all__') return  // "全部"节点不弹右键菜单
   event.preventDefault()
   rightClickedGroupNode.value = data
   groupContextMenuX.value = event.clientX
@@ -1953,37 +2153,14 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.group-all-node {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 var(--space-3);
-  margin: 2px 0;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--gray-700);
-  transition: background 0.15s;
-}
-
-.group-all-node:hover {
-  background: var(--gray-100);
-}
-
-.group-all-node.active {
-  background: var(--brand-50);
-  color: var(--brand-700);
-  font-weight: 500;
-}
-
 .group-tree-node {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   font-size: 13px;
   flex: 1;
   overflow: hidden;
+  padding-left: 2px;
 }
 
 .group-node-label {
@@ -2072,19 +2249,24 @@ onMounted(async () => {
 }
 
 /* ============================================================
-   中间：用例列表面板
+   中间列：搜索区域 + 用例列表面板
    ============================================================ */
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 搜索区域卡片：覆盖 global 默认 margin-bottom，由 list-column 的 gap 接管间距 */
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
 .list-panel {
   flex: 1;
   min-width: 0;
-}
-
-.list-toolbar {
-  gap: var(--space-3);
-}
-
-.list-search {
-  width: 220px;
 }
 
 .list-panel .panel__body {
@@ -2177,20 +2359,29 @@ onMounted(async () => {
   color: #dc2626;
 }
 
+.status-tag.status-skipped {
+  background: var(--warning-bg, #fef3c7);
+  color: #d97706;
+}
+
 /* 操作按钮 */
 .op-btns {
   display: flex;
   align-items: center;
-  gap: 0px;
-  flex-wrap: wrap;
+  gap: 2px;
+  flex-wrap: nowrap;
 }
 
 .op-btn {
   --el-button-text-color: var(--brand-500);
-  padding: 2px 4px !important;
+  padding: 2px !important;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 15px;
   transition: opacity 0.15s;
+}
+
+.op-btn .el-icon {
+  font-size: 15px;
 }
 
 .op-btn:hover {
@@ -2219,17 +2410,92 @@ onMounted(async () => {
 }
 
 /* ============================================================
-   右侧：用例详情面板
+   右侧：用例详情抽屉
    ============================================================ */
-.detail-panel {
-  width: var(--detail-w);
+/* 让 overlay 不拦截底层点击，抽屉本身仍可交互 */
+:deep(.detail-drawer) {
+  position: absolute;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+  pointer-events: auto;
+  transition: width 0.2s ease;
+  overflow: visible !important;
+}
+
+/* 收起状态下阴影减弱 */
+:deep(.detail-drawer--collapsed) {
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
+}
+
+/* 让 __body 不裁剪浮在外侧的 toggle 按钮 */
+:deep(.detail-drawer .el-drawer__body) {
+  padding: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: visible !important;
+}
+
+/* 左边缘三角切换按钮 - 浮动胶囊样式 */
+.detail-toggle {
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  cursor: pointer;
+}
+
+.detail-toggle__btn {
+  width: 20px;
+  height: 40px;
+  border-radius: 6px;
+  background: var(--gray-0);
+  border: 1px solid var(--gray-200);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-500);
+  transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.detail-toggle:hover .detail-toggle__btn {
+  background: var(--brand-50);
+  border-color: var(--brand-300);
+  color: var(--brand-600);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+/* 关闭按钮样式 */
+.detail-close-btn {
+  margin-left: var(--space-2);
+}
+
+.detail-resizer {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--gray-200);
   flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.detail-resizer:hover {
+  background: var(--brand-400);
+}
+
+.detail-drawer-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--gray-0);
 }
 
 .detail-body {
   padding: 0 !important;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  overflow: hidden;
 }
 
 .test-case-detail {

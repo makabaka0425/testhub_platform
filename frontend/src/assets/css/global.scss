@@ -64,8 +64,8 @@
   --sidebar-w: 220px;
   --header-h: 56px;
   --title-h: 64px;
-  --group-w: 240px;
-  --detail-w: 480px;
+  --group-w: 160px;
+  --detail-w: 400px;
 }
 
 // ========== 基础重置 ==========
@@ -278,4 +278,14 @@ body {
   .page-header .page-title,
   .page-info .page-title { font-size: 14px; }
   .card-container { padding: 12px; }
+}
+
+/* ========== 详情抽屉 Overlay：不拦截底层点击 ========== */
+/* 让 overlay 容器穿透点击，抽屉本体仍可交互 */
+.detail-drawer-overlay {
+  pointer-events: none !important;
+  position: absolute !important;
+}
+.detail-drawer-overlay .el-drawer {
+  pointer-events: auto;
 }

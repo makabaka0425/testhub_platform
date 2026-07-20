@@ -734,6 +734,7 @@ class TestCase(models.Model):
         ('normal', '正常'),
         ('passed', '通过'),
         ('failed', '失败'),
+        ('skipped', '跳过'),
     ]
 
     PRIORITY_CHOICES = [
@@ -750,6 +751,7 @@ class TestCase(models.Model):
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium', verbose_name='优先级')
     preconditions = models.ManyToManyField('self', symmetrical=False, blank=True, through='TestCasePrecondition', verbose_name='前置条件')
     postcondition_sql = models.TextField(blank=True, default='', verbose_name='后置清理SQL', help_text='用例执行后自动执行的清理SQL，支持${变量名}引用步骤输出变量')
+    precondition_sql = models.TextField(blank=True, default='', verbose_name='前置数据SQL', help_text='用例执行前自动执行的数据准备SQL，支持${变量名}引用变量，仅禁止DROP语句')
     order = models.IntegerField(default=0, verbose_name='排序')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_test_cases', verbose_name='创建人')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
