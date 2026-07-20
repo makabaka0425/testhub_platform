@@ -109,13 +109,13 @@
               <template #default="{ row }">
                 <div class="op-btns">
                   <el-tooltip content="编辑" placement="top">
-                    <el-button class="op-btn" type="primary" link size="small" @click.stop="onEditElement(row)"><el-icon><Edit /></el-icon></el-button>
+                    <el-button class="op-btn" type="primary" link size="small" @click="onEditElement(row)"><el-icon><Edit /></el-icon></el-button>
                   </el-tooltip>
                   <el-tooltip content="复制" placement="top">
-                    <el-button class="op-btn" type="primary" link size="small" @click.stop="copyElementFromList(row)"><el-icon><CopyDocument /></el-icon></el-button>
+                    <el-button class="op-btn" type="primary" link size="small" @click="copyElementFromList(row)"><el-icon><CopyDocument /></el-icon></el-button>
                   </el-tooltip>
                   <el-tooltip content="删除" placement="top">
-                    <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteElementFromList(row)"><el-icon><Delete /></el-icon></el-button>
+                    <el-button class="op-btn op-btn--danger" link size="small" @click="deleteElementFromList(row)"><el-icon><Delete /></el-icon></el-button>
                   </el-tooltip>
                 </div>
               </template>
@@ -137,7 +137,7 @@
     </div>
 
     <!-- 新增/编辑元素弹窗 -->
-    <el-dialog v-model="showElementDialog" :title="elementDialogTitle" width="620px" :close-on-click-modal="false" @closed="onElementDialogClosed">
+    <el-dialog v-model="showElementDialog" :title="elementDialogTitle" width="620px" :close-on-click-modal="false" destroy-on-close @closed="onElementDialogClosed">
       <el-form ref="elementFormRef" :key="formKey" :model="selectedElement" :rules="elementRules" label-width="100px" class="element-dialog-form">
         <el-form-item prop="name" label="元素名称" required>
           <el-input v-model="selectedElement.name" placeholder="输入元素名称" />
@@ -221,7 +221,7 @@
     </el-dialog>
 
     <!-- 创建页面对话框 -->
-    <el-dialog v-model="showCreatePageDialog" :title="$t('uiAutomation.element.createPageTitle')" width="500px" :close-on-click-modal="false">
+    <el-dialog v-model="showCreatePageDialog" :title="$t('uiAutomation.element.createPageTitle')" width="500px" :close-on-click-modal="false" destroy-on-close>
       <el-form ref="pageFormRef" :model="pageForm" :rules="pageRules" label-width="80px">
         <el-form-item :label="$t('uiAutomation.element.pageName')" prop="name">
           <el-input v-model="pageForm.name" :placeholder="$t('uiAutomation.element.pageNamePlaceholder')" />
@@ -251,7 +251,7 @@
     </ul>
 
     <!-- 编辑页面对话框 -->
-    <el-dialog v-model="showEditPageDialog" :title="$t('uiAutomation.element.editPageTitle')" width="500px" :close-on-click-modal="false">
+    <el-dialog v-model="showEditPageDialog" :title="$t('uiAutomation.element.editPageTitle')" width="500px" :close-on-click-modal="false" destroy-on-close @closed="onEditPageDialogClosed">
       <el-form ref="editPageFormRef" :model="editPageForm" :rules="pageRules" label-width="80px">
         <el-form-item :label="$t('uiAutomation.element.pageName')" prop="name">
           <el-input v-model="editPageForm.name" :placeholder="$t('uiAutomation.element.pageNamePlaceholder')" />
@@ -272,7 +272,7 @@
     </el-dialog>
 
     <!-- AI智能提取输入对话框 -->
-    <el-dialog v-model="showAiExtractDialog" title="AI 智能提取元素" width="550px" :close-on-click-modal="false">
+    <el-dialog v-model="showAiExtractDialog" title="AI 智能提取元素" width="550px" :close-on-click-modal="false" destroy-on-close>
       <el-form label-width="130px">
         <el-form-item label="目标页面URL" required>
           <el-input v-model="aiExtractForm.url" placeholder="输入页面URL，如 https://example.com/user/list" />
@@ -298,7 +298,7 @@
     </el-dialog>
 
     <!-- 交互式选取模式控制面板 -->
-    <el-dialog v-model="showPickDialog" title="交互式选取模式" width="600px" :close-on-click-modal="false" :show-close="false" top="20vh">
+    <el-dialog v-model="showPickDialog" title="交互式选取模式" width="600px" :close-on-click-modal="false" :show-close="false" top="20vh" destroy-on-close>
       <el-alert type="success" :closable="false" show-icon style="margin-bottom: 16px;">
         <template #title>浏览器已打开，请在页面中点击要提取的元素。鼠标悬停会高亮显示，点击后AI自动识别定位器。</template>
       </el-alert>
@@ -331,7 +331,7 @@
     </el-dialog>
 
     <!-- AI提取结果预览对话框 -->
-    <el-dialog v-model="showAiResultDialog" title="AI 提取结果预览" width="900px" :close-on-click-modal="false" top="5vh">
+    <el-dialog v-model="showAiResultDialog" title="AI 提取结果预览" width="900px" :close-on-click-modal="false" top="5vh" destroy-on-close>
       <div style="margin-bottom: 12px; color: #606266;">
         页面: {{ aiResultInfo.url }}
         <span v-if="aiResultInfo.final_url && aiResultInfo.final_url !== aiResultInfo.url" style="margin-left: 10px; color: #E6A23C;">(实际跳转: {{ aiResultInfo.final_url }})</span>
@@ -403,7 +403,7 @@
     </el-dialog>
 
     <!-- 候选弹窗触发按钮选择对话框 -->
-    <el-dialog v-model="showCandidateDialog" title="弹窗元素提取" width="700px" :close-on-click-modal="false" top="5vh">
+    <el-dialog v-model="showCandidateDialog" title="弹窗元素提取" width="700px" :close-on-click-modal="false" top="5vh" destroy-on-close>
       <div style="margin-bottom: 16px;">
         <el-alert type="info" :closable="false" show-icon>
           <template #title>检测到以下按钮可能触发弹窗，勾选后系统将自动点击并提取弹窗内元素</template>
@@ -431,7 +431,7 @@
     </el-dialog>
 
     <!-- 手动交互模式控制面板 -->
-    <el-dialog v-model="showManualDialog" title="手动交互模式" width="500px" :close-on-click-modal="false" :show-close="false" top="30vh">
+    <el-dialog v-model="showManualDialog" title="手动交互模式" width="500px" :close-on-click-modal="false" :show-close="false" top="30vh" destroy-on-close>
       <div style="margin-bottom: 16px;">
         <el-alert type="info" :closable="false" show-icon>
           <template #title>浏览器已打开，请手动操作到目标状态后，点击下方"提取当前页面"按钮</template>
@@ -453,7 +453,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -616,20 +616,37 @@ const rightClickedGroupNode = ref(null)
 const onPageGroupRightClick = (event, data) => {
   if (data.id === '__all__') return
   event.preventDefault()
+  // 先清理之前的监听器
+  cleanupHideMenu()
   rightClickedGroupNode.value = data
   groupContextMenuX.value = event.clientX
   groupContextMenuY.value = event.clientY
   showGroupContextMenu.value = true
-  const hideMenu = () => {
-    showGroupContextMenu.value = false
-    document.removeEventListener('click', hideMenu)
+  // 保存引用，便于后续清理
+  _hideMenuHandler = () => {
+    cleanupHideMenu()
   }
-  setTimeout(() => document.addEventListener('click', hideMenu), 100)
+  // 延迟注册，避免当前右键事件立即触发
+  setTimeout(() => {
+    if (_hideMenuHandler) {
+      document.addEventListener('mousedown', _hideMenuHandler)
+    }
+  }, 0)
+}
+
+// 清理右键菜单监听器
+let _hideMenuHandler = null
+const cleanupHideMenu = () => {
+  if (_hideMenuHandler) {
+    document.removeEventListener('mousedown', _hideMenuHandler)
+    _hideMenuHandler = null
+  }
+  showGroupContextMenu.value = false
 }
 
 // 右键菜单操作（适配分组面板）
 const addContextElement = () => {
-  showGroupContextMenu.value = false
+  cleanupHideMenu()
   elementDialogTitle.value = '新增元素'
   selectedElement.value = {
     name: '',
@@ -663,7 +680,7 @@ const addContextElement = () => {
 }
 
 const addSubPage = () => {
-  showGroupContextMenu.value = false
+  cleanupHideMenu()
   if (rightClickedGroupNode.value && rightClickedGroupNode.value.id === 'unassigned') {
     ElMessage.warning('未关联页面节点下不能创建子页面')
     return
@@ -675,7 +692,7 @@ const addSubPage = () => {
 }
 
 const editGroupNode = async () => {
-  showGroupContextMenu.value = false
+  cleanupHideMenu()
   if (!rightClickedGroupNode.value) return
   if (rightClickedGroupNode.value.id === 'unassigned') {
     ElMessage.warning('未关联页面节点不能编辑')
@@ -689,7 +706,7 @@ const editGroupNode = async () => {
 }
 
 const deleteGroupNode = async () => {
-  showGroupContextMenu.value = false
+  cleanupHideMenu()
   if (!rightClickedGroupNode.value) return
   if (rightClickedGroupNode.value.id === 'unassigned') {
     ElMessage.warning('未关联页面节点不能删除')
@@ -747,6 +764,11 @@ const onCreateElement = () => {
 
 // 编辑元素 - 打开弹窗
 const onEditElement = async (row) => {
+  // 如果弹窗正在显示，先关闭再重新打开（避免竞态）
+  if (showElementDialog.value) {
+    showElementDialog.value = false
+    await nextTick()
+  }
   elementDialogTitle.value = '编辑元素'
   try {
     const response = await getElementDetail(row.id)
@@ -758,13 +780,24 @@ const onEditElement = async (row) => {
   }
 }
 
-// 弹窗关闭后清理
+// 弹窗关闭后清理（destroy-on-close 会销毁内部DOM，无需清空数据）
 const onElementDialogClosed = () => {
-  selectedElement.value = null
+  formKey.value += 1
+}
+
+// 编辑页面弹窗关闭后清理
+const onEditPageDialogClosed = () => {
+  editPageForm.name = ''
+  editPageForm.description = ''
+  editPageForm.parent_page = null
 }
 
 // 从列表复制元素
 const copyElementFromList = async (row) => {
+  if (showElementDialog.value) {
+    showElementDialog.value = false
+    await nextTick()
+  }
   elementDialogTitle.value = '复制元素'
   try {
     const response = await getElementDetail(row.id)
@@ -1514,6 +1547,15 @@ onMounted(async () => {
   }
 })
 
+// 组件卸载时清理
+onUnmounted(() => {
+  if (pickPollTimer) {
+    clearInterval(pickPollTimer)
+    pickPollTimer = null
+  }
+  cleanupHideMenu()
+})
+
 // 加载项目列表
 const loadProjects = async () => {
   try {
@@ -1889,7 +1931,7 @@ const generateSuggestions = async () => {
 
 // 清空未关联页面下的所有元素
 const deleteUnassignedElements = async () => {
-  showGroupContextMenu.value = false
+  cleanupHideMenu()
 
   // 从 treeData 中找未关联页面的元素
   const unassignedPage = treeData.value.find(n => n.id === 'unassigned')
@@ -2239,7 +2281,7 @@ const updatePage = async () => {
 /* 页面分组右键菜单 */
 .group-context-menu {
   position: fixed;
-  z-index: 9999;
+  z-index: 2000;
   background: var(--gray-0, #fff);
   border: 1px solid var(--gray-200, #e2e8f0);
   border-radius: var(--radius-md, 8px);
