@@ -1505,13 +1505,18 @@ class PlaywrightTestEngine:
 
     async def capture_screenshot(self) -> str:
         """
-        捕获当前页面截图
+        捕获当前页面视口截图（与用户所见画面一致）
+        截图前先滚动到页面顶部，确保查询区域等顶部内容可见
 
         Returns:
             截图的base64字符串
         """
         try:
-            screenshot = await self.page.screenshot(full_page=True)
+            # 先滚动到页面顶部，确保顶部查询区域可见
+            await self.page.evaluate("window.scrollTo(0, 0)")
+            # 等待一小段时间让弹窗重新定位
+            await self.page.wait_for_timeout(300)
+            screenshot = await self.page.screenshot(full_page=False)
             return f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
         except Exception as e:
             logger.error(f"捕获截图失败: {str(e)}")

@@ -3,7 +3,7 @@
     <div class="page-header">
       <h1 class="page-title">测试计划</h1>
       <div class="header-actions">
-        <el-select v-model="projectId" placeholder="选择项目" style="width: 200px; margin-right: 15px" @change="onProjectChange">
+        <el-select v-model="projectId" placeholder="选择项目" style="width: 200px" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
         <el-button type="primary" @click="handleCreate">
@@ -13,18 +13,31 @@
       </div>
     </div>
 
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-form :inline="true">
-          <el-form-item>
-            <el-input v-model="searchText" placeholder="搜索计划名称" clearable @input="handleSearch">
-              <template #prefix><el-icon><Search /></el-icon></template>
-            </el-input>
-          </el-form-item>
-        </el-form>
-      </div>
+    <div class="filter-bar">
+      <el-form :inline="true">
+        <el-form-item label="计划名称">
+          <el-input v-model="searchText" placeholder="搜索计划名称..." clearable @input="handleSearch" style="width: 200px">
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+        </el-form-item>
+        <el-form-item label="执行模式">
+          <el-select v-model="filterExecutionMode" placeholder="全部" clearable style="width: 130px">
+            <el-option label="共享会话" value="shared_session" />
+            <el-option label="独立模式" value="per_case" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="执行状态">
+          <el-select v-model="filterExecutionStatus" placeholder="全部" clearable style="width: 130px">
+            <el-option label="未执行" value="not_run" />
+            <el-option label="通过" value="passed" />
+            <el-option label="失败" value="failed" />
+            <el-option label="执行中" value="running" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+    </div>
 
-      <div class="table-scroll-area">
+    <div class="table-scroll-area">
         <el-table :data="filteredPlans" v-loading="loading" style="width: 100%">
         <el-table-column prop="name" label="计划名称" min-width="200">
           <template #default="{ row }">
@@ -72,28 +85,28 @@
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
-        <el-table-column label="操作" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="editPlan(row.id)">编辑</el-button>
-            <el-button link type="success" @click="runPlan(row)">执行</el-button>
-            <el-button link type="danger" @click="deletePlan(row.id)">删除</el-button>
-          </template>
-        </el-table-column>
+          <el-table-column label="操作" width="200" fixed="right">
+            <template #default="{ row }">
+              <div class="op-btns">
+                <el-button class="op-btn" type="primary" link size="small" @click="editPlan(row.id)">编辑</el-button>
+                <el-button class="op-btn" type="success" link size="small" @click="runPlan(row)">执行</el-button>
+                <el-button class="op-btn op-btn--danger" link size="small" @click="deletePlan(row.id)">删除</el-button>
+              </div>
+            </template>
+          </el-table-column>
       </el-table>
+        <div class="pagination-container">
+          <el-pagination
+            v-model:current-page="pagination.currentPage"
+            v-model:page-size="pagination.pageSize"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            :total="total"
+            @size-change="handleSizeChange"
+            @current-change="handleCurrentChange"
+          />
+        </div>
       </div>
-
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="pagination.currentPage"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="total"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
-        />
-      </div>
-    </div>
 
     <!-- 创建/编辑计划对话框 -->
     <el-dialog v-model="showEditDialog" :title="isEditing ? '编辑测试计划' : '新建测试计划'" width="1000px" :close-on-click-modal="false">
@@ -237,6 +250,8 @@ const allSuites = ref([])
 const loading = ref(false)
 const total = ref(0)
 const searchText = ref('')
+const filterExecutionMode = ref('')
+const filterExecutionStatus = ref('')
 const pagination = ref({ currentPage: 1, pageSize: 20 })
 
 // 对话框
@@ -274,9 +289,18 @@ const selectedSuites = ref([])
 
 // 计算属性
 const filteredPlans = computed(() => {
-  if (!searchText.value) return plans.value
-  const kw = searchText.value.toLowerCase()
-  return plans.value.filter(p => p.name.toLowerCase().includes(kw))
+  let result = plans.value
+  if (searchText.value) {
+    const kw = searchText.value.toLowerCase()
+    result = result.filter(p => p.name.toLowerCase().includes(kw))
+  }
+  if (filterExecutionMode.value) {
+    result = result.filter(p => p.execution_mode === filterExecutionMode.value)
+  }
+  if (filterExecutionStatus.value) {
+    result = result.filter(p => p.execution_status === filterExecutionStatus.value)
+  }
+  return result
 })
 
 const filteredAvailableCases = computed(() => {
@@ -596,12 +620,41 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.card-container {
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 表格区域撑满剩余空间，内部表格独立滚动 */
+.table-scroll-area {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-height: 0;
   overflow: hidden;
+}
+
+.table-scroll-area :deep(.el-table) {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 操作按钮组 */
+.op-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
 }
 
 .mode-desc {

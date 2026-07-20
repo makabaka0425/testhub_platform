@@ -3,7 +3,7 @@
     <!-- 筛选栏 -->
     <div class="filter-bar">
       <el-form :inline="true">
-        <el-form-item>
+        <el-form-item :label="$t('uiAutomation.notification.logs.taskName')">
           <el-input
               v-model="searchForm.taskName"
               :placeholder="$t('uiAutomation.notification.logs.searchTaskName')"
@@ -19,7 +19,7 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item>
+        <el-form-item :label="$t('uiAutomation.notification.logs.dateRange')">
           <el-date-picker
               v-model="searchForm.dateRange"
               type="daterange"
@@ -30,15 +30,14 @@
               @change="handleSearch"
           />
         </el-form-item>
-        <el-form-item>
+        <el-form-item :label="$t('uiAutomation.notification.logs.notificationStatus')">
           <el-select
               v-model="searchForm.status"
-              :placeholder="$t('uiAutomation.notification.logs.notificationStatus')"
+              :placeholder="$t('uiAutomation.common.all')"
               clearable
-              style="width: 160px"
+              style="width: 130px"
               @change="handleSearch"
           >
-            <el-option :label="$t('uiAutomation.notification.logs.allStatus')" value=""/>
             <el-option :label="$t('uiAutomation.notification.logs.statusSuccess')" value="SUCCESS"/>
             <el-option :label="$t('uiAutomation.notification.logs.statusFailed')" value="FAILED"/>
             <el-option :label="$t('uiAutomation.notification.logs.statusRetrying')" value="RETRYING"/>

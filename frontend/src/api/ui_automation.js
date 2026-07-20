@@ -137,6 +137,26 @@ export function deleteElement(id) {
   })
 }
 
+// 批量删除UI元素
+export function batchDeleteElements(data) {
+  return request({
+    url: '/ui-automation/elements/batch_delete/',
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}
+
+// 批量修改元素所属页面
+export function batchUpdateElementGroup(data) {
+  return request({
+    url: '/ui-automation/elements/batch_update_group/',
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}
+
 // 测试脚本相关API
 
 // 获取测试脚本列表
@@ -244,12 +264,30 @@ export function addTestCaseToTestSuite(id, data) {
   })
 }
 
+// 批量向测试套件添加测试用例
+export function addTestCasesToTestSuite(id, data) {
+  return request({
+    url: `/ui-automation/test-suites/${id}/add_test_cases/`,
+    method: 'post',
+    data
+  })
+}
+
 // 从测试套件移除测试用例
 export function removeTestCaseFromTestSuite(suiteId, testCaseId) {
   return request({
     url: `/ui-automation/test-suites/${suiteId}/remove_test_case/`,
     method: 'delete',
     data: { test_case_id: testCaseId }
+  })
+}
+
+// 批量从测试套件移除测试用例
+export function removeTestCasesFromTestSuite(suiteId, testCaseIds) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/remove_test_cases/`,
+    method: 'delete',
+    data: { test_case_ids: testCaseIds }
   })
 }
 
@@ -709,12 +747,13 @@ export function aiExtractManualFinish(data) {
 }
 
 // 交互式选取模式 — 启动
-export function aiPickStart(data) {
+export function aiPickStart(data, options = {}) {
   return request({
     url: '/ui-automation/elements/ai_pick/start/',
     method: 'post',
     data,
-    timeout: 60000
+    timeout: 60000,
+    ...options
   })
 }
 

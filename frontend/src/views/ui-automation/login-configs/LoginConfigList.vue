@@ -15,11 +15,12 @@
 
     <div class="filter-bar">
       <el-form :inline="true">
-        <el-form-item>
+        <el-form-item label="名称">
           <el-input
             v-model="searchText"
             placeholder="搜索登录配置名称"
             clearable
+            style="width: 200px"
             @input="handleSearch"
           >
             <template #prefix>
