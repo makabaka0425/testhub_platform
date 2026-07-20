@@ -84,7 +84,19 @@
           <span class="panel__title">元素列表</span>
         </div>
         <div class="panel__body">
-          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass">
+          <!-- 批量操作浮动工具栏 -->
+          <transition name="batch-bar-slide">
+            <div v-if="selectedElements.length > 0" class="batch-toolbar">
+              <span class="batch-toolbar__info">已选 {{ selectedElements.length }} 个元素</span>
+              <div class="batch-toolbar__actions">
+                <el-button size="small" :icon="FolderOpened" @click="openBatchUpdateGroupDialog">批量改页面</el-button>
+                <el-button size="small" type="danger" :icon="DeleteFilled" @click="handleBatchDelete">批量删除</el-button>
+                <el-button size="small" text @click="clearSelection">取消选择</el-button>
+              </div>
+            </div>
+          </transition>
+          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef">
+            <el-table-column type="selection" width="40" />
             <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip />
             <el-table-column prop="element_type" label="类型" width="80">
               <template #default="{ row }">
@@ -439,6 +451,32 @@
       </template>
     </el-dialog>
 
+    <!-- 批量修改所属页面弹窗 -->
+    <el-dialog v-model="showBatchGroupDialog" title="批量修改所属页面" width="480px" :close-on-click-modal="false" destroy-on-close>
+      <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
+        <template #title>将以下 {{ selectedElements.length }} 个元素移动到新的所属页面</template>
+      </el-alert>
+      <el-form label-width="100px">
+        <el-form-item label="目标页面">
+          <el-tree-select
+            v-model="batchTargetGroupId"
+            :data="pageOnlyTree"
+            :props="{ label: 'name', value: 'id', children: 'children' }"
+            placeholder="选择目标页面"
+            check-strictly
+            :render-after-expand="false"
+            clearable
+            style="width: 100%"
+          />
+          <div class="form-help-text">不选择则将元素移到「未关联页面」</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showBatchGroupDialog = false">取消</el-button>
+        <el-button type="primary" :loading="batchLoading" @click="handleBatchUpdateGroup">确认移动</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 手动交互模式控制面板 -->
     <el-dialog v-model="showManualDialog" title="手动交互模式" width="500px" :close-on-click-modal="false" :show-close="false" top="30vh" destroy-on-close>
       <div style="margin-bottom: 16px;">
@@ -468,7 +506,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, FolderAdd, Document, Search, Edit, Delete,
   Folder, Document as DocumentIcon, Operation, DocumentCopy, ArrowDown,
-  MagicStick, Loading, VideoPlay, CopyDocument
+  MagicStick, Loading, VideoPlay, CopyDocument, FolderOpened, DeleteFilled
 } from '@element-plus/icons-vue'
 import {
   getUiProjects,
@@ -477,6 +515,8 @@ import {
   getElementDetail,
   updateElement,
   deleteElement,
+  batchDeleteElements,
+  batchUpdateElementGroup,
   getElementTree,
   getElementGroupTree,
   getElementGroups,
@@ -602,9 +642,14 @@ const pagedElements = computed(() => {
   const start = (elementCurrentPage.value - 1) * elementPageSize.value
   return filteredElements.value.slice(start, start + elementPageSize.value)
 })
-// 筛选条件或页面切换时重置到第1页
+// 筛选条件或页面切换时重置到第1页并清空选择
 watch([searchName, searchType, searchStrategy, selectedPageId], () => {
   elementCurrentPage.value = 1
+  clearSelection()
+})
+// 翻页时清空选择
+watch(elementCurrentPage, () => {
+  clearSelection()
 })
 
 // 页面分组点击
@@ -840,6 +885,98 @@ const deleteElementFromList = async (row) => {
   } catch (error) {
     if (error !== 'cancel') ElMessage.error('删除失败')
   }
+}
+
+// ========== 批量操作相关 ==========
+const elementTableRef = ref(null)
+const selectedElements = ref([])            // 选中的元素行
+const showBatchGroupDialog = ref(false)     // 批量修改所属页面弹窗
+const batchTargetGroupId = ref(null)        // 批量目标分组ID
+const batchLoading = ref(false)             // 批量操作进行中
+
+// 表格选择变化
+const handleSelectionChange = (rows) => {
+  selectedElements.value = rows
+}
+
+// 清空选择
+const clearSelection = () => {
+  elementTableRef.value?.clearSelection()
+}
+
+// 打开批量修改所属页面弹窗
+const openBatchUpdateGroupDialog = () => {
+  if (selectedElements.value.length === 0) {
+    ElMessage.warning('请先选择要操作的元素')
+    return
+  }
+  batchTargetGroupId.value = null
+  showBatchGroupDialog.value = true
+}
+
+// 执行批量修改所属页面
+const handleBatchUpdateGroup = async () => {
+  batchLoading.value = true
+  try {
+    const ids = selectedElements.value.map(e => e.id)
+    // 将目标页面的 _originalId 转换为真实分组 ID
+    let groupId = null
+    if (batchTargetGroupId.value) {
+      const found = findNodeById(treeData.value, batchTargetGroupId.value)
+      groupId = found?._originalId || found?.id
+    }
+    const res = await batchUpdateElementGroup({ ids, group_id: groupId })
+    ElMessage.success(res.data.message || `成功更新 ${ids.length} 个元素的所属页面`)
+    showBatchGroupDialog.value = false
+    clearSelection()
+    await loadElementTree()
+    treeKey.value += 1
+  } catch (error) {
+    const msg = error.response?.data?.error || error.message || '批量修改失败'
+    ElMessage.error(msg)
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+// 执行批量删除
+const handleBatchDelete = async () => {
+  if (selectedElements.value.length === 0) {
+    ElMessage.warning('请先选择要删除的元素')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedElements.value.length} 个元素？此操作不可恢复`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+    batchLoading.value = true
+    const ids = selectedElements.value.map(e => e.id)
+    const res = await batchDeleteElements({ ids })
+    ElMessage.success(res.data.message || `成功删除 ${ids.length} 个元素`)
+    clearSelection()
+    await loadElementTree()
+    treeKey.value += 1
+  } catch (error) {
+    if (error === 'cancel') return
+    const msg = error.response?.data?.error || error.message || '批量删除失败'
+    ElMessage.error(msg)
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+// 工具函数：按树节点 id 查找节点（支持 _originalId 对比）
+const findNodeById = (nodes, id) => {
+  for (const n of nodes || []) {
+    if (n.id === id || n._originalId === id) return n
+    if (n.children) {
+      const found = findNodeById(n.children, id)
+      if (found) return found
+    }
+  }
+  return null
 }
 // 仅包含页面节点的树（过滤掉元素节点），用于所属页面树形下拉
 const selectedElement = ref(null)
@@ -2340,6 +2477,48 @@ const updatePage = async () => {
   font-size: 12px;
   color: var(--gray-500, #64748b);
   margin-top: 4px;
+}
+
+/* 批量操作工具栏 */
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--primary-50, #ebf3fe);
+  border: 1px solid var(--primary-200, #b3d8ff);
+  border-radius: 6px;
+  color: var(--gray-700, #334155);
+  font-size: 13px;
+}
+.batch-toolbar__info {
+  font-weight: 600;
+  color: var(--primary-600, #1890ff);
+}
+.batch-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* 批量工具栏进入/退出过渡 */
+.batch-bar-slide-enter-active,
+.batch-bar-slide-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+.batch-bar-slide-enter-from,
+.batch-bar-slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.batch-bar-slide-enter-to,
+.batch-bar-slide-leave-from {
+  opacity: 1;
+  max-height: 60px;
 }
 
 /* 页面分组右键菜单 */

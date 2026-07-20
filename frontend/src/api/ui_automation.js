@@ -137,6 +137,26 @@ export function deleteElement(id) {
   })
 }
 
+// 批量删除UI元素
+export function batchDeleteElements(data) {
+  return request({
+    url: '/ui-automation/elements/batch_delete/',
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}
+
+// 批量修改元素所属页面
+export function batchUpdateElementGroup(data) {
+  return request({
+    url: '/ui-automation/elements/batch_update_group/',
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}
+
 // 测试脚本相关API
 
 // 获取测试脚本列表
