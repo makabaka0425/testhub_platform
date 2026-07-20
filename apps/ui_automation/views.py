@@ -1412,8 +1412,10 @@ class ElementViewSet(viewsets.ModelViewSet):
                                     isInTableRow: false,
                                     tableRowIndex: -1,
                                     containerSelector: (() => {
-                                        const dlg = el.closest('.el-dialog:visible, .ant-modal:visible, .el-drawer:visible, .ant-drawer:visible, [role="dialog"]:visible');
+                                        // Element.closest() 不支持 :visible 伪类，用标准选择器
+                                        const dlg = el.closest('.el-dialog, .ant-modal, .el-drawer, .ant-drawer, [role="dialog"]');
                                         if (!dlg) return '';
+                                        // containerSelector 带 :visible 供 Playwright locator 使用
                                         if (dlg.classList.contains('el-dialog')) return '.el-dialog:visible';
                                         if (dlg.classList.contains('ant-modal')) return '.ant-modal:visible';
                                         if (dlg.classList.contains('el-drawer')) return '.el-drawer:visible';
@@ -1727,6 +1729,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                         await page.goto(url, wait_until='networkidle', timeout=30000)
                         await asyncio.sleep(2)
 
+                        # 监听浏览器console输出，写入调试日志
+                        page.on('console', lambda msg: open('logs/pick_debug.log', 'a').write(f'[console.{msg.type}] {msg.text}\n') or None)
+
                         # 注入交互式选取脚本
                         await self._async_inject_pick_script(page, session_id)
 
@@ -1821,6 +1826,11 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         session = self._pick_sessions[session_id]
         all_elements = session['picked_elements']
+        
+        # DEBUG: 记录finish返回的元素名称
+        with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
+            for i, e in enumerate(all_elements):
+                _f.write(f'[交互选取] finish elements[{i}]: name={e.get("name","?")}, desc={e.get("description","?")}\n')
 
         # 关闭浏览器
         loop = session['loop']
@@ -1881,6 +1891,9 @@ class ElementViewSet(viewsets.ModelViewSet):
         # 先暴露 Python 函数，供 JS 在用户点击元素时调用
         async def on_element_clicked(element_data):
             """JS调用：用户点击元素后，计算定位器并AI分析"""
+            # 直接写文件日志，确保能看到
+            with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
+                _f.write(f'[交互选取] on_element_clicked 被调用, keys={list(element_data.keys())[:10]}\n')
             try:
                 # JS 已检测 containerSelector（弹窗内元素会设为 .el-dialog:visible 等）
                 # 不再硬编码为空，否则弹窗内重复id无法处理
@@ -1907,7 +1920,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                 try:
                     ai_result = self._ai_analyze_single_element(element_data)
                 except Exception as e:
-                    print(f'[交互选取] AI分析失败，回退规则引擎: {str(e)}')
+                    import logging
+                    _pick_logger = logging.getLogger('ui_automation.pick')
+                    _pick_logger.warning(f'[交互选取] AI分析失败，回退规则引擎: {str(e)}')
                     ai_result = self._rule_based_classify([element_data])[0] if self._rule_based_classify([element_data]) else None
 
                 if ai_result:
@@ -1937,6 +1952,13 @@ class ElementViewSet(viewsets.ModelViewSet):
                     # 验证AI返回的定位器，如果不唯一则尝试修正
                     ai_result = await self._validate_and_fix_locator(page, ai_result, element_data)
 
+                    # _validate_and_fix_locator 可能替换定位器但丢失容器作用域标记
+                    # 补偿：弹窗元素确保 containerSelector 和 used_container_scope 不丢失
+                    if container_sel:
+                        ai_result.setdefault('containerSelector', container_sel)
+                        if not ai_result.get('used_container_scope'):
+                            ai_result['used_container_scope'] = True
+
                     # 存入session（去重：相同 locator_strategy + locator_value + containerSelector 不重复添加）
                     # 关键修复：加入 containerSelector 区分主页面和弹窗的同id元素
                     session = self._pick_sessions.get(session_id)
@@ -1955,20 +1977,33 @@ class ElementViewSet(viewsets.ModelViewSet):
                     return ai_result
                 return None
             except Exception as e:
-                print(f'[交互选取] 元素处理失败: {str(e)}')
+                import traceback
+                with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
+                    _f.write(f'[交互选取] 元素处理失败: {str(e)}\n{traceback.format_exc()}\n')
                 return None
 
+        # 注册前写日志
+        with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
+            _f.write(f'[交互选取] 即将注册 __aiPickElement, session_id={session_id}\n')
         await page.expose_function('__aiPickElement', on_element_clicked)
+        with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
+            _f.write(f'[交互选取] __aiPickElement 注册完成\n')
 
         # 暴露改名函数
         async def on_element_renamed(index, new_name):
             """JS调用：用户在浮窗中修改元素名称"""
+            with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
+                _f.write(f'[交互选取] on_element_renamed 被调用, index={index}, new_name={new_name}\n')
             session = self._pick_sessions.get(session_id)
             if session and 0 <= index < len(session['picked_elements']):
                 session['picked_elements'][index]['name'] = new_name
                 # 同步更新description，避免改名后description保留旧name
                 session['picked_elements'][index]['description'] = new_name
+                with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
+                    _f.write(f'[交互选取] 改名成功, elements[{index}].name={session["picked_elements"][index]["name"]}\n')
                 return True
+            with open('logs/pick_debug.log', 'a', encoding='utf-8') as _f:
+                _f.write(f'[交互选取] 改名失败, index={index}, len={len(session["picked_elements"]) if session else "no session"}\n')
             return False
 
         await page.expose_function('__aiPickRename', on_element_renamed)
@@ -2166,6 +2201,7 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             // click 捕获（仅选取模式拦截，浏览模式放行）
             document.addEventListener('click', async (e) => {
+                console.log('[交互选取] click事件触发, pickMode=' + pickMode + ', target=' + e.target.tagName + '#' + e.target.id);
                 // 浏览模式：不拦截，让页面正常响应
                 if (pickMode !== 'select') return;
 
@@ -2198,10 +2234,18 @@ class ElementViewSet(viewsets.ModelViewSet):
                 
                 // 检测元素是否在弹窗/抽屉容器内
                 // 若是，设置 containerSelector 供后续重复id处理使用
+                // 注意：Element.closest() 不支持 :visible 等非标准伪类，会抛 SyntaxError
+                // 所以用标准选择器查找祖先，containerSelector 仍保留 :visible 供 Playwright locator 使用
                 let containerSelector = '';
-                const dialogEl = el.closest('.el-dialog:visible, .ant-modal:visible, .el-drawer:visible, .ant-drawer:visible, [role="dialog"]:visible');
+                let dialogEl = null;
+                try {
+                    dialogEl = el.closest('.el-dialog, .ant-modal, .el-drawer, .ant-drawer, [role="dialog"]');
+                } catch(e) {
+                    console.error('[交互选取] closest调用异常:', e);
+                }
                 if (dialogEl) {
-                    // 优先使用 :visible 伪类的选择器（与批量提取保持一致）
+                    // containerSelector 带 :visible 后缀，供 Playwright page.locator() 使用
+                    // Playwright 支持 :visible 伪类，而 DOM API 不支持
                     if (dialogEl.classList.contains('el-dialog')) containerSelector = '.el-dialog:visible';
                     else if (dialogEl.classList.contains('ant-modal')) containerSelector = '.ant-modal:visible';
                     else if (dialogEl.classList.contains('el-drawer')) containerSelector = '.el-drawer:visible';
@@ -2244,7 +2288,13 @@ class ElementViewSet(viewsets.ModelViewSet):
                 loadingDiv.textContent = '正在分析元素...';
                 body.appendChild(loadingDiv);
 
+                // DEBUG: 检查 __aiPickElement 是否存在
+                console.log('[交互选取] __aiPickElement type:', typeof window.__aiPickElement);
+
                 try {
+                    if (typeof window.__aiPickElement !== 'function') {
+                        throw new Error('__aiPickElement not registered');
+                    }
                     const result = await window.__aiPickElement(elementData);
                     // 移除加载状态
                     const ld = document.getElementById('pick-loading');
@@ -2302,6 +2352,13 @@ class ElementViewSet(viewsets.ModelViewSet):
                     const ld = document.getElementById('pick-loading');
                     if (ld) ld.remove();
                     console.error('[交互选取] 分析失败:', err);
+                    // 在面板中显示错误信息
+                    const errDiv = document.createElement('div');
+                    errDiv.className = 'pick-loading';
+                    errDiv.style.color = '#ff4d4f';
+                    errDiv.textContent = '分析失败: ' + (err.message || err);
+                    body.appendChild(errDiv);
+                    setTimeout(() => { if (errDiv.parentNode) errDiv.remove(); }, 3000);
                 } finally {
                     isProcessing = false;
                 }
@@ -2311,7 +2368,11 @@ class ElementViewSet(viewsets.ModelViewSet):
         await page.evaluate(pick_js)
 
     async def _validate_and_fix_locator(self, page, ai_result, element_data):
-        """验证AI返回的定位器，如果不唯一则尝试生成更精确的定位表达式"""
+        """验证AI返回的定位器，如果不唯一则尝试生成更精确的定位表达式
+        
+        对有 containerSelector 的弹窗元素，保留容器作用域组合定位，
+        不做纯 #id 唯一性覆盖（弹窗内 id 可能只在弹窗内唯一，但主页面有同 id）。
+        """
         strategy = ai_result.get('locator_strategy', '')
         value = ai_result.get('locator_value', '')
         text = (element_data.get('text', '') or '').strip()
@@ -2320,9 +2381,12 @@ class ElementViewSet(viewsets.ModelViewSet):
         aria_label = element_data.get('ariaLabel', '')
         placeholder = element_data.get('placeholder', '')
         name_attr = element_data.get('name', '')
+        container_sel = (ai_result.get('containerSelector') or '').strip()
 
-        # 如果已有ID且唯一，直接用
-        if elem_id:
+        # 如果已有ID且唯一，直接用 — 但弹窗内元素除外
+        # 弹窗内的 #id 可能只在弹窗内唯一，主页面可能有同名 id，
+        # 所以弹窗元素应保持容器作用域组合定位，不做纯 #id 覆盖
+        if elem_id and not container_sel:
             try:
                 count = await page.locator(f'#{elem_id}').count()
                 if count == 1:
@@ -2422,6 +2486,12 @@ class ElementViewSet(viewsets.ModelViewSet):
         else:
             ai_result['validation_status'] = element_data.get('validation_status', 'UNVALIDATED')
             ai_result['validation_details'] = element_data.get('validation_details', '未验证')
+
+        # 确保弹窗元素的容器作用域标记不丢失
+        if container_sel:
+            ai_result.setdefault('containerSelector', container_sel)
+            if ai_result.get('used_container_scope') is None:
+                ai_result['used_container_scope'] = True
 
         return ai_result
 
