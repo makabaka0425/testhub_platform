@@ -1664,16 +1664,39 @@ const expandAllSteps = () => {
   })
 }
 
+// 判断步骤是否发生了变化（用于保存后将用例状态重置为 normal）
+// 比较步骤数组长度以及每个步骤的关键字段
+const isStepsChanged = (oldSteps, newSteps) => {
+  const a = oldSteps || []
+  const b = newSteps || []
+  if (a.length !== b.length) return true
+  const keys = ['action_type', 'element', 'element_id', 'input_value', 'wait_time', 'action_wait', 'assert_type', 'assert_value', 'description', 'output_var']
+  for (let i = 0; i < b.length; i++) {
+    for (const k of keys) {
+      const av = a[i]?.[k] ?? null
+      const bv = b[i]?.[k] ?? null
+      if (String(av) !== String(bv)) return true
+    }
+  }
+  return false
+}
+
 const saveTestCase = async () => {
   if (!selectedTestCase.value) return
 
   try {
+    const oldSteps = selectedTestCase.value.steps || []
     const updateData = {
       ...selectedTestCase.value,
       steps: currentSteps.value,
       preconditions: selectedPreconditions.value,
       postcondition_sql: postconditionSql.value,
       precondition_sql: preconditionSql.value
+    }
+
+    // 如果步骤发生了变化，将用例状态重置为 normal（修改步骤后需要重新执行才能得到新的状态）
+    if (isStepsChanged(oldSteps, currentSteps.value)) {
+      updateData.status = 'normal'
     }
 
     await updateTestCase(selectedTestCase.value.id, updateData)
