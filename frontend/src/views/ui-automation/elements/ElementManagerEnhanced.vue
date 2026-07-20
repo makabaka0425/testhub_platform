@@ -239,9 +239,16 @@
           <el-input v-model="pageForm.name" :placeholder="$t('uiAutomation.element.pageNamePlaceholder')" />
         </el-form-item>
         <el-form-item label="父页面">
-          <el-select v-model="pageForm.parent_page" placeholder="选择父页面" clearable>
-            <el-option v-for="page in getAllPages()" :key="page.id" :label="page.name" :value="page.id" />
-          </el-select>
+          <el-tree-select
+            v-model="pageForm.parent_page"
+            :data="parentPageTree"
+            :props="{ label: 'name', value: '_originalId', children: 'children' }"
+            placeholder="选择父页面"
+            check-strictly
+            :render-after-expand="false"
+            clearable
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="pageForm.description" type="textarea" :rows="3" placeholder="页面描述" />
@@ -269,9 +276,16 @@
           <el-input v-model="editPageForm.name" :placeholder="$t('uiAutomation.element.pageNamePlaceholder')" />
         </el-form-item>
         <el-form-item label="父页面">
-          <el-select v-model="editPageForm.parent_page" placeholder="选择父页面" clearable>
-            <el-option v-for="page in getAllPagesExceptCurrent(editPageForm.id)" :key="page.id" :label="page.name" :value="page.id" />
-          </el-select>
+          <el-tree-select
+            v-model="editPageForm.parent_page"
+            :data="getParentPageTreeExcept(editPageForm.id)"
+            :props="{ label: 'name', value: '_originalId', children: 'children' }"
+            placeholder="选择父页面"
+            check-strictly
+            :render-after-expand="false"
+            clearable
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="editPageForm.description" type="textarea" :rows="3" placeholder="页面描述" />
@@ -562,6 +576,31 @@ const pageOnlyTree = computed(() => {
   }
   return filterPage(treeData.value)
 })
+
+// 可作为父页面的树（排除"未关联页面"和"全部"虚拟节点）
+const parentPageTree = computed(() => {
+  return pageOnlyTree.value.filter(n => n.id !== 'unassigned' && n.id !== '__all__' && n.id !== '全部')
+})
+
+// 编辑页面时可作为父页面的树（排除指定ID的节点及其子树，避免循环引用）
+const getParentPageTreeExcept = (excludeId) => {
+  const filterPage = (nodes) => {
+    if (!nodes) return []
+    return nodes
+      .filter(n => n.type !== 'element')
+      .filter(n => {
+        // 排除自身（用 _originalId 或 id 对比）
+        const oid = n._originalId || n.id
+        return oid !== excludeId && n.id !== excludeId
+      })
+      .map(n => ({
+        ...n,
+        children: filterPage(n.children)
+      }))
+      .filter(n => n.type === 'page' || (n.children && n.children.length > 0))
+  }
+  return filterPage(treeData.value).filter(n => n.id !== 'unassigned' && n.id !== '__all__' && n.id !== '全部')
+}
 
 // 三栏布局相关
 const selectedPageId = ref(null)   // 当前选中的页面分组ID（null=全部）
