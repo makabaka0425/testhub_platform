@@ -517,6 +517,71 @@ class ElementViewSet(viewsets.ModelViewSet):
         suggestions = self._generate_element_suggestions(element)
         return Response({'suggestions': suggestions})
 
+    @action(detail=False, methods=['post'], url_path='batch_delete')
+    def batch_delete(self, request):
+        """批量删除元素"""
+        ids = request.data.get('ids', [])
+        if not ids or not isinstance(ids, list):
+            return Response({'error': '请提供要删除的元素ID列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.get_queryset().filter(id__in=ids)
+        # 记录操作（删除前记录）
+        for elem in qs:
+            log_operation('delete', 'element', elem.id, elem.name, request.user)
+        deleted, failed = qs.count(), 0
+        try:
+            result = qs.delete()
+            deleted = result[0] if isinstance(result, tuple) else result
+        except Exception:
+            failed = len(ids)
+
+        return Response({
+            'success_count': deleted,
+            'fail_count': failed,
+            'message': f'成功删除 {deleted} 个元素' + (f'，{failed} 个失败' if failed else '')
+        })
+
+    @action(detail=False, methods=['post'], url_path='batch_update_group')
+    def batch_update_group(self, request):
+        """批量修改元素所属页面/分组"""
+        ids = request.data.get('ids', [])
+        group_id = request.data.get('group_id', None)
+        # group_id 为 None 表示移除分组关联（移到未关联页面）
+
+        if not ids or not isinstance(ids, list):
+            return Response({'error': '请提供元素ID列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.get_queryset().filter(id__in=ids)
+        total = qs.count()
+        if total == 0:
+            return Response({'error': '未找到符合条件的元素'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 查找目标分组
+        target_group = None
+        if group_id:
+            try:
+                target_group = ElementGroup.objects.get(id=group_id)
+            except ElementGroup.DoesNotExist:
+                return Response({'error': '目标页面不存在'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 批量更新
+        success_count = 0
+        fail_count = 0
+        for elem in qs:
+            try:
+                elem.group = target_group
+                elem.save(update_fields=['group'])
+                log_operation('edit', 'element', elem.id, elem.name, request.user)
+                success_count += 1
+            except Exception:
+                fail_count += 1
+
+        return Response({
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'message': f'成功更新 {success_count} 个元素的所属页面' + (f'，{fail_count} 个失败' if fail_count else '')
+        })
+
     def _perform_element_validation(self, element):
         """执行元素验证（模拟实现）"""
         try:
