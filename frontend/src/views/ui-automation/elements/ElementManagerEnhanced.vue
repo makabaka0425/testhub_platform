@@ -120,15 +120,9 @@
             <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
                 <div class="op-btns">
-                  <el-tooltip content="编辑" placement="top">
-                    <el-button class="op-btn" type="primary" link size="small" @click="onEditElement(row)"><el-icon><Edit /></el-icon></el-button>
-                  </el-tooltip>
-                  <el-tooltip content="复制" placement="top">
-                    <el-button class="op-btn" type="primary" link size="small" @click="copyElementFromList(row)"><el-icon><CopyDocument /></el-icon></el-button>
-                  </el-tooltip>
-                  <el-tooltip content="删除" placement="top">
-                    <el-button class="op-btn op-btn--danger" link size="small" @click="deleteElementFromList(row)"><el-icon><Delete /></el-icon></el-button>
-                  </el-tooltip>
+                  <el-button class="op-btn" type="primary" link size="small" @click="onEditElement(row)"><el-icon><Edit /></el-icon></el-button>
+                  <el-button class="op-btn" type="primary" link size="small" @click="copyElementFromList(row)"><el-icon><CopyDocument /></el-icon></el-button>
+                  <el-button class="op-btn op-btn--danger" link size="small" @click="deleteElementFromList(row)"><el-icon><Delete /></el-icon></el-button>
                 </div>
               </template>
             </el-table-column>
