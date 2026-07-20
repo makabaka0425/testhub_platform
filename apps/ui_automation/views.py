@@ -5553,6 +5553,106 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
         return Response({'status': 'success'})
 
+    @action(detail=False, methods=['post'], url_path='batch_delete')
+    def batch_delete(self, request):
+        """批量删除用例"""
+        ids = request.data.get('ids', [])
+        if not ids or not isinstance(ids, list):
+            return Response({'error': '请提供要删除的用例ID列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.get_queryset().filter(id__in=ids)
+        # 删除前记录操作
+        for tc in qs:
+            log_operation('delete', 'test_case', tc.id, tc.name, request.user)
+
+        deleted, failed = 0, 0
+        try:
+            result = qs.delete()
+            deleted = result[0] if isinstance(result, tuple) else result
+        except Exception:
+            failed = len(ids)
+
+        return Response({
+            'success_count': deleted,
+            'fail_count': failed,
+            'message': f'成功删除 {deleted} 个用例' + (f'，{failed} 个失败' if failed else '')
+        })
+
+    @action(detail=False, methods=['post'], url_path='batch_update_group')
+    def batch_update_group(self, request):
+        """批量修改用例分组"""
+        ids = request.data.get('ids', [])
+        group_id = request.data.get('group_id', None)  # None 表示移到"未分组"
+
+        if not ids or not isinstance(ids, list):
+            return Response({'error': '请提供用例ID列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.get_queryset().filter(id__in=ids)
+        total = qs.count()
+        if total == 0:
+            return Response({'error': '未找到符合条件的用例'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 校验目标分组
+        target_group = None
+        if group_id:
+            try:
+                target_group = TestCaseGroup.objects.get(id=group_id)
+            except TestCaseGroup.DoesNotExist:
+                return Response({'error': '目标分组不存在'}, status=status.HTTP_400_BAD_REQUEST)
+
+        success_count, fail_count = 0, 0
+        for tc in qs:
+            try:
+                tc.group = target_group
+                tc.save(update_fields=['group'])
+                log_operation('edit', 'test_case', tc.id, tc.name, request.user)
+                success_count += 1
+            except Exception:
+                fail_count += 1
+
+        return Response({
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'message': f'成功更新 {success_count} 个用例的分组' + (f'，{fail_count} 个失败' if fail_count else '')
+        })
+
+    @action(detail=False, methods=['post'], url_path='batch_update')
+    def batch_update(self, request):
+        """批量更新用例（目前仅支持 name 字段，扩展时可增加更多字段）"""
+        updates = request.data.get('updates', [])
+        # updates: [{ id: 1, name: '新名称' }, ...]
+        if not updates or not isinstance(updates, list):
+            return Response({'error': '请提供用例更新数据列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        success_count, fail_count = 0, 0
+        failed_items = []
+        for item in updates:
+            tc_id = item.get('id')
+            name = item.get('name')
+            if not tc_id or not name or not str(name).strip():
+                fail_count += 1
+                failed_items.append({'id': tc_id, 'reason': '名称不能为空'})
+                continue
+            try:
+                tc = TestCase.objects.get(id=tc_id)
+                tc.name = str(name).strip()
+                tc.save(update_fields=['name'])
+                log_operation('edit', 'test_case', tc.id, tc.name, request.user)
+                success_count += 1
+            except TestCase.DoesNotExist:
+                fail_count += 1
+                failed_items.append({'id': tc_id, 'reason': '用例不存在'})
+            except Exception as e:
+                fail_count += 1
+                failed_items.append({'id': tc_id, 'reason': str(e)})
+
+        return Response({
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'failed_items': failed_items,
+            'message': f'成功更新 {success_count} 个用例' + (f'，{fail_count} 个失败' if fail_count else '')
+        })
+
     @action(detail=True, methods=['post'])
     def copy_case(self, request, pk=None):
         """复制测试用例"""
