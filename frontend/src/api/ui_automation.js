@@ -727,12 +727,13 @@ export function aiExtractManualFinish(data) {
 }
 
 // 交互式选取模式 — 启动
-export function aiPickStart(data) {
+export function aiPickStart(data, options = {}) {
   return request({
     url: '/ui-automation/elements/ai_pick/start/',
     method: 'post',
     data,
-    timeout: 60000
+    timeout: 60000,
+    ...options
   })
 }
 

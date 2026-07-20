@@ -299,9 +299,16 @@
 
     <!-- 交互式选取模式控制面板 -->
     <el-dialog v-model="showPickDialog" title="交互式选取模式" width="600px" :close-on-click-modal="false" top="20vh" destroy-on-close :before-close="handlePickBeforeClose">
-      <el-alert type="success" :closable="false" show-icon style="margin-bottom: 16px;">
-        <template #title>浏览器已打开，请在页面中点击要提取的元素。鼠标悬停会高亮显示，点击后AI自动识别定位器。</template>
-      </el-alert>
+      <!-- 启动中 -->
+      <div v-if="pickStarting" style="text-align: center; padding: 30px 0;">
+        <el-icon class="is-loading" :size="28"><Loading /></el-icon>
+        <p style="margin-top: 12px; color: #909399;">正在启动浏览器，请稍候...</p>
+      </div>
+      <!-- 选取中 -->
+      <template v-else>
+        <el-alert type="success" :closable="false" show-icon style="margin-bottom: 16px;">
+          <template #title>浏览器已打开，请在页面中点击要提取的元素。鼠标悬停会高亮显示，点击后AI自动识别定位器。</template>
+        </el-alert>
       <div v-if="pickElements.length > 0" style="margin-bottom: 12px;">
         <div style="font-weight: 600; margin-bottom: 8px;">已选取元素（{{ pickElements.length }} 个）：</div>
         <el-table :data="pickElements" max-height="300" size="small">
@@ -325,9 +332,10 @@
         </el-table>
       </div>
       <div v-else style="text-align: center; padding: 20px 0; color: #909399;">尚未选取任何元素，请在浏览器中点击页面元素</div>
+      </template>
       <template #footer>
         <el-button @click="handlePickCancelAndClose">取消选取</el-button>
-        <el-button @click="handlePickFinish" type="success" :loading="pickLoading">完成选取</el-button>
+        <el-button v-if="!pickStarting" @click="handlePickFinish" type="success" :loading="pickLoading">完成选取</el-button>
       </template>
     </el-dialog>
 
@@ -884,7 +892,9 @@ const showPickDialog = ref(false)          // 控制选取模式对话框显示
 const pickSessionId = ref('')              // 选取模式session ID
 const pickElements = ref([])               // 已选取的元素列表
 const pickLoading = ref(false)             // 加载状态
+const pickStarting = ref(false)            // 浏览器启动中
 let pickPollTimer = null                   // 轮询定时器
+let pickStartAbortController = null        // 启动请求的AbortController
 
 // 表单数据
 const pageForm = reactive({
@@ -1351,7 +1361,15 @@ const handlePickStart = async () => {
     return
   }
 
+  // 提前打开弹窗，显示启动中状态
+  showAiExtractDialog.value = false
+  showPickDialog.value = true
+  pickStarting.value = true
   pickLoading.value = true
+
+  // 创建 AbortController，支持取消请求
+  pickStartAbortController = new AbortController()
+
   try {
     const data = {
       project_id: selectedProject.value,
@@ -1359,23 +1377,27 @@ const handlePickStart = async () => {
       login_config_id: aiExtractForm.login_config_id || undefined
     }
 
-    const response = await aiPickStart(data)
+    const response = await aiPickStart(data, { signal: pickStartAbortController.signal })
     const result = response.data
 
     pickSessionId.value = result.session_id
     pickElements.value = []
-    showPickDialog.value = true
-    showAiExtractDialog.value = false
 
     ElMessage.success('浏览器已打开，请在页面中点击要提取的元素')
 
     // 开始轮询获取已选取的元素
     startPickPolling()
   } catch (error) {
+    if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+      // 用户主动取消，静默处理
+      return
+    }
     const errMsg = error.response?.data?.error || error.message || '启动失败'
     ElMessage.error(errMsg)
   } finally {
+    pickStarting.value = false
     pickLoading.value = false
+    pickStartAbortController = null
   }
 }
 
@@ -1404,6 +1426,12 @@ const startPickPolling = () => {
 
 // 取消交互式选取（关闭浏览器并清理）
 const handlePickCancel = async () => {
+  // 如果还在启动中，先中断请求
+  if (pickStartAbortController) {
+    pickStartAbortController.abort()
+    pickStartAbortController = null
+  }
+  // 如果已有session，关闭浏览器
   if (pickSessionId.value) {
     if (pickPollTimer) {
       clearInterval(pickPollTimer)
@@ -1417,6 +1445,8 @@ const handlePickCancel = async () => {
     pickSessionId.value = ''
   }
   pickElements.value = []
+  pickStarting.value = false
+  pickLoading.value = false
 }
 
 // 弹窗关闭前拦截 — 先完成取消逻辑再关闭
@@ -1582,6 +1612,10 @@ onUnmounted(() => {
   if (pickPollTimer) {
     clearInterval(pickPollTimer)
     pickPollTimer = null
+  }
+  if (pickStartAbortController) {
+    pickStartAbortController.abort()
+    pickStartAbortController = null
   }
   cleanupHideMenu()
 })
