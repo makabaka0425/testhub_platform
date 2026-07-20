@@ -1042,6 +1042,33 @@ export function batchReorderTestCases(orders) {
   })
 }
 
+// 批量删除用例
+export function batchDeleteTestCases(data) {
+  return request({
+    url: '/ui-automation/test-cases/batch_delete/',
+    method: 'post',
+    data
+  })
+}
+
+// 批量修改用例分组
+export function batchUpdateTestCaseGroup(data) {
+  return request({
+    url: '/ui-automation/test-cases/batch_update_group/',
+    method: 'post',
+    data
+  })
+}
+
+// 批量更新用例（名称等）
+export function batchUpdateTestCases(data) {
+  return request({
+    url: '/ui-automation/test-cases/batch_update/',
+    method: 'post',
+    data
+  })
+}
+
 // 获取测试用例执行历史
 export function getTestCaseExecutions(params) {
   return request({

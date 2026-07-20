@@ -97,15 +97,52 @@
           </div>
 
         <div class="panel__body test-case-table-wrapper">
+          <!-- 批量操作浮动工具栏 -->
+          <transition name="batch-bar-slide">
+            <div v-if="selectedCases.length > 0 && !batchEditMode" class="batch-toolbar">
+              <span class="batch-toolbar__info">已选 {{ selectedCases.length }} 个用例</span>
+              <div class="batch-toolbar__actions">
+                <el-button size="small" :icon="Edit" @click="enterBatchEditMode">批量编辑名称</el-button>
+                <el-button size="small" type="success" :icon="VideoPlay" @click="handleBatchRun" :loading="batchRunLoading">批量执行</el-button>
+                <el-button size="small" :icon="FolderOpened" @click="openBatchUpdateGroupDialog">批量改分组</el-button>
+                <el-button size="small" type="danger" :icon="DeleteFilled" @click="handleBatchDelete">批量删除</el-button>
+                <el-button size="small" text @click="clearCaseSelection">取消选择</el-button>
+              </div>
+            </div>
+          </transition>
+          <!-- 批量编辑名称时的保存/取消条 -->
+          <transition name="batch-bar-slide">
+            <div v-if="batchEditMode" class="batch-edit-bar">
+              <span class="batch-toolbar__info">正在批量编辑 {{ batchEditIds.length }} 个用例的名称，修改后点击保存</span>
+              <div class="batch-toolbar__actions">
+                <el-button size="small" type="primary" :icon="Check" @click="saveBatchEdit" :loading="batchEditLoading">保存修改</el-button>
+                <el-button size="small" text @click="cancelBatchEdit">取消</el-button>
+              </div>
+            </div>
+          </transition>
           <el-table
             ref="testCaseTableRef"
             :data="paginatedTestCases"
             size="small"
             @current-change="handleTableCurrentChange"
+            @selection-change="handleCaseSelectionChange"
             :row-class-name="tableRowClassName"
             row-key="id"
           >
-            <el-table-column prop="name" label="用例名称" min-width="280" show-overflow-tooltip />
+            <el-table-column type="selection" width="40" />
+            <el-table-column prop="name" label="用例名称" min-width="280" show-overflow-tooltip>
+              <template #default="{ row }">
+                <el-input
+                  v-if="batchEditMode && isCaseSelected(row)"
+                  v-model="row.name"
+                  size="small"
+                  class="batch-name-input"
+                  placeholder="用例名称"
+                  @click.stop
+                />
+                <span v-else>{{ row.name }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="步骤" width="100" align="center">
               <template #default="{ row }">
                 <span class="step-count">{{ row.steps?.length || 0 }}</span>
@@ -720,6 +757,43 @@
       </template>
     </el-dialog>
 
+    <!-- 批量修改分组弹窗 -->
+    <el-dialog
+      v-model="showBatchGroupDialog"
+      title="批量修改分组"
+      width="420px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <el-alert
+        v-if="selectedCases.length > 0"
+        :title="`将以下 ${selectedCases.length} 个用例移动到新的分组`"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px"
+      />
+      <el-form label-position="right" label-width="80px">
+        <el-form-item label="目标分组">
+          <el-tree-select
+            v-model="batchTargetGroupId"
+            :data="groupTreeSelectData"
+            :props="{ children: 'children', label: 'name', value: 'id' }"
+            node-key="id"
+            placeholder="选择分组（留空移到未分组）"
+            check-strictly
+            :render-after-expand="false"
+            clearable
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showBatchGroupDialog = false">取消</el-button>
+        <el-button type="primary" :loading="batchLoading" @click="handleBatchUpdateGroup">确认修改</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 分组右键菜单 -->
     <div v-if="showGroupContextMenu" class="group-context-menu" :style="{ left: groupContextMenuX + 'px', top: groupContextMenuY + 'px' }">
       <div class="context-menu-item" @click="editGroupNode">编辑</div>
@@ -797,7 +871,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search, Plus, Edit, Delete, Check, CaretRight, CaretLeft, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument, Close
+  Search, Plus, Edit, Delete, Check, CaretRight, CaretLeft, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument, Close, FolderOpened, DeleteFilled
 } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
@@ -822,7 +896,10 @@ import {
   createTestCaseGroup,
   updateTestCaseGroup,
   deleteTestCaseGroup,
-  batchReorderTestCases
+  batchReorderTestCases,
+  batchDeleteTestCases,
+  batchUpdateTestCaseGroup,
+  batchUpdateTestCases
 } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
 
@@ -866,6 +943,228 @@ const loading = ref(false)
 const testCaseTableRef = ref(null)
 const sortableInstance = ref(null)
 const isDragging = ref(false)
+
+// ========== 批量操作相关 ==========
+const selectedCases = ref([])                  // 选中的用例行（由 el-table selection-change 维护）
+const batchEditMode = ref(false)               // 批量编辑名称模式
+const batchEditIds = ref([])                   // 批量编辑期间冻结的用例ID列表（脱离 el-table selection，避免抖动）
+const batchEditBackup = ref({})                // 批量编辑前的名称备份 { id: oldName }
+const batchEditLoading = ref(false)
+const batchRunLoading = ref(false)
+const batchLoading = ref(false)
+const showBatchGroupDialog = ref(false)        // 批量改分组弹窗
+const batchTargetGroupId = ref(null)           // 批量目标分组ID
+
+// 表格选择变化
+const handleCaseSelectionChange = (rows) => {
+  // 批量编辑期间忽略 el-table selection 抖动，保持冻结的编辑集合不变
+  if (batchEditMode.value) return
+  selectedCases.value = rows
+}
+
+// 判断某行是否在批量编辑集合中（批量编辑模式下用）
+const isCaseSelected = (row) => {
+  return batchEditIds.value.includes(row.id)
+}
+
+// 清空选择
+const clearCaseSelection = () => {
+  testCaseTableRef.value?.clearSelection()
+}
+
+// 进入批量编辑名称模式：冻结选中ID集合，备份当前名称
+const enterBatchEditMode = () => {
+  if (selectedCases.value.length === 0) {
+    ElMessage.warning('请先选择要编辑的用例')
+    return
+  }
+  batchEditIds.value = selectedCases.value.map(c => c.id)
+  batchEditBackup.value = {}
+  batchEditIds.value.forEach(id => {
+    const tc = testCases.value.find(t => t.id === id)
+    if (tc) batchEditBackup.value[id] = tc.name
+  })
+  batchEditMode.value = true
+}
+
+// 取消批量编辑：恢复名称到备份值
+const cancelBatchEdit = () => {
+  Object.keys(batchEditBackup.value).forEach(id => {
+    const tc = testCases.value.find(t => String(t.id) === String(id))
+    if (tc) tc.name = batchEditBackup.value[id]
+  })
+  batchEditBackup.value = {}
+  batchEditIds.value = []
+  batchEditMode.value = false
+  // 强制清空选中状态，避免退出编辑后顶部批量工具栏再次出现
+  selectedCases.value = []
+  clearCaseSelection()
+}
+
+// 保存批量编辑：按 batchEditIds 收集改动过的用例
+const saveBatchEdit = async () => {
+  const updates = []
+  batchEditIds.value.forEach(id => {
+    const tc = testCases.value.find(t => t.id === id)
+    if (!tc) return
+    const oldName = batchEditBackup.value[id]
+    const newName = (tc.name || '').trim()
+    if (!newName) {
+      ElMessage.warning('用例名称不能为空')
+      return
+    }
+    if (newName !== oldName) {
+      updates.push({ id, name: newName })
+    }
+  })
+  if (updates.length === 0) {
+    ElMessage.info('没有修改需要保存')
+    batchEditMode.value = false
+    batchEditBackup.value = {}
+    batchEditIds.value = []
+    return
+  }
+  batchEditLoading.value = true
+  try {
+    const res = await batchUpdateTestCases({ updates })
+    ElMessage.success(res.data.message || `成功更新 ${updates.length} 个用例`)
+    batchEditMode.value = false
+    batchEditBackup.value = {}
+    batchEditIds.value = []
+    // 强制清空选中状态，避免退出编辑后顶部批量工具栏再次出现
+    selectedCases.value = []
+    clearCaseSelection()
+  } catch (error) {
+    const msg = error.response?.data?.error || error.message || '批量保存失败'
+    ElMessage.error(msg)
+  } finally {
+    batchEditLoading.value = false
+  }
+}
+
+// 批量执行：按 filteredTestCases 的列表顺序执行选中的用例
+const handleBatchRun = async () => {
+  if (selectedCases.value.length === 0) {
+    ElMessage.warning('请先选择要执行的用例')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将按列表顺序执行选中的 ${selectedCases.value.length} 个用例，可能需要较长时间。是否继续？`,
+      '批量执行',
+      { type: 'warning', confirmButtonText: '开始执行', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return  // 用户取消
+  }
+
+  // 按 filteredTestCases 当前顺序排序选中的用例
+  const orderedIds = filteredTestCases.value.map(tc => tc.id)
+  const orderedSelected = [...selectedCases.value].sort(
+    (a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id)
+  )
+
+  batchRunLoading.value = true
+  let passCount = 0, failCount = 0, skipCount = 0
+  ElMessage.info(`开始批量执行，共 ${orderedSelected.length} 个用例`)
+
+  for (const tc of orderedSelected) {
+    try {
+      const response = await runTestCaseApi(tc.id, {
+        project_id: projectId.value,
+        engine: selectedEngine.value,
+        browser: selectedBrowser.value,
+        headless: headlessMode.value
+      })
+      if (response.data.success) {
+        passCount++
+      } else if (response.data.status === 'skipped') {
+        skipCount++
+      } else {
+        failCount++
+      }
+    } catch (error) {
+      failCount++
+    }
+  }
+
+  batchRunLoading.value = false
+  // 刷新列表与状态
+  await loadTestCases()
+  if (selectedTestCase.value) {
+    const updated = testCases.value.find(tc => tc.id === selectedTestCase.value.id)
+    if (updated) selectedTestCase.value = updated
+  }
+  ElMessage.success(`批量执行完成：通过 ${passCount}，失败 ${failCount}，跳过 ${skipCount}`)
+}
+
+// 打开批量改分组弹窗
+const openBatchUpdateGroupDialog = () => {
+  if (selectedCases.value.length === 0) {
+    ElMessage.warning('请先选择要操作的用例')
+    return
+  }
+  batchTargetGroupId.value = null
+  showBatchGroupDialog.value = true
+}
+
+// 执行批量改分组
+const handleBatchUpdateGroup = async () => {
+  batchLoading.value = true
+  try {
+    const ids = selectedCases.value.map(c => c.id)
+    const groupId = batchTargetGroupId.value || null
+    const res = await batchUpdateTestCaseGroup({ ids, group_id: groupId })
+    ElMessage.success(res.data.message || `成功更新 ${ids.length} 个用例的分组`)
+    showBatchGroupDialog.value = false
+    clearCaseSelection()
+    await loadTestCases()
+    await loadTestCaseGroups()
+  } catch (error) {
+    const msg = error.response?.data?.error || error.message || '批量修改分组失败'
+    ElMessage.error(msg)
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+// 批量删除
+const handleBatchDelete = async () => {
+  if (selectedCases.value.length === 0) {
+    ElMessage.warning('请先选择要删除的用例')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedCases.value.length} 个用例？此操作不可恢复`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return  // 用户取消
+  }
+  batchLoading.value = true
+  try {
+    const ids = selectedCases.value.map(c => c.id)
+    const res = await batchDeleteTestCases({ ids })
+    ElMessage.success(res.data.message || `成功删除 ${ids.length} 个用例`)
+    // 如果删除集中包含当前选中的用例，清空详情
+    if (selectedTestCase.value && ids.includes(selectedTestCase.value.id)) {
+      selectedTestCase.value = null
+      currentSteps.value = []
+      executionResult.value = null
+    }
+    clearCaseSelection()
+    await loadTestCases()
+    await loadTestCaseGroups()
+  } catch (error) {
+    const msg = error.response?.data?.error || error.message || '批量删除失败'
+    ElMessage.error(msg)
+  } finally {
+    batchLoading.value = false
+  }
+}
+
 
 // 分组相关
 const testCaseGroupTree = ref([])
@@ -1028,6 +1327,8 @@ watch(detailDrawerVisible, (val) => {
 // 表格行点击选中
 const handleTableCurrentChange = (row) => {
   if (isDragging.value) return
+  // 批量编辑模式下禁止点击行打开步骤抽屉，避免干扰名称编辑
+  if (batchEditMode.value) return
   if (row) selectTestCase(row)
 }
 
@@ -1972,6 +2273,8 @@ const saveGroupForm = async () => {
 
 // 初始化表格行拖拽排序
 const initSortable = () => {
+  // 批量编辑或批量执行期间禁用拖拽，避免与行内输入冲突
+  if (batchEditMode.value || batchRunLoading.value) return
   nextTick(() => {
     const tableEl = testCaseTableRef.value?.$el
     if (!tableEl) return
@@ -1981,6 +2284,7 @@ const initSortable = () => {
     // 销毁旧实例
     if (sortableInstance.value) {
       sortableInstance.value.destroy()
+      sortableInstance.value = null
     }
 
     sortableInstance.value = Sortable.create(tbody, {
@@ -2279,6 +2583,62 @@ onMounted(async () => {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+}
+
+/* ===== 批量操作工具栏 ===== */
+.batch-toolbar,
+.batch-edit-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.batch-toolbar {
+  background: var(--brand-50, #ebf3fe);
+  border: 1px solid var(--brand-200, #b3d8ff);
+  color: var(--gray-700, #334155);
+}
+.batch-edit-bar {
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  color: #874d00;
+}
+.batch-toolbar__info {
+  font-weight: 600;
+  color: var(--brand-600, #1890ff);
+}
+.batch-edit-bar .batch-toolbar__info {
+  color: #d46b08;
+}
+.batch-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.batch-name-input {
+  width: 100%;
+}
+/* 批量工具栏进入/退出过渡 */
+.batch-bar-slide-enter-active,
+.batch-bar-slide-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+.batch-bar-slide-enter-from,
+.batch-bar-slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.batch-bar-slide-enter-to,
+.batch-bar-slide-leave-from {
+  opacity: 1;
+  max-height: 60px;
 }
 
 .step-count {
