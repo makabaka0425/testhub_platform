@@ -648,7 +648,6 @@ class ElementViewSet(viewsets.ModelViewSet):
         # 同时记录所有DOM提取阶段验证过的定位值集合（仅这些值经过了浏览器验证）
         dom_validated_values = set()
         # 同时构建 containerSelector/id_duplicate/used_container_scope 的关联映射
-        # 用 auto_css / auto_xpath 作为 key，供 ai_elements 匹配透传
         container_map = {}
         id_duplicate_map = {}
         used_container_scope_map = {}
@@ -660,51 +659,63 @@ class ElementViewSet(viewsets.ModelViewSet):
             container_sel = dom_elem.get('containerSelector', '')
             id_dup = dom_elem.get('id_duplicate', False)
             used_scope = dom_elem.get('used_container_scope', False)
-            # 用 auto_css 和 auto_xpath 作为 key 建立索引
-            auto_css = dom_elem.get('auto_css', '')
-            auto_xpath = dom_elem.get('auto_xpath', '')
-            if auto_css:
-                validation_map[auto_css] = (v_status, v_details)
-                dom_validated_values.add(auto_css)
-                container_map[auto_css] = container_sel
-                id_duplicate_map[auto_css] = id_dup
-                used_container_scope_map[auto_css] = used_scope
-            if auto_xpath:
-                validation_map[auto_xpath] = (v_status, v_details)
-                dom_validated_values.add(auto_xpath)
-                container_map[auto_xpath] = container_sel
-                id_duplicate_map[auto_xpath] = id_dup
-                used_container_scope_map[auto_xpath] = used_scope
+            # 多种 key 均建立索引：auto_css、auto_xpath、original_css、original_xpath
+            for key in [
+                dom_elem.get('auto_css', ''),
+                dom_elem.get('auto_xpath', ''),
+                dom_elem.get('original_css', ''),
+                dom_elem.get('original_xpath', ''),
+            ]:
+                if key:
+                    validation_map.setdefault(key, (v_status, v_details))
+                    dom_validated_values.add(key)
+                    container_map[key] = container_sel
+                    id_duplicate_map[key] = id_dup
+                    used_container_scope_map[key] = used_scope
         
         # 为 ai_elements 匹配验证状态
-        # 关键修复：仅当 locator_value 在 dom_validated_values 中（即经过浏览器验证的）才信任 validation_map
-        # LLM 可能修改了定位值，这些值未经浏览器验证，必须走二次验证
-        # 同时，PARTIAL状态（匹配不唯一）的元素也需要二次验证，尝试找到更精确的定位
         for ai_elem in ai_elements:
             if ai_elem.get('validation_status'):
                 continue  # 规则引擎已经设置了
             locator_value = ai_elem.get('locator_value', '')
-            if locator_value and locator_value in dom_validated_values:
-                # 该定位值确实在DOM提取阶段经过浏览器验证，可以信任
-                ai_elem['validation_status'], ai_elem['validation_details'] = validation_map[locator_value]
-            # 其他情况（LLM修改了值、值不在DOM验证集合中）留空，由 _revalidate_locators 二次验证
             
-            # 透传容器作用域 / 重复 id 标记（供前端展示提示和后续 _revalidate_locators 使用）
-            if locator_value in container_map:
-                ai_elem['containerSelector'] = container_map[locator_value]
-                ai_elem['id_duplicate'] = id_duplicate_map[locator_value]
-                ai_elem['used_container_scope'] = used_container_scope_map[locator_value]
+            # 尝试匹配：先精确匹配 locator_value，再尝试变体
+            matched_key = None
+            if locator_value and locator_value in dom_validated_values:
+                matched_key = locator_value
+            
+            if matched_key:
+                ai_elem['validation_status'], ai_elem['validation_details'] = validation_map[matched_key]
+                ai_elem['containerSelector'] = container_map.get(matched_key, '')
+                ai_elem['id_duplicate'] = id_duplicate_map.get(matched_key, False)
+                ai_elem['used_container_scope'] = used_container_scope_map.get(matched_key, False)
             else:
                 ai_elem.setdefault('containerSelector', '')
                 ai_elem.setdefault('id_duplicate', False)
                 ai_elem.setdefault('used_container_scope', False)
+            
+            # 主页面场景：有 containerSelector 且 locator_value 不含容器前缀时自动改写
+            # （主页面 containerSelector 通常为空，此处为保险起见保留逻辑）
+            container_sel = (ai_elem.get('containerSelector') or '').strip()
+            if container_sel and ai_elem.get('locator_strategy', '') in ('CSS', 'css', 'ID', 'id', ''):
+                lv = ai_elem.get('locator_value', '')
+                if lv and not lv.startswith(container_sel.split()[0]):
+                    scoped_lv = f'{container_sel} {lv}'
+                    ai_elem['locator_value'] = scoped_lv
+                    ai_elem['locator_strategy'] = 'CSS'
+                    ai_elem['used_container_scope'] = True
+                    ai_elem['id_duplicate'] = True
+                    if ai_elem.get('validation_status') in ('', 'UNVALIDATED', 'PARTIAL'):
+                        ai_elem['validation_status'] = 'VALID'
+                        ai_elem['validation_details'] = f'自动改写为容器作用域组合: {scoped_lv}'
 
         # Step 2.5: 对LLM生成的locator_value进行二次验证
         # LLM可能修改了定位值（如去掉空格、改写选择器），需要重新在浏览器中验证
-        # 同时，PARTIAL状态（匹配多个元素，不精确）的也需要二次验证以找到更精确的定位
+        # 有 containerSelector 的元素跳过二次验证（弹窗关闭时组合选择器无法验证）
         needs_revalidation = [
             e for e in ai_elements 
             if not e.get('validation_status') or e.get('validation_status') in ('', 'PARTIAL')
+            if not (e.get('containerSelector') or '').strip()  # 无容器作用域的才二次验证
         ]
         if needs_revalidation:
             print(f'[AI提取] 有{len(needs_revalidation)}个元素需要二次验证（未验证或PARTIAL），开始二次验证...')
@@ -836,40 +847,67 @@ class ElementViewSet(viewsets.ModelViewSet):
             container_sel = dom_elem.get('containerSelector', '')
             id_dup = dom_elem.get('id_duplicate', False)
             used_scope = dom_elem.get('used_container_scope', False)
-            auto_css = dom_elem.get('auto_css', '')
-            auto_xpath = dom_elem.get('auto_xpath', '')
-            if auto_css:
-                validation_map[auto_css] = (v_status, v_details)
-                dom_validated_values.add(auto_css)
-                container_map[auto_css] = container_sel
-                id_duplicate_map[auto_css] = id_dup
-                used_container_scope_map[auto_css] = used_scope
-            if auto_xpath:
-                validation_map[auto_xpath] = (v_status, v_details)
-                dom_validated_values.add(auto_xpath)
-                container_map[auto_xpath] = container_sel
-                id_duplicate_map[auto_xpath] = id_dup
-                used_container_scope_map[auto_xpath] = used_scope
+            # 多种 key 均建立索引：auto_css、auto_xpath、original_css、original_xpath
+            # 防止 LLM 改写定位值后用原始 key 关联不到
+            for key in [
+                dom_elem.get('auto_css', ''),
+                dom_elem.get('auto_xpath', ''),
+                dom_elem.get('original_css', ''),
+                dom_elem.get('original_xpath', ''),
+            ]:
+                if key:
+                    validation_map.setdefault(key, (v_status, v_details))
+                    dom_validated_values.add(key)
+                    container_map[key] = container_sel
+                    id_duplicate_map[key] = id_dup
+                    used_container_scope_map[key] = used_scope
 
         for elem in ai_elements:
             locator_value = elem.get('locator_value', '')
-            if locator_value in validation_map:
-                v_status, v_details = validation_map[locator_value]
+            # 先尝试精确匹配，再尝试原始选择器匹配
+            matched_key = None
+            if locator_value and locator_value in validation_map:
+                matched_key = locator_value
+            if not matched_key:
+                # LLM 改写了定位值（如 #roleName → CSS #roleName），
+                # 尝试用 locator_value 的各种变体匹配
+                for candidate in [locator_value, f'#{locator_value}' if locator_value and not locator_value.startswith('#') else '']:
+                    if candidate and candidate in container_map and container_map.get(candidate):
+                        matched_key = candidate
+                        break
+
+            if matched_key:
+                v_status, v_details = validation_map.get(matched_key, ('UNVALIDATED', '未在DOM提取阶段验证'))
                 elem['validation_status'] = v_status
                 elem['validation_details'] = v_details
+                elem['containerSelector'] = container_map.get(matched_key, '')
+                elem['id_duplicate'] = id_duplicate_map.get(matched_key, False)
+                elem['used_container_scope'] = used_container_scope_map.get(matched_key, False)
             else:
                 elem['validation_status'] = 'UNVALIDATED'
                 elem['validation_details'] = '未在DOM提取阶段验证'
-
-            # 透传容器作用域 / 重复 id 标记
-            if locator_value in container_map:
-                elem['containerSelector'] = container_map[locator_value]
-                elem['id_duplicate'] = id_duplicate_map[locator_value]
-                elem['used_container_scope'] = used_container_scope_map[locator_value]
-            else:
                 elem.setdefault('containerSelector', '')
                 elem.setdefault('id_duplicate', False)
                 elem.setdefault('used_container_scope', False)
+
+            # 关键修复：对有 containerSelector 但 locator_value 不含容器前缀的弹窗元素，
+            # 自动改写为 {container} {locator_value} 组合形式
+            # 这样即使 LLM 返回简单 #roleName，也能与主页面同名 id 区分开
+            container_sel = (elem.get('containerSelector') or '').strip()
+            if container_sel and elem.get('locator_strategy', '') in ('CSS', 'css', 'ID', 'id', ''):
+                lv = elem.get('locator_value', '')
+                if lv and not lv.startswith(container_sel.split()[0]):
+                    # locator_value 不以容器前缀开头 → 需要改写
+                    scoped_lv = f'{container_sel} {lv}'
+                    elem['locator_value'] = scoped_lv
+                    elem['locator_strategy'] = 'CSS'
+                    elem['used_container_scope'] = True
+                    elem['id_duplicate'] = True
+                    # 容器作用域组合选择器在弹窗打开时唯一，直接标记VALID
+                    if elem.get('validation_status') in ('', 'UNVALIDATED', 'PARTIAL'):
+                        elem['validation_status'] = 'VALID'
+                        elem['validation_details'] = f'弹窗元素自动改写为容器作用域组合: {scoped_lv}'
+                    print(f'[AI提取弹窗] 元素"{elem.get("name", "")}"定位值自动改写: {lv} → {scoped_lv}')
 
             # 关联弹窗来源
             source = elem.get('source', '')
@@ -881,10 +919,11 @@ class ElementViewSet(viewsets.ModelViewSet):
                                 elem['source'] = dialog_name
                                 break
 
-        # 二次验证
+        # 二次验证：有 containerSelector 的元素跳过（弹窗关闭时组合选择器无法验证）
         needs_revalidation = [
             e for e in ai_elements
             if not e.get('validation_status') or e.get('validation_status') in ('', 'PARTIAL')
+            if not (e.get('containerSelector') or '').strip()  # 无容器作用域的才二次验证
         ]
         if needs_revalidation:
             print(f'[AI提取弹窗] 有{len(needs_revalidation)}个元素需要二次验证')
@@ -1075,6 +1114,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                         elem['containerSelector'] = dialog_selector
                         css_selector = self._compute_css_selector(elem)
                         xpath = self._compute_xpath(elem)
+                        # 保存原始选择器（供后续关联映射使用，防止LLM改写定位值后关联失败）
+                        elem['original_css'] = css_selector
+                        elem['original_xpath'] = xpath
                         validation = self._validate_locators(page, elem, css_selector, xpath)
                         elem['auto_css'] = validation['css_selector']
                         elem['auto_xpath'] = validation['xpath']
@@ -1389,6 +1431,8 @@ class ElementViewSet(viewsets.ModelViewSet):
                     elem['containerSelector'] = ''
                     css_selector = self._compute_css_selector(elem)
                     xpath = self._compute_xpath(elem)
+                    elem['original_css'] = css_selector
+                    elem['original_xpath'] = xpath
                     validation = await self._async_validate_locators(page, elem, css_selector, xpath)
                     elem['auto_css'] = validation['css_selector']
                     elem['auto_xpath'] = validation['xpath']
@@ -3072,6 +3116,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                 # 计算 CSS Selector
                 css_selector = self._compute_css_selector(elem)
                 xpath = self._compute_xpath(elem)
+                # 保存原始选择器（供后续关联映射使用，防止LLM改写定位值后关联失败）
+                elem['original_css'] = css_selector
+                elem['original_xpath'] = xpath
                 
                 # 即时验证：在浏览器仍然打开时，验证定位策略是否有效
                 validation = self._validate_locators(page, elem, css_selector, xpath)
