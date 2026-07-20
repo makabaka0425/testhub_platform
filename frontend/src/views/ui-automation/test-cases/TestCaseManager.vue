@@ -1739,7 +1739,8 @@ const saveTestCaseForm = async () => {
       // 创建新用例
       const response = await createTestCase(data)
       ElMessage.success(t('uiAutomation.testCase.create.success'))
-      testCases.value.push(response.data)
+      // 新增用例插入到列表头部，刷新前即可见且排在第一个
+      testCases.value.unshift(response.data)
     }
 
     showCreateDialog.value = false
