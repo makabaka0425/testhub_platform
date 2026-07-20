@@ -1125,7 +1125,7 @@ export default {
     assertExists: '元素存在',
     assertHasAttribute: '属性值',
     expectedValue: '期望值',
-    stepDescription: '步骤描述：',
+    stepDescription: '步骤描述',
     stepDescPlaceholder: '描述这个步骤的作用',
     executionResult: '执行结果',
     executionSuccess: '执行成功',
