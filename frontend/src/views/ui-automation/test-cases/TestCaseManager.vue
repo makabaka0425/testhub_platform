@@ -2112,6 +2112,7 @@ onMounted(async () => {
   padding: 0 var(--space-6) var(--space-6);
   gap: var(--space-4);
   min-height: 0;
+  position: relative; /* 为右侧 el-drawer 的 absolute 定位提供参照，确保抽屉高度被 workspace 约束 */
 }
 
 /* ============================================================
@@ -2415,6 +2416,9 @@ onMounted(async () => {
 /* 让 overlay 不拦截底层点击，抽屉本身仍可交互 */
 :deep(.detail-drawer) {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
   pointer-events: auto;
   transition: width 0.2s ease;
@@ -2432,6 +2436,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: row;
   overflow: visible !important;
+  height: 100%;
+  min-height: 0;
 }
 
 /* 左边缘三角切换按钮 - 浮动胶囊样式 */
@@ -2484,6 +2490,8 @@ onMounted(async () => {
 
 .detail-drawer-body {
   flex: 1;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2495,6 +2503,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
