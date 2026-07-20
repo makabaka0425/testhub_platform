@@ -298,7 +298,7 @@
     </el-dialog>
 
     <!-- 交互式选取模式控制面板 -->
-    <el-dialog v-model="showPickDialog" title="交互式选取模式" width="600px" :close-on-click-modal="false" :show-close="false" top="20vh" destroy-on-close>
+    <el-dialog v-model="showPickDialog" title="交互式选取模式" width="600px" :close-on-click-modal="false" top="20vh" destroy-on-close @close="handlePickCancel">
       <el-alert type="success" :closable="false" show-icon style="margin-bottom: 16px;">
         <template #title>浏览器已打开，请在页面中点击要提取的元素。鼠标悬停会高亮显示，点击后AI自动识别定位器。</template>
       </el-alert>
@@ -326,6 +326,7 @@
       </div>
       <div v-else style="text-align: center; padding: 20px 0; color: #909399;">尚未选取任何元素，请在浏览器中点击页面元素</div>
       <template #footer>
+        <el-button @click="handlePickCancel">取消选取</el-button>
         <el-button @click="handlePickFinish" type="success" :loading="pickLoading">完成选取</el-button>
       </template>
     </el-dialog>
@@ -1399,6 +1400,25 @@ const startPickPolling = () => {
       // 静默处理轮询错误
     }
   }, 2000)
+}
+
+// 取消交互式选取
+const handlePickCancel = async () => {
+  if (pickSessionId.value) {
+    // 停止轮询
+    if (pickPollTimer) {
+      clearInterval(pickPollTimer)
+      pickPollTimer = null
+    }
+    try {
+      await aiPickFinish({ session_id: pickSessionId.value })
+    } catch (e) {
+      // 静默处理取消时的关闭错误
+    }
+    pickSessionId.value = ''
+  }
+  pickElements.value = []
+  showPickDialog.value = false
 }
 
 // 完成交互式选取
