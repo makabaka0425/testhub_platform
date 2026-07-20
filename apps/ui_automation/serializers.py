@@ -653,12 +653,14 @@ class TestCaseSerializer(serializers.ModelSerializer):
     preconditions = serializers.PrimaryKeyRelatedField(many=True, queryset=TestCase.objects.all(), required=False)
     preconditions_data = serializers.SerializerMethodField()
     group_name = serializers.CharField(source='group.name', read_only=True, default=None)
+    last_execution_time = serializers.SerializerMethodField()
 
     class Meta:
         model = TestCase
         fields = [
             'id', 'name', 'description', 'project', 'project_name', 'group', 'group_name', 'status', 'priority', 'order',
             'preconditions', 'preconditions_data', 'postcondition_sql', 'precondition_sql',
+            'last_execution_time',
             'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps'
         ]
         read_only_fields = ['created_by']
@@ -674,6 +676,14 @@ class TestCaseSerializer(serializers.ModelSerializer):
             }
             for rel in relations
         ]
+
+    def get_last_execution_time(self, obj):
+        """获取该用例最新一次执行的时间（优先 finished_at，回退 started_at，再回退 created_at）"""
+        latest = TestCaseExecution.objects.filter(test_case=obj).order_by('-created_at').only('finished_at', 'started_at', 'created_at').first()
+        if not latest:
+            return None
+        ts = latest.finished_at or latest.started_at or latest.created_at
+        return ts.isoformat() if ts else None
 
     @staticmethod
     def _check_circular_dependency(test_case_id, precondition_ids):
