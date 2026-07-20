@@ -178,18 +178,10 @@
             <el-table-column label="操作" width="300" align="left">
               <template #default="{ row }">
                 <div class="op-btns">
-                  <el-tooltip :content="lastRunCaseId === row.id ? '重新运行' : '运行'" placement="top">
-                    <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)"><el-icon><VideoPlay /></el-icon></el-button>
-                  </el-tooltip>
-                  <el-tooltip content="编辑" placement="top">
-                    <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)"><el-icon><Edit /></el-icon></el-button>
-                  </el-tooltip>
-                  <el-tooltip content="复制" placement="top">
-                    <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)"><el-icon><CopyDocument /></el-icon></el-button>
-                  </el-tooltip>
-                  <el-tooltip content="删除" placement="top">
-                    <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)"><el-icon><Delete /></el-icon></el-button>
-                  </el-tooltip>
+                  <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)"><el-icon><VideoPlay /></el-icon></el-button>
+                  <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)"><el-icon><Edit /></el-icon></el-button>
+                  <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)"><el-icon><CopyDocument /></el-icon></el-button>
+                  <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)"><el-icon><Delete /></el-icon></el-button>
                 </div>
               </template>
             </el-table-column>
@@ -1484,8 +1476,13 @@ const buildPreconditionsData = (idList) => {
 }
 
 const selectTestCase = (testCase) => {
-  // 如果点击的是同一个用例，不做任何处理
+  // 如果点击的是同一个用例
   if (selectedTestCase.value && selectedTestCase.value.id === testCase.id) {
+    // 抽屉处于收起状态时，再次点击同一用例应展开抽屉
+    if (detailCollapsed.value) {
+      detailCollapsed.value = false
+      detailDrawerVisible.value = true
+    }
     return
   }
 
@@ -1522,11 +1519,17 @@ const closeDetailDrawer = () => {
   selectedTestCase.value = null
   currentSteps.value = []
   executionResult.value = null
+  // 清空 el-table 当前选中行，避免再次点击同一行时 current-change 不触发导致抽屉无法打开
+  testCaseTableRef.value?.setCurrentRow(null)
 }
 
 // 切换抽屉收起/展开（保留用例数据不清空）
 const toggleDetailCollapse = () => {
   detailCollapsed.value = !detailCollapsed.value
+  // 收起抽屉时清空 el-table 当前选中行，以便再次点击同一行时能触发 current-change
+  if (detailCollapsed.value) {
+    testCaseTableRef.value?.setCurrentRow(null)
+  }
 }
 
 // 拖拽调整抽屉宽度
