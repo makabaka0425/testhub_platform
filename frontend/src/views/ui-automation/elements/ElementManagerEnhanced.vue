@@ -326,7 +326,7 @@
       </div>
       <div v-else style="text-align: center; padding: 20px 0; color: #909399;">尚未选取任何元素，请在浏览器中点击页面元素</div>
       <template #footer>
-        <el-button @click="showPickDialog = false">取消选取</el-button>
+        <el-button @click="handlePickCancelAndClose">取消选取</el-button>
         <el-button @click="handlePickFinish" type="success" :loading="pickLoading">完成选取</el-button>
       </template>
     </el-dialog>
@@ -1405,7 +1405,6 @@ const startPickPolling = () => {
 // 取消交互式选取（关闭浏览器并清理）
 const handlePickCancel = async () => {
   if (pickSessionId.value) {
-    // 停止轮询
     if (pickPollTimer) {
       clearInterval(pickPollTimer)
       pickPollTimer = null
@@ -1424,6 +1423,12 @@ const handlePickCancel = async () => {
 const handlePickBeforeClose = async (done) => {
   await handlePickCancel()
   done()
+}
+
+// 取消按钮 — 关闭浏览器后关闭弹窗
+const handlePickCancelAndClose = async () => {
+  await handlePickCancel()
+  showPickDialog.value = false
 }
 
 // 完成交互式选取
