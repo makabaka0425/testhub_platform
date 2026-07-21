@@ -15,6 +15,7 @@ import re
 import random
 import time
 import asyncio
+from urllib.parse import quote_plus
 
 from .models import (
     UiProject, LocatorStrategy, Element, TestScript, TestSuite,
@@ -6129,6 +6130,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     result.append({
                         'id': pre_case.id,
                         'name': pre_case.name,
+                        'postcondition_sql': pre_case.postcondition_sql or '',
                         'steps': pre_steps_list,
                     })
                 return result
@@ -6414,17 +6416,17 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         execution_logs.append(f"  前置SQL: {resolved_sql[:200]}")
 
                                         project = test_case.project
-                                        if project.target_db_engine:
+                                        if project.target_db_type:
                                             import sqlalchemy
                                             db_url = None
-                                            if project.target_db_engine == 'mysql':
-                                                db_url = f"mysql+pymysql://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port or 3306}/{project.target_db_name}"
-                                            elif project.target_db_engine == 'postgresql':
-                                                db_url = f"postgresql+psycopg2://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port or 5432}/{project.target_db_name}"
-                                            elif project.target_db_engine == 'sqlite':
+                                            if project.target_db_type == 'mysql':
+                                                db_url = f"mysql+pymysql://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 3306}/{project.target_db_name}"
+                                            elif project.target_db_type == 'postgresql':
+                                                db_url = f"postgresql+psycopg2://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 5432}/{project.target_db_name}"
+                                            elif project.target_db_type == 'sqlite':
                                                 db_url = f"sqlite:///{project.target_db_name}"
-                                            elif project.target_db_engine == 'oracle':
-                                                db_url = f"oracle+cx_oracle://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port or 1521}/?service_name={project.target_db_name}"
+                                            elif project.target_db_type == 'oracle':
+                                                db_url = f"oracle+cx_oracle://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 1521}/?service_name={project.target_db_name}"
 
                                             if db_url:
                                                 engine_db = sqlalchemy.create_engine(db_url)
@@ -6450,6 +6452,13 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                     execution_logs.append("✗ 前置数据SQL执行失败，用例跳过")
                                                     execution_result['status'] = 'skipped'
                                                     execution_result['error_message'] = '前置数据SQL执行失败'
+                                                    step_results.append({
+                                                        'step_number': 'sql',
+                                                        'action_type': 'precondition_sql',
+                                                        'description': '前置数据SQL',
+                                                        'success': False,
+                                                        'error': '前置数据SQL执行失败'
+                                                    })
                                                     # 清理退出
                                                     try:
                                                         if not headless:
@@ -6464,6 +6473,13 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                     return False
                                                 else:
                                                     execution_logs.append("✓ 前置数据SQL执行完成")
+                                                    step_results.append({
+                                                        'step_number': 'sql',
+                                                        'action_type': 'precondition_sql',
+                                                        'description': '前置数据SQL',
+                                                        'success': True,
+                                                        'error': None
+                                                    })
                                             else:
                                                 execution_logs.append("  ⚠ 不支持的数据库类型，跳过前置SQL执行")
                                         else:
@@ -6472,6 +6488,13 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         execution_logs.append(f"  ✗ 前置数据SQL执行失败: {str(e)}")
                                         execution_result['status'] = 'skipped'
                                         execution_result['error_message'] = f'前置数据SQL执行失败: {str(e)}'
+                                        step_results.append({
+                                            'step_number': 'sql',
+                                            'action_type': 'precondition_sql',
+                                            'description': '前置数据SQL',
+                                            'success': False,
+                                            'error': str(e)
+                                        })
                                         try:
                                             if not headless:
                                                 try:
@@ -6705,55 +6728,98 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                 # 所有步骤都成功
                                 execution_logs.append(f"========== 执行完成 ({step_count} 个步骤全部通过) ==========")
 
-                                # 执行后置条件SQL（清理数据）
-                                if test_case.postcondition_sql and test_case.postcondition_sql.strip():
-                                    execution_logs.append("")
-                                    execution_logs.append("========== 执行后置条件SQL ==========")
+                                # 执行后置条件SQL的通用函数
+                                def execute_cleanup_sql(sql_source, sql_label, logs_list, project_obj, variables, results_list):
+                                    """执行清理SQL，可复用于主用例和前置条件用例的后置清理
+
+                                    Args:
+                                        sql_source: SQL文本
+                                        sql_label: 标签（如"主用例"、"前置用例「xxx」"）
+                                        logs_list: 文本日志列表
+                                        project_obj: 项目对象
+                                        variables: 变量池
+                                        results_list: step_results列表，SQL执行记录也写入此列表
+                                    """
+                                    if not sql_source or not sql_source.strip():
+                                        return
+                                    logs_list.append("")
+                                    logs_list.append(f"========== 执行{sql_label}后置清理SQL ==========")
+                                    sql_success = True
+                                    sql_error = None
                                     try:
                                         from .variable_resolver import resolve_variables
-                                        resolved_sql = resolve_variables(test_case.postcondition_sql, context_variables)
-                                        execution_logs.append(f"  清理SQL: {resolved_sql[:200]}")
+                                        resolved_sql = resolve_variables(sql_source, variables)
+                                        logs_list.append(f"  清理SQL: {resolved_sql[:200]}")
 
-                                        # 获取项目的数据库连接配置
-                                        project = test_case.project
-                                        if project.target_db_engine:
+                                        if project_obj.target_db_type:
                                             import sqlalchemy
                                             db_url = None
-                                            if project.target_db_engine == 'mysql':
-                                                db_url = f"mysql+pymysql://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port}/{project.target_db_name}"
-                                            elif project.target_db_engine == 'postgresql':
-                                                db_url = f"postgresql+psycopg2://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port}/{project.target_db_name}"
-                                            elif project.target_db_engine == 'sqlite':
-                                                db_url = f"sqlite:///{project.target_db_name}"
-                                            elif project.target_db_engine == 'oracle':
-                                                db_url = f"oracle+cx_oracle://{project.target_db_user}:{project.target_db_password}@{project.target_db_host}:{project.target_db_port}/{project.target_db_name}"
+                                            if project_obj.target_db_type == 'mysql':
+                                                db_url = f"mysql+pymysql://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
+                                            elif project_obj.target_db_type == 'postgresql':
+                                                db_url = f"postgresql+psycopg2://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
+                                            elif project_obj.target_db_type == 'sqlite':
+                                                db_url = f"sqlite:///{project_obj.target_db_name}"
+                                            elif project_obj.target_db_type == 'oracle':
+                                                db_url = f"oracle+cx_oracle://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
 
                                             if db_url:
                                                 engine_db = sqlalchemy.create_engine(db_url)
                                                 with engine_db.connect() as conn:
-                                                    # 分割多条SQL语句
                                                     sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip()]
                                                     total_affected = 0
                                                     for sql_stmt in sql_statements:
-                                                        # 安全检查：只允许 DELETE/UPDATE/TRUNCATE
                                                         sql_upper = sql_stmt.strip().upper()
                                                         if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
-                                                            execution_logs.append(f"  ✗ 跳过不安全的SQL: {sql_stmt[:50]}...")
+                                                            logs_list.append(f"  ✗ 跳过不安全的SQL: {sql_stmt[:50]}...")
                                                             continue
                                                         result = conn.execute(sqlalchemy.text(sql_stmt))
                                                         conn.commit()
                                                         affected = result.rowcount
                                                         total_affected += affected
-                                                        execution_logs.append(f"  ✓ 执行: {sql_stmt[:80]}... (影响 {affected} 行)")
+                                                        logs_list.append(f"  ✓ 执行: {sql_stmt[:80]}... (影响 {affected} 行)")
                                                 engine_db.dispose()
-                                                execution_logs.append(f"✓ 后置条件SQL执行完成，共影响 {total_affected} 行")
+                                                logs_list.append(f"✓ {sql_label}后置清理SQL执行完成，共影响 {total_affected} 行")
                                             else:
-                                                execution_logs.append(f"  ✗ 不支持的数据库类型: {project.target_db_engine}")
+                                                logs_list.append(f"  ✗ 不支持的数据库类型: {project_obj.target_db_type}")
+                                                sql_success = False
+                                                sql_error = f"不支持的数据库类型: {project_obj.target_db_type}"
                                         else:
-                                            execution_logs.append("  ⚠ 未配置项目数据库连接，跳过后置条件SQL执行")
+                                            logs_list.append("  ⚠ 未配置项目数据库连接，跳过后置清理SQL执行")
+                                            sql_success = False
+                                            sql_error = "未配置项目数据库连接"
                                     except Exception as e:
-                                        execution_logs.append(f"  ✗ 后置条件SQL执行失败: {str(e)}")
-                                        # 后置条件失败不影响用例结果
+                                        logs_list.append(f"  ✗ {sql_label}后置清理SQL执行失败: {str(e)}")
+                                        sql_success = False
+                                        sql_error = str(e)
+
+                                    # 将SQL执行记录加入step_results，前端可显示为步骤
+                                    results_list.append({
+                                        'step_number': 'sql',
+                                        'action_type': 'postcondition_sql',
+                                        'description': f'{sql_label}后置清理SQL',
+                                        'success': sql_success,
+                                        'error': sql_error
+                                    })
+
+                                # 1. 执行主用例的后置条件SQL（清理数据）
+                                execute_cleanup_sql(
+                                    test_case.postcondition_sql, '主用例',
+                                    execution_logs, test_case.project, context_variables,
+                                    step_results
+                                )
+
+                                # 2. 逆序执行前置条件用例的后置清理SQL（后进先出）
+                                if preconditions_data:
+                                    for pre_cond in reversed(preconditions_data):
+                                        pre_cleanup_sql = pre_cond.get('postcondition_sql', '')
+                                        if pre_cleanup_sql and pre_cleanup_sql.strip():
+                                            execute_cleanup_sql(
+                                                pre_cleanup_sql,
+                                                f"前置用例「{pre_cond['name']}」",
+                                                execution_logs, test_case.project, context_variables,
+                                                step_results
+                                            )
 
                                 return True
 
@@ -6807,8 +6873,13 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             # 保存error_message（step_log已经是简洁的错误信息）
             execution.error_message = execution_result['error_message'] or ''
 
-            # 保存步骤执行结果为JSON格式
-            execution.execution_logs = json.dumps(step_results, ensure_ascii=False)
+            # 保存步骤执行结果为JSON格式（包含SQL执行记录）
+            # 同时保存文本日志供调试
+            combined_logs = {
+                'steps': step_results,
+                'text_logs': '\n'.join(execution_logs)
+            }
+            execution.execution_logs = json.dumps(combined_logs, ensure_ascii=False)
             execution.execution_time = total_time
             execution.finished_at = timezone.now()
             execution.screenshots = screenshots
