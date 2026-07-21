@@ -989,7 +989,54 @@
         </div>
         <div v-if="historyDetailData.error_message" class="history-detail-error">
           <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">错误信息</h4>
-          <pre style="margin: 0; white-space: pre-wrap; color: var(--error); font-size: 13px;">{{ historyDetailData.error_message }}</pre>
+          <div class="errors-container">
+            <div
+              v-for="(error, idx) in historyDetailErrors"
+              :key="idx"
+              class="error-item"
+            >
+              <div class="error-header">
+                <el-tag type="danger" size="large">
+                  <span class="error-tag-inner">
+                    <el-icon><WarningFilled /></el-icon>
+                    <span>{{ error.message }}</span>
+                  </span>
+                </el-tag>
+                <span v-if="error.step_number" class="error-step">
+                  步骤 {{ error.step_number }}
+                </span>
+              </div>
+              <div v-if="error.action_type || error.element || error.description" class="error-meta">
+                <div v-if="error.action_type" class="meta-item">
+                  <span class="meta-label">操作类型:</span>
+                  <span class="meta-value">{{ error.action_type }}</span>
+                </div>
+                <div v-if="error.element" class="meta-item">
+                  <span class="meta-label">目标元素:</span>
+                  <span class="meta-value">{{ error.element }}</span>
+                </div>
+                <div v-if="error.description" class="meta-item">
+                  <span class="meta-label">步骤描述:</span>
+                  <span class="meta-value">{{ error.description }}</span>
+                </div>
+              </div>
+              <div v-if="error.details" class="error-details">
+                <div class="details-header">详细错误信息:</div>
+                <pre class="details-content">{{ error.details }}</pre>
+              </div>
+            </div>
+            <!-- 兜底：无结构化错误时显示 error_message -->
+            <div v-if="historyDetailErrors.length === 0" class="error-item">
+              <div class="error-header">
+                <el-tag type="danger" size="large">
+                  <span class="error-tag-inner">
+                    <el-icon><WarningFilled /></el-icon>
+                    <span>{{ historyDetailData.error_message }}</span>
+                  </span>
+                </el-tag>
+              </div>
+            </div>
+          </div>
         </div>
         <div v-if="historyDetailData.screenshots && historyDetailData.screenshots.length > 0" class="history-detail-screenshots">
           <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">失败截图</h4>
@@ -1060,6 +1107,30 @@ const showCreateDialog = ref(false)
 const editingTestCase = ref(null)
 const executionResult = ref(null)
 const lastRunCaseId = ref(null)  // 记录最近运行的用例ID
+
+// 从执行记录详情的步骤日志中提取错误列表
+const historyDetailErrors = computed(() => {
+  if (!historyDetailData.value) return []
+  const steps = Array.isArray(historyDetailData.value.parsedLogs)
+    ? historyDetailData.value.parsedLogs
+    : (historyDetailData.value.parsedLogs?.steps || [])
+  const errors = []
+  for (const step of steps) {
+    if (step.error && !step.success) {
+      errors.push({
+        message: step.step_number === 'sql'
+          ? `${step.action_type === 'postcondition_sql' ? '后置清理SQL' : '前置数据SQL'}执行失败`
+          : `步骤${step.step_number}执行失败`,
+        step_number: step.step_number === 'sql' ? null : step.step_number,
+        action_type: step.action_type || '',
+        element: '',
+        description: step.description || '',
+        details: step.error || ''
+      })
+    }
+  }
+  return errors
+})
 const resultActiveTab = ref('logs')
 const allStepsExpanded = ref(false)
 const showSteps = ref(true)
@@ -3834,10 +3905,6 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-}
-
-.error-header .el-icon {
-  margin-right: 5px;
 }
 
 .error-step {
