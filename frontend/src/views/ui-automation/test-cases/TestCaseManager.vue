@@ -557,6 +557,7 @@
                             </el-tag>
                             <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
                             <span class="log-desc">{{ step.description }}</span>
+                            <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
                           </div>
                           <div v-if="step.error" class="log-error">
                             <el-icon><WarningFilled /></el-icon>
@@ -612,8 +613,10 @@
                       >
                         <div class="error-header">
                           <el-tag type="danger" size="large">
-                            <el-icon><WarningFilled /></el-icon>
-                            {{ error.message || error }}
+                            <span class="error-tag-inner">
+                              <el-icon><WarningFilled /></el-icon>
+                              <span>{{ error.message || error }}</span>
+                            </span>
                           </el-tag>
                           <span v-if="error.step_number" class="error-step">
                             {{ t('uiAutomation.testCase.step') }} {{ error.step_number }}
@@ -972,6 +975,7 @@
               </el-tag>
               <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
               <span class="log-desc">{{ step.description }}</span>
+              <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
             </div>
             <div v-if="step.error" class="log-error">
               <el-icon><WarningFilled /></el-icon>
@@ -3570,9 +3574,27 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.log-value {
+  color: var(--brand-600);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--brand-50);
+  padding: 1px 6px;
+  border-radius: 3px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-value--output {
+  color: #10b981;
+  background: #ecfdf5;
+}
+
 .log-error {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-2);
   color: var(--error);
   background: var(--error-bg);
@@ -3594,7 +3616,6 @@ onMounted(async () => {
 }
 
 .log-error .el-icon {
-  margin-top: 2px;
   flex-shrink: 0;
 }
 
@@ -3747,6 +3768,15 @@ onMounted(async () => {
   font-size: 14px;
   padding: 8px var(--space-3);
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+.error-tag-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .error-header .el-icon {
@@ -3950,7 +3980,7 @@ onMounted(async () => {
 
 .history-detail-logs .log-error {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-2);
   color: var(--error);
   background: var(--error-bg);

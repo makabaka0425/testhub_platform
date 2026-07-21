@@ -6371,6 +6371,80 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         # 用例级变量表，存储步骤输出变量
                         context_variables = {}
 
+                        # 执行后置条件SQL的通用函数（定义在try之前，确保finally块中始终可访问）
+                        def execute_cleanup_sql(sql_source, sql_label, logs_list, project_obj, variables, results_list):
+                            """执行清理SQL，可复用于主用例和前置条件用例的后置清理
+
+                            Args:
+                                sql_source: SQL文本
+                                sql_label: 标签（如"主用例"、"前置用例「xxx」"）
+                                logs_list: 文本日志列表
+                                project_obj: 项目对象
+                                variables: 变量池
+                                results_list: step_results列表，SQL执行记录也写入此列表
+                            """
+                            if not sql_source or not sql_source.strip():
+                                return
+                            logs_list.append("")
+                            logs_list.append(f"========== 执行{sql_label}后置清理SQL ==========")
+                            sql_success = True
+                            sql_error = None
+                            try:
+                                from .variable_resolver import resolve_variables
+                                resolved_sql = resolve_variables(sql_source, variables)
+                                logs_list.append(f"  清理SQL: {resolved_sql[:200]}")
+
+                                if project_obj.target_db_type:
+                                    import sqlalchemy
+                                    db_url = None
+                                    if project_obj.target_db_type == 'mysql':
+                                        db_url = f"mysql+pymysql://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
+                                    elif project_obj.target_db_type == 'postgresql':
+                                        db_url = f"postgresql+psycopg2://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
+                                    elif project_obj.target_db_type == 'sqlite':
+                                        db_url = f"sqlite:///{project_obj.target_db_name}"
+                                    elif project_obj.target_db_type == 'oracle':
+                                        db_url = f"oracle+cx_oracle://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
+
+                                    if db_url:
+                                        engine_db = sqlalchemy.create_engine(db_url)
+                                        with engine_db.connect() as conn:
+                                            sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip()]
+                                            total_affected = 0
+                                            for sql_stmt in sql_statements:
+                                                sql_upper = sql_stmt.strip().upper()
+                                                if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
+                                                    logs_list.append(f"  ✗ 跳过不安全的SQL: {sql_stmt[:50]}...")
+                                                    continue
+                                                result = conn.execute(sqlalchemy.text(sql_stmt))
+                                                conn.commit()
+                                                affected = result.rowcount
+                                                total_affected += affected
+                                                logs_list.append(f"  ✓ 执行: {sql_stmt[:80]}... (影响 {affected} 行)")
+                                        engine_db.dispose()
+                                        logs_list.append(f"✓ {sql_label}后置清理SQL执行完成，共影响 {total_affected} 行")
+                                    else:
+                                        logs_list.append(f"  ✗ 不支持的数据库类型: {project_obj.target_db_type}")
+                                        sql_success = False
+                                        sql_error = f"不支持的数据库类型: {project_obj.target_db_type}"
+                                else:
+                                    logs_list.append("  ⚠ 未配置项目数据库连接，跳过后置清理SQL执行")
+                                    sql_success = False
+                                    sql_error = "未配置项目数据库连接"
+                            except Exception as e:
+                                logs_list.append(f"  ✗ {sql_label}后置清理SQL执行失败: {str(e)}")
+                                sql_success = False
+                                sql_error = str(e)
+
+                            # 将SQL执行记录加入step_results，前端可显示为步骤
+                            results_list.append({
+                                'step_number': 'sql',
+                                'action_type': 'postcondition_sql',
+                                'description': f'{sql_label}后置清理SQL',
+                                'success': sql_success,
+                                'error': sql_error
+                            })
+
                         # 根据浏览器类型选择
                         browser_map = {
                             'chrome': 'chromium',
@@ -6406,107 +6480,6 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     return False
 
                             if steps_data:
-                                # 执行前置数据SQL（在登录和前置条件之前执行）
-                                if test_case.precondition_sql and test_case.precondition_sql.strip():
-                                    execution_logs.append("")
-                                    execution_logs.append("========== 执行前置数据SQL ==========")
-                                    try:
-                                        from .variable_resolver import resolve_variables
-                                        resolved_sql = resolve_variables(test_case.precondition_sql, context_variables)
-                                        execution_logs.append(f"  前置SQL: {resolved_sql[:200]}")
-
-                                        project = test_case.project
-                                        if project.target_db_type:
-                                            import sqlalchemy
-                                            db_url = None
-                                            if project.target_db_type == 'mysql':
-                                                db_url = f"mysql+pymysql://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 3306}/{project.target_db_name}"
-                                            elif project.target_db_type == 'postgresql':
-                                                db_url = f"postgresql+psycopg2://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 5432}/{project.target_db_name}"
-                                            elif project.target_db_type == 'sqlite':
-                                                db_url = f"sqlite:///{project.target_db_name}"
-                                            elif project.target_db_type == 'oracle':
-                                                db_url = f"oracle+cx_oracle://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 1521}/?service_name={project.target_db_name}"
-
-                                            if db_url:
-                                                engine_db = sqlalchemy.create_engine(db_url)
-                                                pre_sql_failed = False
-                                                with engine_db.connect() as conn:
-                                                    sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip() and not s.strip().startswith('--')]
-                                                    for sql_stmt in sql_statements:
-                                                        sql_upper = sql_stmt.strip().upper()
-                                                        # 安全检查：仅禁止DROP
-                                                        if sql_upper.startswith('DROP'):
-                                                            execution_logs.append(f"  ✗ 跳过危险SQL(DROP): {sql_stmt[:50]}...")
-                                                            continue
-                                                        try:
-                                                            result_sql = conn.execute(sqlalchemy.text(sql_stmt))
-                                                            conn.commit()
-                                                            affected = result_sql.rowcount if result_sql.rowcount >= 0 else 0
-                                                            execution_logs.append(f"  ✓ 执行成功: {sql_stmt[:60]}... (影响 {affected} 行)")
-                                                        except Exception as sql_err:
-                                                            execution_logs.append(f"  ✗ 执行失败: {sql_stmt[:60]}... 错误: {str(sql_err)}")
-                                                            pre_sql_failed = True
-
-                                                if pre_sql_failed:
-                                                    execution_logs.append("✗ 前置数据SQL执行失败，用例跳过")
-                                                    execution_result['status'] = 'skipped'
-                                                    execution_result['error_message'] = '前置数据SQL执行失败'
-                                                    step_results.append({
-                                                        'step_number': 'sql',
-                                                        'action_type': 'precondition_sql',
-                                                        'description': '前置数据SQL',
-                                                        'success': False,
-                                                        'error': '前置数据SQL执行失败'
-                                                    })
-                                                    # 清理退出
-                                                    try:
-                                                        if not headless:
-                                                            try:
-                                                                await engine.page.wait_for_load_state('networkidle', timeout=5000)
-                                                            except:
-                                                                pass
-                                                            await asyncio.sleep(1)
-                                                        await engine.stop()
-                                                    except:
-                                                        pass
-                                                    return False
-                                                else:
-                                                    execution_logs.append("✓ 前置数据SQL执行完成")
-                                                    step_results.append({
-                                                        'step_number': 'sql',
-                                                        'action_type': 'precondition_sql',
-                                                        'description': '前置数据SQL',
-                                                        'success': True,
-                                                        'error': None
-                                                    })
-                                            else:
-                                                execution_logs.append("  ⚠ 不支持的数据库类型，跳过前置SQL执行")
-                                        else:
-                                            execution_logs.append("  ⚠ 项目未配置被测数据库连接，跳过前置SQL执行")
-                                    except Exception as e:
-                                        execution_logs.append(f"  ✗ 前置数据SQL执行失败: {str(e)}")
-                                        execution_result['status'] = 'skipped'
-                                        execution_result['error_message'] = f'前置数据SQL执行失败: {str(e)}'
-                                        step_results.append({
-                                            'step_number': 'sql',
-                                            'action_type': 'precondition_sql',
-                                            'description': '前置数据SQL',
-                                            'success': False,
-                                            'error': str(e)
-                                        })
-                                        try:
-                                            if not headless:
-                                                try:
-                                                    await engine.page.wait_for_load_state('networkidle', timeout=5000)
-                                                except:
-                                                    pass
-                                                await asyncio.sleep(1)
-                                            await engine.stop()
-                                        except:
-                                            pass
-                                        return False
-
                                 # 执行前置条件（单条用例执行时，使用预取数据避免异步上下文中的ORM访问）
                                 if preconditions_data:
                                     execution_logs.append("========== 执行前置条件 ==========")
@@ -6574,6 +6547,87 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     await engine.page.wait_for_timeout(2000)
                                     execution_logs.append("✓ 前置条件执行完毕，页面已稳定")
 
+                                # 执行前置数据SQL（在登录和前置条件之后，主用例步骤之前）
+                                # 这样可以引用前置用例的输出变量
+                                if test_case.precondition_sql and test_case.precondition_sql.strip():
+                                    execution_logs.append("")
+                                    execution_logs.append("========== 执行前置数据SQL ==========")
+                                    try:
+                                        from .variable_resolver import resolve_variables
+                                        resolved_sql = resolve_variables(test_case.precondition_sql, context_variables)
+                                        execution_logs.append(f"  前置SQL: {resolved_sql[:200]}")
+
+                                        project = test_case.project
+                                        if project.target_db_type:
+                                            import sqlalchemy
+                                            db_url = None
+                                            if project.target_db_type == 'mysql':
+                                                db_url = f"mysql+pymysql://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 3306}/{project.target_db_name}"
+                                            elif project.target_db_type == 'postgresql':
+                                                db_url = f"postgresql+psycopg2://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 5432}/{project.target_db_name}"
+                                            elif project.target_db_type == 'sqlite':
+                                                db_url = f"sqlite:///{project.target_db_name}"
+                                            elif project.target_db_type == 'oracle':
+                                                db_url = f"oracle+cx_oracle://{quote_plus(project.target_db_user)}:{quote_plus(project.target_db_password)}@{project.target_db_host}:{project.target_db_port or 1521}/?service_name={project.target_db_name}"
+
+                                            if db_url:
+                                                engine_db = sqlalchemy.create_engine(db_url)
+                                                pre_sql_failed = False
+                                                with engine_db.connect() as conn:
+                                                    sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip() and not s.strip().startswith('--')]
+                                                    for sql_stmt in sql_statements:
+                                                        sql_upper = sql_stmt.strip().upper()
+                                                        # 安全检查：仅禁止DROP
+                                                        if sql_upper.startswith('DROP'):
+                                                            execution_logs.append(f"  ✗ 跳过危险SQL(DROP): {sql_stmt[:50]}...")
+                                                            continue
+                                                        try:
+                                                            result_sql = conn.execute(sqlalchemy.text(sql_stmt))
+                                                            conn.commit()
+                                                            affected = result_sql.rowcount if result_sql.rowcount >= 0 else 0
+                                                            execution_logs.append(f"  ✓ 执行成功: {sql_stmt[:60]}... (影响 {affected} 行)")
+                                                        except Exception as sql_err:
+                                                            execution_logs.append(f"  ✗ 执行失败: {sql_stmt[:60]}... 错误: {str(sql_err)}")
+                                                            pre_sql_failed = True
+
+                                                if pre_sql_failed:
+                                                    execution_logs.append("✗ 前置数据SQL执行失败，用例跳过")
+                                                    execution_result['status'] = 'skipped'
+                                                    execution_result['error_message'] = '前置数据SQL执行失败'
+                                                    step_results.append({
+                                                        'step_number': 'sql',
+                                                        'action_type': 'precondition_sql',
+                                                        'description': '前置数据SQL',
+                                                        'success': False,
+                                                        'error': '前置数据SQL执行失败'
+                                                    })
+                                                    return False
+                                                else:
+                                                    execution_logs.append("✓ 前置数据SQL执行完成")
+                                                    step_results.append({
+                                                        'step_number': 'sql',
+                                                        'action_type': 'precondition_sql',
+                                                        'description': '前置数据SQL',
+                                                        'success': True,
+                                                        'error': None
+                                                    })
+                                            else:
+                                                execution_logs.append("  ⚠ 不支持的数据库类型，跳过前置SQL执行")
+                                        else:
+                                            execution_logs.append("  ⚠ 项目未配置被测数据库连接，跳过前置SQL执行")
+                                    except Exception as e:
+                                        execution_logs.append(f"  ✗ 前置数据SQL执行失败: {str(e)}")
+                                        execution_result['status'] = 'skipped'
+                                        execution_result['error_message'] = f'前置数据SQL执行失败: {str(e)}'
+                                        step_results.append({
+                                            'step_number': 'sql',
+                                            'action_type': 'precondition_sql',
+                                            'description': '前置数据SQL',
+                                            'success': False,
+                                            'error': str(e)
+                                        })
+                                        return False
+
                                 execution_logs.append("========== 执行测试步骤 ==========")
                                 step_count = len(steps_data)
                                 execution_logs.append(f"共有 {step_count} 个步骤需要执行")
@@ -6588,6 +6642,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     action_type = step_info['action_type']
                                     description = step_info['description']
                                     element_data = step_info['element_data']
+                                    step_input_value = step_info.get('input_value', '')
+                                    step_output_var = step_info.get('output_var', '')
 
                                     # 获取操作类型的中文显示
                                     action_choices_dict = dict(TestCaseStep.ACTION_TYPE_CHOICES)
@@ -6616,13 +6672,25 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         execution_logs.append("")
 
                                         # 记录步骤执行结果（用于JSON格式）
-                                        step_results.append({
+                                        step_result = {
                                             'step_number': i,
                                             'action_type': action_type,
                                             'description': description or '',
                                             'success': success,
                                             'error': None if success else step_log
-                                        })
+                                        }
+                                        # 保存输入/输出实际值，供前端日志展示
+                                        if success:
+                                            if step_output_var and step_output_var in context_variables:
+                                                # 有输出变量时，input_value直接取输出变量的值（即执行时实际使用的值）
+                                                step_result['input_value'] = context_variables[step_output_var]
+                                                step_result['output_value'] = context_variables[step_output_var]
+                                            elif step_input_value:
+                                                # 无输出变量时，从context_variables解析输入值
+                                                from .variable_resolver import resolve_variables
+                                                resolved = resolve_variables(step_input_value, context_variables)
+                                                step_result['input_value'] = resolved
+                                        step_results.append(step_result)
 
                                         # action_wait: 步骤操作成功后等待指定秒数再执行下一步
                                         if success and getattr(step, 'action_wait', 0) and step.action_wait > 0:
@@ -6728,98 +6796,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                 # 所有步骤都成功
                                 execution_logs.append(f"========== 执行完成 ({step_count} 个步骤全部通过) ==========")
 
-                                # 执行后置条件SQL的通用函数
-                                def execute_cleanup_sql(sql_source, sql_label, logs_list, project_obj, variables, results_list):
-                                    """执行清理SQL，可复用于主用例和前置条件用例的后置清理
-
-                                    Args:
-                                        sql_source: SQL文本
-                                        sql_label: 标签（如"主用例"、"前置用例「xxx」"）
-                                        logs_list: 文本日志列表
-                                        project_obj: 项目对象
-                                        variables: 变量池
-                                        results_list: step_results列表，SQL执行记录也写入此列表
-                                    """
-                                    if not sql_source or not sql_source.strip():
-                                        return
-                                    logs_list.append("")
-                                    logs_list.append(f"========== 执行{sql_label}后置清理SQL ==========")
-                                    sql_success = True
-                                    sql_error = None
-                                    try:
-                                        from .variable_resolver import resolve_variables
-                                        resolved_sql = resolve_variables(sql_source, variables)
-                                        logs_list.append(f"  清理SQL: {resolved_sql[:200]}")
-
-                                        if project_obj.target_db_type:
-                                            import sqlalchemy
-                                            db_url = None
-                                            if project_obj.target_db_type == 'mysql':
-                                                db_url = f"mysql+pymysql://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
-                                            elif project_obj.target_db_type == 'postgresql':
-                                                db_url = f"postgresql+psycopg2://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
-                                            elif project_obj.target_db_type == 'sqlite':
-                                                db_url = f"sqlite:///{project_obj.target_db_name}"
-                                            elif project_obj.target_db_type == 'oracle':
-                                                db_url = f"oracle+cx_oracle://{quote_plus(project_obj.target_db_user)}:{quote_plus(project_obj.target_db_password)}@{project_obj.target_db_host}:{project_obj.target_db_port}/{project_obj.target_db_name}"
-
-                                            if db_url:
-                                                engine_db = sqlalchemy.create_engine(db_url)
-                                                with engine_db.connect() as conn:
-                                                    sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip()]
-                                                    total_affected = 0
-                                                    for sql_stmt in sql_statements:
-                                                        sql_upper = sql_stmt.strip().upper()
-                                                        if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
-                                                            logs_list.append(f"  ✗ 跳过不安全的SQL: {sql_stmt[:50]}...")
-                                                            continue
-                                                        result = conn.execute(sqlalchemy.text(sql_stmt))
-                                                        conn.commit()
-                                                        affected = result.rowcount
-                                                        total_affected += affected
-                                                        logs_list.append(f"  ✓ 执行: {sql_stmt[:80]}... (影响 {affected} 行)")
-                                                engine_db.dispose()
-                                                logs_list.append(f"✓ {sql_label}后置清理SQL执行完成，共影响 {total_affected} 行")
-                                            else:
-                                                logs_list.append(f"  ✗ 不支持的数据库类型: {project_obj.target_db_type}")
-                                                sql_success = False
-                                                sql_error = f"不支持的数据库类型: {project_obj.target_db_type}"
-                                        else:
-                                            logs_list.append("  ⚠ 未配置项目数据库连接，跳过后置清理SQL执行")
-                                            sql_success = False
-                                            sql_error = "未配置项目数据库连接"
-                                    except Exception as e:
-                                        logs_list.append(f"  ✗ {sql_label}后置清理SQL执行失败: {str(e)}")
-                                        sql_success = False
-                                        sql_error = str(e)
-
-                                    # 将SQL执行记录加入step_results，前端可显示为步骤
-                                    results_list.append({
-                                        'step_number': 'sql',
-                                        'action_type': 'postcondition_sql',
-                                        'description': f'{sql_label}后置清理SQL',
-                                        'success': sql_success,
-                                        'error': sql_error
-                                    })
-
-                                # 1. 执行主用例的后置条件SQL（清理数据）
-                                execute_cleanup_sql(
-                                    test_case.postcondition_sql, '主用例',
-                                    execution_logs, test_case.project, context_variables,
-                                    step_results
-                                )
-
-                                # 2. 逆序执行前置条件用例的后置清理SQL（后进先出）
-                                if preconditions_data:
-                                    for pre_cond in reversed(preconditions_data):
-                                        pre_cleanup_sql = pre_cond.get('postcondition_sql', '')
-                                        if pre_cleanup_sql and pre_cleanup_sql.strip():
-                                            execute_cleanup_sql(
-                                                pre_cleanup_sql,
-                                                f"前置用例「{pre_cond['name']}」",
-                                                execution_logs, test_case.project, context_variables,
-                                                step_results
-                                            )
+                                # 后置清理SQL已移到finally块中，无论成功失败都会执行
 
                                 return True
 
@@ -6833,6 +6810,26 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                             execution_logs.append("========== 清理资源 ==========")
                             await engine.stop()
                             execution_logs.append("✓ 浏览器已关闭")
+
+                            # 无论成功/失败，都执行后置清理SQL
+                            # 1. 执行主用例的后置条件SQL（清理数据）
+                            execute_cleanup_sql(
+                                test_case.postcondition_sql, '主用例',
+                                execution_logs, test_case.project, context_variables,
+                                step_results
+                            )
+
+                            # 2. 逆序执行前置条件用例的后置清理SQL（后进先出）
+                            if preconditions_data:
+                                for pre_cond in reversed(preconditions_data):
+                                    pre_cleanup_sql = pre_cond.get('postcondition_sql', '')
+                                    if pre_cleanup_sql and pre_cleanup_sql.strip():
+                                        execute_cleanup_sql(
+                                            pre_cleanup_sql,
+                                            f"前置用例「{pre_cond['name']}」",
+                                            execution_logs, test_case.project, context_variables,
+                                            step_results
+                                        )
 
                     # 在新的事件循环中运行测试
                     loop = asyncio.new_event_loop()
