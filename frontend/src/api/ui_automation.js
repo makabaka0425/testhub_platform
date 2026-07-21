@@ -658,6 +658,14 @@ export function getTestCaseGroupTree(params) {
   })
 }
 
+export function batchReorderTestCaseGroups(data) {
+  return request({
+    url: '/ui-automation/test-case-groups/batch_reorder/',
+    method: 'post',
+    data
+  })
+}
+
 // 元素增强功能API
 export function validateElementLocator(id) {
   return request({

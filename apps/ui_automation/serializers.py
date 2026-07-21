@@ -390,7 +390,7 @@ class TestCaseGroupSerializer(serializers.ModelSerializer):
 
     def get_children(self, obj):
         """获取子分组"""
-        children = obj.testcasegroup_set.all()
+        children = obj.testcasegroup_set.all().order_by('order', 'name')
         return TestCaseGroupSerializer(children, many=True, context=self.context).data
 
 

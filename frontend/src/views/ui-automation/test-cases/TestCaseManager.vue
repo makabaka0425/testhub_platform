@@ -49,8 +49,12 @@
             :expand-on-click-node="false"
             :default-expanded-keys="groupExpandedKeys"
             highlight-current
+            draggable
+            :allow-drag="allowGroupDrag"
+            :allow-drop="allowGroupDrop"
             @node-click="onGroupNodeClick"
             @node-contextmenu="onGroupRightClick"
+            @node-drop="onGroupNodeDrop"
           >
             <template #default="{ node, data }">
               <div class="group-tree-node">
@@ -1031,7 +1035,8 @@ import {
   batchDeleteTestCases,
   batchUpdateTestCaseGroup,
   batchUpdateTestCases,
-  getTestCaseExecutions
+  getTestCaseExecutions,
+  batchReorderTestCaseGroups
 } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
 
@@ -1440,6 +1445,8 @@ const filteredTestCases = computed(() => {
   if (searchStatus.value) {
     result = result.filter(tc => (tc.status || 'normal') === searchStatus.value)
   }
+  // 按 order 字段排序（拖拽排序后 order 会更新）
+  result = [...result].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   return result
 })
 
@@ -2466,6 +2473,56 @@ const onGroupRightClick = (event, data) => {
   groupContextMenuX.value = event.clientX
   groupContextMenuY.value = event.clientY
   showGroupContextMenu.value = true
+}
+
+// 分组拖拽排序：禁止拖拽"全部"节点
+const allowGroupDrag = (draggingNode) => {
+  return draggingNode.data.id !== '__all__'
+}
+
+// 分组拖拽排序：禁止拖入"全部"节点内部
+const allowGroupDrop = (draggingNode, dropNode, type) => {
+  if (dropNode.data.id === '__all__' && type !== 'before' && type !== 'after') return false
+  return true
+}
+
+// 分组拖拽完成后，收集同级节点的顺序并提交后端
+const onGroupNodeDrop = async (draggingNode, dropNode, type) => {
+  // type: 'before' | 'after' | 'inner' 表示拖拽放置位置
+  // 拖拽完成后，draggingNode 已移动到新位置，从 el-tree 实例获取完整节点结构
+  const tree = groupTreeRef.value
+  if (!tree) return
+
+  // 根据拖放类型确定新的父节点和同级节点
+  let parentNode
+  if (type === 'inner') {
+    // 拖入某个节点内部，该节点就是新父节点
+    parentNode = dropNode
+  } else {
+    // before/after：和 dropNode 同级，取 dropNode 的父节点
+    parentNode = dropNode.parent
+  }
+
+  // 获取同级子节点列表
+  const siblings = parentNode ? parentNode.childNodes : tree.store.root.childNodes
+  // 判断新的 parent_group：根节点（"全部"或无父）下为 null
+  const newParentId = parentNode?.data?.id === '__all__' ? null : (parentNode?.data?.id ?? null)
+
+  const orders = siblings
+    .filter(node => node.data && node.data.id !== '__all__')
+    .map((node, index) => ({
+      id: node.data.id,
+      order: index,
+      parent_group: newParentId
+    }))
+  if (orders.length === 0) return
+  try {
+    await batchReorderTestCaseGroups({ orders })
+    ElMessage.success('分组排序已保存')
+  } catch (e) {
+    console.error('分组排序保存失败:', e)
+    ElMessage.error('分组排序保存失败')
+  }
 }
 
 // 点击其他地方关闭右键菜单
