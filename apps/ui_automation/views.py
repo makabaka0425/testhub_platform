@@ -4596,6 +4596,19 @@ class TestCaseGroupViewSet(viewsets.ModelViewSet):
         serializer = TestCaseGroupSerializer(groups, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['post'])
+    def batch_reorder(self, request):
+        """批量更新分组排序（同时支持更新 parent_group）"""
+        orders = request.data.get('orders', [])
+        if not orders:
+            return Response({'error': '缺少排序数据'}, status=status.HTTP_400_BAD_REQUEST)
+        for item in orders:
+            update_fields = {'order': item.get('order', 0)}
+            if 'parent_group' in item:
+                update_fields['parent_group'] = item['parent_group']
+            TestCaseGroup.objects.filter(id=item.get('id')).update(**update_fields)
+        return Response({'status': 'ok'})
+
 
 class PageObjectViewSet(viewsets.ModelViewSet):
     queryset = PageObject.objects.all()
