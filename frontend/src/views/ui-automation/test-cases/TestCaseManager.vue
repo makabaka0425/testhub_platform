@@ -175,13 +175,14 @@
                 <span class="status-tag" :class="`status-${row.status || 'normal'}`">{{ getStatusText(row.status) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="300" align="left">
+            <el-table-column label="操作" width="320" align="left">
               <template #default="{ row }">
                 <div class="op-btns">
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="runTestCase(row)"><el-icon><VideoPlay /></el-icon></el-button>
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="editTestCase(row)"><el-icon><Edit /></el-icon></el-button>
-                  <el-button class="op-btn" type="primary" link size="small" @click.stop="copyTestCase(row)"><el-icon><CopyDocument /></el-icon></el-button>
-                  <el-button class="op-btn op-btn--danger" link size="small" @click.stop="deleteTestCase(row)"><el-icon><Delete /></el-icon></el-button>
+                  <el-button class="op-btn op-btn--text" type="primary" link size="small" @click.stop="runTestCase(row)">执行</el-button>
+                  <el-button class="op-btn op-btn--text" type="primary" link size="small" @click.stop="editTestCase(row)">编辑</el-button>
+                  <el-button class="op-btn op-btn--text" type="primary" link size="small" @click.stop="copyTestCase(row)">复制</el-button>
+                  <el-button class="op-btn op-btn--text" type="primary" link size="small" @click.stop="viewExecutionHistory(row)">记录</el-button>
+                  <el-button class="op-btn op-btn--text op-btn--danger" link size="small" @click.stop="deleteTestCase(row)">删除</el-button>
                 </div>
               </template>
             </el-table-column>
@@ -878,6 +879,118 @@
       v-model="showDataFactorySelector"
       @select="handleDataFactorySelect"
     />
+
+    <!-- 执行记录列表弹窗 -->
+    <el-dialog
+      v-model="historyDialogVisible"
+      :title="`执行记录 - ${historyCaseName}`"
+      width="700px"
+      destroy-on-close
+      append-to-body
+    >
+      <div v-loading="historyLoading">
+        <el-table :data="historyRecords" style="width: 100%" size="small" v-if="historyRecords.length > 0">
+          <el-table-column label="状态" width="80" align="center">
+            <template #default="{ row }">
+              <el-tag :type="getHistoryStatusType(row.status)" size="small">{{ getHistoryStatusText(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="来源" width="80" align="center">
+            <template #default="{ row }">
+              {{ getHistorySourceType(row.execution_source) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="时长" width="80" align="center">
+            <template #default="{ row }">
+              {{ formatDuration(row.execution_time) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="执行时间" min-width="160">
+            <template #default="{ row }">
+              {{ row.started_at ? formatTime(row.started_at) : formatTime(row.created_at) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="执行人" width="80" align="center">
+            <template #default="{ row }">
+              {{ row.created_by?.username || row.created_by || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="70" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="viewHistoryDetail(row)">详情</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else description="暂无执行记录" />
+        <div class="pagination-container" v-if="historyTotal > 0" style="margin-top: 12px;">
+          <el-pagination
+            v-model:current-page="historyPage"
+            v-model:page-size="historyPageSize"
+            :total="historyTotal"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            @current-change="handleHistoryPageChange"
+            @size-change="handleHistorySizeChange"
+            small
+          />
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 执行记录详情弹窗 -->
+    <el-dialog
+      v-model="historyDetailVisible"
+      title="执行记录详情"
+      width="680px"
+      destroy-on-close
+      append-to-body
+    >
+      <template v-if="historyDetailData">
+        <div class="history-detail-header">
+          <el-descriptions :column="3" size="small" border>
+            <el-descriptions-item label="状态">
+              <el-tag :type="getHistoryStatusType(historyDetailData.status)" size="small">{{ getHistoryStatusText(historyDetailData.status) }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="时长">{{ formatDuration(historyDetailData.execution_time) }}</el-descriptions-item>
+            <el-descriptions-item label="浏览器">{{ historyDetailData.browser || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="开始时间">{{ historyDetailData.started_at ? formatTime(historyDetailData.started_at) : '-' }}</el-descriptions-item>
+            <el-descriptions-item label="结束时间">{{ historyDetailData.finished_at ? formatTime(historyDetailData.finished_at) : '-' }}</el-descriptions-item>
+            <el-descriptions-item label="执行人">{{ historyDetailData.created_by?.username || historyDetailData.created_by || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </div>
+        <div class="history-detail-logs" v-if="historyDetailData.parsedLogs">
+          <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">执行日志</h4>
+          <div v-for="(step, index) in (Array.isArray(historyDetailData.parsedLogs) ? historyDetailData.parsedLogs : historyDetailData.parsedLogs.steps || [])" :key="index" class="log-item">
+            <div class="log-header">
+              <el-tag :type="step.success ? 'success' : 'danger'" size="small">
+                <template v-if="step.step_number === 'sql'">
+                  <span style="display: inline-flex; align-items: center; gap: 4px;"><el-icon style="font-size: 14px;"><Coin /></el-icon> SQL</span>
+                </template>
+                <template v-else>
+                  步骤 {{ step.step_number }}
+                </template>
+              </el-tag>
+              <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
+              <span class="log-desc">{{ step.description }}</span>
+            </div>
+            <div v-if="step.error" class="log-error">
+              <el-icon><WarningFilled /></el-icon>
+              <pre class="error-message">{{ step.error }}</pre>
+            </div>
+          </div>
+        </div>
+        <div v-if="historyDetailData.error_message" class="history-detail-error">
+          <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">错误信息</h4>
+          <pre style="margin: 0; white-space: pre-wrap; color: var(--error); font-size: 13px;">{{ historyDetailData.error_message }}</pre>
+        </div>
+        <div v-if="historyDetailData.screenshots && historyDetailData.screenshots.length > 0" class="history-detail-screenshots">
+          <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">失败截图</h4>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <el-image v-for="(img, idx) in historyDetailData.screenshots" :key="idx" :src="img.url || img" style="width: 120px; height: 80px; border-radius: 4px; border: 1px solid var(--gray-200);" fit="cover" :preview-src-list="historyDetailData.screenshots.map(s => s.url || s)" :initial-index="idx" />
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -913,7 +1026,8 @@ import {
   batchReorderTestCases,
   batchDeleteTestCases,
   batchUpdateTestCaseGroup,
-  batchUpdateTestCases
+  batchUpdateTestCases,
+  getTestCaseExecutions
 } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
 
@@ -957,6 +1071,18 @@ const loading = ref(false)
 const testCaseTableRef = ref(null)
 const sortableInstance = ref(null)
 const isDragging = ref(false)
+
+// ========== 执行记录弹窗相关 ==========
+const historyDialogVisible = ref(false)
+const historyLoading = ref(false)
+const historyRecords = ref([])
+const historyCaseName = ref('')
+const historyCurrentCaseId = ref(null)
+const historyPage = ref(1)
+const historyPageSize = ref(10)
+const historyTotal = ref(0)
+const historyDetailVisible = ref(false)
+const historyDetailData = ref(null)
 
 // ========== 批量操作相关 ==========
 const selectedCases = ref([])                  // 选中的用例行（由 el-table selection-change 维护）
@@ -1827,6 +1953,76 @@ const editTestCase = (testCase) => {
   testCaseForm.postcondition_sql = testCase.postcondition_sql || ''
   testCaseForm.precondition_sql = testCase.precondition_sql || ''
   showCreateDialog.value = true
+}
+
+// ========== 查看执行记录 ==========
+const loadHistoryRecords = async () => {
+  historyLoading.value = true
+  try {
+    const res = await getTestCaseExecutions({ test_case: historyCurrentCaseId.value, page: historyPage.value, page_size: historyPageSize.value })
+    historyRecords.value = res.data?.results || []
+    historyTotal.value = res.data?.count || 0
+  } catch (error) {
+    console.error('获取执行记录失败:', error)
+    ElMessage.error('获取执行记录失败')
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+const viewExecutionHistory = async (testCase) => {
+  historyCaseName.value = testCase.name
+  historyCurrentCaseId.value = testCase.id
+  historyPage.value = 1
+  historyRecords.value = []
+  historyDialogVisible.value = true
+  await loadHistoryRecords()
+}
+
+const handleHistoryPageChange = (page) => {
+  historyPage.value = page
+  loadHistoryRecords()
+}
+
+const handleHistorySizeChange = (size) => {
+  historyPageSize.value = size
+  historyPage.value = 1
+  loadHistoryRecords()
+}
+
+const getHistoryStatusText = (status) => {
+  const map = { pending: '待执行', running: '执行中', passed: '通过', failed: '失败', error: '错误' }
+  return map[status] || status
+}
+
+const getHistoryStatusType = (status) => {
+  const map = { pending: 'info', running: 'warning', passed: 'success', failed: 'danger', error: 'danger' }
+  return map[status] || 'info'
+}
+
+const getHistorySourceType = (source) => {
+  const map = { manual: '单用例', suite: '套件', scheduled: '定时' }
+  return map[source] || source
+}
+
+const viewHistoryDetail = (record) => {
+  let logs = record.execution_logs
+  if (typeof logs === 'string') {
+    try { logs = JSON.parse(logs) } catch { logs = null }
+  }
+  historyDetailData.value = {
+    ...record,
+    parsedLogs: logs
+  }
+  historyDetailVisible.value = true
+}
+
+const formatDuration = (seconds) => {
+  if (!seconds) return '-'
+  if (seconds < 60) return `${seconds.toFixed(1)}s`
+  const min = Math.floor(seconds / 60)
+  const sec = (seconds % 60).toFixed(1)
+  return `${min}m${sec}s`
 }
 
 const deleteTestCase = async (testCase) => {
@@ -2833,23 +3029,24 @@ onMounted(async () => {
 .op-btns {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex-wrap: nowrap;
 }
 
 .op-btn {
-  --el-button-text-color: var(--brand-500);
   padding: 2px !important;
   border-radius: var(--radius-sm);
-  font-size: 15px;
+  font-size: 13px;
   transition: opacity 0.15s;
 }
 
-.op-btn .el-icon {
-  font-size: 15px;
+.op-btn--text {
+  --el-button-text-color: var(--brand-500);
+  font-size: 13px;
+  padding: 0 4px !important;
 }
 
-.op-btn:hover {
+.op-btn--text:hover {
   opacity: 0.8;
   color: var(--brand-600) !important;
 }
@@ -3714,5 +3911,59 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+/* 执行记录弹窗 */
+.history-detail-header {
+  margin-bottom: 8px;
+}
+
+.history-detail-logs .log-item {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  background: var(--gray-0);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--brand-500);
+}
+
+.history-detail-logs .log-item:last-child {
+  margin-bottom: 0;
+}
+
+.history-detail-logs .log-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.history-detail-logs .log-action {
+  font-weight: 500;
+  color: var(--gray-700);
+  font-size: 13px;
+}
+
+.history-detail-logs .log-desc {
+  color: var(--gray-500);
+  font-size: 13px;
+}
+
+.history-detail-logs .log-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--error);
+  background: var(--error-bg);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-2);
+  font-size: 13px;
+}
+
+.history-detail-logs .log-error .error-message {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 12px;
 }
 </style>
