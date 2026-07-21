@@ -1991,12 +1991,12 @@ const handleHistorySizeChange = (size) => {
 }
 
 const getHistoryStatusText = (status) => {
-  const map = { pending: '待执行', running: '执行中', passed: '通过', failed: '失败', error: '错误' }
+  const map = { pending: '待执行', running: '执行中', passed: '通过', failed: '失败', error: '错误', skipped: '跳过' }
   return map[status] || status
 }
 
 const getHistoryStatusType = (status) => {
-  const map = { pending: 'info', running: 'warning', passed: 'success', failed: 'danger', error: 'danger' }
+  const map = { pending: 'info', running: 'warning', passed: 'success', failed: 'danger', error: 'danger', skipped: 'warning' }
   return map[status] || 'info'
 }
 
@@ -3029,7 +3029,7 @@ onMounted(async () => {
 .op-btns {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   flex-wrap: nowrap;
 }
 
@@ -3535,13 +3535,13 @@ onMounted(async () => {
   max-height: 100%;
   overflow-y: auto;
   background: var(--gray-50);
-  padding: var(--space-3);
+  padding: 8px;
   border-radius: var(--radius-sm);
 }
 
 .log-item {
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
+  margin-bottom: 6px;
+  padding: 8px 12px;
   background: var(--gray-0);
   border-radius: var(--radius-sm);
   border-left: 3px solid var(--brand-500);
@@ -3554,8 +3554,8 @@ onMounted(async () => {
 .log-header {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  gap: 6px;
+  margin-bottom: 0;
   flex-wrap: wrap;
 }
 
@@ -3919,8 +3919,8 @@ onMounted(async () => {
 }
 
 .history-detail-logs .log-item {
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
+  margin-bottom: 6px;
+  padding: 8px 12px;
   background: var(--gray-0);
   border-radius: var(--radius-sm);
   border-left: 3px solid var(--brand-500);
@@ -3933,7 +3933,7 @@ onMounted(async () => {
 .history-detail-logs .log-header {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   flex-wrap: wrap;
 }
 
