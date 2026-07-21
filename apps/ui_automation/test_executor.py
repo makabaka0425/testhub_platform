@@ -4335,16 +4335,23 @@ class TestExecutor:
                 except Exception:
                     pass
 
-    def _execute_preconditions(self, test_case):
-        """执行用例的前置条件（单条执行时调用）
+    def _execute_preconditions(self, test_case, visited_set=None):
+        """执行用例的前置条件（单条执行时调用），递归执行前置条件的前置条件
 
         Args:
             test_case: TestCase 实例
+            visited_set: 已访问用例ID集合，防止循环依赖
 
         Returns:
             (success, message): 前置条件是否全部通过，以及失败原因
         """
         from .models import TestCasePrecondition
+
+        if visited_set is None:
+            visited_set = set()
+        if test_case.id in visited_set:
+            return True, ''  # 已访问过，跳过避免循环
+        visited_set.add(test_case.id)
 
         relations = TestCasePrecondition.objects.filter(
             test_case=test_case
@@ -4355,6 +4362,12 @@ class TestExecutor:
 
         for rel in relations:
             precondition_case = rel.precondition
+
+            # 先递归执行该前置条件自身的前置条件
+            sub_ok, sub_msg = self._execute_preconditions(precondition_case, visited_set)
+            if not sub_ok:
+                return False, f"前置用例「{precondition_case.name}」的前置条件失败: {sub_msg}"
+
             print(f"[前置条件] 执行前置用例: {precondition_case.name} (顺序: {rel.order})")
 
             # 准备前置用例数据
@@ -4376,7 +4389,6 @@ class TestExecutor:
                     'action_wait': step.action_wait,
                     'assert_type': step.assert_type,
                     'assert_value': step.assert_value,
-                    'output_var': step.output_var,
                     'output_var': step.output_var,
                     'element': None
                 }

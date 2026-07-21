@@ -221,9 +221,9 @@
           <div class="panel__header">
             <span class="panel__title">用例详情</span>
             <div v-if="selectedTestCase" class="detail-header-actions">
-              <el-button size="small" @click="executionResult ? toggleView() : addStep()">
-                <el-icon><Plus v-if="!executionResult" /><Edit v-else /></el-icon>
-                {{ executionResult ? '编辑步骤' : t('uiAutomation.testCase.addStep') }}
+              <el-button size="small" @click="(executionResult && !showSteps) ? toggleView() : addStep()">
+                <el-icon><Plus v-if="!executionResult || showSteps" /><Edit v-else /></el-icon>
+                {{ (executionResult && !showSteps) ? '编辑步骤' : t('uiAutomation.testCase.addStep') }}
               </el-button>
               <el-button size="small" type="primary" @click="saveTestCase">
                 <el-icon><Check /></el-icon>
