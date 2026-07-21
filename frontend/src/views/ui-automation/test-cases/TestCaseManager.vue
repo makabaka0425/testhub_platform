@@ -547,9 +547,14 @@
                         <div v-for="(step, index) in parsedExecutionLogs" :key="index" class="log-item">
                           <div class="log-header">
                             <el-tag :type="step.success ? 'success' : 'danger'" size="small">
-                              {{ t('uiAutomation.testCase.step') }} {{ step.step_number }}
+                                <template v-if="step.step_number === 'sql'">
+                                 <span style="display: inline-flex; align-items: center; gap: 4px;"><el-icon style="font-size: 14px;"><Coin /></el-icon> SQL</span>
+                               </template>
+                              <template v-else>
+                                {{ t('uiAutomation.testCase.step') }} {{ step.step_number }}
+                              </template>
                             </el-tag>
-                            <span class="log-action">{{ getActionText(step.action_type) }}</span>
+                            <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
                             <span class="log-desc">{{ step.description }}</span>
                           </div>
                           <div v-if="step.error" class="log-error">
@@ -880,7 +885,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search, Plus, Edit, Delete, Check, CaretRight, CaretLeft, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument, Close, FolderOpened, DeleteFilled
+  Search, Plus, Edit, Delete, Check, CaretRight, CaretLeft, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument, Close, FolderOpened, DeleteFilled, Coin
 } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
@@ -1352,9 +1357,17 @@ const tableRowClassName = ({ row }) => {
 const parsedExecutionLogs = computed(() => {
   if (!executionResult.value || !executionResult.value.logs) return []
   try {
-    return typeof executionResult.value.logs === 'string'
+    const raw = typeof executionResult.value.logs === 'string'
       ? JSON.parse(executionResult.value.logs)
       : executionResult.value.logs
+    // 兼容新旧格式：新格式 {steps: [...], text_logs: '...'}，旧格式纯数组
+    if (Array.isArray(raw)) {
+      return raw
+    }
+    if (raw && raw.steps && Array.isArray(raw.steps)) {
+      return raw.steps
+    }
+    return []
   } catch (e) {
     console.error('解析执行日志失败:', e)
     return []

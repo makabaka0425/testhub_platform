@@ -4343,14 +4343,14 @@ class TestExecutor:
             visited_set: 已访问用例ID集合，防止循环依赖
 
         Returns:
-            (success, message): 前置条件是否全部通过，以及失败原因
+            (success, message, deferred_postconditions): 前置条件是否全部通过，失败原因，以及延迟执行的后置SQL列表
         """
         from .models import TestCasePrecondition
 
         if visited_set is None:
             visited_set = set()
         if test_case.id in visited_set:
-            return True, ''  # 已访问过，跳过避免循环
+            return True, '', []  # 已访问过，跳过避免循环
         visited_set.add(test_case.id)
 
         relations = TestCasePrecondition.objects.filter(
@@ -4358,15 +4358,19 @@ class TestExecutor:
         ).select_related('precondition').order_by('order')
 
         if not relations.exists():
-            return True, ''
+            return True, '', []
+
+        deferred_postconditions = []
 
         for rel in relations:
             precondition_case = rel.precondition
 
             # 先递归执行该前置条件自身的前置条件
-            sub_ok, sub_msg = self._execute_preconditions(precondition_case, visited_set)
+            sub_ok, sub_msg, sub_deferred = self._execute_preconditions(precondition_case, visited_set)
             if not sub_ok:
-                return False, f"前置用例「{precondition_case.name}」的前置条件失败: {sub_msg}"
+                return False, f"前置用例「{precondition_case.name}」的前置条件失败: {sub_msg}", []
+            # 收集子前置条件的后置SQL
+            deferred_postconditions.extend(sub_deferred)
 
             print(f"[前置条件] 执行前置用例: {precondition_case.name} (顺序: {rel.order})")
 
@@ -4376,6 +4380,7 @@ class TestExecutor:
                 'id': precondition_case.id,
                 'name': precondition_case.name,
                 'project_id': precondition_case.project_id,
+                'postcondition_sql': precondition_case.postcondition_sql or '',
                 'steps': []
             }
             for step in steps:
@@ -4402,9 +4407,9 @@ class TestExecutor:
                     }
                 case_data['steps'].append(step_data)
 
-            # 执行前置用例（使用当前浏览器页面）
+            # 执行前置用例（使用当前浏览器页面），延迟后置SQL执行
             if self.engine == 'playwright' and self.current_page:
-                pre_result = self.execute_test_case_playwright_no_db(case_data)
+                pre_result = self.execute_test_case_playwright_no_db(case_data, defer_postcondition=True)
             else:
                 pre_result = None  # Selenium 暂不支持
                 print(f"[前置条件] Selenium引擎暂不支持前置条件执行")
@@ -4412,8 +4417,12 @@ class TestExecutor:
             if pre_result and pre_result['status'] != 'passed':
                 msg = f"前置用例「{precondition_case.name}」执行失败: {pre_result.get('error', '未知错误')}"
                 print(f"[前置条件] {msg}")
-                return False, msg
+                return False, msg, []
 
             print(f"[前置条件] 前置用例「{precondition_case.name}」执行通过")
 
-        return True, ''
+            # 收集该前置条件的后置SQL（用于主用例执行完后逆序执行）
+            if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
+                deferred_postconditions.append(case_data)
+
+        return True, '', deferred_postconditions
