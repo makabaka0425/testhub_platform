@@ -6078,43 +6078,62 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                 steps_data.append(step_data)
 
             # 预取前置条件数据（避免在异步上下文中访问Django ORM触发SynchronousOnlyOperation）
+            # 递归获取：前置条件的前置条件也要执行
             from .models import TestCasePrecondition
-            preconditions_data = []
-            precondition_rels = TestCasePrecondition.objects.filter(
-                test_case=test_case
-            ).select_related('precondition').order_by('order')
-            for rel in precondition_rels:
-                pre_case = rel.precondition
-                pre_steps_qs = pre_case.steps.filter(is_cleanup=False).select_related('element__locator_strategy').order_by('step_number')
-                pre_steps_list = []
-                for ps in pre_steps_qs:
-                    psd = {
-                        'step_number': ps.step_number,
-                        'action_type': ps.action_type,
-                        'description': ps.description,
-                        'input_value': ps.input_value,
-                        'wait_time': ps.wait_time,
-                        'action_wait': ps.action_wait,
-                        'assert_type': ps.assert_type,
-                        'assert_value': ps.assert_value,
-                        'output_var': ps.output_var or '',
-                    }
-                    if ps.element:
-                        psd['element_data'] = {
-                            'locator_strategy': ps.element.locator_strategy.name if ps.element.locator_strategy else 'css',
-                            'locator_value': ps.element.locator_value,
-                            'name': ps.element.name,
-                            'wait_timeout': ps.element.wait_timeout,
-                            'force_action': ps.element.force_action
+
+            def fetch_preconditions_recursive(test_case_id, visited_set=None):
+                """递归获取前置条件链（深度优先），避免循环依赖"""
+                if visited_set is None:
+                    visited_set = set()
+                if test_case_id in visited_set:
+                    return []
+                visited_set.add(test_case_id)
+
+                result = []
+                precondition_rels = TestCasePrecondition.objects.filter(
+                    test_case_id=test_case_id
+                ).select_related('precondition').order_by('order')
+
+                for rel in precondition_rels:
+                    pre_case = rel.precondition
+                    # 先递归获取该前置条件自身的前置条件
+                    nested_preconditions = fetch_preconditions_recursive(pre_case.id, visited_set)
+                    result.extend(nested_preconditions)
+
+                    # 再获取该前置条件本身的步骤
+                    pre_steps_qs = pre_case.steps.filter(is_cleanup=False).select_related('element__locator_strategy').order_by('step_number')
+                    pre_steps_list = []
+                    for ps in pre_steps_qs:
+                        psd = {
+                            'step_number': ps.step_number,
+                            'action_type': ps.action_type,
+                            'description': ps.description,
+                            'input_value': ps.input_value,
+                            'wait_time': ps.wait_time,
+                            'action_wait': ps.action_wait,
+                            'assert_type': ps.assert_type,
+                            'assert_value': ps.assert_value,
+                            'output_var': ps.output_var or '',
                         }
-                    else:
-                        psd['element_data'] = None
-                    pre_steps_list.append(psd)
-                preconditions_data.append({
-                    'id': pre_case.id,
-                    'name': pre_case.name,
-                    'steps': pre_steps_list,
-                })
+                        if ps.element:
+                            psd['element_data'] = {
+                                'locator_strategy': ps.element.locator_strategy.name if ps.element.locator_strategy else 'css',
+                                'locator_value': ps.element.locator_value,
+                                'name': ps.element.name,
+                                'wait_timeout': ps.element.wait_timeout,
+                                'force_action': ps.element.force_action
+                            }
+                        else:
+                            psd['element_data'] = None
+                        pre_steps_list.append(psd)
+                    result.append({
+                        'id': pre_case.id,
+                        'name': pre_case.name,
+                        'steps': pre_steps_list,
+                    })
+                return result
+
+            preconditions_data = fetch_preconditions_recursive(test_case.id)
 
             # 存储步骤执行结果（用于JSON格式的execution_logs）
             step_results = []
