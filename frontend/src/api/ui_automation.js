@@ -618,6 +618,14 @@ export function getElementGroupTree(params) {
   })
 }
 
+export function batchReorderElementGroups(data) {
+  return request({
+    url: '/ui-automation/element-groups/batch_reorder/',
+    method: 'post',
+    data
+  })
+}
+
 // 用例分组相关API
 export function getTestCaseGroups(params) {
   return request({
@@ -1047,6 +1055,14 @@ export function batchReorderTestCases(orders) {
     url: '/ui-automation/test-cases/batch_reorder/',
     method: 'post',
     data: { orders }
+  })
+}
+
+export function batchReorderElements(data) {
+  return request({
+    url: '/ui-automation/elements/batch_reorder/',
+    method: 'post',
+    data
   })
 }
 
