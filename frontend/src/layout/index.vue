@@ -720,29 +720,21 @@ const handleCommand = (command) => {
 
 .el-main {
   background-color: #f5f5f5;
-  padding: 20px;
+  padding: 20px !important;
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 @media screen and (max-width: 1920px) {
   .el-aside {
     width: 160px !important;
   }
-  
-  .el-main {
-    padding: 18px;
-  }
 }
 
 @media screen and (max-width: 1600px) {
   .el-aside {
     width: 160px !important;
-  }
-  
-  .el-main {
-    padding: 16px;
   }
 
   .el-menu {
@@ -757,10 +749,6 @@ const handleCommand = (command) => {
   .el-aside {
     width: 160px !important;
   }
-  
-  .el-main {
-    padding: 14px;
-  }
 
   .el-menu {
     :deep(.el-sub-menu__title),
@@ -773,10 +761,6 @@ const handleCommand = (command) => {
 @media screen and (max-width: 1366px) {
   .el-aside {
     width: 160px !important;
-  }
-  
-  .el-main {
-    padding: 12px;
   }
 
   .el-header {
@@ -794,10 +778,6 @@ const handleCommand = (command) => {
 @media screen and (max-width: 1280px) {
   .el-aside {
     width: 160px !important;
-  }
-  
-  .el-main {
-    padding: 12px;
   }
 
   .el-header {
@@ -820,10 +800,6 @@ const handleCommand = (command) => {
 @media screen and (max-width: 1024px) {
   .el-aside {
     width: 160px !important;
-  }
-  
-  .el-main {
-    padding: 10px;
   }
 
   .el-header {
@@ -862,10 +838,6 @@ const handleCommand = (command) => {
     }
   }
   
-  .el-main {
-    padding: 8px;
-  }
-
   .el-header {
     height: 50px !important;
     
@@ -888,10 +860,6 @@ const handleCommand = (command) => {
     width: 160px !important;
   }
   
-  .el-main {
-    padding: 6px;
-  }
-
   .el-header {
     height: 48px !important;
     

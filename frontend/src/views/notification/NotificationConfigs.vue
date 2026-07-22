@@ -426,9 +426,9 @@ export default {
 
 <style scoped>
 .notification-configs-container {
-  padding: 24px;
+  padding: 0;
   background: #f5f7fa;
-  min-height: calc(100vh - 100px);
+  min-height: 100%;
 }
 
 .page-header {

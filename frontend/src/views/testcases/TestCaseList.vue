@@ -650,8 +650,8 @@ onMounted(() => {
 .page-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 100px);
-  padding: 20px;
+  height: 100%;
+  padding: 0;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -768,10 +768,6 @@ onMounted(() => {
 }
 
 @media (max-width: 768px) {
-  .page-container {
-    padding: 10px;
-  }
-  
   .page-header {
     flex-direction: column;
     align-items: flex-start;

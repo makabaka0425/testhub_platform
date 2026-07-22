@@ -385,9 +385,9 @@ onUnmounted(() => {
 
 <style scoped>
 .test-report {
-  padding: 20px;
+  padding: 0;
   background-color: #f5f7fa;
-  min-height: calc(100vh - 100px);
+  min-height: 100%;
 }
 
 .filter-bar {

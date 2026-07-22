@@ -2808,7 +2808,7 @@ onMounted(async () => {
    页面容器 / 标题栏 / 工作区
    ============================================================ */
 .page-container {
-  height: calc(100vh - 100px);
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2821,7 +2821,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-6);
+  padding: 0;
 }
 
 .page-title {
@@ -2846,7 +2846,7 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   overflow: hidden;
-  padding: 0 var(--space-6) var(--space-6);
+  padding: 0;
   gap: var(--space-4);
   min-height: 0;
   position: relative; /* 为右侧 el-drawer 的 absolute 定位提供参照，确保抽屉高度被 workspace 约束 */

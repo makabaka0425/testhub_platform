@@ -1,148 +1,159 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <div class="page-titlebar">
       <h1 class="page-title">{{ $t('uiAutomation.scheduledTask.title') }}</h1>
-      <el-button type="primary" @click="handleCreateClick">
-        <el-icon><Plus /></el-icon>
-        {{ $t('uiAutomation.scheduledTask.newTask') }}
-      </el-button>
+      <div class="titlebar-actions">
+        <el-button type="primary" size="small" @click="handleCreateClick">
+          <el-icon><Plus /></el-icon>
+          {{ $t('uiAutomation.scheduledTask.newTask') }}
+        </el-button>
+      </div>
     </div>
 
-    <!-- 筛选条件 -->
-    <div class="filter-bar">
-      <el-form :inline="true">
-        <el-form-item :label="$t('uiAutomation.scheduledTask.taskName')">
-          <el-input
-            v-model="filters.search"
-            :placeholder="$t('uiAutomation.scheduledTask.taskName')"
-            clearable
-            style="width: 180px"
-            @keyup.enter="loadTasks"
-          >
-            <template #prefix><el-icon><Search /></el-icon></template>
-          </el-input>
-        </el-form-item>
-        <el-form-item :label="$t('uiAutomation.scheduledTask.taskType')">
-          <el-select v-model="filters.task_type" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
-            <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testSuite')" value="TEST_SUITE" />
-            <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testCase')" value="TEST_CASE" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="$t('uiAutomation.scheduledTask.triggerType')">
-          <el-select v-model="filters.trigger_type" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
-            <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.cron')" value="CRON" />
-            <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.interval')" value="INTERVAL" />
-            <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.once')" value="ONCE" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="$t('uiAutomation.scheduledTask.status')">
-          <el-select v-model="filters.status" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
-            <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.active')" value="ACTIVE" />
-            <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.paused')" value="PAUSED" />
-            <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.completed')" value="COMPLETED" />
-            <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.failed')" value="FAILED" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="loadTasks">{{ $t('uiAutomation.common.search') }}</el-button>
-          <el-button @click="resetFilters">{{ $t('uiAutomation.common.reset') }}</el-button>
-        </el-form-item>
-      </el-form>
-    </div>
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 搜索区域卡片 -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item :label="$t('uiAutomation.scheduledTask.taskName')">
+              <el-input
+                v-model="filters.search"
+                :placeholder="$t('uiAutomation.scheduledTask.taskName')"
+                clearable
+                style="width: 180px"
+                @keyup.enter="loadTasks"
+              >
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item :label="$t('uiAutomation.scheduledTask.taskType')">
+              <el-select v-model="filters.task_type" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
+                <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testSuite')" value="TEST_SUITE" />
+                <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testCase')" value="TEST_CASE" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="$t('uiAutomation.scheduledTask.triggerType')">
+              <el-select v-model="filters.trigger_type" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
+                <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.cron')" value="CRON" />
+                <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.interval')" value="INTERVAL" />
+                <el-option :label="$t('uiAutomation.scheduledTask.triggerTypes.once')" value="ONCE" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="$t('uiAutomation.scheduledTask.status')">
+              <el-select v-model="filters.status" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
+                <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.active')" value="ACTIVE" />
+                <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.paused')" value="PAUSED" />
+                <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.completed')" value="COMPLETED" />
+                <el-option :label="$t('uiAutomation.scheduledTask.statusTypes.failed')" value="FAILED" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="loadTasks">{{ $t('uiAutomation.common.search') }}</el-button>
+              <el-button @click="resetFilters">{{ $t('uiAutomation.common.reset') }}</el-button>
+            </el-form-item>
+          </el-form>
+        </div>
 
-    <!-- 任务列表 -->
-    <div class="table-scroll-area">
-      <el-table :data="tasks" v-loading="loading">
-        <el-table-column prop="name" :label="$t('uiAutomation.scheduledTask.taskName')" min-width="200" />
-        <el-table-column prop="task_type" :label="$t('uiAutomation.scheduledTask.taskType')" width="120">
-          <template #default="scope">
-            <el-tag :type="scope.row.task_type === 'TEST_SUITE' ? 'success' : 'primary'">
-              {{ scope.row.task_type === 'TEST_SUITE' ? $t('uiAutomation.scheduledTask.taskTypes.testSuiteShort') : $t('uiAutomation.scheduledTask.taskTypes.testCaseShort') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="notification_type_display" :label="$t('uiAutomation.scheduledTask.notificationType')" width="130">
-          <template #default="scope">
-            <el-tag v-if="scope.row.notification_type_display && scope.row.notification_type_display !== '-'"
-                    :type="getNotificationTypeTagType(scope.row.notification_type_display)"
-                    size="small">
-              {{ getNotificationTypeText(scope.row.notification_type) }}
-            </el-tag>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="trigger_type" :label="$t('uiAutomation.scheduledTask.triggerType')" width="120">
-          <template #default="scope">
-            <el-tag>
-              {{ getTriggerTypeText(scope.row.trigger_type) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" :label="$t('uiAutomation.scheduledTask.status')" width="100">
-          <template #default="scope">
-            <el-tag :type="scope.row.status === 'ACTIVE' ? 'success' : scope.row.status === 'PAUSED' ? 'warning' : 'info'">
-              {{ getStatusText(scope.row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="engine" :label="$t('uiAutomation.scheduledTask.executionEngine')" width="120">
-          <template #default="scope">
-            <el-tag size="small" type="info">
-              {{ scope.row.engine === 'playwright' ? 'Playwright' : 'Selenium' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="browser" :label="$t('uiAutomation.scheduledTask.browser')" width="100">
-          <template #default="scope">
-            {{ scope.row.browser || 'chrome' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="next_run_time" :label="$t('uiAutomation.scheduledTask.nextRunTime')" width="180">
-          <template #default="scope">
-            {{ formatDateTime(scope.row.next_run_time) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="last_run_time" :label="$t('uiAutomation.scheduledTask.lastRunTime')" width="180">
-          <template #default="scope">
-            {{ formatDateTime(scope.row.last_run_time) }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right" align="left">
-          <template #default="scope">
-            <div style="padding-left: 12px;">
-            <el-button link type="primary" size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
-              {{ $t('uiAutomation.scheduledTask.runNow') }}
-            </el-button>
-            <el-dropdown @command="(command) => handleTaskAction(command, scope.row)">
-              <el-button link type="primary" size="small">
-                {{ $t('uiAutomation.scheduledTask.more') }}<el-icon><arrow-down /></el-icon>
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="edit">{{ $t('uiAutomation.scheduledTask.actions.edit') }}</el-dropdown-item>
-                  <el-dropdown-item command="pause" v-if="scope.row.status === 'ACTIVE'">{{ $t('uiAutomation.scheduledTask.actions.pause') }}</el-dropdown-item>
-                  <el-dropdown-item command="resume" v-if="scope.row.status === 'PAUSED'">{{ $t('uiAutomation.scheduledTask.actions.resume') }}</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>{{ $t('uiAutomation.scheduledTask.actions.delete') }}</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
+        <!-- 任务列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">任务列表</span>
+          </div>
 
-    <!-- 分页 -->
-    <div class="pagination-container">
-      <el-pagination
-        v-model:current-page="pagination.current"
-        v-model:page-size="pagination.size"
-        :total="pagination.total"
-        :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next, jumper"
-        @size-change="loadTasks"
-        @current-change="loadTasks"
-      />
+          <div class="panel__body scheduled-task-table-wrapper">
+            <el-table :data="tasks" v-loading="loading">
+              <el-table-column prop="name" :label="$t('uiAutomation.scheduledTask.taskName')" min-width="200" />
+              <el-table-column prop="task_type" :label="$t('uiAutomation.scheduledTask.taskType')" width="120">
+                <template #default="scope">
+                  <el-tag :type="scope.row.task_type === 'TEST_SUITE' ? 'success' : 'primary'">
+                    {{ scope.row.task_type === 'TEST_SUITE' ? $t('uiAutomation.scheduledTask.taskTypes.testSuiteShort') : $t('uiAutomation.scheduledTask.taskTypes.testCaseShort') }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="notification_type_display" :label="$t('uiAutomation.scheduledTask.notificationType')" width="130">
+                <template #default="scope">
+                  <el-tag v-if="scope.row.notification_type_display && scope.row.notification_type_display !== '-'"
+                          :type="getNotificationTypeTagType(scope.row.notification_type_display)"
+                          size="small">
+                    {{ getNotificationTypeText(scope.row.notification_type) }}
+                  </el-tag>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="trigger_type" :label="$t('uiAutomation.scheduledTask.triggerType')" width="120">
+                <template #default="scope">
+                  <el-tag>
+                    {{ getTriggerTypeText(scope.row.trigger_type) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="status" :label="$t('uiAutomation.scheduledTask.status')" width="100">
+                <template #default="scope">
+                  <el-tag :type="scope.row.status === 'ACTIVE' ? 'success' : scope.row.status === 'PAUSED' ? 'warning' : 'info'">
+                    {{ getStatusText(scope.row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="engine" :label="$t('uiAutomation.scheduledTask.executionEngine')" width="120">
+                <template #default="scope">
+                  <el-tag size="small" type="info">
+                    {{ scope.row.engine === 'playwright' ? 'Playwright' : 'Selenium' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="browser" :label="$t('uiAutomation.scheduledTask.browser')" width="100">
+                <template #default="scope">
+                  {{ scope.row.browser || 'chrome' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="next_run_time" :label="$t('uiAutomation.scheduledTask.nextRunTime')" width="180">
+                <template #default="scope">
+                  {{ formatDateTime(scope.row.next_run_time) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="last_run_time" :label="$t('uiAutomation.scheduledTask.lastRunTime')" width="180">
+                <template #default="scope">
+                  {{ formatDateTime(scope.row.last_run_time) }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('uiAutomation.common.operation')" width="200" align="left">
+                <template #default="scope">
+                  <div class="op-btns">
+                    <el-button class="op-btn" link type="primary" size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
+                      {{ $t('uiAutomation.scheduledTask.runNow') }}
+                    </el-button>
+                    <el-dropdown @command="(command) => handleTaskAction(command, scope.row)">
+                      <el-button class="op-btn" link type="primary" size="small">
+                        {{ $t('uiAutomation.scheduledTask.more') }}<el-icon><arrow-down /></el-icon>
+                      </el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item command="edit">{{ $t('uiAutomation.scheduledTask.actions.edit') }}</el-dropdown-item>
+                          <el-dropdown-item command="pause" v-if="scope.row.status === 'ACTIVE'">{{ $t('uiAutomation.scheduledTask.actions.pause') }}</el-dropdown-item>
+                          <el-dropdown-item command="resume" v-if="scope.row.status === 'PAUSED'">{{ $t('uiAutomation.scheduledTask.actions.resume') }}</el-dropdown-item>
+                          <el-dropdown-item command="delete" divided>{{ $t('uiAutomation.scheduledTask.actions.delete') }}</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="pagination.current"
+              v-model:page-size="pagination.size"
+              :total="pagination.total"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              @size-change="loadTasks"
+              @current-change="loadTasks"
+            />
+          </div>
+        </section>
+      </div>
     </div>
 
     <!-- 创建/编辑对话框 -->
@@ -724,7 +735,128 @@ const deleteTask = async (task) => {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+/* ============================================================
+   页面容器 / 标题栏 / 工作区（参照套件管理）
+   ============================================================ */
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.scheduled-task-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 表格样式 */
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
+}
+
+/* 操作按钮 */
+.op-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+/* 表单样式 */
 .cron-help {
   margin-top: 8px;
   font-size: 12px;

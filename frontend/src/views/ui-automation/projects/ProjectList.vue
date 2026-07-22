@@ -1,76 +1,93 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <div class="page-titlebar">
       <h1 class="page-title">{{ $t('uiAutomation.project.title') }}</h1>
-      <el-button type="primary" @click="showCreateDialog = true">
-        <el-icon><Plus /></el-icon>
-        {{ $t('uiAutomation.project.newProject') }}
-      </el-button>
+      <div class="titlebar-actions">
+        <el-button type="primary" @click="showCreateDialog = true">
+          <el-icon><Plus /></el-icon>
+          {{ $t('uiAutomation.project.newProject') }}
+        </el-button>
+      </div>
     </div>
-    
-    <div class="filter-bar">
-      <el-form :inline="true">
-        <el-form-item>
-          <el-input
-            v-model="searchText"
-            :placeholder="$t('uiAutomation.project.searchPlaceholder')"
-            clearable
-            @input="handleSearch"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </el-form-item>
-        <el-form-item>
-          <el-select v-model="statusFilter" :placeholder="$t('uiAutomation.project.statusFilter')" clearable @change="handleFilter">
-            <el-option :label="$t('uiAutomation.status.notStarted')" value="NOT_STARTED" />
-            <el-option :label="$t('uiAutomation.status.inProgress')" value="IN_PROGRESS" />
-            <el-option :label="$t('uiAutomation.status.completed')" value="COMPLETED" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-    </div>
-      
-    <div class="table-scroll-area">
-      <el-table :data="projects" v-loading="loading" style="width: 100%">
-        <el-table-column prop="name" :label="$t('uiAutomation.project.projectName')" min-width="200">
-          <template #default="{ row }">
-            <el-link @click="goToProjectDetail(row.id)" type="primary">
-              {{ row.name }}
-            </el-link>
-          </template>
-        </el-table-column>
-        <el-table-column prop="description" :label="$t('uiAutomation.common.description')" min-width="300" show-overflow-tooltip />
-        <el-table-column prop="status" :label="$t('uiAutomation.common.status')" width="100">
-          <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="base_url" :label="$t('uiAutomation.project.baseUrl')" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="owner.username" :label="$t('uiAutomation.project.owner')" width="100" />
-        <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
-        <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="240" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="goToProjectDetail(row.id)">{{ $t('uiAutomation.common.view') }}</el-button>
-            <el-button link type="primary" @click="editProject(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
-            <el-button link type="danger" @click="showCleanDialog(row)">清理数据</el-button>
-            <el-button link type="danger" @click="deleteProject(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
 
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="pagination.currentPage"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="total"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
-        />
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 搜索区域卡片 -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item>
+              <el-input
+                v-model="searchText"
+                :placeholder="$t('uiAutomation.project.searchPlaceholder')"
+                clearable
+                style="width: 200px"
+                @input="handleSearch"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+            <el-form-item>
+              <el-select v-model="statusFilter" :placeholder="$t('uiAutomation.project.statusFilter')" clearable style="width: 130px" @change="handleFilter">
+                <el-option :label="$t('uiAutomation.status.notStarted')" value="NOT_STARTED" />
+                <el-option :label="$t('uiAutomation.status.inProgress')" value="IN_PROGRESS" />
+                <el-option :label="$t('uiAutomation.status.completed')" value="COMPLETED" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- 项目列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">项目列表</span>
+          </div>
+
+          <div class="panel__body project-table-wrapper">
+            <el-table :data="projects" v-loading="loading" style="width: 100%">
+              <el-table-column prop="name" :label="$t('uiAutomation.project.projectName')" min-width="200">
+                <template #default="{ row }">
+                  <el-link @click="goToProjectDetail(row.id)" type="primary">
+                    {{ row.name }}
+                  </el-link>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" :label="$t('uiAutomation.common.description')" min-width="300" show-overflow-tooltip />
+              <el-table-column prop="status" :label="$t('uiAutomation.common.status')" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="base_url" :label="$t('uiAutomation.project.baseUrl')" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="owner.username" :label="$t('uiAutomation.project.owner')" width="100" />
+              <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
+              <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
+              <el-table-column :label="$t('uiAutomation.common.operation')" width="240">
+                <template #default="{ row }">
+                  <div class="op-btns">
+                    <el-button class="op-btn" link type="primary" size="small" @click="goToProjectDetail(row.id)">{{ $t('uiAutomation.common.view') }}</el-button>
+                    <el-button class="op-btn" link type="primary" size="small" @click="editProject(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
+                    <el-button class="op-btn op-btn--danger" link size="small" @click="showCleanDialog(row)">清理数据</el-button>
+                    <el-button class="op-btn op-btn--danger" link size="small" @click="deleteProject(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="total"
+              @size-change="handleSizeChange"
+              @current-change="handleCurrentChange"
+            />
+          </div>
+        </section>
       </div>
     </div>
     
@@ -761,4 +778,130 @@ onMounted(() => {
   loadProjects()
 })
 </script>
+
+<style scoped lang="scss">
+/* ============================================================
+   页面容器 / 标题栏 / 工作区（参照套件管理）
+   ============================================================ */
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.project-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 表格样式 */
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
+}
+
+/* 操作按钮 */
+.op-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
+}
+</style>
 

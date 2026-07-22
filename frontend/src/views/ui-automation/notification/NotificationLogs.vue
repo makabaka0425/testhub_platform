@@ -1,152 +1,167 @@
 <template>
   <div class="page-container">
-    <!-- 筛选栏 -->
-    <div class="filter-bar">
-      <el-form :inline="true">
-        <el-form-item :label="$t('uiAutomation.notification.logs.taskName')">
-          <el-input
-              v-model="searchForm.taskName"
-              :placeholder="$t('uiAutomation.notification.logs.searchTaskName')"
-              clearable
-              @clear="handleSearch"
-              @keyup.enter="handleSearch"
-              style="width: 200px"
-          >
-            <template #prefix>
-              <el-icon>
-                <Search/>
-              </el-icon>
-            </template>
-          </el-input>
-        </el-form-item>
-        <el-form-item :label="$t('uiAutomation.notification.logs.dateRange')">
-          <el-date-picker
-              v-model="searchForm.dateRange"
-              type="daterange"
-              :range-separator="$t('uiAutomation.notification.logs.dateRangeTo')"
-              :start-placeholder="$t('uiAutomation.notification.logs.startDate')"
-              :end-placeholder="$t('uiAutomation.notification.logs.endDate')"
-              value-format="YYYY-MM-DD"
-              @change="handleSearch"
-          />
-        </el-form-item>
-        <el-form-item :label="$t('uiAutomation.notification.logs.notificationStatus')">
-          <el-select
-              v-model="searchForm.status"
-              :placeholder="$t('uiAutomation.common.all')"
-              clearable
-              style="width: 130px"
-              @change="handleSearch"
-          >
-            <el-option :label="$t('uiAutomation.notification.logs.statusSuccess')" value="SUCCESS"/>
-            <el-option :label="$t('uiAutomation.notification.logs.statusFailed')" value="FAILED"/>
-            <el-option :label="$t('uiAutomation.notification.logs.statusRetrying')" value="RETRYING"/>
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">{{ $t('uiAutomation.common.search') }}</el-button>
-          <el-button @click="handleReset">{{ $t('uiAutomation.common.reset') }}</el-button>
-        </el-form-item>
-      </el-form>
+    <div class="page-titlebar">
+      <h1 class="page-title">{{ $t('uiAutomation.notification.logs.title') }}</h1>
     </div>
 
-    <!-- 通知列表 -->
-    <div class="table-scroll-area">
-      <el-table
-          :data="logsData"
-          v-loading="loading"
-          :element-loading-text="$t('uiAutomation.notification.logs.messages.loading')"
-          style="width: 100%"
-          @sort-change="handleSortChange"
-      >
-        <el-table-column
-            prop="task_name"
-            :label="$t('uiAutomation.notification.logs.taskName')"
-            min-width="150"
-            sortable="custom"
-        />
-        <el-table-column
-            prop="task_type_display"
-            :label="$t('uiAutomation.notification.logs.taskType')"
-            min-width="100"
-        >
-          <template #default="{ row }">
-            <el-tag
-                type="info"
-                size="small"
-            >
-              {{ row.task_type_display }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-            prop="actual_notification_type_display"
-            :label="$t('uiAutomation.notification.logs.notificationType')"
-            min-width="120"
-        >
-          <template #default="{ row }">
-            <el-tag
-                :type="getNotificationTypeTagType(row.actual_notification_type_display)"
-                size="small"
-            >
-              {{ row.actual_notification_type_display }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-            prop="created_at"
-            :label="$t('uiAutomation.notification.logs.notificationTime')"
-            min-width="180"
-            sortable="custom"
-        >
-          <template #default="{ row }">
-            {{ formatDate(row.created_at) }}
-          </template>
-        </el-table-column>
-        <el-table-column
-            prop="status_display"
-            :label="$t('uiAutomation.common.status')"
-            min-width="100"
-            sortable="custom"
-        >
-          <template #default="{ row }">
-            <el-tag
-                :type="getStatusTagType(row.status_display)"
-                size="small"
-            >
-              {{ row.status_display }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-            :label="$t('uiAutomation.common.operation')"
-            fixed="right"
-            width="120"
-        >
-          <template #default="{ row }">
-            <el-button
-                type="primary"
-                link
-                size="small"
-                @click="viewDetail(row)"
-            >
-              {{ $t('uiAutomation.notification.logs.viewDetail') }}
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 搜索区域卡片 -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item :label="$t('uiAutomation.notification.logs.taskName')">
+              <el-input
+                  v-model="searchForm.taskName"
+                  :placeholder="$t('uiAutomation.notification.logs.searchTaskName')"
+                  clearable
+                  @clear="handleSearch"
+                  @keyup.enter="handleSearch"
+                  style="width: 200px"
+              >
+                <template #prefix>
+                  <el-icon>
+                    <Search/>
+                  </el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+            <el-form-item :label="$t('uiAutomation.notification.logs.dateRange')">
+              <el-date-picker
+                  v-model="searchForm.dateRange"
+                  type="daterange"
+                  :range-separator="$t('uiAutomation.notification.logs.dateRangeTo')"
+                  :start-placeholder="$t('uiAutomation.notification.logs.startDate')"
+                  :end-placeholder="$t('uiAutomation.notification.logs.endDate')"
+                  value-format="YYYY-MM-DD"
+                  @change="handleSearch"
+              />
+            </el-form-item>
+            <el-form-item :label="$t('uiAutomation.notification.logs.notificationStatus')">
+              <el-select
+                  v-model="searchForm.status"
+                  :placeholder="$t('uiAutomation.common.all')"
+                  clearable
+                  style="width: 130px"
+                  @change="handleSearch"
+              >
+                <el-option :label="$t('uiAutomation.notification.logs.statusSuccess')" value="SUCCESS"/>
+                <el-option :label="$t('uiAutomation.notification.logs.statusFailed')" value="FAILED"/>
+                <el-option :label="$t('uiAutomation.notification.logs.statusRetrying')" value="RETRYING"/>
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="handleSearch">{{ $t('uiAutomation.common.search') }}</el-button>
+              <el-button @click="handleReset">{{ $t('uiAutomation.common.reset') }}</el-button>
+            </el-form-item>
+          </el-form>
+        </div>
 
-      <!-- 分页 -->
-      <div class="pagination-container">
-        <el-pagination
-            v-model:current-page="pagination.currentPage"
-            v-model:page-size="pagination.pageSize"
-            :page-sizes="[10, 20, 50, 100]"
-            :total="pagination.total"
-            layout="total, sizes, prev, pager, next, jumper"
-            @size-change="handleSizeChange"
-            @current-change="handleCurrentChange"
-        />
+        <!-- 通知列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">通知列表</span>
+          </div>
+
+          <div class="panel__body notification-log-table-wrapper">
+            <el-table
+                :data="logsData"
+                v-loading="loading"
+                :element-loading-text="$t('uiAutomation.notification.logs.messages.loading')"
+                style="width: 100%"
+                @sort-change="handleSortChange"
+            >
+              <el-table-column
+                  prop="task_name"
+                  :label="$t('uiAutomation.notification.logs.taskName')"
+                  min-width="150"
+                  sortable="custom"
+              />
+              <el-table-column
+                  prop="task_type_display"
+                  :label="$t('uiAutomation.notification.logs.taskType')"
+                  min-width="100"
+              >
+                <template #default="{ row }">
+                  <el-tag
+                      type="info"
+                      size="small"
+                  >
+                    {{ row.task_type_display }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column
+                  prop="actual_notification_type_display"
+                  :label="$t('uiAutomation.notification.logs.notificationType')"
+                  min-width="120"
+              >
+                <template #default="{ row }">
+                  <el-tag
+                      :type="getNotificationTypeTagType(row.actual_notification_type_display)"
+                      size="small"
+                  >
+                    {{ row.actual_notification_type_display }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column
+                  prop="created_at"
+                  :label="$t('uiAutomation.notification.logs.notificationTime')"
+                  min-width="180"
+                  sortable="custom"
+              >
+                <template #default="{ row }">
+                  {{ formatDate(row.created_at) }}
+                </template>
+              </el-table-column>
+              <el-table-column
+                  prop="status_display"
+                  :label="$t('uiAutomation.common.status')"
+                  min-width="100"
+                  sortable="custom"
+              >
+                <template #default="{ row }">
+                  <el-tag
+                      :type="getStatusTagType(row.status_display)"
+                      size="small"
+                  >
+                    {{ row.status_display }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column
+                  :label="$t('uiAutomation.common.operation')"
+                  width="120"
+              >
+                <template #default="{ row }">
+                  <div class="op-btns">
+                    <el-button
+                        class="op-btn"
+                        type="primary"
+                        link
+                        size="small"
+                        @click="viewDetail(row)"
+                    >
+                      {{ $t('uiAutomation.notification.logs.viewDetail') }}
+                    </el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+                v-model:current-page="pagination.currentPage"
+                v-model:page-size="pagination.pageSize"
+                :page-sizes="[10, 20, 50, 100]"
+                :total="pagination.total"
+                layout="total, sizes, prev, pager, next, jumper"
+                @size-change="handleSizeChange"
+                @current-change="handleCurrentChange"
+            />
+          </div>
+        </section>
       </div>
     </div>
 
@@ -544,7 +559,122 @@ export default {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+/* ============================================================
+   页面容器 / 标题栏 / 工作区（参照套件管理）
+   ============================================================ */
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.notification-log-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 表格样式 */
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
+}
+
+/* 操作按钮 */
+.op-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+/* 详情弹窗样式 */
 
 .notification-detail-form :deep(.el-form-item) {
   margin-bottom: 18px;
