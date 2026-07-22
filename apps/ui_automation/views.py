@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 import logging
 import json
@@ -4646,11 +4646,26 @@ class ElementGroupViewSet(viewsets.ModelViewSet):
         orders = request.data.get('orders', [])
         if not orders:
             return Response({'error': '缺少排序数据'}, status=status.HTTP_400_BAD_REQUEST)
-        for item in orders:
-            update_fields = {'order': item.get('order', 0)}
-            if 'parent_group' in item:
-                update_fields['parent_group'] = item['parent_group']
-            ElementGroup.objects.filter(id=item.get('id')).update(**update_fields)
+        try:
+            with transaction.atomic():
+                for item in orders:
+                    item_id = item.get('id')
+                    # 跳过无效ID（必须是整数，排除 'unassigned' 等虚拟节点ID）
+                    if not isinstance(item_id, int):
+                        logger.warning(f"batch_reorder: 跳过无效ID: {item_id}")
+                        continue
+                    update_fields = {'order': item.get('order', 0)}
+                    if 'parent_group' in item:
+                        pg = item['parent_group']
+                        # parent_group 必须是整数或 None
+                        if pg is not None and not isinstance(pg, int):
+                            logger.warning(f"batch_reorder: 跳过无效parent_group: {pg} (id={item_id})")
+                            continue
+                        update_fields['parent_group'] = pg
+                    ElementGroup.objects.filter(id=item_id).update(**update_fields)
+        except Exception as e:
+            logger.error(f"ElementGroup batch_reorder 异常: {e}", exc_info=True)
+            return Response({'error': f'排序保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({'status': 'ok'})
 
 
@@ -4693,11 +4708,24 @@ class TestCaseGroupViewSet(viewsets.ModelViewSet):
         orders = request.data.get('orders', [])
         if not orders:
             return Response({'error': '缺少排序数据'}, status=status.HTTP_400_BAD_REQUEST)
-        for item in orders:
-            update_fields = {'order': item.get('order', 0)}
-            if 'parent_group' in item:
-                update_fields['parent_group'] = item['parent_group']
-            TestCaseGroup.objects.filter(id=item.get('id')).update(**update_fields)
+        try:
+            with transaction.atomic():
+                for item in orders:
+                    item_id = item.get('id')
+                    if not isinstance(item_id, int):
+                        logger.warning(f"TestCaseGroup batch_reorder: 跳过无效ID: {item_id}")
+                        continue
+                    update_fields = {'order': item.get('order', 0)}
+                    if 'parent_group' in item:
+                        pg = item['parent_group']
+                        if pg is not None and not isinstance(pg, int):
+                            logger.warning(f"TestCaseGroup batch_reorder: 跳过无效parent_group: {pg} (id={item_id})")
+                            continue
+                        update_fields['parent_group'] = pg
+                    TestCaseGroup.objects.filter(id=item_id).update(**update_fields)
+        except Exception as e:
+            logger.error(f"TestCaseGroup batch_reorder 异常: {e}", exc_info=True)
+            return Response({'error': f'排序保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({'status': 'ok'})
 
 

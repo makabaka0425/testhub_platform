@@ -789,14 +789,15 @@ const onPageGroupRightClick = (event, data) => {
   }, 0)
 }
 
-// 页面分组拖拽排序：禁止拖拽"全部"节点
+// 页面分组拖拽排序：禁止拖拽虚拟节点（全部、未关联页面）和非页面节点
 const allowPageGroupDrag = (draggingNode) => {
-  return draggingNode.data.id !== '__all__'
+  const id = draggingNode.data.id
+  return id !== '__all__' && id !== 'unassigned' && draggingNode.data.type === 'page'
 }
 
-// 页面分组拖拽排序：禁止拖入"全部"节点内部
+// 页面分组拖拽排序：禁止拖入虚拟节点（全部、未关联页面）内部
 const allowPageGroupDrop = (draggingNode, dropNode, type) => {
-  if (dropNode.data.id === '__all__' && type !== 'before' && type !== 'after') return false
+  if (type === 'inner' && (dropNode.data.id === '__all__' || dropNode.data.id === 'unassigned')) return false
   return true
 }
 
@@ -813,15 +814,18 @@ const onPageGroupNodeDrop = async (draggingNode, dropNode, type) => {
   }
 
   const siblings = parentNode ? parentNode.childNodes : tree.store.root.childNodes
-  // 使用 _originalId 获取真实数据库ID（树节点id是 "page-xxx" 格式）
-  const newParentId = parentNode?.data?.id === '__all__'
+  // 虚拟节点（全部、未关联页面）作为父节点时，parent_group 为 null
+  const parentDataId = parentNode?.data?.id
+  const isVirtualParent = parentDataId === '__all__' || parentDataId === 'unassigned' || !parentDataId
+  const newParentId = isVirtualParent
     ? null
-    : (parentNode?.data?._originalId ?? parentNode?.data?.id ?? null)
+    : (parentNode?.data?._originalId ?? null)
 
+  // 过滤掉虚拟节点和没有真实ID的节点，只提交有效的页面分组
   const orders = siblings
-    .filter(node => node.data && node.data.id !== '__all__')
+    .filter(node => node.data && node.data.id !== '__all__' && node.data.id !== 'unassigned' && node.data._originalId != null)
     .map((node, index) => ({
-      id: node.data._originalId ?? node.data.id,
+      id: node.data._originalId,
       order: index,
       parent_group: newParentId
     }))
