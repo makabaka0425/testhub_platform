@@ -5770,7 +5770,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                 name=f"{test_case.name}_copy",
                 description=test_case.description,
                 priority=test_case.priority,
-                status=test_case.status,
+                status='normal',
                 group=test_case.group,
                 precondition_sql=test_case.precondition_sql,
                 postcondition_sql=test_case.postcondition_sql,
