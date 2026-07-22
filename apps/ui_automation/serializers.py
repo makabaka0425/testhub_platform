@@ -368,7 +368,7 @@ class ElementGroupSerializer(serializers.ModelSerializer):
 
     def get_children(self, obj):
         """获取子分组"""
-        children = obj.elementgroup_set.all()
+        children = obj.elementgroup_set.all().order_by('order', 'name')
         return ElementGroupSerializer(children, many=True, context=self.context).data
 
 

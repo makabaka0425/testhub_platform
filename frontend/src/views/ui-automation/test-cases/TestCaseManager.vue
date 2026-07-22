@@ -1151,6 +1151,7 @@ const loading = ref(false)
 const testCaseTableRef = ref(null)
 const sortableInstance = ref(null)
 const isDragging = ref(false)
+let _dragSelectedCases = []  // 拖拽期间暂存选中行
 
 // ========== 执行记录弹窗相关 ==========
 const historyDialogVisible = ref(false)
@@ -2701,16 +2702,34 @@ const initSortable = () => {
       animation: 150,
       onStart: () => {
         isDragging.value = true
+        // 暂存选中状态
+        _dragSelectedCases = selectedTestCases.value.slice()
       },
       onEnd: async (evt) => {
         isDragging.value = false
         const { oldIndex, newIndex } = evt
         if (oldIndex === newIndex) return
 
+        // 还原 Sortable 的 DOM 操作，让 Vue 通过数据变化自行渲染
+        const parent = evt.from
+        const item = evt.item
+        if (oldIndex < newIndex) {
+          // 向下拖：插回 oldIndex 位置
+          parent.insertBefore(item, parent.children[oldIndex])
+        } else {
+          // 向上拖：插到 oldIndex+1 之前（或末尾）
+          parent.insertBefore(item, parent.children[oldIndex + 1] || null)
+        }
+
+        // el-table 绑定的是 paginatedTestCases（分页数据），索引需要加偏移
+        const pageOffset = (currentPage.value - 1) * pageSize.value
+        const globalOldIndex = pageOffset + oldIndex
+        const globalNewIndex = pageOffset + newIndex
+
         // 更新 filteredTestCases 的顺序
         const list = [...filteredTestCases.value]
-        const [moved] = list.splice(oldIndex, 1)
-        list.splice(newIndex, 0, moved)
+        const [moved] = list.splice(globalOldIndex, 1)
+        list.splice(globalNewIndex, 0, moved)
 
         // 同步更新 testCases 数组中对应元素的 order
         const orders = list.map((tc, index) => ({ id: tc.id, order: index }))
@@ -2719,6 +2738,16 @@ const initSortable = () => {
         orders.forEach(item => {
           const tc = testCases.value.find(t => t.id === item.id)
           if (tc) tc.order = item.order
+        })
+
+        // 恢复选中状态
+        nextTick(() => {
+          if (_dragSelectedCases.length > 0 && testCaseTableRef.value) {
+            testCaseTableRef.value.clearSelection()
+            _dragSelectedCases.forEach(row => {
+              testCaseTableRef.value.toggleRowSelection(row, true)
+            })
+          }
         })
 
         // 调用后端批量排序API持久化
@@ -3099,11 +3128,11 @@ onMounted(async () => {
 }
 
 .list-panel :deep(.el-table .el-table__cell) {
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .list-panel :deep(.el-table .el-table__body tr) {
-  height: 52px;
+  height: 40px;
 }
 
 .list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {

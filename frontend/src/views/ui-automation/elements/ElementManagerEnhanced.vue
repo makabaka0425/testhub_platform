@@ -36,8 +36,12 @@
             :expand-on-click-node="false"
             :default-expanded-keys="pageExpandedKeys"
             highlight-current
+            draggable
+            :allow-drag="allowPageGroupDrag"
+            :allow-drop="allowPageGroupDrop"
             @node-click="onPageGroupClick"
             @node-contextmenu="onPageGroupRightClick"
+            @node-drop="onPageGroupNodeDrop"
           >
             <template #default="{ node, data }">
               <div class="group-tree-node">
@@ -95,7 +99,7 @@
               </div>
             </div>
           </transition>
-          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef">
+          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id">
             <el-table-column type="selection" width="40" />
             <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip />
             <el-table-column prop="element_type" label="类型" width="80">
@@ -516,6 +520,7 @@ import {
   Folder, Document as DocumentIcon, Operation, DocumentCopy, ArrowDown,
   MagicStick, Loading, VideoPlay, CopyDocument, FolderOpened, DeleteFilled
 } from '@element-plus/icons-vue'
+import Sortable from 'sortablejs'
 import {
   getUiProjects,
   getElements,
@@ -543,7 +548,9 @@ import {
   aiPickStatus,
   aiPickFinish,
   aiPickRemove,
-  getLoginConfigs
+  getLoginConfigs,
+  batchReorderElementGroups,
+  batchReorderElements
 } from '@/api/ui_automation'
 
 // 国际化
@@ -665,6 +672,8 @@ const filteredElements = computed(() => {
   if (searchStrategy.value) {
     result = result.filter(e => e.locator_strategy_id === searchStrategy.value)
   }
+  // 按 order 字段排序（拖拽排序后 order 会更新）
+  result = [...result].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   return result
 })
 
@@ -722,6 +731,52 @@ const onPageGroupRightClick = (event, data) => {
       document.addEventListener('mousedown', _hideMenuHandler)
     }
   }, 0)
+}
+
+// 页面分组拖拽排序：禁止拖拽"全部"节点
+const allowPageGroupDrag = (draggingNode) => {
+  return draggingNode.data.id !== '__all__'
+}
+
+// 页面分组拖拽排序：禁止拖入"全部"节点内部
+const allowPageGroupDrop = (draggingNode, dropNode, type) => {
+  if (dropNode.data.id === '__all__' && type !== 'before' && type !== 'after') return false
+  return true
+}
+
+// 页面分组拖拽完成后，收集同级节点的顺序并提交后端
+const onPageGroupNodeDrop = async (draggingNode, dropNode, type) => {
+  const tree = pageTreeRef.value
+  if (!tree) return
+
+  let parentNode
+  if (type === 'inner') {
+    parentNode = dropNode
+  } else {
+    parentNode = dropNode.parent
+  }
+
+  const siblings = parentNode ? parentNode.childNodes : tree.store.root.childNodes
+  // 使用 _originalId 获取真实数据库ID（树节点id是 "page-xxx" 格式）
+  const newParentId = parentNode?.data?.id === '__all__'
+    ? null
+    : (parentNode?.data?._originalId ?? parentNode?.data?.id ?? null)
+
+  const orders = siblings
+    .filter(node => node.data && node.data.id !== '__all__')
+    .map((node, index) => ({
+      id: node.data._originalId ?? node.data.id,
+      order: index,
+      parent_group: newParentId
+    }))
+  if (orders.length === 0) return
+  try {
+    await batchReorderElementGroups({ orders })
+    ElMessage.success('页面排序已保存')
+  } catch (e) {
+    console.error('页面排序保存失败:', e)
+    ElMessage.error('页面排序保存失败')
+  }
 }
 
 // 清理右键菜单监听器
@@ -929,6 +984,85 @@ const selectedElements = ref([])            // 选中的元素行
 const showBatchGroupDialog = ref(false)     // 批量修改所属页面弹窗
 const batchTargetGroupId = ref(null)        // 批量目标分组ID
 const batchLoading = ref(false)             // 批量操作进行中
+const elementSortableInstance = ref(null)    // 元素列表拖拽排序实例
+let _dragSelectedRows = []                  // 拖拽期间暂存选中行
+
+// 初始化元素表格行拖拽排序
+const initElementSortable = () => {
+  if (batchLoading.value) return
+  nextTick(() => {
+    const tableEl = elementTableRef.value?.$el
+    if (!tableEl) return
+    const tbody = tableEl.querySelector('.el-table__body-wrapper tbody')
+    if (!tbody) return
+
+    if (elementSortableInstance.value) {
+      elementSortableInstance.value.destroy()
+      elementSortableInstance.value = null
+    }
+
+    elementSortableInstance.value = Sortable.create(tbody, {
+      animation: 150,
+      onStart: () => {
+        // 拖拽开始，暂存选中状态
+        _dragSelectedRows = selectedElements.value.slice()
+      },
+      onEnd: async (evt) => {
+        const { oldIndex, newIndex } = evt
+        if (oldIndex === newIndex) return
+
+        // 还原 Sortable 的 DOM 操作，让 Vue 通过数据变化自行渲染
+        const parent = evt.from
+        const item = evt.item
+        if (oldIndex < newIndex) {
+          // 向下拖：插回 oldIndex 位置
+          parent.insertBefore(item, parent.children[oldIndex])
+        } else {
+          // 向上拖：插到 oldIndex+1 之前（或末尾）
+          parent.insertBefore(item, parent.children[oldIndex + 1] || null)
+        }
+
+        // el-table 绑定的是 pagedElements（分页数据），索引需要加偏移
+        const pageOffset = (elementCurrentPage.value - 1) * elementPageSize.value
+        const globalOldIndex = pageOffset + oldIndex
+        const globalNewIndex = pageOffset + newIndex
+
+        const list = [...filteredElements.value]
+        const [moved] = list.splice(globalOldIndex, 1)
+        list.splice(globalNewIndex, 0, moved)
+
+        const orders = list.map((el, index) => ({ id: el.id, order: index }))
+        orders.forEach(item => {
+          const el = allElements.value.find(e => e.id === item.id)
+          if (el) el.order = item.order
+        })
+
+        // 恢复选中状态
+        nextTick(() => {
+          if (_dragSelectedRows.length > 0 && elementTableRef.value) {
+            elementTableRef.value.clearSelection()
+            _dragSelectedRows.forEach(row => {
+              elementTableRef.value.toggleRowSelection(row, true)
+            })
+          }
+        })
+
+        try {
+          await batchReorderElements({ orders })
+        } catch (error) {
+          console.error('保存元素排序失败:', error)
+          ElMessage.error('保存排序失败')
+          await loadAllElements()
+        }
+      }
+    })
+  })
+}
+
+// 监听 filteredElements 变化重新初始化拖拽
+watch(filteredElements, () => {
+  initElementSortable()
+}, { deep: false })
 
 // 表格选择变化
 const handleSelectionChange = (rows) => {
@@ -1778,6 +1912,11 @@ onMounted(async () => {
     selectedProject.value = projects.value[0].id
     await onProjectChange()
   }
+
+  // 初始化元素列表拖拽排序
+  nextTick(() => {
+    initElementSortable()
+  })
 })
 
 // 组件卸载时清理
@@ -2590,5 +2729,14 @@ const updatePage = async () => {
 
 .group-context-menu li.danger:hover {
   background: var(--error-bg, #fef2f2);
+}
+
+/* 元素列表行高统一 */
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
 }
 </style>
