@@ -179,15 +179,9 @@
                 <span class="status-tag" :class="`status-${row.status || 'normal'}`">{{ getStatusText(row.status) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="320" align="left">
+            <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
-                <div class="op-btns">
-                  <el-button class="op-btn op-btn--text" type="primary" link size="small" @click.stop="runTestCase(row)">执行</el-button>
-                  <el-button class="op-btn op-btn--text" type="primary" link size="small" @click.stop="editTestCase(row)">编辑</el-button>
-                  <el-button class="op-btn op-btn--text" type="primary" link size="small" @click.stop="copyTestCase(row)">复制</el-button>
-                  <el-button class="op-btn op-btn--text" type="primary" link size="small" @click.stop="viewExecutionHistory(row)">记录</el-button>
-                  <el-button class="op-btn op-btn--text op-btn--danger" link size="small" @click.stop="deleteTestCase(row)">删除</el-button>
-                </div>
+                <ActionCell :actions="getCaseActions(row)" :row="row" :max-visible="3" />
               </template>
             </el-table-column>
           </el-table>
@@ -1058,6 +1052,7 @@ import {
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
 import DataFactorySelector from '@/components/DataFactorySelector.vue'
+import ActionCell from '@/components/ActionCell.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -2763,6 +2758,15 @@ watch(filteredTestCases, () => {
 }, { deep: false })
 
 // 组件挂载
+// 操作列 actions
+const getCaseActions = (row) => [
+  { key: 'run', label: '执行', onClick: (r) => runTestCase(r) },
+  { key: 'edit', label: '编辑', onClick: (r) => editTestCase(r) },
+  { key: 'copy', label: '复制', onClick: (r) => copyTestCase(r) },
+  { key: 'history', label: '记录', onClick: (r) => viewExecutionHistory(r) },
+  { key: 'delete', label: '删除', danger: true, onClick: (r) => deleteTestCase(r) }
+]
+
 onMounted(async () => {
   console.log('TestCaseManager onMounted 开始执行...')
   await loadProjects()

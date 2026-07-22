@@ -127,13 +127,9 @@
                 </el-table-column>
                 <el-table-column prop="last_execution_time" label="执行时间" width="170" :formatter="formatDate" />
                 <el-table-column prop="updated_at" label="更新时间" width="170" :formatter="formatDate" />
-                <el-table-column label="操作" width="200" v-if="!batchEditMode">
+                <el-table-column label="操作" width="160" fixed="right" v-if="!batchEditMode">
                   <template #default="{ row }">
-                    <div class="op-btns">
-                      <el-button class="op-btn" type="primary" link size="small" @click="editSuiteInfo(row)">编辑</el-button>
-                      <el-button class="op-btn" type="primary" link size="small" @click="runSuite(row)">运行</el-button>
-                      <el-button class="op-btn op-btn--danger" link size="small" @click="deleteSuite(row.id)">删除</el-button>
-                    </div>
+                    <ActionCell :actions="getSuiteActions(row)" :row="row" :max-visible="3" />
                   </template>
                 </el-table-column>
               </el-table>
@@ -337,6 +333,7 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, ArrowLeft, Close } from '@element-plus/icons-vue'
+import ActionCell from '@/components/ActionCell.vue'
 import {
   getUiProjects, getTestSuites, createTestSuite, updateTestSuite, deleteTestSuite,
   getTestCases, getTestSuiteTestCases, addTestCasesToTestSuite,
@@ -871,6 +868,13 @@ const pollBatchSuiteStatus = (suiteIds) => {
     } catch (e) { clearInterval(iv) }
   }, 3000)
 }
+
+// ==================== 操作列 actions ====================
+const getSuiteActions = (row) => [
+  { key: 'edit', label: '编辑', onClick: (r) => editSuiteInfo(r) },
+  { key: 'run', label: '运行', onClick: (r) => runSuite(r) },
+  { key: 'delete', label: '删除', danger: true, onClick: (r) => deleteSuite(r.id) }
+]
 
 // ==================== 辅助方法 ====================
 const formatDate = (row, col, val) => val ? new Date(val).toLocaleString() : ''

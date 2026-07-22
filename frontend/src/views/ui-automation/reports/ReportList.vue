@@ -73,16 +73,9 @@
                   {{ formatDate(row.created_at) }}
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('uiAutomation.common.operation')" width="200">
+              <el-table-column :label="$t('uiAutomation.common.operation')" width="130" fixed="right">
                 <template #default="{ row }">
-                  <div class="op-btns">
-                    <el-button class="op-btn" type="primary" link size="small" @click="viewReportDetail(row)">
-                      {{ $t('uiAutomation.report.viewDetail') }}
-                    </el-button>
-                    <el-button class="op-btn op-btn--danger" link size="small" @click="deleteReport(row)">
-                      {{ $t('uiAutomation.common.delete') }}
-                    </el-button>
-                  </div>
+                  <ActionCell :actions="getReportActions(row)" :row="row" :max-visible="3" />
                 </template>
               </el-table-column>
             </el-table>
@@ -306,6 +299,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Document, Delete, WarningFilled } from '@element-plus/icons-vue'
+import ActionCell from '@/components/ActionCell.vue'
 import {
   getUiProjects,
   getTestExecutions,
@@ -518,6 +512,12 @@ const formatDuration = (seconds) => {
   const secs = (seconds % 60).toFixed(0)
   return `${minutes}${t('uiAutomation.report.minutes')}${secs}${t('uiAutomation.report.seconds')}`
 }
+
+// 操作列 actions
+const getReportActions = (row) => [
+  { key: 'detail', label: t('uiAutomation.report.viewDetail'), onClick: (r) => viewReportDetail(r) },
+  { key: 'delete', label: t('uiAutomation.common.delete'), danger: true, onClick: (r) => deleteReport(r) }
+]
 
 onMounted(async () => {
   await loadProjects()

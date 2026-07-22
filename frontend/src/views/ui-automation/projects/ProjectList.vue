@@ -63,14 +63,9 @@
               <el-table-column prop="owner.username" :label="$t('uiAutomation.project.owner')" width="100" />
               <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
               <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
-              <el-table-column :label="$t('uiAutomation.common.operation')" width="240">
+              <el-table-column :label="$t('uiAutomation.common.operation')" width="180" fixed="right">
                 <template #default="{ row }">
-                  <div class="op-btns">
-                    <el-button class="op-btn" link type="primary" size="small" @click="goToProjectDetail(row.id)">{{ $t('uiAutomation.common.view') }}</el-button>
-                    <el-button class="op-btn" link type="primary" size="small" @click="editProject(row)">{{ $t('uiAutomation.common.edit') }}</el-button>
-                    <el-button class="op-btn op-btn--danger" link size="small" @click="showCleanDialog(row)">清理数据</el-button>
-                    <el-button class="op-btn op-btn--danger" link size="small" @click="deleteProject(row.id)">{{ $t('uiAutomation.common.delete') }}</el-button>
-                  </div>
+                  <ActionCell :actions="getProjectActions(row)" :row="row" :max-visible="3" />
                 </template>
               </el-table-column>
             </el-table>
@@ -337,6 +332,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, View, Edit, Delete } from '@element-plus/icons-vue'
 import { getUiProjects, createUiProject, updateUiProject, deleteUiProject, cleanProjectTestData, testDbConnection } from '@/api/ui_automation'
 import { useI18n } from 'vue-i18n'
+import ActionCell from '@/components/ActionCell.vue'
 
 const { t } = useI18n()
 
@@ -774,6 +770,14 @@ const handleEdit = async () => {
 }
 
 // 组件挂载时加载数据
+// 操作列 actions
+const getProjectActions = (row) => [
+  { key: 'view', label: t('uiAutomation.common.view'), onClick: (r) => goToProjectDetail(r.id) },
+  { key: 'edit', label: t('uiAutomation.common.edit'), onClick: (r) => editProject(r) },
+  { key: 'clean', label: '清理数据', danger: true, onClick: (r) => showCleanDialog(r) },
+  { key: 'delete', label: t('uiAutomation.common.delete'), danger: true, onClick: (r) => deleteProject(r.id) }
+]
+
 onMounted(() => {
   loadProjects()
 })

@@ -174,11 +174,7 @@
             </el-table-column>
             <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
-                <div class="op-btns">
-                  <el-button class="op-btn" type="primary" link size="small" @click="onEditElement(row)"><el-icon><Edit /></el-icon></el-button>
-                  <el-button class="op-btn" type="primary" link size="small" @click="copyElementFromList(row)"><el-icon><CopyDocument /></el-icon></el-button>
-                  <el-button class="op-btn op-btn--danger" link size="small" @click="deleteElementFromList(row)"><el-icon><Delete /></el-icon></el-button>
-                </div>
+                <ActionCell :actions="getElementActions(row)" :row="row" :max-visible="3" />
               </template>
             </el-table-column>
           </el-table>
@@ -571,6 +567,7 @@ import {
   MagicStick, Loading, VideoPlay, CopyDocument, FolderOpened, DeleteFilled
 } from '@element-plus/icons-vue'
 import Sortable from 'sortablejs'
+import ActionCell from '@/components/ActionCell.vue'
 import {
   getUiProjects,
   getElements,
@@ -2071,6 +2068,13 @@ const handleBatchImport = async () => {
     batchImportLoading.value = false
   }
 }
+
+// 操作列 actions
+const getElementActions = (row) => [
+  { key: 'edit', icon: Edit, onClick: (r) => onEditElement(r) },
+  { key: 'copy', icon: CopyDocument, onClick: (r) => copyElementFromList(r) },
+  { key: 'delete', icon: Delete, danger: true, onClick: (r) => deleteElementFromList(r) }
+]
 
 onMounted(async () => {
   await loadProjects()

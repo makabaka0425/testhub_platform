@@ -92,13 +92,9 @@
                 </template>
               </el-table-column>
               <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
-              <el-table-column label="操作" width="200">
+              <el-table-column label="操作" width="160" fixed="right">
                 <template #default="{ row }">
-                  <div class="op-btns">
-                    <el-button class="op-btn" type="primary" link size="small" @click="editPlan(row.id)">编辑</el-button>
-                    <el-button class="op-btn" type="success" link size="small" @click="runPlan(row)">执行</el-button>
-                    <el-button class="op-btn op-btn--danger" link size="small" @click="deletePlan(row.id)">删除</el-button>
-                  </div>
+                  <ActionCell :actions="getPlanActions(row)" :row="row" :max-visible="3" />
                 </template>
               </el-table-column>
             </el-table>
@@ -242,6 +238,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
+import ActionCell from '@/components/ActionCell.vue'
 import {
   getTestPlans, getTestPlan, createTestPlan, updateTestPlan, deleteTestPlan,
   getPlanItems, addPlanItem, addPlanItemsBatch, removePlanItem, runTestPlan,
@@ -333,6 +330,15 @@ const filteredAvailableSuites = computed(() => {
 })
 
 // 方法
+// 操作列 actions
+function getPlanActions(row) {
+  return [
+    { key: 'edit', label: '编辑', onClick: (r) => editPlan(r.id) },
+    { key: 'run', label: '执行', onClick: (r) => runPlan(r) },
+    { key: 'delete', label: '删除', danger: true, onClick: (r) => deletePlan(r.id) }
+  ]
+}
+
 function getStatusTag(status) {
   const map = { not_run: 'info', passed: 'success', failed: 'danger', running: 'warning' }
   return map[status] || 'info'
