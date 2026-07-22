@@ -2,101 +2,149 @@
   <div class="page-container">
     <!-- ==================== 套件列表视图 ==================== -->
     <template v-if="!currentSuite">
-      <div class="page-header">
+      <div class="page-titlebar">
         <h1 class="page-title">套件管理</h1>
-        <div class="header-actions">
-          <el-select v-model="projectId" placeholder="选择项目" style="width: 200px" @change="onProjectChange">
+        <div class="titlebar-actions">
+          <el-select v-model="projectId" placeholder="选择项目" class="titlebar-select" @change="onProjectChange">
             <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
           </el-select>
-          <el-button type="primary" @click="handleNewSuite">新增</el-button>
+          <el-button type="primary" size="small" @click="handleNewSuite">新增</el-button>
         </div>
       </div>
 
-      <div class="filter-bar">
-        <el-form :inline="true">
-          <el-form-item label="套件名称">
-            <el-input v-model="searchText" placeholder="搜索套件名称..." clearable @input="handleSearch" style="width: 200px">
-              <template #prefix><el-icon><Search /></el-icon></template>
-            </el-input>
-          </el-form-item>
-          <el-form-item label="执行模式">
-            <el-select v-model="filterExecutionMode" placeholder="全部" clearable style="width: 130px">
-              <el-option label="共享会话" value="shared_session" />
-              <el-option label="用例独立" value="per_case" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="执行状态">
-            <el-select v-model="filterExecutionStatus" placeholder="全部" clearable style="width: 130px">
-              <el-option label="未执行" value="not_run" />
-              <el-option label="通过" value="passed" />
-              <el-option label="失败" value="failed" />
-              <el-option label="执行中" value="running" />
-            </el-select>
-          </el-form-item>
-        </el-form>
-      </div>
+      <div class="workspace">
+        <div class="list-column">
+          <!-- 搜索区域卡片 -->
+          <div class="filter-bar">
+            <el-form :inline="true">
+              <el-form-item label="套件名称">
+                <el-input v-model="searchText" placeholder="搜索套件名称..." clearable @input="handleSearch" style="width: 200px">
+                  <template #prefix><el-icon><Search /></el-icon></template>
+                </el-input>
+              </el-form-item>
+              <el-form-item label="执行模式">
+                <el-select v-model="filterExecutionMode" placeholder="全部" clearable style="width: 130px">
+                  <el-option label="共享会话" value="shared_session" />
+                  <el-option label="用例独立" value="per_case" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="执行状态">
+                <el-select v-model="filterExecutionStatus" placeholder="全部" clearable style="width: 130px">
+                  <el-option label="未执行" value="not_run" />
+                  <el-option label="通过" value="passed" />
+                  <el-option label="失败" value="failed" />
+                  <el-option label="执行中" value="running" />
+                </el-select>
+              </el-form-item>
+            </el-form>
+          </div>
 
-      <div class="table-scroll-area">
-        <el-table :data="filteredSuites" v-loading="loading" style="width: 100%">
-          <el-table-column prop="name" label="套件名称" min-width="200">
-            <template #default="{ row }">
-              <el-link @click="enterSuiteDetail(row)" type="primary">{{ row.name }}</el-link>
-            </template>
-          </el-table-column>
-          <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
-          <el-table-column label="执行模式" width="130">
-            <template #default="{ row }">
-              <el-tag size="small" :type="row.execution_mode === 'shared_session' ? 'success' : 'info'">
-                {{ row.execution_mode === 'shared_session' ? '共享会话' : '用例独立' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="登录配置" width="150">
-            <template #default="{ row }">
-              <span v-if="row.login_config_name">{{ row.login_config_name }}</span>
-              <span v-else style="color: #909399">未配置</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="用例数" width="80" align="center">
-            <template #default="{ row }">{{ row.test_case_count || 0 }}</template>
-          </el-table-column>
-          <el-table-column label="执行状态" width="100" align="center">
-            <template #default="{ row }">
-              <el-tag size="small" :type="getExecutionStatusTag(row.execution_status)">
-                {{ getExecutionStatusText(row.execution_status) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="通过" width="60" align="center">
-            <template #default="{ row }">
-              <span style="color: #67c23a; font-weight: bold">{{ row.passed_count || 0 }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="失败" width="60" align="center">
-            <template #default="{ row }">
-              <span style="color: #f56c6c; font-weight: bold">{{ row.failed_count || 0 }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="跳过" width="60" align="center">
-            <template #default="{ row }">
-              <span style="color: #e6a23c; font-weight: bold">{{ row.skipped_count || 0 }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="updated_at" label="更新时间" width="170" :formatter="formatDate" />
-          <el-table-column label="操作" width="200">
-            <template #default="{ row }">
-              <div class="op-btns">
-                <el-button class="op-btn" type="primary" link size="small" @click="editSuiteInfo(row)">编辑</el-button>
-                <el-button class="op-btn" type="primary" link size="small" @click="runSuite(row)">运行</el-button>
-                <el-button class="op-btn op-btn--danger" link size="small" @click="deleteSuite(row.id)">删除</el-button>
+          <!-- 套件列表面板 -->
+          <section class="panel list-panel">
+            <div class="panel__header">
+              <span class="panel__title">套件列表</span>
+            </div>
+
+            <div class="panel__body suite-table-wrapper">
+              <!-- 批量工具栏（选中状态） -->
+              <div class="batch-toolbar" v-if="!batchEditMode && selectedSuites.length > 0">
+                <span class="batch-count">已选 {{ selectedSuites.length }} 项</span>
+                <el-button size="small" type="primary" @click="enterBatchEditMode">批量编辑</el-button>
+                <el-button size="small" type="success" @click="batchRunSuites" :loading="batchRunLoading">批量运行</el-button>
+                <el-button size="small" type="danger" plain @click="batchDeleteSuites">批量删除</el-button>
               </div>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div class="pagination-container">
-          <el-pagination v-model:current-page="pagination.currentPage" v-model:page-size="pagination.pageSize"
-            :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" :total="total"
-            @size-change="handleSizeChange" @current-change="handleCurrentChange" />
+
+              <!-- 批量编辑操作栏 -->
+              <div class="batch-edit-bar" v-if="batchEditMode">
+                <span class="batch-count">批量编辑模式：已选 {{ batchEditIds.length }} 项</span>
+                <div class="batch-edit-actions">
+                  <el-button size="small" @click="cancelBatchEdit">取消</el-button>
+                  <el-button size="small" type="primary" @click="saveBatchEdit" :loading="batchEditLoading">保存</el-button>
+                </div>
+              </div>
+
+              <el-table :data="filteredSuites" v-loading="loading" style="width: 100%"
+                row-key="id" ref="suiteTableRef" @selection-change="handleSuiteSelectionChange">
+                <el-table-column v-if="!batchEditMode" type="selection" width="45" />
+                <el-table-column prop="name" label="套件名称" min-width="200">
+                  <template #default="{ row }">
+                    <el-input v-if="isSuiteInBatchEdit(row)" v-model="row.name" size="small" placeholder="套件名称" />
+                    <el-link v-else @click="enterSuiteDetail(row)" type="primary">{{ row.name }}</el-link>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="description" label="描述" min-width="160">
+                  <template #default="{ row }">
+                    <el-input v-if="isSuiteInBatchEdit(row)" v-model="row.description" size="small" placeholder="描述" />
+                    <span v-else class="desc-text">{{ row.description || '-' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="执行模式" width="150">
+                  <template #default="{ row }">
+                    <el-select v-if="isSuiteInBatchEdit(row)" v-model="row.execution_mode" size="small" style="width: 100%">
+                      <el-option label="共享会话" value="shared_session" />
+                      <el-option label="用例独立" value="per_case" />
+                    </el-select>
+                    <el-tag v-else size="small" :type="row.execution_mode === 'shared_session' ? 'success' : 'info'">
+                      {{ row.execution_mode === 'shared_session' ? '共享会话' : '用例独立' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="登录配置" width="160">
+                  <template #default="{ row }">
+                    <el-select v-if="isSuiteInBatchEdit(row) && row.execution_mode === 'shared_session'"
+                      v-model="row.login_config" size="small" clearable filterable placeholder="选择配置" style="width: 100%">
+                      <el-option v-for="cfg in loginConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.id" />
+                    </el-select>
+                    <span v-else-if="isSuiteInBatchEdit(row)" style="color: #909399; font-size: 12px">无需配置</span>
+                    <span v-else-if="row.login_config_name">{{ row.login_config_name }}</span>
+                    <span v-else style="color: #909399">未配置</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="用例数" width="80" align="center">
+                  <template #default="{ row }">{{ row.test_case_count || 0 }}</template>
+                </el-table-column>
+                <el-table-column label="执行状态" width="100" align="center">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="getExecutionStatusTag(row.execution_status)">
+                      {{ getExecutionStatusText(row.execution_status) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="通过" width="60" align="center">
+                  <template #default="{ row }">
+                    <span style="color: #67c23a; font-weight: bold">{{ row.passed_count || 0 }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="失败" width="60" align="center">
+                  <template #default="{ row }">
+                    <span style="color: #f56c6c; font-weight: bold">{{ row.failed_count || 0 }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="跳过" width="60" align="center">
+                  <template #default="{ row }">
+                    <span style="color: #e6a23c; font-weight: bold">{{ row.skipped_count || 0 }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="last_execution_time" label="执行时间" width="170" :formatter="formatDate" />
+                <el-table-column prop="updated_at" label="更新时间" width="170" :formatter="formatDate" />
+                <el-table-column label="操作" width="200" v-if="!batchEditMode">
+                  <template #default="{ row }">
+                    <div class="op-btns">
+                      <el-button class="op-btn" type="primary" link size="small" @click="editSuiteInfo(row)">编辑</el-button>
+                      <el-button class="op-btn" type="primary" link size="small" @click="runSuite(row)">运行</el-button>
+                      <el-button class="op-btn op-btn--danger" link size="small" @click="deleteSuite(row.id)">删除</el-button>
+                    </div>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+
+            <div class="pagination-container">
+              <el-pagination v-model:current-page="pagination.currentPage" v-model:page-size="pagination.pageSize"
+                :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" :total="total"
+                @size-change="handleSizeChange" @current-change="handleCurrentChange" />
+            </div>
+          </section>
         </div>
       </div>
     </template>
@@ -293,7 +341,8 @@ import {
   getUiProjects, getTestSuites, createTestSuite, updateTestSuite, deleteTestSuite,
   getTestCases, getTestSuiteTestCases, addTestCasesToTestSuite,
   removeTestCaseFromTestSuite, removeTestCasesFromTestSuite,
-  updateTestCaseOrder, runTestSuite, getLoginConfigs, getTestCaseGroupTree
+  updateTestCaseOrder, runTestSuite, getLoginConfigs, getTestCaseGroupTree,
+  batchUpdateTestSuites
 } from '@/api/ui_automation'
 
 // ==================== 通用数据 ====================
@@ -322,6 +371,14 @@ const filteredSuites = computed(() => {
   }
   return result
 })
+
+// ==================== 批量编辑 ====================
+const selectedSuites = ref([])
+const batchEditMode = ref(false)
+const batchEditIds = ref([])
+const batchEditBackup = ref({})
+const batchEditLoading = ref(false)
+const suiteTableRef = ref(null)
 
 const loadProjects = async () => {
   try {
@@ -359,10 +416,115 @@ const loadGroupTree = async () => {
   } catch (e) { console.error(e) }
 }
 
-const onProjectChange = async () => { pagination.currentPage = 1; await loadSuites() }
-const handleSearch = async () => { pagination.currentPage = 1; await loadSuites() }
-const handleSizeChange = async () => { pagination.currentPage = 1; await loadSuites() }
-const handleCurrentChange = async () => { await loadSuites() }
+const onProjectChange = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
+const handleSearch = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
+const handleSizeChange = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
+const handleCurrentChange = async () => { if (batchEditMode.value) return; await loadSuites() }
+
+// ==================== 批量编辑方法 ====================
+const handleSuiteSelectionChange = (rows) => {
+  if (batchEditMode.value) return
+  selectedSuites.value = rows
+}
+
+const isSuiteInBatchEdit = (row) => {
+  return batchEditMode.value && batchEditIds.value.includes(row.id)
+}
+
+const enterBatchEditMode = async () => {
+  if (selectedSuites.value.length === 0) return
+  batchEditIds.value = selectedSuites.value.map(s => s.id)
+  const backup = {}
+  for (const suite of suites.value) {
+    if (batchEditIds.value.includes(suite.id)) {
+      backup[suite.id] = {
+        name: suite.name,
+        description: suite.description,
+        execution_mode: suite.execution_mode,
+        login_config: suite.login_config
+      }
+    }
+  }
+  batchEditBackup.value = backup
+  batchEditMode.value = true
+  await loadLoginConfigs()
+  nextTick(() => {
+    if (suiteTableRef.value) suiteTableRef.value.clearSelection()
+  })
+}
+
+const cancelBatchEdit = () => {
+  for (const suite of suites.value) {
+    if (batchEditIds.value.includes(suite.id)) {
+      const bk = batchEditBackup.value[suite.id]
+      if (bk) {
+        suite.name = bk.name
+        suite.description = bk.description
+        suite.execution_mode = bk.execution_mode
+        suite.login_config = bk.login_config
+      }
+    }
+  }
+  batchEditMode.value = false
+  batchEditIds.value = []
+  batchEditBackup.value = {}
+  selectedSuites.value = []
+}
+
+const saveBatchEdit = async () => {
+  for (const id of batchEditIds.value) {
+    const suite = suites.value.find(s => s.id === id)
+    if (!suite || !suite.name || !suite.name.trim()) {
+      ElMessage.warning('套件名称不能为空')
+      return
+    }
+  }
+
+  const updates = []
+  for (const id of batchEditIds.value) {
+    const suite = suites.value.find(s => s.id === id)
+    const bk = batchEditBackup.value[id]
+    if (!suite || !bk) continue
+
+    const item = { id }
+    if (suite.name !== bk.name) item.name = suite.name
+    if (suite.description !== bk.description) item.description = suite.description
+    if (suite.execution_mode !== bk.execution_mode) {
+      item.execution_mode = suite.execution_mode
+      if (suite.execution_mode === 'per_case') item.login_config = null
+    }
+    if (suite.login_config !== bk.login_config) {
+      item.login_config = suite.execution_mode === 'shared_session' ? suite.login_config : null
+    }
+
+    if (Object.keys(item).length > 1) updates.push(item)
+  }
+
+  if (updates.length === 0) {
+    ElMessage.info('没有变更')
+    batchEditMode.value = false
+    batchEditIds.value = []
+    batchEditBackup.value = {}
+    selectedSuites.value = []
+    return
+  }
+
+  batchEditLoading.value = true
+  try {
+    const res = await batchUpdateTestSuites({ updates })
+    ElMessage.success(res.data.message || `成功更新 ${updates.length} 个套件`)
+    batchEditMode.value = false
+    batchEditIds.value = []
+    batchEditBackup.value = {}
+    selectedSuites.value = []
+    await loadSuites()
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('批量更新失败')
+  } finally {
+    batchEditLoading.value = false
+  }
+}
 
 // ==================== 新增/编辑套件（仅基础信息） ====================
 const showEditDialog = ref(false)
@@ -573,6 +735,23 @@ const loadAllTestCases = async () => {
 import { watch } from 'vue'
 watch(showAssociateDialog, (val) => { if (val) onAssociateDialogOpen() })
 
+// ==================== 批量删除套件 ====================
+const batchDeleteSuites = async () => {
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selectedSuites.value.length} 个套件？`, '提示', { type: 'warning' })
+    let ok = 0, fail = 0
+    for (const suite of selectedSuites.value) {
+      try {
+        await deleteTestSuite(suite.id)
+        ok++
+      } catch (e) { fail++; console.error(e) }
+    }
+    if (ok) ElMessage.success(`成功删除 ${ok} 个套件` + (fail ? `，${fail} 个失败` : ''))
+    selectedSuites.value = []
+    await loadSuites()
+  } catch (e) { if (e !== 'cancel') console.error(e) }
+}
+
 // ==================== 删除套件 ====================
 const deleteSuite = async (id) => {
   try {
@@ -614,6 +793,43 @@ const confirmRunSuite = async () => {
   } finally { running.value = false }
 }
 
+// ==================== 批量运行套件 ====================
+const batchRunLoading = ref(false)
+
+const batchRunSuites = async () => {
+  const valid = selectedSuites.value.filter(s => s.test_case_count && s.test_case_count > 0)
+  const empty = selectedSuites.value.length - valid.length
+  if (valid.length === 0) {
+    ElMessage.warning('选中的套件均未包含用例，无法执行')
+    return
+  }
+  try {
+    const tip = `确定批量运行 ${valid.length} 个套件？` + (empty ? `（${empty} 个套件无用例，将跳过）` : '')
+    await ElMessageBox.confirm(tip, '批量运行', { type: 'info' })
+  } catch (e) { return }
+
+  batchRunLoading.value = true
+  let ok = 0, fail = 0
+  const runningIds = []
+  for (const suite of valid) {
+    try {
+      await runTestSuite(suite.id, {
+        use_ai: false, engine: 'playwright', browser: 'chrome', headless: false
+      })
+      runningIds.push(suite.id)
+      ok++
+    } catch (e) {
+      fail++
+      console.error(e)
+    }
+  }
+  if (ok) ElMessage.success(`已启动 ${ok} 个套件执行` + (fail ? `，${fail} 个失败` : ''))
+  batchRunLoading.value = false
+  selectedSuites.value = []
+  await loadSuites()
+  if (runningIds.length > 0) pollBatchSuiteStatus(runningIds)
+}
+
 const pollSuiteStatus = (suiteId) => {
   let count = 0
   const iv = setInterval(async () => {
@@ -625,6 +841,31 @@ const pollSuiteStatus = (suiteId) => {
         clearInterval(iv)
         if (s.execution_status === 'passed') ElMessage.success(`执行完成：全部通过 (${s.passed_count})`)
         else if (s.execution_status === 'failed') ElMessage.warning(`执行完成：通过${s.passed_count}，失败${s.failed_count}`)
+      }
+      if (count >= 120) { clearInterval(iv); ElMessage.info('执行时间较长，请稍后查看') }
+    } catch (e) { clearInterval(iv) }
+  }, 3000)
+}
+
+// 批量轮询多个套件状态
+const pollBatchSuiteStatus = (suiteIds) => {
+  const pendingIds = new Set(suiteIds)
+  let count = 0
+  const iv = setInterval(async () => {
+    count++
+    try {
+      await loadSuites()
+      for (const id of [...pendingIds]) {
+        const s = suites.value.find(s => s.id === id)
+        if (s && s.execution_status !== 'running') {
+          pendingIds.delete(id)
+          if (s.execution_status === 'passed') ElMessage.success(`「${s.name}」执行完成：全部通过 (${s.passed_count})`)
+          else if (s.execution_status === 'failed') ElMessage.warning(`「${s.name}」执行完成：通过${s.passed_count}，失败${s.failed_count}`)
+        }
+      }
+      if (pendingIds.size === 0) {
+        clearInterval(iv)
+        ElMessage.success('全部套件执行完成')
       }
       if (count >= 120) { clearInterval(iv); ElMessage.info('执行时间较长，请稍后查看') }
     } catch (e) { clearInterval(iv) }
@@ -650,12 +891,120 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.header-actions {
+/* ============================================================
+   页面容器 / 标题栏 / 工作区（参照用例列表）
+   ============================================================ */
+.page-container {
+  height: calc(100vh - 100px);
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.titlebar-select {
+  width: 200px;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0 var(--space-6) var(--space-6);
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.suite-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 表格样式 */
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
+}
+
+/* ============================================================
+   操作按钮
+   ============================================================ */
 .op-btns {
   display: flex;
   align-items: center;
@@ -829,5 +1178,54 @@ onMounted(async () => {
   color: #c0c4cc;
 
   td { color: #c0c4cc; }
+}
+
+/* ==================== 批量编辑 ==================== */
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 6px;
+  margin-bottom: 12px;
+
+  .batch-count {
+    font-size: 13px;
+    color: #409eff;
+    font-weight: 500;
+  }
+}
+
+.batch-edit-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #fef0f0;
+  border: 1px solid #fde2e2;
+  border-radius: 6px;
+  margin-bottom: 12px;
+
+  .batch-count {
+    font-size: 13px;
+    color: #f56c6c;
+    font-weight: 500;
+  }
+
+  .batch-edit-actions {
+    display: flex;
+    gap: 8px;
+  }
+}
+
+/* 描述文本省略 */
+.desc-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

@@ -255,6 +255,7 @@ class TestSuiteSerializer(serializers.ModelSerializer):
     login_config_name = serializers.CharField(source='login_config.name', read_only=True, default='')
     execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
     has_cleanup_steps = serializers.SerializerMethodField()
+    last_execution_time = serializers.SerializerMethodField()
 
     class Meta:
         model = TestSuite
@@ -274,6 +275,11 @@ class TestSuiteSerializer(serializers.ModelSerializer):
         from .models import TestCaseStep
         test_case_ids = obj.suite_test_cases.values_list('test_case_id', flat=True)
         return TestCaseStep.objects.filter(test_case_id__in=test_case_ids, is_cleanup=True).exists()
+
+    def get_last_execution_time(self, obj):
+        """获取套件最后一次执行的结束时间"""
+        latest = obj.executions.order_by('-started_at').first()
+        return latest.finished_at.isoformat() if latest and latest.finished_at else None
 
 
 class TestSuiteCreateSerializer(serializers.ModelSerializer):
