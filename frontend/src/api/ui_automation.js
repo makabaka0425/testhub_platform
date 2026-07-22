@@ -1066,6 +1066,14 @@ export function batchReorderElements(data) {
   })
 }
 
+export function batchUpdateElements(data) {
+  return request({
+    url: '/ui-automation/elements/batch_update/',
+    method: 'post',
+    data
+  })
+}
+
 // 批量删除用例
 export function batchDeleteTestCases(data) {
   return request({
