@@ -574,9 +574,10 @@ onMounted(async () => {
 
 <style scoped>
 .script-editor-enhanced {
-  height: calc(100vh - 100px);
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .page-header {

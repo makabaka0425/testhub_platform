@@ -741,9 +741,11 @@ onMounted(async () => {
 
 <style scoped>
 .page-container {
-  height: calc(100vh - 100px);
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 
 .header-actions {

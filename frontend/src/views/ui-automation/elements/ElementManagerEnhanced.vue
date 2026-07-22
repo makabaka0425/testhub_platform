@@ -2583,7 +2583,7 @@ const updatePage = async () => {
 <style scoped>
 /* 页面容器 */
 .page-container {
-  height: calc(100vh - 100px);
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2596,7 +2596,7 @@ const updatePage = async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-6, 24px);
+  padding: 0;
   flex-shrink: 0;
 }
 
@@ -2624,7 +2624,7 @@ const updatePage = async () => {
   grid-template-columns: var(--group-w, 160px) 1fr;
   grid-template-rows: auto 1fr;
   gap: var(--space-4, 16px);
-  padding: 0 var(--space-6, 24px) var(--space-6, 24px);
+  padding: 0;
   overflow: hidden;
 }
 

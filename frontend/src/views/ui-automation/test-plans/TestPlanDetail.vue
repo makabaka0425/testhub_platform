@@ -596,10 +596,11 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .page-container {
-  height: calc(100vh - 100px);
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  padding: 0;
 }
 
 .header-left {

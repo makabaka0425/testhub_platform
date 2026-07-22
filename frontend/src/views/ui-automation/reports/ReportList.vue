@@ -1,93 +1,106 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <div class="page-titlebar">
       <h1 class="page-title">{{ $t('uiAutomation.report.title') }}</h1>
-      <div class="actions">
-        <el-select v-model="selectedProject" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px; margin-right: 15px" @change="onProjectChange">
+      <div class="titlebar-actions">
+        <el-select v-model="selectedProject" :placeholder="$t('uiAutomation.common.selectProject')" class="titlebar-select" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
-        <el-button type="primary" @click="refreshReports">
+        <el-button type="primary" size="small" @click="refreshReports">
           <el-icon><Refresh /></el-icon>
           {{ $t('uiAutomation.report.refreshReport') }}
         </el-button>
       </div>
     </div>
 
-    <div class="table-scroll-area">
-      <el-table :data="reports" v-loading="loading" style="width: 100%">
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="test_suite_name" :label="$t('uiAutomation.report.testSuite')" min-width="200" />
-        <el-table-column prop="status" :label="$t('uiAutomation.common.status')" width="120">
-          <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">
-              {{ getStatusText(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('uiAutomation.report.testEngine')" width="120">
-          <template #default="{ row }">
-            <el-tag size="small">{{ getEngineText(row.engine) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('uiAutomation.report.browser')" width="100">
-          <template #default="{ row }">
-            {{ getBrowserText(row.browser) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="total_cases" :label="$t('uiAutomation.report.totalCases')" width="100" />
-        <el-table-column prop="passed_cases" :label="$t('uiAutomation.report.passedCases')" width="100">
-          <template #default="{ row }">
-            <span style="color: #67c23a; font-weight: bold;">{{ row.passed_cases }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="failed_cases" :label="$t('uiAutomation.report.failedCases')" width="100">
-          <template #default="{ row }">
-            <span style="color: #f56c6c; font-weight: bold;">{{ row.failed_cases }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('uiAutomation.report.passRate')" width="100">
-          <template #default="{ row }">
-            <el-progress
-              :percentage="row.pass_rate"
-              :color="getProgressColor(row.pass_rate)"
-              :stroke-width="16"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('uiAutomation.report.duration')" width="120">
-          <template #default="{ row }">
-            {{ formatDuration(row.duration) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="executed_by_name" :label="$t('uiAutomation.report.executor')" width="120" />
-        <el-table-column prop="created_at" :label="$t('uiAutomation.report.executionTime')" width="180">
-          <template #default="{ row }">
-            {{ formatDate(row.created_at) }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="viewReportDetail(row)">
-              {{ $t('uiAutomation.report.viewDetail') }}
-            </el-button>
-            <el-button link type="danger" size="small" @click="deleteReport(row)">
-              {{ $t('uiAutomation.common.delete') }}
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 报告列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">报告列表</span>
+          </div>
 
-    <div class="pagination-container">
-      <el-pagination
-        v-model:current-page="pagination.currentPage"
-        v-model:page-size="pagination.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next, jumper"
-        :total="total"
-        @size-change="handleSizeChange"
-        @current-change="handleCurrentChange"
-      />
+          <div class="panel__body report-table-wrapper">
+            <el-table :data="reports" v-loading="loading" style="width: 100%">
+              <el-table-column prop="id" label="ID" width="80" />
+              <el-table-column prop="test_suite_name" :label="$t('uiAutomation.report.testSuite')" min-width="200" />
+              <el-table-column prop="status" :label="$t('uiAutomation.common.status')" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="getStatusType(row.status)">
+                    {{ getStatusText(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('uiAutomation.report.testEngine')" width="120">
+                <template #default="{ row }">
+                  <el-tag size="small">{{ getEngineText(row.engine) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('uiAutomation.report.browser')" width="100">
+                <template #default="{ row }">
+                  {{ getBrowserText(row.browser) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="total_cases" :label="$t('uiAutomation.report.totalCases')" width="100" />
+              <el-table-column prop="passed_cases" :label="$t('uiAutomation.report.passedCases')" width="100">
+                <template #default="{ row }">
+                  <span style="color: #67c23a; font-weight: bold;">{{ row.passed_cases }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="failed_cases" :label="$t('uiAutomation.report.failedCases')" width="100">
+                <template #default="{ row }">
+                  <span style="color: #f56c6c; font-weight: bold;">{{ row.failed_cases }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('uiAutomation.report.passRate')" width="100">
+                <template #default="{ row }">
+                  <el-progress
+                    :percentage="row.pass_rate"
+                    :color="getProgressColor(row.pass_rate)"
+                    :stroke-width="16"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('uiAutomation.report.duration')" width="120">
+                <template #default="{ row }">
+                  {{ formatDuration(row.duration) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="executed_by_name" :label="$t('uiAutomation.report.executor')" width="120" />
+              <el-table-column prop="created_at" :label="$t('uiAutomation.report.executionTime')" width="180">
+                <template #default="{ row }">
+                  {{ formatDate(row.created_at) }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('uiAutomation.common.operation')" width="200">
+                <template #default="{ row }">
+                  <div class="op-btns">
+                    <el-button class="op-btn" type="primary" link size="small" @click="viewReportDetail(row)">
+                      {{ $t('uiAutomation.report.viewDetail') }}
+                    </el-button>
+                    <el-button class="op-btn op-btn--danger" link size="small" @click="deleteReport(row)">
+                      {{ $t('uiAutomation.common.delete') }}
+                    </el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="total"
+              @size-change="handleSizeChange"
+              @current-change="handleCurrentChange"
+            />
+          </div>
+        </section>
+      </div>
     </div>
 
     <!-- 报告详情对话框 -->
@@ -516,9 +529,128 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.actions {
+/* ============================================================
+   页面容器 / 标题栏 / 工作区（参照套件管理）
+   ============================================================ */
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.titlebar-select {
+  width: 200px;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.report-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 表格样式 */
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
+}
+
+/* 操作按钮 */
+.op-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
 }
 
 // 报告详情样式

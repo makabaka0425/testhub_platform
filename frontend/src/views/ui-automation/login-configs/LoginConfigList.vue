@@ -1,79 +1,90 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <div class="page-titlebar">
       <h1 class="page-title">登录配置</h1>
-      <div style="display: flex; align-items: center; gap: 15px;">
-        <el-select v-model="projectId" placeholder="请选择项目" style="width: 200px;" @change="onProjectChange">
+      <div class="titlebar-actions">
+        <el-select v-model="projectId" placeholder="请选择项目" class="titlebar-select" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
-        <el-button type="primary" @click="handleNewConfig">
-          <el-icon><Plus /></el-icon>
-          新建登录配置
-        </el-button>
+        <el-button type="primary" size="small" @click="handleNewConfig">新建登录配置</el-button>
       </div>
     </div>
 
-    <div class="filter-bar">
-      <el-form :inline="true">
-        <el-form-item label="名称">
-          <el-input
-            v-model="searchText"
-            placeholder="搜索登录配置名称"
-            clearable
-            style="width: 200px"
-            @input="handleSearch"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </el-form-item>
-      </el-form>
-    </div>
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 搜索区域卡片 -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item label="名称">
+              <el-input
+                v-model="searchText"
+                placeholder="搜索登录配置名称"
+                clearable
+                style="width: 200px"
+                @input="handleSearch"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+          </el-form>
+        </div>
 
-    <div class="table-scroll-area">
-      <el-table :data="loginConfigs" v-loading="loading" style="width: 100%">
-        <el-table-column prop="name" label="名称" min-width="150">
-          <template #default="{ row }">
-            <el-link @click="editConfig(row.id)" type="primary">
-              {{ row.name }}
-            </el-link>
-          </template>
-        </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="login_url" label="登录页URL" min-width="200" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ row.login_url || '使用项目默认URL' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="登录用例" min-width="150">
-          <template #default="{ row }">
-            <el-tag v-if="row.login_test_case_name" size="small" type="success">
-              {{ row.login_test_case_name }}
-            </el-tag>
-            <span v-else style="color: #909399;">未关联</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
-        <el-table-column label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="editConfig(row.id)">编辑</el-button>
-            <el-button link type="success" @click="handleTestLogin(row)">测试登录</el-button>
-            <el-button link type="danger" @click="deleteConfig(row.id)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+        <!-- 列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">配置列表</span>
+          </div>
 
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="pagination.currentPage"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="total"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
-        />
+          <div class="panel__body login-config-table-wrapper">
+            <el-table :data="loginConfigs" v-loading="loading" style="width: 100%">
+              <el-table-column prop="name" label="名称" min-width="150">
+                <template #default="{ row }">
+                  <el-link @click="editConfig(row.id)" type="primary">
+                    {{ row.name }}
+                  </el-link>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
+              <el-table-column prop="login_url" label="登录页URL" min-width="200" show-overflow-tooltip>
+                <template #default="{ row }">
+                  {{ row.login_url || '使用项目默认URL' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="登录用例" min-width="150">
+                <template #default="{ row }">
+                  <el-tag v-if="row.login_test_case_name" size="small" type="success">
+                    {{ row.login_test_case_name }}
+                  </el-tag>
+                  <span v-else style="color: #909399;">未关联</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
+              <el-table-column label="操作" width="220">
+                <template #default="{ row }">
+                  <div class="op-btns">
+                    <el-button class="op-btn" link type="primary" size="small" @click="editConfig(row.id)">编辑</el-button>
+                    <el-button class="op-btn" link type="success" size="small" @click="handleTestLogin(row)">测试登录</el-button>
+                    <el-button class="op-btn op-btn--danger" link size="small" @click="deleteConfig(row.id)">删除</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="total"
+              @size-change="handleSizeChange"
+              @current-change="handleCurrentChange"
+            />
+          </div>
+        </section>
       </div>
     </div>
 
@@ -423,5 +434,131 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-/* 页面样式统一使用 global.scss 中的全局类 */
+/* ============================================================
+   页面容器 / 标题栏 / 工作区（参照套件管理）
+   ============================================================ */
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.titlebar-select {
+  width: 200px;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.login-config-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 表格样式 */
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
+}
+
+/* 操作按钮 */
+.op-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
+}
 </style>

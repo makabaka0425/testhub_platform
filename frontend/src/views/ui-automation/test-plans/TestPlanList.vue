@@ -1,112 +1,123 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <!-- ==================== 计划列表视图 ==================== -->
+    <div class="page-titlebar">
       <h1 class="page-title">测试计划</h1>
-      <div class="header-actions">
-        <el-select v-model="projectId" placeholder="选择项目" style="width: 200px" @change="onProjectChange">
+      <div class="titlebar-actions">
+        <el-select v-model="projectId" placeholder="选择项目" class="titlebar-select" @change="onProjectChange">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
-        <el-button type="primary" @click="handleCreate">
-          <el-icon><Plus /></el-icon>
-          新建计划
-        </el-button>
+        <el-button type="primary" size="small" @click="handleCreate">新建计划</el-button>
       </div>
     </div>
 
-    <div class="filter-bar">
-      <el-form :inline="true">
-        <el-form-item label="计划名称">
-          <el-input v-model="searchText" placeholder="搜索计划名称..." clearable @input="handleSearch" style="width: 200px">
-            <template #prefix><el-icon><Search /></el-icon></template>
-          </el-input>
-        </el-form-item>
-        <el-form-item label="执行模式">
-          <el-select v-model="filterExecutionMode" placeholder="全部" clearable style="width: 130px">
-            <el-option label="共享会话" value="shared_session" />
-            <el-option label="独立模式" value="per_case" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="执行状态">
-          <el-select v-model="filterExecutionStatus" placeholder="全部" clearable style="width: 130px">
-            <el-option label="未执行" value="not_run" />
-            <el-option label="通过" value="passed" />
-            <el-option label="失败" value="failed" />
-            <el-option label="执行中" value="running" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-    </div>
-
-    <div class="table-scroll-area">
-        <el-table :data="filteredPlans" v-loading="loading" style="width: 100%">
-        <el-table-column prop="name" label="计划名称" min-width="200">
-          <template #default="{ row }">
-            <el-link @click="goToDetail(row.id)" type="primary">{{ row.name }}</el-link>
-          </template>
-        </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
-        <el-table-column label="执行模式" width="130">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.execution_mode === 'shared_session' ? 'success' : 'info'">
-              {{ row.execution_mode === 'shared_session' ? '共享会话' : '独立模式' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="登录配置" width="150">
-          <template #default="{ row }">
-            <span v-if="row.login_config_name">{{ row.login_config_name }}</span>
-            <span v-else style="color: #909399">未配置</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="计划项" width="80">
-          <template #default="{ row }">{{ row.plan_item_count || 0 }}</template>
-        </el-table-column>
-        <el-table-column label="总用例" width="80">
-          <template #default="{ row }">{{ row.total_cases || 0 }}</template>
-        </el-table-column>
-        <el-table-column label="执行状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="getStatusTag(row.execution_status)">{{ getStatusText(row.execution_status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="通过" width="70">
-          <template #default="{ row }">
-            <span style="color: #67c23a; font-weight: bold">{{ row.passed_count || 0 }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="失败" width="70">
-          <template #default="{ row }">
-            <span style="color: #f56c6c; font-weight: bold">{{ row.failed_count || 0 }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="跳过" width="70">
-          <template #default="{ row }">
-            <span style="color: #e6a23c; font-weight: bold">{{ row.skipped_count || 0 }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
-          <el-table-column label="操作" width="200" fixed="right">
-            <template #default="{ row }">
-              <div class="op-btns">
-                <el-button class="op-btn" type="primary" link size="small" @click="editPlan(row.id)">编辑</el-button>
-                <el-button class="op-btn" type="success" link size="small" @click="runPlan(row)">执行</el-button>
-                <el-button class="op-btn op-btn--danger" link size="small" @click="deletePlan(row.id)">删除</el-button>
-              </div>
-            </template>
-          </el-table-column>
-      </el-table>
-        <div class="pagination-container">
-          <el-pagination
-            v-model:current-page="pagination.currentPage"
-            v-model:page-size="pagination.pageSize"
-            :page-sizes="[10, 20, 50]"
-            layout="total, sizes, prev, pager, next"
-            :total="total"
-            @size-change="handleSizeChange"
-            @current-change="handleCurrentChange"
-          />
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 搜索区域卡片 -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item label="计划名称">
+              <el-input v-model="searchText" placeholder="搜索计划名称..." clearable @input="handleSearch" style="width: 200px">
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="执行模式">
+              <el-select v-model="filterExecutionMode" placeholder="全部" clearable style="width: 130px">
+                <el-option label="共享会话" value="shared_session" />
+                <el-option label="独立模式" value="per_case" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="执行状态">
+              <el-select v-model="filterExecutionStatus" placeholder="全部" clearable style="width: 130px">
+                <el-option label="未执行" value="not_run" />
+                <el-option label="通过" value="passed" />
+                <el-option label="失败" value="failed" />
+                <el-option label="执行中" value="running" />
+              </el-select>
+            </el-form-item>
+          </el-form>
         </div>
+
+        <!-- 计划列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">计划列表</span>
+          </div>
+
+          <div class="panel__body plan-table-wrapper">
+            <el-table :data="filteredPlans" v-loading="loading" style="width: 100%">
+              <el-table-column prop="name" label="计划名称" min-width="200">
+                <template #default="{ row }">
+                  <el-link @click="goToDetail(row.id)" type="primary">{{ row.name }}</el-link>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
+              <el-table-column label="执行模式" width="130">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="row.execution_mode === 'shared_session' ? 'success' : 'info'">
+                    {{ row.execution_mode === 'shared_session' ? '共享会话' : '独立模式' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="登录配置" width="150">
+                <template #default="{ row }">
+                  <span v-if="row.login_config_name">{{ row.login_config_name }}</span>
+                  <span v-else style="color: #909399">未配置</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="计划项" width="80">
+                <template #default="{ row }">{{ row.plan_item_count || 0 }}</template>
+              </el-table-column>
+              <el-table-column label="总用例" width="80">
+                <template #default="{ row }">{{ row.total_cases || 0 }}</template>
+              </el-table-column>
+              <el-table-column label="执行状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="getStatusTag(row.execution_status)">{{ getStatusText(row.execution_status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="通过" width="70">
+                <template #default="{ row }">
+                  <span style="color: #67c23a; font-weight: bold">{{ row.passed_count || 0 }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="失败" width="70">
+                <template #default="{ row }">
+                  <span style="color: #f56c6c; font-weight: bold">{{ row.failed_count || 0 }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="跳过" width="70">
+                <template #default="{ row }">
+                  <span style="color: #e6a23c; font-weight: bold">{{ row.skipped_count || 0 }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
+              <el-table-column label="操作" width="200">
+                <template #default="{ row }">
+                  <div class="op-btns">
+                    <el-button class="op-btn" type="primary" link size="small" @click="editPlan(row.id)">编辑</el-button>
+                    <el-button class="op-btn" type="success" link size="small" @click="runPlan(row)">执行</el-button>
+                    <el-button class="op-btn op-btn--danger" link size="small" @click="deletePlan(row.id)">删除</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
+              :page-sizes="[10, 20, 50]"
+              layout="total, sizes, prev, pager, next"
+              :total="total"
+              @size-change="handleSizeChange"
+              @current-change="handleCurrentChange"
+            />
+          </div>
+        </section>
       </div>
+    </div>
 
     <!-- 创建/编辑计划对话框 -->
     <el-dialog v-model="showEditDialog" :title="isEditing ? '编辑测试计划' : '新建测试计划'" width="1000px" :close-on-click-modal="false">
@@ -613,34 +624,120 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
+/* ============================================================
+   页面容器 / 标题栏 / 工作区（参照套件管理）
+   ============================================================ */
 .page-container {
-  height: calc(100vh - 100px);
-  overflow: hidden;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 
-.header-actions {
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  padding: 0;
 }
 
-/* 表格区域撑满剩余空间，内部表格独立滚动 */
-.table-scroll-area {
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.titlebar-select {
+  width: 200px;
+}
+
+.workspace {
   flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
   min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  gap: var(--space-4);
 }
 
-.table-scroll-area :deep(.el-table) {
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
   flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.plan-table-wrapper {
+  flex: 1;
+  overflow-y: auto;
   min-height: 0;
 }
 
-/* 操作按钮组 */
+/* 表格样式 */
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
+}
+
+/* ============================================================
+   操作按钮
+   ============================================================ */
 .op-btns {
   display: flex;
   align-items: center;
@@ -661,13 +758,5 @@ onMounted(async () => {
   margin-top: 4px;
   font-size: 12px;
   color: #909399;
-}
-
-.plan-items-container {
-  width: 100%;
-}
-
-.plan-items-toolbar {
-  margin-bottom: 10px;
 }
 </style>

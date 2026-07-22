@@ -262,8 +262,8 @@ onBeforeUnmount(() => {
 .page-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 100px);
-  padding: 20px;
+  height: 100%;
+  padding: 0;
   box-sizing: border-box;
   overflow: hidden;
 }
