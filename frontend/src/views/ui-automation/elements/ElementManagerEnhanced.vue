@@ -224,8 +224,8 @@
             <el-form-item label="所属页面">
               <el-tree-select
                 v-model="selectedElement.page"
-                :data="pageOnlyTree"
-                :props="{ label: 'name', value: 'name', children: 'children' }"
+                :data="elementFormPageTree"
+                :props="{ label: 'name', value: 'id', children: 'children' }"
                 placeholder="选择页面"
                 check-strictly
                 :render-after-expand="false"
@@ -629,6 +629,11 @@ const pageOnlyTree = computed(() => {
   return filterPage(treeData.value)
 })
 
+// 元素表单可选的页面树（排除"未关联页面"和"全部"虚拟节点）
+const elementFormPageTree = computed(() => {
+  return pageOnlyTree.value.filter(n => n.id !== 'unassigned' && n.id !== '__all__')
+})
+
 // 可作为父页面的树（排除"未关联页面"和"全部"虚拟节点）
 const parentPageTree = computed(() => {
   return pageOnlyTree.value.filter(n => n.id !== 'unassigned' && n.id !== '__all__' && n.id !== '全部')
@@ -869,16 +874,9 @@ const addContextElement = () => {
     if (rightClickedGroupNode.value.id === 'unassigned') {
       // 未关联页面不设置所属页面
     } else {
-      const findPageNameById = (nodes, targetId) => {
-        for (const n of nodes) {
-          if ((n._originalId || n.id) === targetId || n.id === targetId) return n.name
-          if (n.children) { const found = findPageNameById(n.children, targetId); if (found) return found }
-        }
-        return null
-      }
-      const origId = rightClickedGroupNode.value._originalId || rightClickedGroupNode.value.id
-      selectedElement.value.page = findPageNameById(treeData.value, origId) || rightClickedGroupNode.value.name
-      selectedElement.value.group_id = origId
+      // page 存储树节点唯一ID（page-XX格式），el-tree-select 用 value:'id' 绑定
+      selectedElement.value.page = rightClickedGroupNode.value.id
+      selectedElement.value.group_id = rightClickedGroupNode.value._originalId
     }
   }
   showElementDialog.value = true
@@ -978,6 +976,9 @@ const onEditElement = async (row) => {
   try {
     const response = await getElementDetail(row.id)
     selectedElement.value = response.data
+    // 将后端 group_id 映射为树节点 id（page-XX格式），供 el-tree-select（value:'id'）回显
+    const gid = selectedElement.value.group_id ?? selectedElement.value.group?.id
+    selectedElement.value.page = gid ? `page-${gid}` : ''
     formKey.value += 1
     showElementDialog.value = true
   } catch (error) {
@@ -1007,10 +1008,11 @@ const copyElementFromList = async (row) => {
   try {
     const response = await getElementDetail(row.id)
     const src = response.data
+    const srcGroupId = src.group_id ?? src.group?.id
     selectedElement.value = {
       name: src.name + ' - 副本',
       element_type: src.element_type,
-      page: src.page,
+      page: srcGroupId ? `page-${srcGroupId}` : '',
       component_name: src.component_name,
       locator_strategy_id: src.locator_strategy_id,
       locator_value: src.locator_value,
@@ -2359,26 +2361,28 @@ const saveElement = async () => {
   try {
     saving.value = true
 
-    // 查找页面ID的辅助函数
-    const findPageIdByName = (nodes, pageName) => {
+    // 通过树节点唯一ID查找页面节点，获取 _originalId（数据库ID）和 name（页面名称）
+    const findPageNodeById = (nodes, nodeId) => {
       for (const node of nodes) {
-        if (node.type === 'page' && node.name === pageName) {
-          return node._originalId || node.id
-        }
+        if (node.id === nodeId) return node
         if (node.children) {
-          const foundId = findPageIdByName(node.children, pageName)
-          if (foundId) return foundId
+          const found = findPageNodeById(node.children, nodeId)
+          if (found) return found
         }
       }
       return null
     }
+
+    const pageNode = selectedElement.value.page ? findPageNodeById(treeData.value, selectedElement.value.page) : null
+    const pageName = pageNode?.name || ''
+    const groupId = pageNode?._originalId ?? null
 
     if (selectedElement.value.id) {
       // 更新元素
       const elementUpdateData = {
         name: selectedElement.value.name,
         element_type: selectedElement.value.element_type,
-        page: selectedElement.value.page,
+        page: pageName,
         component_name: selectedElement.value.component_name,
         description: selectedElement.value.description,
         locator_strategy_id: selectedElement.value.locator_strategy_id,
@@ -2387,11 +2391,7 @@ const saveElement = async () => {
         force_action: selectedElement.value.force_action,
         project_id: selectedProject.value
       }
-
-      if (selectedElement.value.page) {
-        const pageId = findPageIdByName(treeData.value, selectedElement.value.page)
-        if (pageId) elementUpdateData.group_id = pageId
-      }
+      if (groupId) elementUpdateData.group_id = groupId
 
       await updateElement(selectedElement.value.id, elementUpdateData)
       ElMessage.success(t('uiAutomation.element.messages.saveSuccess'))
@@ -2399,13 +2399,10 @@ const saveElement = async () => {
       // 创建元素
       const elementData = {
         ...selectedElement.value,
+        page: pageName,
         project_id: selectedProject.value
       }
-
-      if (selectedElement.value.page) {
-        const pageId = findPageIdByName(treeData.value, selectedElement.value.page)
-        if (pageId) elementData.group_id = pageId
-      }
+      if (groupId) elementData.group_id = groupId
 
       await createElement(elementData)
       ElMessage.success(t('uiAutomation.element.messages.createSuccess'))
@@ -2420,8 +2417,8 @@ const saveElement = async () => {
 
     // 展开元素所在页面节点
     nextTick(() => {
-      if (selectedElement.value && selectedElement.value.group_id) {
-        const pageKey = `page-${selectedElement.value.group_id}`
+      if (groupId) {
+        const pageKey = `page-${groupId}`
         if (!pageExpandedKeys.value.includes(pageKey)) {
           pageExpandedKeys.value.push(pageKey)
         }
