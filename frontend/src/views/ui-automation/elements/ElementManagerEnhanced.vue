@@ -46,7 +46,7 @@
             <template #default="{ node, data }">
               <div class="group-tree-node">
                 <span class="group-node-label">{{ node.label }}</span>
-                <span v-if="data.id !== '__all__'" class="group-count">{{ data.element_count || data.children?.length || 0 }}</span>
+                <span v-if="data.id !== '__all__'" class="group-count">{{ data.element_count || 0 }}</span>
               </div>
             </template>
           </el-tree>
@@ -90,37 +90,88 @@
         <div class="panel__body">
           <!-- 批量操作浮动工具栏 -->
           <transition name="batch-bar-slide">
-            <div v-if="selectedElements.length > 0" class="batch-toolbar">
+            <div v-if="selectedElements.length > 0 && !batchEditMode" class="batch-toolbar">
               <span class="batch-toolbar__info">已选 {{ selectedElements.length }} 个元素</span>
               <div class="batch-toolbar__actions">
+                <el-button size="small" :icon="Edit" @click="enterBatchEditMode">批量编辑</el-button>
                 <el-button size="small" :icon="FolderOpened" @click="openBatchUpdateGroupDialog">批量改页面</el-button>
                 <el-button size="small" type="danger" :icon="DeleteFilled" @click="handleBatchDelete">批量删除</el-button>
                 <el-button size="small" text @click="clearSelection">取消选择</el-button>
               </div>
             </div>
           </transition>
+          <!-- 批量编辑保存/取消条 -->
+          <transition name="batch-bar-slide">
+            <div v-if="batchEditMode" class="batch-edit-bar">
+              <span class="batch-toolbar__info">正在批量编辑 {{ batchEditIds.length }} 个元素，修改后点击保存</span>
+              <div class="batch-toolbar__actions">
+                <el-button size="small" type="primary" @click="saveBatchEdit" :loading="batchEditLoading">保存修改</el-button>
+                <el-button size="small" text @click="cancelBatchEdit">取消</el-button>
+              </div>
+            </div>
+          </transition>
           <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id">
             <el-table-column type="selection" width="40" />
-            <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip />
-            <el-table-column prop="element_type" label="类型" width="80">
+            <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">
-                <span class="element-type-tag" :class="(row.element_type || '').toLowerCase()">{{ getElementTypeLabel(row.element_type) }}</span>
+                <el-input v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.name" size="small" placeholder="元素名称" @click.stop />
+                <span v-else>{{ row.name }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="定位策略" width="90">
-              <template #default="{ row }">{{ getStrategyName(row.locator_strategy_id) }}</template>
-            </el-table-column>
-            <el-table-column prop="locator_value" label="定位表达式" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="wait_timeout" label="超时" width="65" align="center">
-              <template #default="{ row }">{{ row.wait_timeout || 5 }}s</template>
-            </el-table-column>
-            <el-table-column label="强制" width="55" align="center">
+            <el-table-column prop="element_type" label="类型" width="100">
               <template #default="{ row }">
-                <el-tag v-if="row.force_action" type="danger" size="small">是</el-tag>
-                <span v-else style="color: var(--gray-400)">-</span>
+                <el-select v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.element_type" size="small" style="width: 100%">
+                  <el-option label="输入框" value="INPUT" />
+                  <el-option label="按钮" value="BUTTON" />
+                  <el-option label="链接" value="LINK" />
+                  <el-option label="下拉框" value="DROPDOWN" />
+                  <el-option label="复选框" value="CHECKBOX" />
+                  <el-option label="单选框" value="RADIO" />
+                  <el-option label="文本" value="TEXT" />
+                  <el-option label="图片" value="IMAGE" />
+                  <el-option label="容器" value="CONTAINER" />
+                  <el-option label="表格" value="TABLE" />
+                  <el-option label="表单" value="FORM" />
+                  <el-option label="弹窗" value="MODAL" />
+                </el-select>
+                <span v-else class="element-type-tag" :class="(row.element_type || '').toLowerCase()">{{ getElementTypeLabel(row.element_type) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="description" label="描述" min-width="100" show-overflow-tooltip />
+            <el-table-column label="定位策略" width="110">
+              <template #default="{ row }">
+                <el-select v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.locator_strategy_id" size="small" style="width: 100%">
+                  <el-option v-for="strategy in locatorStrategies" :key="strategy.id" :label="strategy.name" :value="strategy.id" />
+                </el-select>
+                <span v-else>{{ getStrategyName(row.locator_strategy_id) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="locator_value" label="定位表达式" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                <el-input v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.locator_value" size="small" placeholder="定位表达式" @click.stop />
+                <span v-else>{{ row.locator_value }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="wait_timeout" label="超时" width="80" align="center">
+              <template #default="{ row }">
+                <el-input-number v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.wait_timeout" size="small" :min="1" :max="120" controls-position="right" style="width: 70px" />
+                <span v-else>{{ row.wait_timeout || 5 }}s</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="强制" width="65" align="center">
+              <template #default="{ row }">
+                <el-switch v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.force_action" size="small" />
+                <template v-else>
+                  <el-tag v-if="row.force_action" type="danger" size="small">是</el-tag>
+                  <span v-else style="color: var(--gray-400)">-</span>
+                </template>
+              </template>
+            </el-table-column>
+            <el-table-column prop="description" label="描述" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">
+                <el-input v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.description" size="small" placeholder="描述" @click.stop />
+                <span v-else>{{ row.description }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
                 <div class="op-btns">
@@ -132,16 +183,15 @@
             </el-table-column>
           </el-table>
           <div v-if="filteredElements.length === 0" class="no-data-tip">暂无元素</div>
-          <div class="pagination-container">
-            <el-pagination
-              v-model:current-page="elementCurrentPage"
-              v-model:page-size="elementPageSize"
-              :page-sizes="[10, 20, 50]"
-              :total="filteredElements.length"
-              layout="total, sizes, prev, pager, next"
-              small
-            />
-          </div>
+        </div>
+        <div class="pagination-container">
+          <el-pagination
+            v-model:current-page="elementCurrentPage"
+            v-model:page-size="elementPageSize"
+            :page-sizes="[10, 20, 50]"
+            :total="filteredElements.length"
+            layout="total, sizes, prev, pager, next"
+          />
         </div>
       </section>
     </div>
@@ -550,7 +600,8 @@ import {
   aiPickRemove,
   getLoginConfigs,
   batchReorderElementGroups,
-  batchReorderElements
+  batchReorderElements,
+  batchUpdateElements
 } from '@/api/ui_automation'
 
 // 国际化
@@ -620,14 +671,19 @@ const pageGroupTreeWithAll = computed(() => {
     if (!nodes) return []
     return nodes
       .filter(n => n.type === 'page')
-      .map(n => ({
-        id: n.id,
-        name: n.name,
-        type: n.type,
-        _originalId: n._originalId,
-        element_count: n.children?.filter(c => c.type === 'element').length || 0,
-        children: buildPageTree(n.children)
-      }))
+      .map(n => {
+        const childPages = buildPageTree(n.children)
+        // 只统计直接关联到当前分组的元素数量，不累加子分组
+        const directCount = n.children?.filter(c => c.type === 'element').length || 0
+        return {
+          id: n.id,
+          name: n.name,
+          type: n.type,
+          _originalId: n._originalId,
+          element_count: directCount,
+          children: childPages
+        }
+      })
   }
   return [allNode, ...buildPageTree(treeData.value)]
 })
@@ -987,9 +1043,15 @@ const batchLoading = ref(false)             // 批量操作进行中
 const elementSortableInstance = ref(null)    // 元素列表拖拽排序实例
 let _dragSelectedRows = []                  // 拖拽期间暂存选中行
 
+// 批量编辑相关
+const batchEditMode = ref(false)            // 批量编辑模式
+const batchEditIds = ref([])                // 批量编辑期间冻结的元素ID列表
+const batchEditBackup = ref({})             // 批量编辑前的数据备份 { id: { ...原字段 } }
+const batchEditLoading = ref(false)
+
 // 初始化元素表格行拖拽排序
 const initElementSortable = () => {
-  if (batchLoading.value) return
+  if (batchLoading.value || batchEditMode.value) return
   nextTick(() => {
     const tableEl = elementTableRef.value?.$el
     if (!tableEl) return
@@ -1066,7 +1128,107 @@ watch(filteredElements, () => {
 
 // 表格选择变化
 const handleSelectionChange = (rows) => {
+  // 批量编辑期间忽略 el-table selection 抖动
+  if (batchEditMode.value) return
   selectedElements.value = rows
+}
+
+// 判断某行是否在批量编辑集合中
+const isElementInBatchEdit = (row) => {
+  return batchEditIds.value.includes(row.id)
+}
+
+// 进入批量编辑模式
+const enterBatchEditMode = () => {
+  if (selectedElements.value.length === 0) {
+    ElMessage.warning('请先选择要编辑的元素')
+    return
+  }
+  batchEditIds.value = selectedElements.value.map(e => e.id)
+  batchEditBackup.value = {}
+  batchEditIds.value.forEach(id => {
+    const el = allElements.value.find(e => e.id === id)
+    if (el) {
+      batchEditBackup.value[id] = {
+        name: el.name,
+        element_type: el.element_type,
+        locator_strategy_id: el.locator_strategy_id,
+        locator_value: el.locator_value,
+        wait_timeout: el.wait_timeout,
+        force_action: el.force_action,
+        description: el.description
+      }
+    }
+  })
+  batchEditMode.value = true
+}
+
+// 取消批量编辑
+const cancelBatchEdit = () => {
+  Object.keys(batchEditBackup.value).forEach(id => {
+    const el = allElements.value.find(e => String(e.id) === String(id))
+    if (el) {
+      const backup = batchEditBackup.value[id]
+      Object.keys(backup).forEach(field => {
+        el[field] = backup[field]
+      })
+    }
+  })
+  batchEditBackup.value = {}
+  batchEditIds.value = []
+  batchEditMode.value = false
+  selectedElements.value = []
+  clearSelection()
+}
+
+// 保存批量编辑
+const saveBatchEdit = async () => {
+  const updates = []
+  let hasError = false
+  for (const id of batchEditIds.value) {
+    const el = allElements.value.find(e => e.id === id)
+    if (!el) continue
+    // 校验名称（检查当前值，而非仅变更字段）
+    if (!el.name || !String(el.name).trim()) {
+      ElMessage.warning('元素名称不能为空')
+      hasError = true
+      break
+    }
+    const backup = batchEditBackup.value[id]
+    const item = { id }
+    let hasChange = false
+    for (const field of ['name', 'element_type', 'locator_strategy_id', 'locator_value', 'wait_timeout', 'force_action', 'description']) {
+      if (el[field] !== backup[field]) {
+        item[field] = el[field]
+        hasChange = true
+      }
+    }
+    if (hasChange) updates.push(item)
+  }
+  if (hasError) return
+  if (updates.length === 0) {
+    ElMessage.info('没有修改需要保存')
+    batchEditMode.value = false
+    batchEditBackup.value = {}
+    batchEditIds.value = []
+    return
+  }
+  batchEditLoading.value = true
+  try {
+    const res = await batchUpdateElements({ updates })
+    ElMessage.success(res.data.message || `成功更新 ${updates.length} 个元素`)
+    batchEditMode.value = false
+    batchEditBackup.value = {}
+    batchEditIds.value = []
+    selectedElements.value = []
+    clearSelection()
+    await loadElementTree()
+  } catch (error) {
+    const msg = error.response?.data?.error || error.message || '批量保存失败'
+    ElMessage.error(msg)
+  } finally {
+    batchEditLoading.value = false
+  }
 }
 
 // 清空选择
@@ -2482,6 +2644,21 @@ const updatePage = async () => {
 .list-panel {
   grid-row: 2;
   grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.list-panel .panel__header {
+  flex-shrink: 0;
+}
+
+.list-panel .panel__body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0;
 }
 
 /* 分组面板宽度由 grid 列定义 */
@@ -2655,21 +2832,32 @@ const updatePage = async () => {
 }
 
 /* 批量操作工具栏 */
-.batch-toolbar {
+.batch-toolbar,
+.batch-edit-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
   margin-bottom: 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.batch-toolbar {
   background: var(--primary-50, #ebf3fe);
   border: 1px solid var(--primary-200, #b3d8ff);
-  border-radius: 6px;
   color: var(--gray-700, #334155);
-  font-size: 13px;
+}
+.batch-edit-bar {
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  color: #874d00;
 }
 .batch-toolbar__info {
   font-weight: 600;
   color: var(--primary-600, #1890ff);
+}
+.batch-edit-bar .batch-toolbar__info {
+  color: #d46b08;
 }
 .batch-toolbar__actions {
   display: flex;
@@ -2738,5 +2926,16 @@ const updatePage = async () => {
 
 .list-panel :deep(.el-table .el-table__body tr) {
   height: 40px;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100, #f1f5f9);
+  flex-shrink: 0;
+  background: var(--gray-0, #fff);
 }
 </style>

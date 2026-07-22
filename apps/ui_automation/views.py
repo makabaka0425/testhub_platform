@@ -4538,6 +4538,74 @@ DOM数据：
             Element.objects.filter(id=item.get('id')).update(order=item.get('order', 0))
         return Response({'status': 'ok'})
 
+    @action(detail=False, methods=['post'], url_path='batch_update')
+    def batch_update(self, request):
+        """批量更新元素字段（name, element_type, locator_strategy_id, locator_value, wait_timeout, force_action, description）"""
+        updates = request.data.get('updates', [])
+        if not updates or not isinstance(updates, list):
+            return Response({'error': '请提供元素更新数据列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 允许更新的字段白名单
+        allowed_fields = {
+            'name', 'element_type', 'locator_strategy_id',
+            'locator_value', 'wait_timeout', 'force_action', 'description'
+        }
+
+        success_count, fail_count = 0, 0
+        failed_items = []
+        for item in updates:
+            elem_id = item.get('id')
+            if not elem_id:
+                fail_count += 1
+                failed_items.append({'id': elem_id, 'reason': '缺少元素ID'})
+                continue
+            try:
+                elem = Element.objects.get(id=elem_id)
+                changed = False
+                for field in allowed_fields:
+                    if field in item:
+                        val = item[field]
+                        if field == 'name' and (not val or not str(val).strip()):
+                            fail_count += 1
+                            failed_items.append({'id': elem_id, 'reason': '名称不能为空'})
+                            continue
+                        if field == 'locator_strategy_id':
+                            # 验证定位策略存在
+                            try:
+                                strategy = LocatorStrategy.objects.get(id=val)
+                                elem.locator_strategy = strategy
+                                changed = True
+                            except LocatorStrategy.DoesNotExist:
+                                fail_count += 1
+                                failed_items.append({'id': elem_id, 'reason': '定位策略不存在'})
+                                continue
+                        elif field == 'wait_timeout':
+                            elem.wait_timeout = int(val) if val is not None else 5
+                            changed = True
+                        elif field == 'force_action':
+                            elem.force_action = bool(val)
+                            changed = True
+                        else:
+                            setattr(elem, field, val)
+                            changed = True
+                if changed:
+                    elem.save()
+                    log_operation('edit', 'element', elem.id, elem.name, request.user)
+                    success_count += 1
+            except Element.DoesNotExist:
+                fail_count += 1
+                failed_items.append({'id': elem_id, 'reason': '元素不存在'})
+            except Exception as e:
+                fail_count += 1
+                failed_items.append({'id': elem_id, 'reason': str(e)})
+
+        return Response({
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'failed_items': failed_items,
+            'message': f'成功更新 {success_count} 个元素' + (f'，{fail_count} 个失败' if fail_count else '')
+        })
+
 
 class ElementGroupViewSet(viewsets.ModelViewSet):
     queryset = ElementGroup.objects.all()
