@@ -129,24 +129,15 @@
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column
-                  :label="$t('uiAutomation.common.operation')"
-                  width="120"
-              >
-                <template #default="{ row }">
-                  <div class="op-btns">
-                    <el-button
-                        class="op-btn"
-                        type="primary"
-                        link
-                        size="small"
-                        @click="viewDetail(row)"
-                    >
-                      {{ $t('uiAutomation.notification.logs.viewDetail') }}
-                    </el-button>
-                  </div>
-                </template>
-              </el-table-column>
+<el-table-column
+                    :label="$t('uiAutomation.common.operation')"
+                    width="100"
+                    fixed="right"
+                >
+                  <template #default="{ row }">
+                    <ActionCell :actions="getNotificationActions(row)" :row="row" :max-visible="3" />
+                  </template>
+                </el-table-column>
             </el-table>
           </div>
 
@@ -269,11 +260,13 @@ import {ref, reactive, onMounted, computed} from 'vue'
 import {ElMessage} from 'element-plus'
 import { getNotificationLogs } from '@/api/ui_automation.js'
 import { useI18n } from 'vue-i18n'
+import ActionCell from '@/components/ActionCell.vue'
 
 export default {
   name: 'NotificationLogs',
   components: {
-    Search
+    Search,
+    ActionCell
   },
   setup() {
     const { t, locale } = useI18n()
@@ -530,6 +523,11 @@ export default {
       }
     })
 
+    // 操作列 actions
+    const getNotificationActions = (row) => [
+      { key: 'detail', label: t('uiAutomation.notification.logs.viewDetail'), onClick: (r) => viewDetail(r) }
+    ]
+
     // 组件挂载时获取数据
     onMounted(() => {
       fetchLogsData()
@@ -550,6 +548,7 @@ export default {
       handleCurrentChange,
       handleSortChange,
       viewDetail,
+      getNotificationActions,
       handleDetailDialogClose,
       formatDate,
       getStatusTagType,

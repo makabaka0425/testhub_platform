@@ -116,26 +116,9 @@
                   {{ formatDateTime(scope.row.last_run_time) }}
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('uiAutomation.common.operation')" width="200" align="left">
-                <template #default="scope">
-                  <div class="op-btns">
-                    <el-button class="op-btn" link type="primary" size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
-                      {{ $t('uiAutomation.scheduledTask.runNow') }}
-                    </el-button>
-                    <el-dropdown @command="(command) => handleTaskAction(command, scope.row)">
-                      <el-button class="op-btn" link type="primary" size="small">
-                        {{ $t('uiAutomation.scheduledTask.more') }}<el-icon><arrow-down /></el-icon>
-                      </el-button>
-                      <template #dropdown>
-                        <el-dropdown-menu>
-                          <el-dropdown-item command="edit">{{ $t('uiAutomation.scheduledTask.actions.edit') }}</el-dropdown-item>
-                          <el-dropdown-item command="pause" v-if="scope.row.status === 'ACTIVE'">{{ $t('uiAutomation.scheduledTask.actions.pause') }}</el-dropdown-item>
-                          <el-dropdown-item command="resume" v-if="scope.row.status === 'PAUSED'">{{ $t('uiAutomation.scheduledTask.actions.resume') }}</el-dropdown-item>
-                          <el-dropdown-item command="delete" divided>{{ $t('uiAutomation.scheduledTask.actions.delete') }}</el-dropdown-item>
-                        </el-dropdown-menu>
-                      </template>
-                    </el-dropdown>
-                  </div>
+              <el-table-column :label="$t('uiAutomation.common.operation')" width="180" fixed="right">
+                <template #default="{ row }">
+                  <ActionCell :actions="getTaskActions(row)" :row="row" :max-visible="3" />
                 </template>
               </el-table-column>
             </el-table>
@@ -329,6 +312,7 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, ArrowDown } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import ActionCell from '@/components/ActionCell.vue'
 import {
   getScheduledTasks,
   createScheduledTask,
@@ -424,6 +408,15 @@ const getNotificationTypeText = (type) => {
 }
 
 // 生命周期
+// 操作列 actions
+const getTaskActions = (row) => [
+  { key: 'run', label: t('uiAutomation.scheduledTask.runNow'), loading: row.running, onClick: (r) => runTaskNow(r) },
+  { key: 'edit', label: t('uiAutomation.scheduledTask.actions.edit'), onClick: (r) => handleTaskAction('edit', r) },
+  { key: 'pause', label: t('uiAutomation.scheduledTask.actions.pause'), hidden: row.status !== 'ACTIVE', onClick: (r) => handleTaskAction('pause', r) },
+  { key: 'resume', label: t('uiAutomation.scheduledTask.actions.resume'), hidden: row.status !== 'PAUSED', onClick: (r) => handleTaskAction('resume', r) },
+  { key: 'delete', label: t('uiAutomation.scheduledTask.actions.delete'), danger: true, divided: true, onClick: (r) => handleTaskAction('delete', r) }
+]
+
 onMounted(() => {
   loadTasks()
   loadProjects()

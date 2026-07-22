@@ -61,13 +61,9 @@
                 </template>
               </el-table-column>
               <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
-              <el-table-column label="操作" width="220">
+              <el-table-column label="操作" width="180" fixed="right">
                 <template #default="{ row }">
-                  <div class="op-btns">
-                    <el-button class="op-btn" link type="primary" size="small" @click="editConfig(row.id)">编辑</el-button>
-                    <el-button class="op-btn" link type="success" size="small" @click="handleTestLogin(row)">测试登录</el-button>
-                    <el-button class="op-btn op-btn--danger" link size="small" @click="deleteConfig(row.id)">删除</el-button>
-                  </div>
+                  <ActionCell :actions="getConfigActions(row)" :row="row" :max-visible="3" />
                 </template>
               </el-table-column>
             </el-table>
@@ -147,6 +143,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
+import ActionCell from '@/components/ActionCell.vue'
 import {
   getUiProjects,
   getLoginConfigs,
@@ -406,6 +403,13 @@ const cancelCreate = () => {
   showCreateDialog.value = false
   resetForm()
 }
+
+// 操作列 actions
+const getConfigActions = (row) => [
+  { key: 'edit', label: '编辑', onClick: (r) => editConfig(r.id) },
+  { key: 'test', label: '测试登录', onClick: (r) => handleTestLogin(r) },
+  { key: 'delete', label: '删除', danger: true, onClick: (r) => deleteConfig(r.id) }
+]
 
 // 辅助方法
 const formatDate = (row, column, cellValue) => {

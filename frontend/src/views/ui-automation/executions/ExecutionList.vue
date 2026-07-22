@@ -118,31 +118,9 @@
                   {{ formatDuration(row.execution_time) }}
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('uiAutomation.common.operation')" width="200" align="left">
+              <el-table-column :label="$t('uiAutomation.common.operation')" width="160" fixed="right">
                 <template #default="{ row }">
-                  <div class="op-btns">
-                    <el-button class="op-btn" type="primary" link size="small" @click="viewExecutionDetail(row)">
-                      {{ $t('uiAutomation.common.details') }}
-                    </el-button>
-                    <el-button
-                      v-if="row.status === 'failed' || row.status === 'error'"
-                      class="op-btn"
-                      type="warning"
-                      link
-                      size="small"
-                      @click="showRerunDialog(row)"
-                    >
-                      {{ $t('uiAutomation.common.rerun') }}
-                    </el-button>
-                    <el-button
-                      class="op-btn op-btn--danger"
-                      link
-                      size="small"
-                      @click="handleDelete(row)"
-                    >
-                      {{ $t('uiAutomation.common.delete') }}
-                    </el-button>
-                  </div>
+                  <ActionCell :actions="getExecutionActions(row)" :row="row" :max-visible="3" />
                 </template>
               </el-table-column>
             </el-table>
@@ -284,6 +262,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, View, WarningFilled, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import ActionCell from '@/components/ActionCell.vue'
 import {
   getTestCaseExecutions,
   getUiProjects,
@@ -633,6 +612,13 @@ const handleRerun = async () => {
 }
 
 // 组件挂载时加载数据
+// 操作列 actions
+const getExecutionActions = (row) => [
+  { key: 'detail', label: t('uiAutomation.common.details'), onClick: (r) => viewExecutionDetail(r) },
+  { key: 'rerun', label: t('uiAutomation.common.rerun'), hidden: row.status !== 'failed' && row.status !== 'error', onClick: (r) => showRerunDialog(r) },
+  { key: 'delete', label: t('uiAutomation.common.delete'), danger: true, onClick: (r) => handleDelete(r) }
+]
+
 onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
