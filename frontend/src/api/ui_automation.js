@@ -239,6 +239,15 @@ export function updateTestSuite(id, data) {
   })
 }
 
+// 批量更新测试套件
+export function batchUpdateTestSuites(data) {
+  return request({
+    url: '/ui-automation/test-suites/batch_update/',
+    method: 'post',
+    data
+  })
+}
+
 // 删除测试套件
 export function deleteTestSuite(id) {
   return request({

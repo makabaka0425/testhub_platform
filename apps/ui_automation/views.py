@@ -5149,6 +5149,72 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         log_operation('delete', 'suite', instance.id, instance.name, self.request.user)
         instance.delete()
 
+    @action(detail=False, methods=['post'], url_path='batch_update')
+    def batch_update(self, request):
+        """批量更新套件字段（name, description, execution_mode, login_config）"""
+        updates = request.data.get('updates', [])
+        if not updates or not isinstance(updates, list):
+            return Response({'error': '请提供套件更新数据列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_fields = {'name', 'description', 'execution_mode', 'login_config'}
+
+        success_count, fail_count = 0, 0
+        failed_items = []
+        for item in updates:
+            suite_id = item.get('id')
+            if not suite_id:
+                fail_count += 1
+                failed_items.append({'id': suite_id, 'reason': '缺少套件ID'})
+                continue
+            try:
+                suite = TestSuite.objects.get(id=suite_id)
+                changed = False
+                for field in allowed_fields:
+                    if field in item:
+                        val = item[field]
+                        if field == 'name' and (not val or not str(val).strip()):
+                            fail_count += 1
+                            failed_items.append({'id': suite_id, 'reason': '名称不能为空'})
+                            continue
+                        if field == 'login_config':
+                            if val:
+                                try:
+                                    cfg = LoginConfig.objects.get(id=val)
+                                    suite.login_config = cfg
+                                except LoginConfig.DoesNotExist:
+                                    fail_count += 1
+                                    failed_items.append({'id': suite_id, 'reason': '登录配置不存在'})
+                                    continue
+                            else:
+                                suite.login_config = None
+                            changed = True
+                        elif field == 'execution_mode':
+                            suite.execution_mode = val
+                            # 如果切换为 per_case 模式，清除登录配置
+                            if val == 'per_case':
+                                suite.login_config = None
+                            changed = True
+                        else:
+                            setattr(suite, field, val)
+                            changed = True
+                if changed:
+                    suite.save()
+                    log_operation('edit', 'suite', suite.id, suite.name, request.user)
+                    success_count += 1
+            except TestSuite.DoesNotExist:
+                fail_count += 1
+                failed_items.append({'id': suite_id, 'reason': '套件不存在'})
+            except Exception as e:
+                fail_count += 1
+                failed_items.append({'id': suite_id, 'reason': str(e)})
+
+        return Response({
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'failed_items': failed_items,
+            'message': f'成功更新 {success_count} 个套件' + (f'，{fail_count} 个失败' if fail_count else '')
+        })
+
     @action(detail=True, methods=['get'])
     def scripts(self, request, pk=None):
         """获取测试套件中的所有脚本"""
