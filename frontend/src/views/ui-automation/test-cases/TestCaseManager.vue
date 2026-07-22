@@ -2158,15 +2158,8 @@ const copyTestCase = async (testCase) => {
     const response = await copyTestCaseApi(testCase.id)
     ElMessage.success(t('uiAutomation.testCase.copy.success'))
 
-    // 找到原用例的位置
-    const index = testCases.value.findIndex(tc => tc.id === testCase.id)
-    if (index !== -1) {
-      // 在原用例下方插入新用例
-      testCases.value.splice(index + 1, 0, response.data)
-    } else {
-      // 如果找不到，就添加到末尾
-      testCases.value.push(response.data)
-    }
+    // 复制的用例插入到列表头部
+    testCases.value.unshift(response.data)
   } catch (error) {
     if (error !== 'cancel') {
       console.error('复制测试用例失败:', error)
