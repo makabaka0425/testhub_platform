@@ -168,13 +168,23 @@ class TestSuiteTestCaseSerializer(serializers.ModelSerializer):
     def get_test_case(self, obj):
         """获取测试用例信息"""
         test_case = obj.test_case
+        # 查询该用例在当前套件下最近一次执行记录（仅套件执行来源）
+        last_exec = TestCaseExecution.objects.filter(
+            test_case=test_case,
+            test_suite=obj.test_suite,
+            execution_source='suite'
+        ).order_by('-started_at').first()
+        suite_last_duration = last_exec.execution_time if last_exec and last_exec.execution_time else None
+        suite_last_finished = last_exec.finished_at if last_exec and last_exec.finished_at else None
         return {
             'id': test_case.id,
             'name': test_case.name,
             'description': test_case.description,
             'status': test_case.status,
             'priority': test_case.priority,
-            'created_at': test_case.created_at
+            'created_at': test_case.created_at,
+            'suite_last_duration': suite_last_duration,
+            'suite_last_finished': suite_last_finished.isoformat() if suite_last_finished else None,
         }
 
 
@@ -684,8 +694,10 @@ class TestCaseSerializer(serializers.ModelSerializer):
         ]
 
     def get_last_execution_time(self, obj):
-        """获取该用例最新一次执行的时间（优先 finished_at，回退 started_at，再回退 created_at）"""
-        latest = TestCaseExecution.objects.filter(test_case=obj).order_by('-created_at').only('finished_at', 'started_at', 'created_at').first()
+        """获取该用例最近一次手动执行的时间（仅 execution_source='manual'）"""
+        latest = TestCaseExecution.objects.filter(
+            test_case=obj, execution_source='manual'
+        ).order_by('-created_at').only('finished_at', 'started_at', 'created_at').first()
         if not latest:
             return None
         ts = latest.finished_at or latest.started_at or latest.created_at
