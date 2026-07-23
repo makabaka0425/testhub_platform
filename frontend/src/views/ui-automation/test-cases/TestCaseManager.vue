@@ -985,6 +985,39 @@
               <el-empty v-else description="暂无执行日志" />
               </div>
             </el-tab-pane>
+            <el-tab-pane label="SQL执行" name="sql" v-if="historyDetailSqlExecs.length > 0">
+              <div class="history-detail-scroll">
+                <div class="sql-exec-list">
+                  <div v-for="(sqlExec, idx) in historyDetailSqlExecs" :key="idx" class="sql-exec-item">
+                    <div class="sql-exec-header">
+                      <el-tag :type="sqlExec.type === 'precondition' ? 'warning' : 'info'" size="small">{{ sqlExec.label }}</el-tag>
+                      <el-tag :type="sqlExec.success ? 'success' : 'danger'" size="small">{{ sqlExec.success ? '执行成功' : '执行失败' }}</el-tag>
+                      <span v-if="sqlExec.executed && sqlExec.total_affected !== undefined" class="sql-affected">影响 {{ sqlExec.total_affected }} 行</span>
+                    </div>
+                    <div v-if="sqlExec.error" class="sql-exec-error">
+                      <pre class="error-message">{{ sqlExec.error }}</pre>
+                    </div>
+                    <div v-if="sqlExec.original_sql" class="sql-block">
+                      <div class="sql-block-label">原始SQL{{ sqlExec.original_sql !== sqlExec.resolved_sql ? '（含变量）' : '' }}：</div>
+                      <pre class="sql-code">{{ sqlExec.original_sql }}</pre>
+                    </div>
+                    <div v-if="sqlExec.resolved_sql && sqlExec.resolved_sql !== sqlExec.original_sql" class="sql-block">
+                      <div class="sql-block-label">解析后SQL：</div>
+                      <pre class="sql-code sql-resolved">{{ sqlExec.resolved_sql }}</pre>
+                    </div>
+                    <div v-if="sqlExec.details && sqlExec.details.length > 0" class="sql-details">
+                      <div class="sql-details-label">执行明细：</div>
+                      <div v-for="(detail, di) in sqlExec.details" :key="di" class="sql-detail-row">
+                        <span :class="['sql-detail-status', detail.error ? 'fail' : 'ok']">{{ detail.error ? '✗' : '✓' }}</span>
+                        <pre class="sql-detail-code">{{ detail.sql }}</pre>
+                        <span v-if="detail.affected !== undefined" class="sql-detail-affected">影响 {{ detail.affected }} 行</span>
+                        <span v-if="detail.error" class="sql-detail-error">{{ detail.error }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
             <el-tab-pane label="失败截图" name="screenshots" v-if="historyDetailData.screenshots && historyDetailData.screenshots.length > 0">
               <div class="history-detail-scroll">
               <div class="history-detail-screenshots">
@@ -1121,6 +1154,63 @@ const historyDetailErrors = computed(() => {
     }
   }
   return errors
+})
+
+// 从执行记录中提取SQL执行信息（统一处理套件和单用例两种格式）
+const historyDetailSqlExecs = computed(() => {
+  if (!historyDetailData.value || !historyDetailData.value.parsedLogs) return []
+  const logs = historyDetailData.value.parsedLogs
+  const result = []
+
+  if (!Array.isArray(logs)) {
+    if (logs.precondition_sql) {
+      const pre = logs.precondition_sql
+      result.push({
+        type: 'precondition',
+        label: '前置数据SQL',
+        success: pre.executed !== false && !pre.has_error,
+        executed: pre.executed !== false,
+        original_sql: pre.original_sql || '',
+        resolved_sql: pre.resolved_sql || '',
+        total_affected: pre.total_affected || 0,
+        details: pre.details || [],
+        error: pre.error || null
+      })
+    }
+    if (logs.postcondition) {
+      const post = logs.postcondition
+      result.push({
+        type: 'postcondition',
+        label: '后置清理SQL',
+        success: post.executed !== false,
+        executed: post.executed !== false,
+        original_sql: post.original_sql || '',
+        resolved_sql: post.resolved_sql || '',
+        total_affected: post.total_affected || 0,
+        details: post.details || [],
+        error: post.error || null
+      })
+    }
+  }
+
+  const steps = Array.isArray(logs) ? logs : (logs.steps || [])
+  for (const step of steps) {
+    if (step.step_number === 'sql' && (step.original_sql || step.resolved_sql || step.details)) {
+      result.push({
+        type: step.action_type === 'postcondition_sql' ? 'postcondition' : 'precondition',
+        label: step.description || (step.action_type === 'postcondition_sql' ? '后置清理SQL' : '前置数据SQL'),
+        success: step.success,
+        executed: true,
+        original_sql: step.original_sql || '',
+        resolved_sql: step.resolved_sql || '',
+        total_affected: step.total_affected || 0,
+        details: step.details || [],
+        error: step.error || null
+      })
+    }
+  }
+
+  return result
 })
 const resultActiveTab = ref('logs')
 const allStepsExpanded = ref(false)
@@ -4015,6 +4105,129 @@ onMounted(async () => {
 }
 .details-content::-webkit-scrollbar-thumb:hover {
   background: #777;
+}
+
+/* ==================== SQL执行页签样式 ==================== */
+.sql-exec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sql-exec-item {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.sql-exec-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.sql-affected {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.sql-exec-error {
+  margin-bottom: 10px;
+
+  .error-message {
+    color: #dc2626;
+    font-size: 12px;
+    margin: 0;
+    font-family: 'Courier New', Courier, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.sql-block {
+  margin-bottom: 10px;
+}
+
+.sql-block-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.sql-code {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.sql-code.sql-resolved {
+  border-left: 3px solid #10b981;
+}
+
+.sql-details {
+  margin-top: 8px;
+}
+
+.sql-details-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.sql-detail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  background: #fff;
+  border-radius: 4px;
+  border: 1px solid #f3f4f6;
+}
+
+.sql-detail-status {
+  font-weight: 700;
+  flex-shrink: 0;
+
+  &.ok { color: #10b981; }
+  &.fail { color: #ef4444; }
+}
+
+.sql-detail-code {
+  flex: 1;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  color: #374151;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.sql-detail-affected {
+  font-size: 11px;
+  color: #6b7280;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.sql-detail-error {
+  font-size: 11px;
+  color: #ef4444;
+  flex-shrink: 0;
+  max-width: 200px;
 }
 
 /* ============================================================
