@@ -829,6 +829,47 @@ class TestExecutor:
                                 print(f"✓ 浏览器已关闭")
                                 continue
 
+                        # 执行前置条件（独立模式下每个用例有独立浏览器，可以安全执行前置条件）
+                        test_case_obj = self.test_cases[i - 1]  # 原始TestCase对象
+                        pre_ok, pre_msg, pre_deferred = self._execute_preconditions(test_case_obj)
+                        # 收集前置条件的后置SQL（无论成功失败都需要收集，用于清理数据）
+                        if pre_deferred:
+                            for pre_case_data in pre_deferred:
+                                pending_postconditions.append((pre_case_data, {'status': 'skipped', 'error': pre_msg}))
+
+                        if not pre_ok:
+                            print(f"[前置条件] ✗ 前置条件失败: {pre_msg}")
+                            case_result = {
+                                'test_case_id': case_data['id'],
+                                'test_case_name': case_data['name'],
+                                'status': 'skipped',
+                                'steps': [],
+                                'error': f"前置条件失败: {pre_msg}",
+                                'start_time': datetime.now().isoformat(),
+                                'end_time': datetime.now().isoformat(),
+                                'screenshots': []
+                            }
+                            self.results.append(case_result)
+                            case_execution = case_executions[case_data['id']]
+                            case_execution.status = 'skipped'
+                            case_execution.finished_at = timezone.now()
+                            case_execution.error_message = case_result['error']
+                            case_execution.save()
+                            # 回写用例状态为skipped
+                            try:
+                                tc = TestCase.objects.get(id=case_data['id'])
+                                if tc.status != 'skipped':
+                                    tc.status = 'skipped'
+                                    tc.save(update_fields=['status', 'updated_at'])
+                            except TestCase.DoesNotExist:
+                                pass
+                            skipped += 1
+                            browser.close()
+                            print(f"✓ 浏览器已关闭（前置条件失败）\n")
+                            continue
+
+                        print(f"[前置条件] ✓ 前置条件执行完毕")
+
                         # 使用套件级共享变量池执行测试用例
                         print(f"[变量共享] 当前套件变量: {list(suite_context_variables.keys())}")
                         case_result = self.execute_test_case_playwright_no_db(
@@ -1686,6 +1727,10 @@ class TestExecutor:
                 elif step_data['action_type'] == 'fill':
                     # 解析输入值中的变量表达式
                     resolved_value = resolve_variables(step_data['input_value'], self.context_variables)
+                    # 先更新step_result的input_value为解析后的值（即使后续fill操作失败也能记录实际使用的值）
+                    step_result['input_value'] = resolved_value
+                    if resolved_value != step_data['input_value']:
+                        print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
 
                     # 如果刚切换了标签页，增加超时时间
                     if step_data.get('_just_switched_tab'):
@@ -1697,10 +1742,6 @@ class TestExecutor:
                         self.current_page.fill(selector, resolved_value, timeout=effective_timeout)
 
                     step_result['success'] = True
-                    # 记录解析后的值（用于调试）
-                    if resolved_value != step_data['input_value']:
-                        step_result['input_value'] = resolved_value
-                        print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
 
                     # 捕获输出变量
                     if step_data.get('output_var'):
@@ -2595,6 +2636,14 @@ class TestExecutor:
             print(f"   异常类型: {error_type}")
             print(f"   错误信息: {error_str[:500]}")  # 限制长度避免刷屏
 
+        # 兜底：如果input_value中仍包含未解析的变量表达式，尝试解析
+        if step_result.get('input_value') and '${' in str(step_result['input_value']):
+            try:
+                resolved = resolve_variables(step_result['input_value'], self.context_variables)
+                step_result['input_value'] = resolved
+            except Exception:
+                pass
+
         return step_result
 
     def run_with_selenium(self):
@@ -3488,17 +3537,16 @@ class TestExecutor:
                     
                     # 解析输入值中的变量表达式
                     resolved_value = resolve_variables(step_data['input_value'], self.context_variables)
+                    # 先更新step_result的input_value为解析后的值（即使后续操作失败也能记录实际使用的值）
+                    step_result['input_value'] = resolved_value
+                    if resolved_value != step_data['input_value']:
+                        print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
 
                     for attempt in range(max_retries):
                         try:
                             element_obj.clear()
                             element_obj.send_keys(resolved_value)
                             step_result['success'] = True
-
-                            # 记录解析后的值（用于调试）
-                            if resolved_value != step_data['input_value']:
-                                step_result['input_value'] = resolved_value
-                                print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
 
                             # 捕获输出变量
                             if step_data.get('output_var'):
@@ -3966,6 +4014,14 @@ class TestExecutor:
             print(f"❌ Selenium 步骤执行失败:")
             print(f"   异常类型: {error_type}")
             print(f"   错误信息: {error_msg[:500]}")  # 限制长度避免刷屏
+
+        # 兜底：如果input_value中仍包含未解析的变量表达式，尝试解析
+        if step_result.get('input_value') and '${' in str(step_result['input_value']):
+            try:
+                resolved = resolve_variables(step_result['input_value'], self.context_variables)
+                step_result['input_value'] = resolved
+            except Exception:
+                pass
 
         return step_result
 
