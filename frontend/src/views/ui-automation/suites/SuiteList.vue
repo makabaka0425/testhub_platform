@@ -915,12 +915,16 @@ const pollSuiteStatus = (suiteId) => {
     count++
     try {
       await loadSuites()
+      // 轮询期间持续刷新套件内用例列表（实时更新状态/时长/时间）
+      if (currentSuite.value && currentSuite.value.id === suiteId) {
+        await loadSuiteCases()
+      }
       const s = suites.value.find(s => s.id === suiteId)
       if (s && s.execution_status !== 'running') {
         clearInterval(iv)
         if (s.execution_status === 'passed') ElMessage.success(`执行完成：全部通过 (${s.passed_count})`)
         else if (s.execution_status === 'failed') ElMessage.warning(`执行完成：通过${s.passed_count}，失败${s.failed_count}`)
-        // 执行完成后刷新套件内部用例列表（更新执行时长/执行时间）
+        // 执行完成后最终刷新一次
         if (currentSuite.value && currentSuite.value.id === suiteId) {
           await loadSuiteCases()
         }
@@ -938,13 +942,16 @@ const pollBatchSuiteStatus = (suiteIds) => {
     count++
     try {
       await loadSuites()
+      // 轮询期间持续刷新当前套件内用例列表
+      if (currentSuite.value && pendingIds.has(currentSuite.value.id)) {
+        await loadSuiteCases()
+      }
       for (const id of [...pendingIds]) {
         const s = suites.value.find(s => s.id === id)
         if (s && s.execution_status !== 'running') {
           pendingIds.delete(id)
           if (s.execution_status === 'passed') ElMessage.success(`「${s.name}」执行完成：全部通过 (${s.passed_count})`)
           else if (s.execution_status === 'failed') ElMessage.warning(`「${s.name}」执行完成：通过${s.passed_count}，失败${s.failed_count}`)
-          // 执行完成后刷新套件内部用例列表
           if (currentSuite.value && currentSuite.value.id === id) {
             await loadSuiteCases()
           }
