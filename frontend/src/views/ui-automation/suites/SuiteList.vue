@@ -181,9 +181,13 @@
             </el-button>
           </div>
         </div>
-        <el-table :data="filteredSuiteCases" style="width: 100%" @selection-change="handleCaseSelectionChange">
+        <el-table ref="suiteCasesTableRef" :data="filteredSuiteCases" style="width: 100%" @selection-change="handleCaseSelectionChange" row-key="id">
           <el-table-column type="selection" width="45" />
-          <el-table-column type="index" label="#" width="50" />
+          <el-table-column label="#" width="50" align="center">
+            <template #default="{ $index }">
+              <span class="drag-handle"><el-icon style="cursor: grab"><Rank /></el-icon></span>
+            </template>
+          </el-table-column>
           <el-table-column prop="test_case.name" label="用例名称" min-width="240" show-overflow-tooltip />
           <el-table-column label="优先级" width="80" align="center">
             <template #default="{ row }">
@@ -283,23 +287,28 @@
           </div>
         </div>
 
-        <!-- 右侧：已选用例 -->
-        <div class="associate-right">
+          <div class="associate-right">
           <div class="panel-title">
             <span>已选 ({{ selectedAssocCases.length }})</span>
             <el-button size="small" text type="danger" @click="selectedAssocCases = []" :disabled="selectedAssocCases.length === 0">清空</el-button>
           </div>
           <div class="panel-body">
-            <el-table :data="selectedAssocCases" height="360">
-              <el-table-column prop="name" label="用例名称" min-width="120" show-overflow-tooltip />
-              <el-table-column width="50">
-                <template #default="{ $index }">
-                  <el-button size="small" text type="danger" @click="selectedAssocCases.splice($index, 1)">
-                    <el-icon><Close /></el-icon>
-                  </el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+            <draggable
+              v-model="selectedAssocCases"
+              item-key="id"
+              handle=".drag-handle"
+              animation="200"
+            >
+              <template #item="{ element, index }">
+                <div class="assoc-case-item">
+                  <span class="drag-handle"><el-icon><Rank /></el-icon></span>
+                  <span class="case-order">{{ index + 1 }}</span>
+                  <span class="case-name">{{ element.name }}</span>
+                  <el-icon class="remove-icon" @click="selectedAssocCases.splice(index, 1)"><Close /></el-icon>
+                </div>
+              </template>
+            </draggable>
+            <el-empty v-if="selectedAssocCases.length === 0" description="从左侧勾选用例" :image-size="50" />
           </div>
         </div>
       </div>
@@ -342,9 +351,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, ArrowLeft, Close } from '@element-plus/icons-vue'
+import { Search, ArrowLeft, Close, Rank } from '@element-plus/icons-vue'
+import draggable from 'vuedraggable'
+import Sortable from 'sortablejs'
 import ActionCell from '@/components/ActionCell.vue'
 import {
   getUiProjects, getTestSuites, createTestSuite, updateTestSuite, deleteTestSuite,
@@ -603,6 +614,8 @@ const currentSuite = ref(null)
 const suiteCases = ref([])
 const suiteCaseSearch = ref('')
 const selectedCaseIds = ref([])
+const suiteCasesTableRef = ref(null)
+let sortableInstance = null
 
 const filteredSuiteCases = computed(() => {
   if (!suiteCaseSearch.value) return suiteCases.value
@@ -616,6 +629,7 @@ const enterSuiteDetail = (row) => {
 }
 
 const exitSuiteDetail = () => {
+  if (sortableInstance) { sortableInstance.destroy(); sortableInstance = null }
   currentSuite.value = null
   suiteCases.value = []
   suiteCaseSearch.value = ''
@@ -628,8 +642,55 @@ const loadSuiteCases = async () => {
   try {
     const res = await getTestSuiteTestCases(currentSuite.value.id)
     suiteCases.value = res.data || []
+    await nextTick()
+    initSortable()
   } catch (e) { console.error(e) }
 }
+
+// ==================== 套件用例拖拽排序 ====================
+const initSortable = () => {
+  if (sortableInstance) { sortableInstance.destroy(); sortableInstance = null }
+  // 搜索状态下禁止拖拽（索引不对应原始数组）
+  if (suiteCaseSearch.value) return
+  const tableRef = suiteCasesTableRef.value
+  if (!tableRef || !tableRef.$el) return
+  const el = tableRef.$el.querySelector('.el-table__body-wrapper tbody')
+  if (!el) return
+  sortableInstance = Sortable.create(el, {
+    handle: '.drag-handle',
+    animation: 200,
+    onEnd: async ({ oldIndex, newIndex }) => {
+      if (oldIndex === newIndex) return
+      // 更新本地数组顺序
+      const list = [...suiteCases.value]
+      const [moved] = list.splice(oldIndex, 1)
+      list.splice(newIndex, 0, moved)
+      suiteCases.value = list
+      // 保存排序到后端
+      await saveCaseOrder()
+    }
+  })
+}
+
+const saveCaseOrder = async () => {
+  if (!currentSuite.value) return
+  try {
+    const orderData = suiteCases.value.map((c, idx) => ({
+      test_case_id: c.test_case.id,
+      order: idx
+    }))
+    await updateTestCaseOrder(currentSuite.value.id, orderData)
+    ElMessage.success('顺序已保存')
+  } catch (e) {
+    console.error('保存排序失败:', e)
+    ElMessage.error('保存排序失败')
+  }
+}
+
+// 搜索关键词变化时重新初始化拖拽（搜索状态下禁用拖拽）
+watch(suiteCaseSearch, () => {
+  nextTick(() => initSortable())
+})
 
 const handleCaseSelectionChange = (rows) => {
   selectedCaseIds.value = rows.map(r => r.test_case.id)
@@ -712,6 +773,12 @@ const confirmAssociate = async () => {
     await addTestCasesToTestSuite(currentSuite.value.id, {
       test_case_ids: selectedAssocCases.value.map(c => c.id)
     })
+    // 保存关联时的排序顺序
+    const orderData = selectedAssocCases.value.map((c, idx) => ({
+      test_case_id: c.id,
+      order: idx
+    }))
+    // 关联后重新加载，新用例会追加到末尾
     ElMessage.success(`成功关联 ${selectedAssocCases.value.length} 个用例`)
     showAssociateDialog.value = false
     selectedAssocCases.value = []
@@ -745,7 +812,6 @@ const loadAllTestCases = async () => {
 }
 
 // 监听弹窗打开
-import { watch } from 'vue'
 watch(showAssociateDialog, (val) => { if (val) onAssociateDialogOpen() })
 
 // ==================== 批量删除套件 ====================
@@ -1178,7 +1244,7 @@ onMounted(async () => {
 }
 
 .associate-right {
-  width: 220px;
+  width: 240px;
   display: flex;
   flex-direction: column;
 
@@ -1197,6 +1263,54 @@ onMounted(async () => {
   .panel-body {
     flex: 1;
     padding: 8px;
+    overflow-y: auto;
+  }
+}
+
+.assoc-case-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  background: #f0f9eb;
+  cursor: grab;
+  font-size: 13px;
+  transition: background 0.2s;
+
+  &:hover { background: #e1f3d8; }
+
+  .drag-handle {
+    color: #c0c4cc;
+    margin-right: 4px;
+    flex-shrink: 0;
+    cursor: grab;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .case-order {
+    color: #909399;
+    font-size: 12px;
+    min-width: 20px;
+    text-align: center;
+    margin-right: 6px;
+  }
+
+  .case-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .remove-icon {
+    color: #f56c6c;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-left: 4px;
+
+    &:hover { color: #dd2020; }
   }
 }
 
