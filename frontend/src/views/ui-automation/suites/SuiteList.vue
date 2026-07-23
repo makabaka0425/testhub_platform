@@ -347,6 +347,95 @@
         <el-button type="primary" @click="confirmRunSuite" :loading="running">开始执行</el-button>
       </template>
     </el-dialog>
+
+    <!-- ==================== 执行记录弹窗 ==================== -->
+    <el-dialog v-model="showRecordsDialog" :title="`执行记录 - ${recordsSuiteName}`" width="800px" :close-on-click-modal="false" top="5vh">
+      <div v-loading="recordsLoading">
+        <el-empty v-if="!recordsLoading && executionRecords.length === 0" description="暂无执行记录" :image-size="60" />
+        <el-collapse v-model="expandedRecords" v-if="executionRecords.length > 0">
+          <el-collapse-item v-for="record in executionRecords" :key="record.id" :name="record.id">
+            <template #title>
+              <div class="record-header">
+                <span class="record-status" :class="`status-${record.status?.toLowerCase()}`">{{ getExecStatusText(record.status) }}</span>
+                <span class="record-time">{{ formatRecordTime(record.started_at) }}</span>
+                <span class="record-duration" v-if="record.duration">{{ record.duration.toFixed(1) }}s</span>
+                <span class="record-stats">
+                  <span class="stat-passed" v-if="record.passed_cases">通过{{ record.passed_cases }}</span>
+                  <span class="stat-failed" v-if="record.failed_cases">失败{{ record.failed_cases }}</span>
+                  <span class="stat-skipped" v-if="record.skipped_cases">跳过{{ record.skipped_cases }}</span>
+                </span>
+                <span class="record-executor">{{ record.executed_by }}</span>
+              </div>
+            </template>
+            <el-table :data="record.cases" size="small" style="width: 100%">
+              <el-table-column type="index" label="#" width="45" />
+              <el-table-column prop="test_case_name" label="用例名称" min-width="180" show-overflow-tooltip />
+              <el-table-column label="状态" width="70" align="center">
+                <template #default="{ row }">
+                  <span class="status-tag" :class="`status-${row.status}`">{{ getCaseExecStatusText(row.status) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="时长" width="80" align="center">
+                <template #default="{ row }">
+                  <span v-if="row.execution_time">{{ row.execution_time.toFixed(2) }}s</span>
+                  <span v-else style="color: #9ca3af">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="执行时间" width="160">
+                <template #default="{ row }">
+                  {{ formatRecordTime(row.started_at) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="80" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="viewCaseExecDetail(row)">详情</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+    </el-dialog>
+
+    <!-- ==================== 用例执行详情弹窗 ==================== -->
+    <el-dialog v-model="caseDetailVisible" title="执行记录详情" width="680px" destroy-on-close append-to-body>
+      <div v-if="caseDetailData" v-loading="caseDetailLoading">
+        <div class="history-detail-header">
+          <el-descriptions :column="3" size="small" border>
+            <el-descriptions-item label="状态">
+              <el-tag :type="getCaseExecTagType(caseDetailData.status)" size="small">{{ getCaseExecStatusText(caseDetailData.status) }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="时长">{{ caseDetailData.execution_time ? caseDetailData.execution_time.toFixed(1) + 's' : '-' }}</el-descriptions-item>
+            <el-descriptions-item label="测试引擎">{{ getEngineText(caseDetailData.engine) }}</el-descriptions-item>
+            <el-descriptions-item label="浏览器">{{ caseDetailData.browser || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="开始时间">{{ formatRecordTime(caseDetailData.started_at) }}</el-descriptions-item>
+            <el-descriptions-item label="结束时间">{{ formatRecordTime(caseDetailData.finished_at) }}</el-descriptions-item>
+          </el-descriptions>
+        </div>
+        <div class="history-detail-logs" v-if="caseDetailData.parsedLogs">
+          <h4 style="margin: 12px 0 8px; font-size: 14px; color: #303133;">执行日志</h4>
+          <div v-for="(step, index) in (Array.isArray(caseDetailData.parsedLogs) ? caseDetailData.parsedLogs : caseDetailData.parsedLogs.steps || [])" :key="index" class="log-item">
+            <div class="log-header">
+              <el-tag :type="step.success ? 'success' : 'danger'" size="small">
+                步骤 {{ step.step_number }}
+              </el-tag>
+              <span class="log-action">{{ getActionText(step.action_type) }}</span>
+              <span class="log-desc">{{ step.description }}</span>
+              <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
+            </div>
+            <div v-if="step.error" class="log-error">
+              <pre class="error-message">{{ step.error }}</pre>
+            </div>
+          </div>
+        </div>
+        <div v-if="caseDetailData.screenshots && caseDetailData.screenshots.length > 0" class="history-detail-screenshots">
+          <h4 style="margin: 12px 0 8px; font-size: 14px; color: #303133;">失败截图</h4>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <el-image v-for="(img, idx) in caseDetailData.screenshots" :key="idx" :src="img.url || img" style="width: 120px; height: 80px; border-radius: 4px; border: 1px solid #e4e7ed;" fit="cover" :preview-src-list="caseDetailData.screenshots.map(s => s.url || s)" :initial-index="idx" />
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -362,7 +451,7 @@ import {
   getTestCases, getTestSuiteTestCases, addTestCasesToTestSuite,
   removeTestCaseFromTestSuite, removeTestCasesFromTestSuite,
   updateTestCaseOrder, runTestSuite, getLoginConfigs, getTestCaseGroupTree,
-  batchUpdateTestSuites
+  batchUpdateTestSuites, getSuiteExecutionRecords, getTestCaseExecutionDetail
 } from '@/api/ui_automation'
 
 // ==================== 通用数据 ====================
@@ -407,9 +496,9 @@ const loadProjects = async () => {
   } catch (e) { console.error(e) }
 }
 
-const loadSuites = async () => {
+const loadSuites = async ({ silent = false } = {}) => {
   if (!projectId.value) { suites.value = []; total.value = 0; return }
-  loading.value = true
+  if (!silent) loading.value = true
   try {
     const res = await getTestSuites({
       project: projectId.value, page: pagination.currentPage,
@@ -417,7 +506,7 @@ const loadSuites = async () => {
     })
     suites.value = res.data.results || res.data
     total.value = res.data.count || res.data.length
-  } catch (e) { console.error(e) } finally { loading.value = false }
+  } catch (e) { console.error(e) } finally { if (!silent) loading.value = false }
 }
 
 const loadLoginConfigs = async () => {
@@ -637,13 +726,12 @@ const exitSuiteDetail = () => {
   loadSuites()
 }
 
-const loadSuiteCases = async () => {
+const loadSuiteCases = async ({ silent = false } = {}) => {
   if (!currentSuite.value) return
   try {
     const res = await getTestSuiteTestCases(currentSuite.value.id)
     suiteCases.value = res.data || []
-    await nextTick()
-    initSortable()
+    if (!silent) { await nextTick(); initSortable() }
   } catch (e) { console.error(e) }
 }
 
@@ -951,19 +1039,21 @@ const pollSuiteStatus = (suiteId) => {
   const iv = setInterval(async () => {
     count++
     try {
-      await loadSuites()
+      await loadSuites({ silent: true })
       // 轮询期间持续刷新套件内用例列表（实时更新状态/时长/时间）
       if (currentSuite.value && currentSuite.value.id === suiteId) {
-        await loadSuiteCases()
+        await loadSuiteCases({ silent: true })
       }
       const s = suites.value.find(s => s.id === suiteId)
       if (s && s.execution_status !== 'running') {
         clearInterval(iv)
         if (s.execution_status === 'passed') ElMessage.success(`执行完成：全部通过 (${s.passed_count})`)
         else if (s.execution_status === 'failed') ElMessage.warning(`执行完成：通过${s.passed_count}，失败${s.failed_count}`)
-        // 执行完成后最终刷新一次
+        // 执行完成后最终刷新一次（静默，避免闪烁）
         if (currentSuite.value && currentSuite.value.id === suiteId) {
-          await loadSuiteCases()
+          await loadSuiteCases({ silent: true })
+          await nextTick()
+          initSortable()
         }
       }
       if (count >= 120) { clearInterval(iv); ElMessage.info('执行时间较长，请稍后查看') }
@@ -978,10 +1068,10 @@ const pollBatchSuiteStatus = (suiteIds) => {
   const iv = setInterval(async () => {
     count++
     try {
-      await loadSuites()
+      await loadSuites({ silent: true })
       // 轮询期间持续刷新当前套件内用例列表
       if (currentSuite.value && pendingIds.has(currentSuite.value.id)) {
-        await loadSuiteCases()
+        await loadSuiteCases({ silent: true })
       }
       for (const id of [...pendingIds]) {
         const s = suites.value.find(s => s.id === id)
@@ -990,13 +1080,16 @@ const pollBatchSuiteStatus = (suiteIds) => {
           if (s.execution_status === 'passed') ElMessage.success(`「${s.name}」执行完成：全部通过 (${s.passed_count})`)
           else if (s.execution_status === 'failed') ElMessage.warning(`「${s.name}」执行完成：通过${s.passed_count}，失败${s.failed_count}`)
           if (currentSuite.value && currentSuite.value.id === id) {
-            await loadSuiteCases()
+            await loadSuiteCases({ silent: true })
           }
         }
       }
       if (pendingIds.size === 0) {
         clearInterval(iv)
         ElMessage.success('全部套件执行完成')
+        // 轮询结束后重新初始化拖拽排序
+        await nextTick()
+        initSortable()
       }
       if (count >= 120) { clearInterval(iv); ElMessage.info('执行时间较长，请稍后查看') }
     } catch (e) { clearInterval(iv) }
@@ -1007,6 +1100,7 @@ const pollBatchSuiteStatus = (suiteIds) => {
 const getSuiteActions = (row) => [
   { key: 'edit', label: '编辑', onClick: (r) => editSuiteInfo(r) },
   { key: 'run', label: '运行', onClick: (r) => runSuite(r) },
+  { key: 'records', label: '记录', onClick: (r) => viewSuiteRecords(r) },
   { key: 'delete', label: '删除', danger: true, onClick: (r) => deleteSuite(r.id) }
 ]
 
@@ -1018,6 +1112,76 @@ const getPriorityTag = (p) => ({ high: 'danger', medium: 'warning', low: 'info' 
 const getPriorityText = (p) => ({ high: '高', medium: '中', low: '低' }[p] || '未知')
 const getStatusText = (s) => ({ normal: '正常', passed: '通过', failed: '失败', skipped: '跳过' }[s] || '未知')
 const getSuiteStatusText = (s) => ({ not_executed: '未执行', passed: '通过', failed: '失败', skipped: '跳过' }[s] || '未执行')
+
+// ==================== 执行记录弹窗 ====================
+const showRecordsDialog = ref(false)
+const recordsSuiteName = ref('')
+const executionRecords = ref([])
+const recordsLoading = ref(false)
+const expandedRecords = ref([])
+
+const viewSuiteRecords = async (row) => {
+  recordsSuiteName.value = row.name
+  showRecordsDialog.value = true
+  recordsLoading.value = true
+  executionRecords.value = []
+  expandedRecords.value = []
+  try {
+    const res = await getSuiteExecutionRecords(row.id)
+    executionRecords.value = res.data || []
+    // 默认展开第一条
+    if (executionRecords.value.length > 0) {
+      expandedRecords.value = [executionRecords.value[0].id]
+    }
+  } catch (e) {
+    console.error('获取执行记录失败:', e)
+    ElMessage.error('获取执行记录失败')
+  } finally {
+    recordsLoading.value = false
+  }
+}
+
+const getExecStatusText = (s) => ({ PENDING: '待执行', RUNNING: '运行中', SUCCESS: '成功', FAILED: '失败', ABORTED: '中止' }[s] || '未知')
+const getCaseExecStatusText = (s) => ({ pending: '待执行', running: '运行中', passed: '通过', failed: '失败', skipped: '跳过', error: '错误' }[s] || '未知')
+const getCaseExecTagType = (s) => ({ pending: 'info', running: 'warning', passed: 'success', failed: 'danger', skipped: 'warning', error: 'danger' }[s] || 'info')
+const formatRecordTime = (val) => val ? new Date(val).toLocaleString() : '-'
+
+const getActionText = (action) => ({
+  click: '点击', fill: '输入', select: '选择', navigate: '导航',
+  assert: '断言', wait: '等待', hover: '悬停', getText: '获取文本',
+  screenshot: '截图', scroll: '滚动', keyboard: '键盘操作',
+  precondition_sql: '前置数据SQL', postcondition_sql: '后置清理SQL'
+}[action] || action)
+
+const getEngineText = (engine) => ({ playwright: 'Playwright', selenium: 'Selenium' }[engine] || engine || '-')
+
+// ==================== 用例执行详情弹窗 ====================
+const caseDetailVisible = ref(false)
+const caseDetailData = ref(null)
+const caseDetailLoading = ref(false)
+
+const viewCaseExecDetail = async (row) => {
+  caseDetailVisible.value = true
+  caseDetailLoading.value = true
+  caseDetailData.value = null
+  try {
+    const res = await getTestCaseExecutionDetail(row.id)
+    const record = res.data
+    let logs = record.execution_logs
+    if (typeof logs === 'string') {
+      try { logs = JSON.parse(logs) } catch { logs = null }
+    }
+    caseDetailData.value = {
+      ...record,
+      parsedLogs: logs
+    }
+  } catch (e) {
+    console.error('获取执行详情失败:', e)
+    ElMessage.error('获取执行详情失败')
+  } finally {
+    caseDetailLoading.value = false
+  }
+}
 
 // ==================== 初始化 ====================
 onMounted(async () => {
@@ -1415,5 +1579,85 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ==================== 执行记录弹窗 ==================== */
+.record-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+  width: 100%;
+
+  .record-status {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+
+    &.status-success { background: #ecfdf5; color: #059669; }
+    &.status-running { background: #fef3c7; color: #d97706; }
+    &.status-failed, &.status-aborted { background: #fef2f2; color: #dc2626; }
+    &.status-pending { background: #f3f4f6; color: #9ca3af; }
+  }
+
+  .record-time {
+    color: #606266;
+  }
+
+  .record-duration {
+    color: #909399;
+    font-size: 12px;
+  }
+
+  .record-stats {
+    display: flex;
+    gap: 8px;
+    font-size: 12px;
+
+    .stat-passed { color: #059669; }
+    .stat-failed { color: #dc2626; }
+    .stat-skipped { color: #d97706; }
+  }
+
+  .record-executor {
+    color: #909399;
+    font-size: 12px;
+    margin-left: auto;
+  }
+}
+
+/* ==================== 执行详情弹窗 ==================== */
+.log-item {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  font-size: 13px;
+
+  .log-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .log-action { color: #606266; font-weight: 500; }
+  .log-desc { color: #909399; }
+  .log-value { color: var(--brand-600, #409eff); font-size: 12px; font-weight: 500; background: var(--brand-50, #ecf5ff); padding: 1px 6px; border-radius: 3px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .log-error {
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: #fef2f2;
+    border-radius: 4px;
+
+    .error-message {
+      margin: 0;
+      font-size: 12px;
+      color: #dc2626;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  }
 }
 </style>

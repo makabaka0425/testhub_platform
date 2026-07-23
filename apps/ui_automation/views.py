@@ -5382,6 +5382,58 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['get'])
+    def execution_records(self, request, pk=None):
+        """获取套件的执行记录列表（含每次执行下的用例明细）"""
+        test_suite = self.get_object()
+        executions = TestExecution.objects.filter(
+            test_suite=test_suite
+        ).order_by('-started_at')
+
+        data = []
+        for exec_obj in executions:
+            # 查询该次执行下的所有用例执行记录
+            case_executions = TestCaseExecution.objects.filter(
+                test_suite=test_suite,
+                execution_source='suite',
+                started_at__gte=exec_obj.started_at,
+            ).select_related('test_case').order_by('started_at')
+
+            # 过滤：只取属于本次执行时间窗口的记录
+            if exec_obj.finished_at:
+                case_executions = case_executions.filter(
+                    models.Q(finished_at__lte=exec_obj.finished_at) | models.Q(finished_at__isnull=True)
+                )
+
+            cases_data = []
+            for ce in case_executions:
+                cases_data.append({
+                    'id': ce.id,
+                    'test_case_id': ce.test_case_id,
+                    'test_case_name': ce.test_case.name if ce.test_case else '-',
+                    'status': ce.status,
+                    'execution_time': ce.execution_time,
+                    'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                    'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                    'error_message': ce.error_message,
+                })
+
+            data.append({
+                'id': exec_obj.id,
+                'status': exec_obj.status,
+                'started_at': exec_obj.started_at.isoformat() if exec_obj.started_at else None,
+                'finished_at': exec_obj.finished_at.isoformat() if exec_obj.finished_at else None,
+                'duration': exec_obj.duration,
+                'total_cases': exec_obj.total_cases,
+                'passed_cases': exec_obj.passed_cases,
+                'failed_cases': exec_obj.failed_cases,
+                'skipped_cases': exec_obj.skipped_cases,
+                'executed_by': exec_obj.executed_by.username if exec_obj.executed_by else '-',
+                'cases': cases_data,
+            })
+
+        return Response(data)
+
     @action(detail=True, methods=['post'])
     def run_suite(self, request, pk=None):
         """执行测试套件"""
@@ -6449,6 +6501,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         'step_number': i,
                                         'action_type': action_type,
                                         'description': description or '',
+                                        'input_value': step_info.get('input_value', ''),
                                         'success': success,
                                         'error': None if success else step_log
                                     })
@@ -6509,6 +6562,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         'step_number': i,
                                         'action_type': action_type,
                                         'description': description or '',
+                                        'input_value': step_info.get('input_value', ''),
                                         'success': False,
                                         'error': str(e)
                                     })
@@ -6956,9 +7010,11 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                             'step_number': i,
                                             'action_type': action_type,
                                             'description': description or '',
+                                            'input_value': step_info.get('input_value', ''),
                                             'success': False,
                                             'error': str(e)
                                         })
+
 
                                         execution_result['status'] = 'failed'
                                         execution_result['error_message'] = f"步骤 {i} 执行异常: {str(e)}"
@@ -7572,6 +7628,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                                 'step_number': i,
                                                 'action_type': action_type,
                                                 'description': step_info['description'] or '',
+                                                'input_value': step_info.get('input_value', ''),
                                                 'success': success,
                                                 'error': None if success else step_log
                                             })
@@ -7649,6 +7706,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                                     'step_number': i,
                                                     'action_type': action_type,
                                                     'description': step_info['description'] or '',
+                                                    'input_value': step_info.get('input_value', ''),
                                                     'success': success,
                                                     'error': None if success else step_log
                                                 })

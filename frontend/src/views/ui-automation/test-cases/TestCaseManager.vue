@@ -949,10 +949,10 @@
               <el-tag :type="getHistoryStatusType(historyDetailData.status)" size="small">{{ getHistoryStatusText(historyDetailData.status) }}</el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="时长">{{ formatDuration(historyDetailData.execution_time) }}</el-descriptions-item>
+            <el-descriptions-item label="测试引擎">{{ getEngineText(historyDetailData.engine) }}</el-descriptions-item>
             <el-descriptions-item label="浏览器">{{ historyDetailData.browser || '-' }}</el-descriptions-item>
             <el-descriptions-item label="开始时间">{{ historyDetailData.started_at ? formatTime(historyDetailData.started_at) : '-' }}</el-descriptions-item>
             <el-descriptions-item label="结束时间">{{ historyDetailData.finished_at ? formatTime(historyDetailData.finished_at) : '-' }}</el-descriptions-item>
-            <el-descriptions-item label="执行人">{{ historyDetailData.created_by?.username || historyDetailData.created_by || '-' }}</el-descriptions-item>
           </el-descriptions>
         </div>
         <div class="history-detail-logs" v-if="historyDetailData.parsedLogs">
@@ -977,57 +977,7 @@
             </div>
           </div>
         </div>
-        <div v-if="historyDetailData.error_message" class="history-detail-error">
-          <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">错误信息</h4>
-          <div class="errors-container">
-            <div
-              v-for="(error, idx) in historyDetailErrors"
-              :key="idx"
-              class="error-item"
-            >
-              <div class="error-header">
-                <el-tag type="danger" size="large">
-                  <span class="error-tag-inner">
-                    <el-icon><WarningFilled /></el-icon>
-                    <span>{{ error.message }}</span>
-                  </span>
-                </el-tag>
-                <span v-if="error.step_number" class="error-step">
-                  步骤 {{ error.step_number }}
-                </span>
-              </div>
-              <div v-if="error.action_type || error.element || error.description" class="error-meta">
-                <div v-if="error.action_type" class="meta-item">
-                  <span class="meta-label">操作类型:</span>
-                  <span class="meta-value">{{ error.action_type }}</span>
-                </div>
-                <div v-if="error.element" class="meta-item">
-                  <span class="meta-label">目标元素:</span>
-                  <span class="meta-value">{{ error.element }}</span>
-                </div>
-                <div v-if="error.description" class="meta-item">
-                  <span class="meta-label">步骤描述:</span>
-                  <span class="meta-value">{{ error.description }}</span>
-                </div>
-              </div>
-              <div v-if="error.details" class="error-details">
-                <div class="details-header">详细错误信息:</div>
-                <pre class="details-content">{{ error.details }}</pre>
-              </div>
-            </div>
-            <!-- 兜底：无结构化错误时显示 error_message -->
-            <div v-if="historyDetailErrors.length === 0" class="error-item">
-              <div class="error-header">
-                <el-tag type="danger" size="large">
-                  <span class="error-tag-inner">
-                    <el-icon><WarningFilled /></el-icon>
-                    <span>{{ historyDetailData.error_message }}</span>
-                  </span>
-                </el-tag>
-              </div>
-            </div>
-          </div>
-        </div>
+
         <div v-if="historyDetailData.screenshots && historyDetailData.screenshots.length > 0" class="history-detail-screenshots">
           <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">失败截图</h4>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -2474,6 +2424,9 @@ const getActionText = (actionType) => {
   }
   return actionMap[actionType] || actionType
 }
+
+// 获取测试引擎文本
+const getEngineText = (engine) => ({ playwright: 'Playwright', selenium: 'Selenium' }[engine] || engine || '-')
 
 // 图片处理方法
 const handleImageError = (event) => {

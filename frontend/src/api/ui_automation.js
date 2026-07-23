@@ -309,6 +309,14 @@ export function updateTestCaseOrder(suiteId, testCaseOrders) {
   })
 }
 
+// 获取套件执行记录
+export function getSuiteExecutionRecords(suiteId) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/execution_records/`,
+    method: 'get'
+  })
+}
+
 // 运行测试套件
 export function runTestSuite(suiteId, data) {
   return request({
@@ -1116,6 +1124,14 @@ export function getTestCaseExecutions(params) {
     url: '/ui-automation/test-case-executions/',
     method: 'get',
     params
+  })
+}
+
+// 获取单条测试用例执行记录详情
+export function getTestCaseExecutionDetail(id) {
+  return request({
+    url: `/ui-automation/test-case-executions/${id}/`,
+    method: 'get'
   })
 }
 
