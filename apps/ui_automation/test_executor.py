@@ -1699,7 +1699,7 @@ class TestExecutor:
                     step_result['success'] = True
                     # 记录解析后的值（用于调试）
                     if resolved_value != step_data['input_value']:
-                        step_result['resolved_value'] = resolved_value
+                        step_result['input_value'] = resolved_value
                         print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
 
                     # 捕获输出变量
@@ -1962,6 +1962,8 @@ class TestExecutor:
                         if selected_options:
                             step_result['success'] = True
                             step_result['selected_options'] = selected_options
+                            # 更新input_value为实际选中的值
+                            step_result['input_value'] = ', '.join(selected_options) if isinstance(selected_options, list) else str(selected_options)
                             if select_errors:
                                 step_result['warning'] = '; '.join(select_errors)
 
@@ -3495,7 +3497,7 @@ class TestExecutor:
 
                             # 记录解析后的值（用于调试）
                             if resolved_value != step_data['input_value']:
-                                step_result['resolved_value'] = resolved_value
+                                step_result['input_value'] = resolved_value
                                 print(f"  ✓ 变量解析: {step_data['input_value']} -> {resolved_value}")
 
                             # 捕获输出变量
