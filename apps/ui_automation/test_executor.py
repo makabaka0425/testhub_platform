@@ -1340,6 +1340,7 @@ class TestExecutor:
             'step_number': step_data['step_number'],
             'action_type': step_data['action_type'],
             'description': step_data['description'],
+            'input_value': step_data.get('input_value', ''),
             'success': False,
             'error': None
         }
@@ -3250,6 +3251,7 @@ class TestExecutor:
             'step_number': step_data['step_number'],
             'action_type': step_data['action_type'],
             'description': step_data['description'],
+            'input_value': step_data.get('input_value', ''),
             'success': False,
             'error': None
         }
