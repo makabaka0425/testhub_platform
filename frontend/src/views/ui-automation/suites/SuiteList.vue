@@ -196,7 +196,7 @@
           </el-table-column>
           <el-table-column label="状态" width="80" align="center">
             <template #default="{ row }">
-              <span class="status-tag" :class="`status-${row.test_case.status || 'normal'}`">{{ getStatusText(row.test_case.status) }}</span>
+              <span class="status-tag" :class="`status-${row.test_case.suite_status || 'not_executed'}`">{{ getSuiteStatusText(row.test_case.suite_status) }}</span>
             </template>
           </el-table-column>
           <el-table-column label="执行时长" width="100" align="center">
@@ -278,9 +278,9 @@
               ref="assocTableRef" :row-class-name="getAssocRowClass">
               <el-table-column type="selection" width="40" :selectable="isCaseAlreadyAdded" />
               <el-table-column prop="name" label="用例名称" min-width="160" show-overflow-tooltip />
-              <el-table-column label="优先级" width="70" align="center">
+              <el-table-column label="状态" width="70" align="center">
                 <template #default="{ row }">
-                  <el-tag size="small" :type="getPriorityTag(row.priority)">{{ getPriorityText(row.priority) }}</el-tag>
+                  <span class="status-tag" :class="`status-${row.status || 'normal'}`">{{ getStatusText(row.status) }}</span>
                 </template>
               </el-table-column>
             </el-table>
@@ -973,6 +973,7 @@ const getExecutionStatusText = (s) => ({ not_run: '未执行', passed: '通过',
 const getPriorityTag = (p) => ({ high: 'danger', medium: 'warning', low: 'info' }[p] || 'info')
 const getPriorityText = (p) => ({ high: '高', medium: '中', low: '低' }[p] || '未知')
 const getStatusText = (s) => ({ normal: '正常', passed: '通过', failed: '失败', skipped: '跳过' }[s] || '未知')
+const getSuiteStatusText = (s) => ({ not_executed: '未执行', passed: '通过', failed: '失败', skipped: '跳过' }[s] || '未执行')
 
 // ==================== 初始化 ====================
 onMounted(async () => {
@@ -1177,6 +1178,7 @@ onMounted(async () => {
 .status-tag.status-passed { background: var(--success-bg, #ecfdf5); color: #059669; }
 .status-tag.status-failed { background: var(--error-bg, #fef2f2); color: #dc2626; }
 .status-tag.status-skipped { background: var(--warning-bg, #fef3c7); color: #d97706; }
+.status-tag.status-not_executed { background: #f3f4f6; color: #9ca3af; }
 
 /* ==================== 关联用例弹窗三栏布局 ==================== */
 .associate-layout {

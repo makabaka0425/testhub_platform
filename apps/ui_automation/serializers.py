@@ -176,6 +176,11 @@ class TestSuiteTestCaseSerializer(serializers.ModelSerializer):
         ).order_by('-started_at').first()
         suite_last_duration = last_exec.execution_time if last_exec and last_exec.execution_time else None
         suite_last_finished = last_exec.finished_at if last_exec and last_exec.finished_at else None
+        # 套件内状态：基于套件执行记录推导，与用例管理状态独立
+        if last_exec:
+            suite_status = last_exec.status  # passed / failed / skipped
+        else:
+            suite_status = 'not_executed'  # 未执行
         return {
             'id': test_case.id,
             'name': test_case.name,
@@ -183,6 +188,7 @@ class TestSuiteTestCaseSerializer(serializers.ModelSerializer):
             'status': test_case.status,
             'priority': test_case.priority,
             'created_at': test_case.created_at,
+            'suite_status': suite_status,
             'suite_last_duration': suite_last_duration,
             'suite_last_finished': suite_last_finished.isoformat() if suite_last_finished else None,
         }
