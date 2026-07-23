@@ -274,7 +274,7 @@
             </el-input>
           </div>
           <div class="panel-body">
-            <el-table :data="filteredAssocCases" height="360" @selection-change="handleAssocSelectionChange"
+            <el-table :data="filteredAssocCases" height="360" @select="handleAssocSelect" @select-all="handleAssocSelectAll"
               ref="assocTableRef" :row-class-name="getAssocRowClass">
               <el-table-column type="selection" width="40" :selectable="isCaseAlreadyAdded" />
               <el-table-column prop="name" label="用例名称" min-width="160" show-overflow-tooltip />
@@ -736,12 +736,17 @@ const filteredAssocCases = computed(() => {
   return result
 })
 
+// 切换分组/搜索时回勾已选用例
+watch(filteredAssocCases, () => {
+  nextTick(() => restoreAssocSelection())
+})
+
 // 已在套件中的用例ID集合
 const existingCaseIds = computed(() => new Set(suiteCases.value.map(c => c.test_case.id)))
 
 const isCaseAlreadyAdded = (row) => {
-  // 不可选：已在套件中 + 已在右侧选中列表中
-  return !existingCaseIds.value.has(row.id) && !selectedAssocCases.value.some(c => c.id === row.id)
+  // 不可选：已在套件中且不在右侧选中列表中（右侧选中的行需要能回勾）
+  return !(existingCaseIds.value.has(row.id) && !selectedAssocCases.value.some(c => c.id === row.id))
 }
 
 const getAssocRowClass = ({ row }) => {
@@ -753,16 +758,48 @@ const handleGroupNodeClick = (data) => {
   assocGroupFilter.value = data.id
 }
 
-const handleAssocSelectionChange = (rows) => {
-  // 只追加新增的（避免重复）
-  const newIds = rows.map(r => r.id)
-  // 移除取消勾选的
-  selectedAssocCases.value = selectedAssocCases.value.filter(c => newIds.includes(c.id))
-  // 添加新勾选的
-  for (const row of rows) {
-    if (!selectedAssocCases.value.some(c => c.id === row.id)) {
-      selectedAssocCases.value.push({ id: row.id, name: row.name, priority: row.priority })
+// 回勾中侧表格中已在右侧选中的行
+const restoreAssocSelection = () => {
+  const table = assocTableRef.value
+  if (!table) return
+  // 先清空所有勾选
+  table.clearSelection()
+  // 遍历当前可见行，勾选已在右侧的
+  const selectedIds = new Set(selectedAssocCases.value.map(c => c.id))
+  filteredAssocCases.value.forEach(row => {
+    if (selectedIds.has(row.id)) {
+      table.toggleRowSelection(row, true)
     }
+  })
+}
+
+const handleAssocSelect = (selection, row) => {
+  // 单行勾选/取消：判断该行是否在 selection 中
+  const checked = selection.some(r => r.id === row.id)
+  if (checked) {
+    // 勾选：追加到右侧（如不存在）
+    if (!selectedAssocCases.value.some(c => c.id === row.id)) {
+      selectedAssocCases.value.push({ id: row.id, name: row.name, priority: row.priority, status: row.status })
+    }
+  } else {
+    // 取消勾选：从右侧移除
+    selectedAssocCases.value = selectedAssocCases.value.filter(c => c.id !== row.id)
+  }
+}
+
+const handleAssocSelectAll = (selection) => {
+  // 全选/全不选：对比当前可见的可选用例
+  const visibleIds = filteredAssocCases.value.filter(r => isCaseAlreadyAdded(r)).map(r => r.id)
+  if (selection.length > 0) {
+    // 全选：追加所有可见且可选的用例
+    for (const row of selection) {
+      if (!selectedAssocCases.value.some(c => c.id === row.id)) {
+        selectedAssocCases.value.push({ id: row.id, name: row.name, priority: row.priority, status: row.status })
+      }
+    }
+  } else {
+    // 全不选：移除当前可见的所有可选行
+    selectedAssocCases.value = selectedAssocCases.value.filter(c => !visibleIds.includes(c.id))
   }
 }
 
