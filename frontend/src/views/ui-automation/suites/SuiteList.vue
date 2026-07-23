@@ -398,8 +398,8 @@
     </el-dialog>
 
     <!-- ==================== 用例执行详情弹窗 ==================== -->
-    <el-dialog v-model="caseDetailVisible" title="执行记录详情" width="680px" destroy-on-close append-to-body>
-      <div v-if="caseDetailData" v-loading="caseDetailLoading">
+    <el-dialog v-model="caseDetailVisible" title="执行记录详情" width="680px" destroy-on-close append-to-body class="history-detail-dialog">
+      <div v-if="caseDetailData" v-loading="caseDetailLoading" class="history-detail-inner">
         <div class="history-detail-header">
           <el-descriptions :column="3" size="small" border>
             <el-descriptions-item label="状态">
@@ -412,27 +412,79 @@
             <el-descriptions-item label="结束时间">{{ formatRecordTime(caseDetailData.finished_at) }}</el-descriptions-item>
           </el-descriptions>
         </div>
-        <div class="history-detail-logs" v-if="caseDetailData.parsedLogs">
-          <h4 style="margin: 12px 0 8px; font-size: 14px; color: #303133;">执行日志</h4>
-          <div v-for="(step, index) in (Array.isArray(caseDetailData.parsedLogs) ? caseDetailData.parsedLogs : caseDetailData.parsedLogs.steps || [])" :key="index" class="log-item">
-            <div class="log-header">
-              <el-tag :type="step.success ? 'success' : 'danger'" size="small">
-                步骤 {{ step.step_number }}
-              </el-tag>
-              <span class="log-action">{{ getActionText(step.action_type) }}</span>
-              <span class="log-desc">{{ step.description }}</span>
-              <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
-            </div>
-            <div v-if="step.error" class="log-error">
-              <pre class="error-message">{{ step.error }}</pre>
-            </div>
-          </div>
-        </div>
-        <div v-if="caseDetailData.screenshots && caseDetailData.screenshots.length > 0" class="history-detail-screenshots">
-          <h4 style="margin: 12px 0 8px; font-size: 14px; color: #303133;">失败截图</h4>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <el-image v-for="(img, idx) in caseDetailData.screenshots" :key="idx" :src="img.url || img" style="width: 120px; height: 80px; border-radius: 4px; border: 1px solid #e4e7ed;" fit="cover" :preview-src-list="caseDetailData.screenshots.map(s => s.url || s)" :initial-index="idx" />
-          </div>
+        <div class="history-detail-tabs">
+          <el-tabs v-model="caseDetailActiveTab">
+            <el-tab-pane label="执行日志" name="logs">
+              <div class="history-detail-scroll">
+                <div class="history-detail-logs" v-if="caseDetailData.parsedLogs">
+                  <div v-for="(step, index) in (Array.isArray(caseDetailData.parsedLogs) ? caseDetailData.parsedLogs : caseDetailData.parsedLogs.steps || [])" :key="index" class="log-item">
+                    <div class="log-header">
+                      <el-tag :type="step.success ? 'success' : 'danger'" size="small">
+                        <template v-if="step.step_number === 'sql'">
+                          <span style="display: inline-flex; align-items: center; gap: 4px;">SQL</span>
+                        </template>
+                        <template v-else>
+                          步骤 {{ step.step_number }}
+                        </template>
+                      </el-tag>
+                      <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
+                      <span class="log-desc">{{ step.description }}</span>
+                      <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
+                    </div>
+                    <div v-if="step.error" class="log-error">
+                      <pre class="error-message">{{ step.error }}</pre>
+                    </div>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无执行日志" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="失败截图" name="screenshots" v-if="caseDetailData.screenshots && caseDetailData.screenshots.length > 0">
+              <div class="history-detail-scroll">
+                <div class="history-detail-screenshots">
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <el-image v-for="(img, idx) in caseDetailData.screenshots" :key="idx" :src="img.url || img" style="width: 120px; height: 80px; border-radius: 4px; border: 1px solid #e4e7ed;" fit="cover" :preview-src-list="caseDetailData.screenshots.map(s => s.url || s)" :initial-index="idx" />
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="错误信息" name="errors" v-if="caseDetailErrors.length > 0">
+              <div class="history-detail-scroll">
+                <div class="errors-container">
+                  <div v-for="(error, idx) in caseDetailErrors" :key="idx" class="error-item">
+                    <div class="error-header">
+                      <el-tag type="danger" size="large">
+                        <span class="error-tag-inner">
+                          <span>✕ {{ error.message }}</span>
+                        </span>
+                      </el-tag>
+                      <span v-if="error.step_number" class="error-step">
+                        步骤 {{ error.step_number }}
+                      </span>
+                    </div>
+                    <div v-if="error.action_type || error.element || error.description" class="error-meta">
+                      <div v-if="error.action_type" class="meta-item">
+                        <span class="meta-label">操作类型:</span>
+                        <span class="meta-value">{{ error.action_type }}</span>
+                      </div>
+                      <div v-if="error.element" class="meta-item">
+                        <span class="meta-label">目标元素:</span>
+                        <span class="meta-value">{{ error.element }}</span>
+                      </div>
+                      <div v-if="error.description" class="meta-item">
+                        <span class="meta-label">步骤描述:</span>
+                        <span class="meta-value">{{ error.description }}</span>
+                      </div>
+                    </div>
+                    <div v-if="error.details" class="error-details">
+                      <div class="details-header">详细错误信息:</div>
+                      <pre class="details-content">{{ error.details }}</pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
         </div>
       </div>
     </el-dialog>
@@ -1159,11 +1211,37 @@ const getEngineText = (engine) => ({ playwright: 'Playwright', selenium: 'Seleni
 const caseDetailVisible = ref(false)
 const caseDetailData = ref(null)
 const caseDetailLoading = ref(false)
+const caseDetailActiveTab = ref('logs')
+
+// 从执行记录步骤日志中提取错误列表
+const caseDetailErrors = computed(() => {
+  if (!caseDetailData.value) return []
+  const steps = Array.isArray(caseDetailData.value.parsedLogs)
+    ? caseDetailData.value.parsedLogs
+    : (caseDetailData.value.parsedLogs?.steps || [])
+  const errors = []
+  for (const step of steps) {
+    if (step.error && !step.success) {
+      errors.push({
+        message: step.step_number === 'sql'
+          ? `${step.action_type === 'postcondition_sql' ? '后置清理SQL' : '前置数据SQL'}执行失败`
+          : `步骤${step.step_number}执行失败`,
+        step_number: step.step_number === 'sql' ? null : step.step_number,
+        action_type: step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type || ''),
+        element: '',
+        description: step.description || '',
+        details: step.error || ''
+      })
+    }
+  }
+  return errors
+})
 
 const viewCaseExecDetail = async (row) => {
   caseDetailVisible.value = true
   caseDetailLoading.value = true
   caseDetailData.value = null
+  caseDetailActiveTab.value = 'logs'
   try {
     const res = await getTestCaseExecutionDetail(row.id)
     const record = res.data
@@ -1628,6 +1706,46 @@ onMounted(async () => {
 }
 
 /* ==================== 执行详情弹窗 ==================== */
+.history-detail-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.history-detail-header {
+  flex-shrink: 0;
+  margin-bottom: 16px;
+}
+.history-detail-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-detail-tabs :deep(.el-tabs) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-detail-tabs :deep(.el-tabs__header) {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+.history-detail-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.history-detail-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+.history-detail-scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
 .log-item {
   margin-bottom: 8px;
   padding: 8px 10px;
@@ -1659,5 +1777,155 @@ onMounted(async () => {
       word-break: break-all;
     }
   }
+}
+
+/* ==================== 错误信息页签样式 ==================== */
+.errors-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.error-item {
+  background: #fff;
+  border: 2px solid #dc2626;
+  border-radius: 8px;
+  padding: 16px;
+
+  .error-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #f3f4f6;
+    gap: 8px;
+
+    .el-tag {
+      font-size: 14px;
+      padding: 8px 12px;
+      font-weight: 600;
+    }
+  }
+
+  .error-tag-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .error-step {
+    background: #fef2f2;
+    color: #dc2626;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .error-meta {
+    background: #f9fafb;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+
+  .meta-item {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 8px;
+
+    &:last-child { margin-bottom: 0; }
+  }
+
+  .meta-label {
+    font-weight: 600;
+    color: #6b7280;
+    min-width: 80px;
+    margin-right: 8px;
+    font-size: 13px;
+  }
+
+  .meta-value {
+    color: #111827;
+    flex: 1;
+    font-size: 13px;
+    word-break: break-word;
+  }
+
+  .error-details {
+    background: #2d2d2d;
+    border-radius: 8px;
+    overflow: hidden;
+
+    .details-header {
+      background: #1e1e1e;
+      color: #fff;
+      padding: 8px 12px;
+      font-weight: 600;
+      font-size: 13px;
+      border-bottom: 1px solid #3d3d3d;
+    }
+
+    .details-content {
+      color: #ff6b6b;
+      padding: 12px;
+      margin: 0;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      max-height: 400px;
+      overflow-y: auto;
+
+      &::-webkit-scrollbar { width: 6px; }
+      &::-webkit-scrollbar-track { background: #1e1e1e; }
+      &::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+      &::-webkit-scrollbar-thumb:hover { background: #777; }
+    }
+  }
+}
+</style>
+
+<style>
+.el-dialog.history-detail-dialog {
+  height: 680px !important;
+  max-height: 680px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  margin-top: calc((100vh - 680px) / 2) !important;
+}
+.el-dialog.history-detail-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin: 0;
+  padding-bottom: 12px;
+}
+.el-dialog.history-detail-dialog .el-dialog__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+  display: flex;
+  flex-direction: column;
+}
+.el-dialog.history-detail-dialog .el-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.el-dialog.history-detail-dialog .el-tabs__header {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+.el-dialog.history-detail-dialog .el-tabs__content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.el-dialog.history-detail-dialog .el-tab-pane {
+  height: 100%;
 }
 </style>

@@ -941,8 +941,10 @@
       width="680px"
       destroy-on-close
       append-to-body
+      class="history-detail-dialog"
     >
       <template v-if="historyDetailData">
+        <div class="history-detail-inner">
         <div class="history-detail-header">
           <el-descriptions :column="3" size="small" border>
             <el-descriptions-item label="状态">
@@ -955,34 +957,82 @@
             <el-descriptions-item label="结束时间">{{ historyDetailData.finished_at ? formatTime(historyDetailData.finished_at) : '-' }}</el-descriptions-item>
           </el-descriptions>
         </div>
-        <div class="history-detail-logs" v-if="historyDetailData.parsedLogs">
-          <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">执行日志</h4>
-          <div v-for="(step, index) in (Array.isArray(historyDetailData.parsedLogs) ? historyDetailData.parsedLogs : historyDetailData.parsedLogs.steps || [])" :key="index" class="log-item">
-            <div class="log-header">
-              <el-tag :type="step.success ? 'success' : 'danger'" size="small">
-                <template v-if="step.step_number === 'sql'">
-                  <span style="display: inline-flex; align-items: center; gap: 4px;"><el-icon style="font-size: 14px;"><Coin /></el-icon> SQL</span>
-                </template>
-                <template v-else>
-                  步骤 {{ step.step_number }}
-                </template>
-              </el-tag>
-              <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
-              <span class="log-desc">{{ step.description }}</span>
-              <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
-            </div>
-            <div v-if="step.error" class="log-error">
-              <el-icon><WarningFilled /></el-icon>
-              <pre class="error-message">{{ step.error }}</pre>
-            </div>
-          </div>
+        <div class="history-detail-tabs">
+          <el-tabs v-model="historyDetailActiveTab">
+            <el-tab-pane label="执行日志" name="logs">
+              <div class="history-detail-scroll">
+              <div class="history-detail-logs" v-if="historyDetailData.parsedLogs">
+                <div v-for="(step, index) in (Array.isArray(historyDetailData.parsedLogs) ? historyDetailData.parsedLogs : historyDetailData.parsedLogs.steps || [])" :key="index" class="log-item">
+                  <div class="log-header">
+                    <el-tag :type="step.success ? 'success' : 'danger'" size="small">
+                      <template v-if="step.step_number === 'sql'">
+                        <span style="display: inline-flex; align-items: center; gap: 4px;"><el-icon style="font-size: 14px;"><Coin /></el-icon> SQL</span>
+                      </template>
+                      <template v-else>
+                        步骤 {{ step.step_number }}
+                      </template>
+                    </el-tag>
+                    <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
+                    <span class="log-desc">{{ step.description }}</span>
+                    <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
+                  </div>
+                  <div v-if="step.error" class="log-error">
+                    <el-icon><WarningFilled /></el-icon>
+                    <pre class="error-message">{{ step.error }}</pre>
+                  </div>
+                </div>
+              </div>
+              <el-empty v-else description="暂无执行日志" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="失败截图" name="screenshots" v-if="historyDetailData.screenshots && historyDetailData.screenshots.length > 0">
+              <div class="history-detail-scroll">
+              <div class="history-detail-screenshots">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <el-image v-for="(img, idx) in historyDetailData.screenshots" :key="idx" :src="img.url || img" style="width: 120px; height: 80px; border-radius: 4px; border: 1px solid var(--gray-200);" fit="cover" :preview-src-list="historyDetailData.screenshots.map(s => s.url || s)" :initial-index="idx" />
+                </div>
+              </div>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="错误信息" name="errors" v-if="historyDetailErrors.length > 0">
+              <div class="history-detail-scroll">
+              <div class="errors-container">
+                <div v-for="(error, idx) in historyDetailErrors" :key="idx" class="error-item">
+                  <div class="error-header">
+                    <el-tag type="danger" size="large">
+                      <span class="error-tag-inner">
+                        <el-icon><WarningFilled /></el-icon>
+                        <span>{{ error.message }}</span>
+                      </span>
+                    </el-tag>
+                    <span v-if="error.step_number" class="error-step">
+                      步骤 {{ error.step_number }}
+                    </span>
+                  </div>
+                  <div v-if="error.action_type || error.element || error.description" class="error-meta">
+                    <div v-if="error.action_type" class="meta-item">
+                      <span class="meta-label">操作类型:</span>
+                      <span class="meta-value">{{ error.action_type }}</span>
+                    </div>
+                    <div v-if="error.element" class="meta-item">
+                      <span class="meta-label">目标元素:</span>
+                      <span class="meta-value">{{ error.element }}</span>
+                    </div>
+                    <div v-if="error.description" class="meta-item">
+                      <span class="meta-label">步骤描述:</span>
+                      <span class="meta-value">{{ error.description }}</span>
+                    </div>
+                  </div>
+                  <div v-if="error.details" class="error-details">
+                    <div class="details-header">详细错误信息:</div>
+                    <pre class="details-content">{{ error.details }}</pre>
+                  </div>
+                </div>
+              </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
         </div>
-
-        <div v-if="historyDetailData.screenshots && historyDetailData.screenshots.length > 0" class="history-detail-screenshots">
-          <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--gray-700);">失败截图</h4>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <el-image v-for="(img, idx) in historyDetailData.screenshots" :key="idx" :src="img.url || img" style="width: 120px; height: 80px; border-radius: 4px; border: 1px solid var(--gray-200);" fit="cover" :preview-src-list="historyDetailData.screenshots.map(s => s.url || s)" :initial-index="idx" />
-          </div>
         </div>
       </template>
     </el-dialog>
@@ -1063,7 +1113,7 @@ const historyDetailErrors = computed(() => {
           ? `${step.action_type === 'postcondition_sql' ? '后置清理SQL' : '前置数据SQL'}执行失败`
           : `步骤${step.step_number}执行失败`,
         step_number: step.step_number === 'sql' ? null : step.step_number,
-        action_type: step.action_type || '',
+        action_type: step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type || ''),
         element: '',
         description: step.description || '',
         details: step.error || ''
@@ -1105,6 +1155,7 @@ const historyPageSize = ref(10)
 const historyTotal = ref(0)
 const historyDetailVisible = ref(false)
 const historyDetailData = ref(null)
+const historyDetailActiveTab = ref('logs')
 
 // ========== 批量操作相关 ==========
 const selectedCases = ref([])                  // 选中的用例行（由 el-table selection-change 维护）
@@ -2039,6 +2090,7 @@ const viewHistoryDetail = (record) => {
     parsedLogs: logs
   }
   historyDetailVisible.value = true
+  historyDetailActiveTab.value = 'logs'
 }
 
 const formatDuration = (seconds) => {
@@ -4043,8 +4095,44 @@ onMounted(async () => {
 }
 
 /* 执行记录弹窗 */
+.history-detail-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
 .history-detail-header {
+  flex-shrink: 0;
+  margin-bottom: 16px;
+}
+.history-detail-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-detail-tabs :deep(.el-tabs) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-detail-tabs :deep(.el-tabs__header) {
+  flex-shrink: 0;
   margin-bottom: 8px;
+}
+.history-detail-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.history-detail-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+.history-detail-scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 .history-detail-logs .log-item {
@@ -4094,5 +4182,47 @@ onMounted(async () => {
   white-space: pre-wrap;
   font-family: inherit;
   font-size: 12px;
+}
+</style>
+
+<style>
+.el-dialog.history-detail-dialog {
+  height: 680px !important;
+  max-height: 680px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  margin-top: calc((100vh - 680px) / 2) !important;
+}
+.el-dialog.history-detail-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin: 0;
+  padding-bottom: 12px;
+}
+.el-dialog.history-detail-dialog .el-dialog__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+  display: flex;
+  flex-direction: column;
+}
+.el-dialog.history-detail-dialog .el-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.el-dialog.history-detail-dialog .el-tabs__header {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+.el-dialog.history-detail-dialog .el-tabs__content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.el-dialog.history-detail-dialog .el-tab-pane {
+  height: 100%;
 }
 </style>

@@ -639,6 +639,7 @@ class TestExecutor:
                             )
                             self.results.append(case_result)
                             print(f"✓ 用例执行完成，状态: {case_result['status']}")
+                            print(f"[变量共享] 用例执行后套件变量: {dict(suite_context_variables)}")
 
                             # 收集后置SQL，稍后统一执行
                             if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
@@ -835,6 +836,7 @@ class TestExecutor:
                         )
                         self.results.append(case_result)
                         print(f"✓ 用例执行完成，状态: {case_result['status']}")
+                        print(f"[变量共享] 用例执行后套件变量: {dict(suite_context_variables)}")
 
                         # 收集后置SQL，稍后统一执行
                         if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
@@ -1095,6 +1097,10 @@ class TestExecutor:
             if shared_variables is not None:
                 self.context_variables = shared_variables
 
+            # 保存当前保护变量集合的快照，用例执行完后恢复
+            # 这样每个用例的覆盖防护只在本用例内生效，不会跨用例累积
+            original_protected_vars = self._protected_vars.copy()
+
             # 执行前置数据SQL（在步骤执行前，支持变量引用）
             pre_sql_ok = self._execute_precondition_sql(case_data, result, shared_variables)
             if not pre_sql_ok:
@@ -1102,6 +1108,7 @@ class TestExecutor:
                 result['end_time'] = datetime.now().isoformat()
                 if shared_variables is not None:
                     self.context_variables = original_context_variables
+                    self._protected_vars = original_protected_vars
                 return result
 
             # 遍历预先准备好的步骤数据
@@ -1243,9 +1250,10 @@ class TestExecutor:
 
         result['end_time'] = datetime.now().isoformat()
 
-        # 恢复原始变量表
+        # 恢复原始变量表和保护变量集合
         if shared_variables is not None:
             self.context_variables = original_context_variables
+            self._protected_vars = original_protected_vars
 
         # 执行后置清理SQL（单用例执行时立即执行，套件模式下延迟执行）
         if not defer_postcondition:
