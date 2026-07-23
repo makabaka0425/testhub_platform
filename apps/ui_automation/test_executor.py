@@ -655,12 +655,21 @@ class TestExecutor:
                             case_execution.status = case_result['status']
                             case_execution.finished_at = timezone.now()
                             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-                            case_execution.execution_logs = json.dumps(case_result['steps'], ensure_ascii=False)
+                            case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
                             if case_result['error']:
                                 case_execution.error_message = case_result['error']
                             if case_result.get('screenshots'):
                                 case_execution.screenshots = case_result['screenshots']
                             case_execution.save()
+
+                            # 回写用例状态
+                            try:
+                                tc = TestCase.objects.get(id=case_data['id'])
+                                if tc.status != case_result['status']:
+                                    tc.status = case_result['status']
+                                    tc.save(update_fields=['status', 'updated_at'])
+                            except TestCase.DoesNotExist:
+                                pass
 
                             print(f"⏱️  执行时长: {case_execution.execution_time:.2f}秒")
 
@@ -692,6 +701,14 @@ class TestExecutor:
                             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
                             case_execution.error_message = f"用例执行异常: {str(e)}"
                             case_execution.save()
+                            # 回写用例状态
+                            try:
+                                tc = TestCase.objects.get(id=case_data['id'])
+                                if tc.status != 'failed':
+                                    tc.status = 'failed'
+                                    tc.save(update_fields=['status', 'updated_at'])
+                            except TestCase.DoesNotExist:
+                                pass
 
                 finally:
                     if browser:
@@ -715,43 +732,18 @@ class TestExecutor:
                     print(f"正在执行第 {i}/{len(test_cases_data)} 个用例: {case_data['name']}")
                     print(f"{'=' * 60}")
 
-                    # 检查该用例是否依赖了失败用例的输出变量
-                    dep_failed = self._check_dependency_failed(case_data, failed_vars)
-                    if dep_failed:
-                        print(f"[依赖检查] 用例「{case_data['name']}」依赖了失败用例的输出变量，跳过执行")
-                        case_result = {
-                            'test_case_id': case_data['id'],
-                            'test_case_name': case_data['name'],
-                            'status': 'skipped',
-                            'steps': [],
-                            'error': f"依赖失败: 用例引用了失败用例的输出变量 ({dep_failed})",
-                            'start_time': datetime.now().isoformat(),
-                            'end_time': datetime.now().isoformat(),
-                            'screenshots': []
-                        }
-                        self.results.append(case_result)
-                        case_execution = case_executions[case_data['id']]
-                        case_execution.status = 'skipped'
-                        case_execution.started_at = timezone.now()
-                        case_execution.finished_at = timezone.now()
-                        case_execution.error_message = case_result['error']
-                        case_execution.save()
-                        # 回写用例状态为skipped
-                        try:
-                            tc = TestCase.objects.get(id=case_data['id'])
-                            if tc.status != 'skipped':
-                                tc.status = 'skipped'
-                                tc.save(update_fields=['status', 'updated_at'])
-                        except TestCase.DoesNotExist:
-                            pass
-                        skipped += 1
-                        continue
+                    # 独立模式：每个用例有独立的变量池，用例间不共享变量
+                    self.context_variables = {}
+                    self._protected_vars = set()
 
                     # 记录用例实际开始执行时间
                     case_execution = case_executions[case_data['id']]
                     case_execution.started_at = timezone.now()
                     case_execution.status = 'running'
                     case_execution.save()
+
+                    # 用例级后置SQL列表（前置条件的 + 主用例的，逆序执行）
+                    case_level_postconditions = []
 
                     # 为每个测试用例启动新的浏览器实例
                     try:
@@ -822,20 +814,18 @@ class TestExecutor:
                                     'screenshots': []
                                 })
                                 failed += 1
-                                # 导航失败也标记输出变量不可用
-                                for var_name in case_data.get('output_vars', []):
-                                    failed_vars.add(var_name)
                                 browser.close()
                                 print(f"✓ 浏览器已关闭")
                                 continue
 
                         # 执行前置条件（独立模式下每个用例有独立浏览器，可以安全执行前置条件）
+                        # 前置条件共享 self.context_variables，输出变量可被主用例引用
                         test_case_obj = self.test_cases[i - 1]  # 原始TestCase对象
                         pre_ok, pre_msg, pre_deferred = self._execute_preconditions(test_case_obj)
-                        # 收集前置条件的后置SQL（无论成功失败都需要收集，用于清理数据）
+                        # 收集前置条件的后置SQL（用例级，浏览器关闭前执行）
                         if pre_deferred:
                             for pre_case_data in pre_deferred:
-                                pending_postconditions.append((pre_case_data, {'status': 'skipped', 'error': pre_msg}))
+                                case_level_postconditions.append((pre_case_data, {'status': 'skipped', 'error': pre_msg}))
 
                         if not pre_ok:
                             print(f"[前置条件] ✗ 前置条件失败: {pre_msg}")
@@ -870,24 +860,23 @@ class TestExecutor:
 
                         print(f"[前置条件] ✓ 前置条件执行完毕")
 
-                        # 使用套件级共享变量池执行测试用例
-                        print(f"[变量共享] 当前套件变量: {list(suite_context_variables.keys())}")
+                        # 独立模式：不传共享变量池，用例使用 self.context_variables（前置条件和主用例共享）
+                        print(f"[独立模式] 当前用例变量: {list(self.context_variables.keys())}")
                         case_result = self.execute_test_case_playwright_no_db(
-                            case_data, suite_context_variables, defer_postcondition=True
+                            case_data, defer_postcondition=True
                         )
                         self.results.append(case_result)
                         print(f"✓ 用例执行完成，状态: {case_result['status']}")
-                        print(f"[变量共享] 用例执行后套件变量: {dict(suite_context_variables)}")
+                        print(f"[独立模式] 用例执行后变量: {dict(self.context_variables)}")
 
-                        # 收集后置SQL，稍后统一执行
+                        # 收集主用例后置SQL（用例级）
                         if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
-                            pending_postconditions.append((case_data, case_result))
+                            case_level_postconditions.append((case_data, case_result))
 
-                        # 用例失败时，标记该用例的输出变量为不可用
-                        if case_result['status'] == 'failed':
-                            for var_name in case_data.get('output_vars', []):
-                                failed_vars.add(var_name)
-                            print(f"[变量共享] 用例失败，标记不可用变量: {case_data.get('output_vars', [])}")
+                        # 逆序执行后置SQL（前置条件的 + 主用例的，使用当前用例的变量池）
+                        if case_level_postconditions:
+                            print(f"[后置清理] 反序执行 {len(case_level_postconditions)} 条后置SQL")
+                            self._execute_postconditions_reverse_order(case_level_postconditions, self.context_variables)
 
                         # 立即更新该用例的执行记录（包含准确的执行时间）
                         case_execution = case_executions[case_data['id']]
@@ -895,12 +884,21 @@ class TestExecutor:
                         case_execution.finished_at = timezone.now()
                         case_execution.execution_time = (
                                     case_execution.finished_at - case_execution.started_at).total_seconds()
-                        case_execution.execution_logs = json.dumps(case_result['steps'], ensure_ascii=False)
+                        case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
                         if case_result['error']:
                             case_execution.error_message = case_result['error']
                         if case_result.get('screenshots'):
                             case_execution.screenshots = case_result['screenshots']
                         case_execution.save()
+
+                        # 回写用例状态
+                        try:
+                            tc = TestCase.objects.get(id=case_data['id'])
+                            if tc.status != case_result['status']:
+                                tc.status = case_result['status']
+                                tc.save(update_fields=['status', 'updated_at'])
+                        except TestCase.DoesNotExist:
+                            pass
 
                         print(f"⏱️  执行时长: {case_execution.execution_time:.2f}秒")
 
@@ -925,9 +923,7 @@ class TestExecutor:
                             'screenshots': []
                         })
                         failed += 1
-                        # 异常用例的输出变量也标记为不可用
-                        for var_name in case_data.get('output_vars', []):
-                            failed_vars.add(var_name)
+                        # 异常用例的输出变量不需要标记（独立模式用例间不共享变量）
 
                         # 更新执行记录
                         case_execution = case_executions[case_data['id']]
@@ -937,6 +933,15 @@ class TestExecutor:
                                     case_execution.finished_at - case_execution.started_at).total_seconds()
                         case_execution.error_message = f"用例执行异常: {str(e)}"
                         case_execution.save()
+
+                        # 回写用例状态
+                        try:
+                            tc = TestCase.objects.get(id=case_data['id'])
+                            if tc.status != 'failed':
+                                tc.status = 'failed'
+                                tc.save(update_fields=['status', 'updated_at'])
+                        except TestCase.DoesNotExist:
+                            pass
 
                     finally:
                         # 确保每个用例执行后都关闭浏览器
@@ -1344,9 +1349,11 @@ class TestExecutor:
             case_execution.status = result['status']
             case_execution.finished_at = timezone.now()
             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-            case_execution.execution_logs = json.dumps(result['steps'], ensure_ascii=False)
+            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition')}, ensure_ascii=False)
             if result['error']:
                 case_execution.error_message = result['error']
+            if result.get('screenshots'):
+                case_execution.screenshots = result['screenshots']
             case_execution.save()
 
             # 回写用例状态
@@ -2874,7 +2881,7 @@ class TestExecutor:
                 case_execution.status = case_result['status']
                 case_execution.finished_at = timezone.now()
                 case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-                case_execution.execution_logs = json.dumps(case_result['steps'], ensure_ascii=False)
+                case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
                 if case_result['error']:
                     case_execution.error_message = case_result['error']
                 if case_result.get('screenshots'):
@@ -3267,7 +3274,7 @@ class TestExecutor:
             case_execution.status = result['status']
             case_execution.finished_at = timezone.now()
             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-            case_execution.execution_logs = json.dumps(result['steps'], ensure_ascii=False)
+            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition')}, ensure_ascii=False)
             if result['error']:
                 case_execution.error_message = result['error']
             case_execution.save()
@@ -4063,6 +4070,8 @@ class TestExecutor:
         except TestCase.DoesNotExist:
             result['postcondition'] = {
                 'executed': False,
+                'original_sql': cleanup_sql,
+                'resolved_sql': resolved_sql,
                 'error': f'未找到用例(ID={case_data["id"]})'
             }
             return
@@ -4071,6 +4080,8 @@ class TestExecutor:
         if not project.target_db_type:
             result['postcondition'] = {
                 'executed': False,
+                'original_sql': cleanup_sql,
+                'resolved_sql': resolved_sql,
                 'error': '项目未配置被测数据库连接'
             }
             return
@@ -4112,7 +4123,7 @@ class TestExecutor:
                 dsn = cx_Oracle.makedsn(project.target_db_host, project.target_db_port or 1521, service_name=project.target_db_name)
                 conn = cx_Oracle.connect(user=project.target_db_user, password=project.target_db_password, dsn=dsn)
             else:
-                result['postcondition'] = {'executed': False, 'error': f'不支持的数据库类型: {db_type}'}
+                result['postcondition'] = {'executed': False, 'original_sql': cleanup_sql, 'resolved_sql': resolved_sql, 'error': f'不支持的数据库类型: {db_type}'}
                 return
 
             with conn.cursor() as cursor:
@@ -4132,6 +4143,8 @@ class TestExecutor:
             conn.commit()
             result['postcondition'] = {
                 'executed': True,
+                'original_sql': cleanup_sql,
+                'resolved_sql': resolved_sql,
                 'sql_count': len(sqls),
                 'total_affected': total_affected,
                 'details': details
@@ -4146,6 +4159,8 @@ class TestExecutor:
                     pass
             result['postcondition'] = {
                 'executed': False,
+                'original_sql': cleanup_sql,
+                'resolved_sql': resolved_sql,
                 'error': f'后置SQL执行失败: {str(e)}',
                 'details': details
             }
@@ -4192,6 +4207,8 @@ class TestExecutor:
         if not project.target_db_type:
             result['precondition_sql'] = {
                 'executed': False,
+                'original_sql': precondition_sql,
+                'resolved_sql': resolved_sql,
                 'error': '项目未配置被测数据库连接'
             }
             result['status'] = 'skipped'
@@ -4238,7 +4255,7 @@ class TestExecutor:
                 dsn = cx_Oracle.makedsn(project.target_db_host, project.target_db_port or 1521, service_name=project.target_db_name)
                 conn = cx_Oracle.connect(user=project.target_db_user, password=project.target_db_password, dsn=dsn)
             else:
-                result['precondition_sql'] = {'executed': False, 'error': f'不支持的数据库类型: {db_type}'}
+                result['precondition_sql'] = {'executed': False, 'original_sql': precondition_sql, 'resolved_sql': resolved_sql, 'error': f'不支持的数据库类型: {db_type}'}
                 result['status'] = 'skipped'
                 result['error'] = f'前置数据SQL无法执行: 不支持的数据库类型 {db_type}'
                 return False
@@ -4267,6 +4284,8 @@ class TestExecutor:
                 result['precondition_sql'] = {
                     'executed': True,
                     'has_error': True,
+                    'original_sql': precondition_sql,
+                    'resolved_sql': resolved_sql,
                     'total_affected': total_affected,
                     'details': details
                 }
@@ -4277,6 +4296,8 @@ class TestExecutor:
             else:
                 result['precondition_sql'] = {
                     'executed': True,
+                    'original_sql': precondition_sql,
+                    'resolved_sql': resolved_sql,
                     'total_affected': total_affected,
                     'details': details
                 }
@@ -4286,6 +4307,8 @@ class TestExecutor:
         except Exception as e:
             result['precondition_sql'] = {
                 'executed': False,
+                'original_sql': precondition_sql,
+                'resolved_sql': resolved_sql,
                 'error': str(e)
             }
             result['status'] = 'skipped'
@@ -4316,6 +4339,8 @@ class TestExecutor:
         if not project.target_db_type:
             result['postcondition'] = {
                 'executed': False,
+                'original_sql': cleanup_sql,
+                'resolved_sql': resolved_sql,
                 'error': '项目未配置被测数据库连接'
             }
             return
@@ -4365,7 +4390,7 @@ class TestExecutor:
                 dsn = cx_Oracle.makedsn(project.target_db_host, project.target_db_port or 1521, service_name=project.target_db_name)
                 conn = cx_Oracle.connect(user=project.target_db_user, password=project.target_db_password, dsn=dsn)
             else:
-                result['postcondition'] = {'executed': False, 'error': f'不支持的数据库类型: {db_type}'}
+                result['postcondition'] = {'executed': False, 'original_sql': cleanup_sql, 'resolved_sql': resolved_sql, 'error': f'不支持的数据库类型: {db_type}'}
                 return
 
             with conn.cursor() as cursor:
@@ -4385,6 +4410,8 @@ class TestExecutor:
 
             result['postcondition'] = {
                 'executed': True,
+                'original_sql': cleanup_sql,
+                'resolved_sql': resolved_sql,
                 'total_affected': total_affected,
                 'details': details
             }
@@ -4393,6 +4420,8 @@ class TestExecutor:
         except Exception as e:
             result['postcondition'] = {
                 'executed': False,
+                'original_sql': cleanup_sql,
+                'resolved_sql': resolved_sql,
                 'error': str(e)
             }
             print(f"[后置清理] 执行失败: {str(e)}")
