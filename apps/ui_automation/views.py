@@ -6641,6 +6641,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                             logs_list.append(f"========== 执行{sql_label}后置清理SQL ==========")
                             sql_success = True
                             sql_error = None
+                            sql_details = []
+                            total_affected = 0
                             try:
                                 from .variable_resolver import resolve_variables
                                 resolved_sql = resolve_variables(sql_source, variables)
@@ -6662,16 +6664,17 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         engine_db = sqlalchemy.create_engine(db_url)
                                         with engine_db.connect() as conn:
                                             sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip()]
-                                            total_affected = 0
                                             for sql_stmt in sql_statements:
                                                 sql_upper = sql_stmt.strip().upper()
                                                 if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
                                                     logs_list.append(f"  ✗ 跳过不安全的SQL: {sql_stmt[:50]}...")
+                                                    sql_details.append({'sql': sql_stmt, 'error': '只允许 DELETE/UPDATE/TRUNCATE 语句', 'affected': 0})
                                                     continue
                                                 result = conn.execute(sqlalchemy.text(sql_stmt))
                                                 conn.commit()
                                                 affected = result.rowcount
                                                 total_affected += affected
+                                                sql_details.append({'sql': sql_stmt, 'affected': affected})
                                                 logs_list.append(f"  ✓ 执行: {sql_stmt[:80]}... (影响 {affected} 行)")
                                         engine_db.dispose()
                                         logs_list.append(f"✓ {sql_label}后置清理SQL执行完成，共影响 {total_affected} 行")
@@ -6694,7 +6697,11 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                 'action_type': 'postcondition_sql',
                                 'description': f'{sql_label}后置清理SQL',
                                 'success': sql_success,
-                                'error': sql_error
+                                'error': sql_error,
+                                'original_sql': sql_source,
+                                'resolved_sql': resolved_sql if 'resolved_sql' in dir() else sql_source,
+                                'total_affected': total_affected,
+                                'details': sql_details
                             })
 
                         # 根据浏览器类型选择
@@ -6804,6 +6811,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                 if test_case.precondition_sql and test_case.precondition_sql.strip():
                                     execution_logs.append("")
                                     execution_logs.append("========== 执行前置数据SQL ==========")
+                                    pre_sql_original = test_case.precondition_sql
+                                    pre_sql_details = []
+                                    pre_sql_total_affected = 0
                                     try:
                                         from .variable_resolver import resolve_variables
                                         resolved_sql = resolve_variables(test_case.precondition_sql, context_variables)
@@ -6832,14 +6842,18 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                         # 安全检查：仅禁止DROP
                                                         if sql_upper.startswith('DROP'):
                                                             execution_logs.append(f"  ✗ 跳过危险SQL(DROP): {sql_stmt[:50]}...")
+                                                            pre_sql_details.append({'sql': sql_stmt, 'error': '禁止执行DROP语句', 'affected': 0})
                                                             continue
                                                         try:
                                                             result_sql = conn.execute(sqlalchemy.text(sql_stmt))
                                                             conn.commit()
                                                             affected = result_sql.rowcount if result_sql.rowcount >= 0 else 0
+                                                            pre_sql_total_affected += affected
+                                                            pre_sql_details.append({'sql': sql_stmt, 'affected': affected})
                                                             execution_logs.append(f"  ✓ 执行成功: {sql_stmt[:60]}... (影响 {affected} 行)")
                                                         except Exception as sql_err:
                                                             execution_logs.append(f"  ✗ 执行失败: {sql_stmt[:60]}... 错误: {str(sql_err)}")
+                                                            pre_sql_details.append({'sql': sql_stmt, 'error': str(sql_err), 'affected': 0})
                                                             pre_sql_failed = True
 
                                                 if pre_sql_failed:
@@ -6851,7 +6865,11 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                         'action_type': 'precondition_sql',
                                                         'description': '前置数据SQL',
                                                         'success': False,
-                                                        'error': '前置数据SQL执行失败'
+                                                        'error': '前置数据SQL执行失败',
+                                                        'original_sql': pre_sql_original,
+                                                        'resolved_sql': resolved_sql,
+                                                        'total_affected': pre_sql_total_affected,
+                                                        'details': pre_sql_details
                                                     })
                                                     return False
                                                 else:
@@ -6861,12 +6879,36 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                         'action_type': 'precondition_sql',
                                                         'description': '前置数据SQL',
                                                         'success': True,
-                                                        'error': None
+                                                        'error': None,
+                                                        'original_sql': pre_sql_original,
+                                                        'resolved_sql': resolved_sql,
+                                                        'total_affected': pre_sql_total_affected,
+                                                        'details': pre_sql_details
                                                     })
                                             else:
                                                 execution_logs.append("  ⚠ 不支持的数据库类型，跳过前置SQL执行")
+                                                step_results.append({
+                                                    'step_number': 'sql',
+                                                    'action_type': 'precondition_sql',
+                                                    'description': '前置数据SQL',
+                                                    'success': False,
+                                                    'error': f'不支持的数据库类型: {project.target_db_type}',
+                                                    'original_sql': pre_sql_original,
+                                                    'resolved_sql': resolved_sql,
+                                                    'details': []
+                                                })
                                         else:
                                             execution_logs.append("  ⚠ 项目未配置被测数据库连接，跳过前置SQL执行")
+                                            step_results.append({
+                                                'step_number': 'sql',
+                                                'action_type': 'precondition_sql',
+                                                'description': '前置数据SQL',
+                                                'success': False,
+                                                'error': '项目未配置被测数据库连接',
+                                                'original_sql': pre_sql_original,
+                                                'resolved_sql': resolved_sql,
+                                                'details': []
+                                            })
                                     except Exception as e:
                                         execution_logs.append(f"  ✗ 前置数据SQL执行失败: {str(e)}")
                                         execution_result['status'] = 'skipped'
@@ -6876,7 +6918,10 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                             'action_type': 'precondition_sql',
                                             'description': '前置数据SQL',
                                             'success': False,
-                                            'error': str(e)
+                                            'error': str(e),
+                                            'original_sql': pre_sql_original,
+                                            'resolved_sql': pre_sql_original,
+                                            'details': pre_sql_details
                                         })
                                         return False
 
