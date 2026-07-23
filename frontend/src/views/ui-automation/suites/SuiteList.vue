@@ -195,6 +195,18 @@
               <span class="status-tag" :class="`status-${row.test_case.status || 'normal'}`">{{ getStatusText(row.test_case.status) }}</span>
             </template>
           </el-table-column>
+          <el-table-column label="执行时长" width="100" align="center">
+            <template #default="{ row }">
+              <span v-if="row.test_case.suite_last_duration != null">{{ row.test_case.suite_last_duration.toFixed(2) }}s</span>
+              <span v-else style="color: var(--gray-400)">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="执行时间" width="170" align="center">
+            <template #default="{ row }">
+              <span v-if="row.test_case.suite_last_finished">{{ formatDate(null, null, row.test_case.suite_last_finished) }}</span>
+              <span v-else style="color: var(--gray-400)">-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
               <div class="op-btns">
@@ -704,6 +716,10 @@ const confirmAssociate = async () => {
     showAssociateDialog.value = false
     selectedAssocCases.value = []
     await loadSuiteCases()
+    // 同步更新 currentSuite 的用例计数，避免运行时仍判断为 0
+    if (currentSuite.value) {
+      currentSuite.value.test_case_count = suiteCases.value.length
+    }
   } catch (e) {
     console.error(e)
     ElMessage.error('关联失败')
@@ -838,6 +854,10 @@ const pollSuiteStatus = (suiteId) => {
         clearInterval(iv)
         if (s.execution_status === 'passed') ElMessage.success(`执行完成：全部通过 (${s.passed_count})`)
         else if (s.execution_status === 'failed') ElMessage.warning(`执行完成：通过${s.passed_count}，失败${s.failed_count}`)
+        // 执行完成后刷新套件内部用例列表（更新执行时长/执行时间）
+        if (currentSuite.value && currentSuite.value.id === suiteId) {
+          await loadSuiteCases()
+        }
       }
       if (count >= 120) { clearInterval(iv); ElMessage.info('执行时间较长，请稍后查看') }
     } catch (e) { clearInterval(iv) }
@@ -858,6 +878,10 @@ const pollBatchSuiteStatus = (suiteIds) => {
           pendingIds.delete(id)
           if (s.execution_status === 'passed') ElMessage.success(`「${s.name}」执行完成：全部通过 (${s.passed_count})`)
           else if (s.execution_status === 'failed') ElMessage.warning(`「${s.name}」执行完成：通过${s.passed_count}，失败${s.failed_count}`)
+          // 执行完成后刷新套件内部用例列表
+          if (currentSuite.value && currentSuite.value.id === id) {
+            await loadSuiteCases()
+          }
         }
       }
       if (pendingIds.size === 0) {

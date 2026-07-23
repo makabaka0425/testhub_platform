@@ -896,11 +896,7 @@
               <el-tag :type="getHistoryStatusType(row.status)" size="small">{{ getHistoryStatusText(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="来源" width="80" align="center">
-            <template #default="{ row }">
-              {{ getHistorySourceType(row.execution_source) }}
-            </template>
-          </el-table-column>
+
           <el-table-column label="时长" width="80" align="center">
             <template #default="{ row }">
               {{ formatDuration(row.execution_time) }}
@@ -2037,7 +2033,7 @@ const editTestCase = (testCase) => {
 const loadHistoryRecords = async () => {
   historyLoading.value = true
   try {
-    const res = await getTestCaseExecutions({ test_case: historyCurrentCaseId.value, page: historyPage.value, page_size: historyPageSize.value })
+    const res = await getTestCaseExecutions({ test_case: historyCurrentCaseId.value, execution_source: 'manual', page: historyPage.value, page_size: historyPageSize.value })
     historyRecords.value = res.data?.results || []
     historyTotal.value = res.data?.count || 0
   } catch (error) {
