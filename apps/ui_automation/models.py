@@ -17,7 +17,7 @@ class UiProject(models.Model):
     name = models.CharField(max_length=200, verbose_name='项目名称')
     description = models.TextField(blank=True, verbose_name='项目描述')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, verbose_name='项目状态', default='IN_PROGRESS')
-    base_url = models.URLField(verbose_name='基础URL')
+    base_url = models.CharField(max_length=500, blank=True, default='', verbose_name='基础URL')
     start_date = models.DateField(null=True, blank=True, verbose_name='开始日期')
     end_date = models.DateField(null=True, blank=True, verbose_name='结束日期')
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='owned_ui_projects', verbose_name='负责人')

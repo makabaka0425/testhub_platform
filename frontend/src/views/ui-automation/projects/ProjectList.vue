@@ -406,13 +406,7 @@ const formRules = computed(() => ({
         } else if (!value.startsWith('http://') && !value.startsWith('https://')) {
           callback(new Error('URL必须以 http:// 或 https:// 开头'))
         } else {
-          // 简单的URL格式验证
-          try {
-            new URL(value)
-            callback()
-          } catch (e) {
-            callback(new Error('请输入有效的URL格式'))
-          }
+          callback()
         }
       }, 
       trigger: 'blur' 
@@ -711,7 +705,9 @@ const handleCreate = async () => {
       owner: userStore.user.id,  // 添加owner字段，值为当前登录用户ID
       // 格式化日期为YYYY-MM-DD格式
       start_date: formatDateToISO(createForm.start_date),
-      end_date: formatDateToISO(createForm.end_date)
+      end_date: formatDateToISO(createForm.end_date),
+      // 整数字段：空字符串需转为null，否则Django校验失败
+      target_db_port: createForm.target_db_port || null
     }
     
     await createUiProject(projectData)
@@ -733,7 +729,11 @@ const handleCreate = async () => {
     
     loadProjects()
   } catch (error) {
-    ElMessage.error(error.response?.data?.base_url?.[0] || error.response?.data?.detail || '项目创建失败')
+    const detail = error.response?.data?.base_url?.[0] 
+      || error.response?.data?.detail 
+      || error.response?.data?.name?.[0]
+      || JSON.stringify(error.response?.data || {})
+    ElMessage.error(detail || '项目创建失败')
     console.error('创建项目失败:', error)
   }
 }
