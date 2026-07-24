@@ -44,7 +44,8 @@
     </div>
 
     <div class="table-scroll-area">
-      <el-table :data="elements" v-loading="loading" style="width: 100%">
+      <div class="table-area">
+      <el-table :data="elements" v-loading="loading" height="100%">
         <el-table-column type="selection" width="55" />
         <el-table-column prop="name" :label="$t('uiAutomation.element.elementName')" min-width="150">
           <template #default="{ row }">
@@ -71,6 +72,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </div>
       
       <div class="pagination-container">
         <el-pagination
@@ -850,4 +852,14 @@ onMounted(async () => {
 
 <style scoped>
 /* 页面样式统一使用 global.scss 中的全局类 */
+.table-scroll-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.table-scroll-area .table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 </style>

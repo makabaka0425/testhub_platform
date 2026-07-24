@@ -63,7 +63,8 @@
                 </div>
               </div>
 
-              <el-table :data="filteredSuites" v-loading="loading" style="width: 100%"
+              <div class="table-area">
+              <el-table :data="filteredSuites" v-loading="loading" height="100%"
                 row-key="id" ref="suiteTableRef" @selection-change="handleSuiteSelectionChange">
                 <el-table-column v-if="!batchEditMode" type="selection" width="45" />
                 <el-table-column prop="name" label="套件名称" min-width="200">
@@ -133,6 +134,7 @@
                   </template>
                 </el-table-column>
               </el-table>
+              </div>
             </div>
 
             <div class="pagination-container">
@@ -182,7 +184,7 @@
             </el-button>
           </div>
         </div>
-        <el-table ref="suiteCasesTableRef" :data="filteredSuiteCases" style="width: 100%" @selection-change="handleCaseSelectionChange" row-key="id">
+        <el-table ref="suiteCasesTableRef" :data="filteredSuiteCases" height="100%" @selection-change="handleCaseSelectionChange" row-key="id">
           <el-table-column type="selection" width="45" />
           <el-table-column label="#" width="50" align="center">
             <template #default="{ $index }">
@@ -1530,8 +1532,16 @@ onBeforeUnmount(() => {
 
 .suite-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
+}
+
+.suite-table-wrapper .table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 表格样式 */
@@ -1618,11 +1628,18 @@ onBeforeUnmount(() => {
 
 /* 套件内用例区域 */
 .suite-cases-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
   .section-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
+    flex-shrink: 0;
   }
 
   .section-title {

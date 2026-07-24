@@ -106,10 +106,10 @@
             <div v-if="selectedCases.length > 0 && !batchEditMode" class="batch-toolbar">
               <span class="batch-toolbar__info">已选 {{ selectedCases.length }} 个用例</span>
               <div class="batch-toolbar__actions">
-                <el-button size="small" :icon="Edit" @click="enterBatchEditMode">批量编辑名称</el-button>
-                <el-button size="small" type="success" :icon="VideoPlay" @click="handleBatchRun" :loading="batchRunLoading">批量执行</el-button>
-                <el-button size="small" :icon="FolderOpened" @click="openBatchUpdateGroupDialog">批量改分组</el-button>
-                <el-button size="small" type="danger" :icon="DeleteFilled" @click="handleBatchDelete">批量删除</el-button>
+                <el-button size="small" :icon="Edit" @click="enterBatchEditMode">批量编辑</el-button>
+                <el-button size="small" :icon="FolderOpened" @click="batchModifyGroup">批量改分组</el-button>
+                <el-button size="small" type="success" :icon="CaretRight" @click="batchRunCases" :loading="batchRunLoading">批量运行</el-button>
+                <el-button size="small" type="danger" :icon="DeleteFilled" @click="batchDeleteCases">批量删除</el-button>
                 <el-button size="small" text @click="clearCaseSelection">取消选择</el-button>
               </div>
             </div>
@@ -124,9 +124,11 @@
               </div>
             </div>
           </transition>
+          <div class="table-area">
           <el-table
             ref="testCaseTableRef"
             :data="paginatedTestCases"
+            height="100%"
             size="small"
             @current-change="handleTableCurrentChange"
             @selection-change="handleCaseSelectionChange"
@@ -185,6 +187,7 @@
               </template>
             </el-table-column>
           </el-table>
+          </div>
         </div>
 
         <div class="pagination-container">
@@ -871,7 +874,7 @@
                   <el-button link type="primary" size="small">{{ t('uiAutomation.testCase.insert') }}</el-button>
                 </template>
               </el-table-column>
-            </el-table>
+          </el-table>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -3133,8 +3136,16 @@ onMounted(async () => {
 
 .test-case-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
+}
+
+.test-case-table-wrapper .table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ===== 批量操作工具栏 ===== */

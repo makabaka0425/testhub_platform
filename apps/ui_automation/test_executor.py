@@ -4636,6 +4636,19 @@ class TestExecutor:
 
             print(f"[前置条件] 前置用例「{precondition_case.name}」执行通过")
 
+            # 前置用例之间等待页面稳定，避免下一个用例的步骤在页面还在加载时就开始
+            # SPA路由跳转后networkidle可能很快满足但页面未渲染完，需要多级等待
+            if self.current_page:
+                try:
+                    self.current_page.wait_for_load_state('load', timeout=10000)
+                except:
+                    pass
+                try:
+                    self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                except:
+                    pass
+                self.current_page.wait_for_timeout(1500)
+
             # 收集该前置条件的后置SQL（用于主用例执行完后逆序执行）
             if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
                 deferred_postconditions.append(case_data)
