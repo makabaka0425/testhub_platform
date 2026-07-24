@@ -862,6 +862,7 @@ class TestCaseExecution(models.Model):
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='test_case_executions', verbose_name='项目')
     test_suite = models.ForeignKey('TestSuite', on_delete=models.CASCADE, null=True, blank=True, related_name='case_executions', verbose_name='所属测试套件')
     test_plan = models.ForeignKey('UiTestPlan', on_delete=models.CASCADE, null=True, blank=True, related_name='case_executions', verbose_name='所属测试计划')
+    test_execution = models.ForeignKey('TestExecution', on_delete=models.CASCADE, null=True, blank=True, related_name='case_executions', verbose_name='所属执行批次')
     execution_source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual', verbose_name='执行来源')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='执行状态')
     engine = models.CharField(max_length=20, choices=ENGINE_CHOICES, default='playwright', verbose_name='测试引擎')

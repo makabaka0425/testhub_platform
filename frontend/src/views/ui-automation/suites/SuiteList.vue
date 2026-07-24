@@ -349,8 +349,8 @@
     </el-dialog>
 
     <!-- ==================== 执行记录弹窗 ==================== -->
-    <el-dialog v-model="showRecordsDialog" :title="`执行记录 - ${recordsSuiteName}`" width="800px" :close-on-click-modal="false" top="5vh">
-      <div v-loading="recordsLoading">
+    <el-dialog v-model="showRecordsDialog" :title="`执行记录 - ${recordsSuiteName}`" width="800px" :close-on-click-modal="false" class="suite-records-dialog">
+      <div v-loading="recordsLoading" class="suite-records-body">
         <el-empty v-if="!recordsLoading && executionRecords.length === 0" description="暂无执行记录" :image-size="60" />
         <el-collapse v-model="expandedRecords" v-if="executionRecords.length > 0">
           <el-collapse-item v-for="record in executionRecords" :key="record.id" :name="record.id">
@@ -444,7 +444,7 @@
                 <div class="sql-exec-list">
                   <div v-for="(sqlExec, idx) in caseDetailSqlExecs" :key="idx" class="sql-exec-item">
                     <div class="sql-exec-header">
-                      <el-tag :type="sqlExec.type === 'precondition' ? 'warning' : 'info'" size="small">{{ sqlExec.label }}</el-tag>
+                      <el-tag :type="sqlExec.type === 'precondition' ? 'warning' : sqlExec.type === 'precondition_case' ? 'success' : 'info'" size="small">{{ sqlExec.label }}</el-tag>
                       <el-tag :type="sqlExec.success ? 'success' : 'danger'" size="small">{{ sqlExec.success ? '执行成功' : '执行失败' }}</el-tag>
                       <span v-if="sqlExec.executed && sqlExec.total_affected !== undefined" class="sql-affected">影响 {{ sqlExec.total_affected }} 行</span>
                     </div>
@@ -525,7 +525,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, ArrowLeft, Close, Rank } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
@@ -1201,22 +1201,56 @@ const getSuiteStatusText = (s) => ({ not_executed: '未执行', passed: '通过'
 // ==================== 执行记录弹窗 ====================
 const showRecordsDialog = ref(false)
 const recordsSuiteName = ref('')
+const recordsSuiteId = ref(null)
 const executionRecords = ref([])
 const recordsLoading = ref(false)
 const expandedRecords = ref([])
+let recordsPollTimer = null
+
+const refreshExecutionRecords = async () => {
+  if (!recordsSuiteId.value) return
+  try {
+    const res = await getSuiteExecutionRecords(recordsSuiteId.value)
+    executionRecords.value = res.data || []
+  } catch (e) {
+    // 静默失败，避免轮询期间弹错误提示
+  }
+}
+
+const startRecordsPoll = () => {
+  stopRecordsPoll()
+  recordsPollTimer = setInterval(async () => {
+    await refreshExecutionRecords()
+    // 检查是否还有运行中的记录，没有则停止轮询
+    const hasRunning = executionRecords.value.some(r => r.status === 'RUNNING' || r.status === 'PENDING')
+    if (!hasRunning) {
+      stopRecordsPoll()
+    }
+  }, 3000)
+}
+
+const stopRecordsPoll = () => {
+  if (recordsPollTimer) {
+    clearInterval(recordsPollTimer)
+    recordsPollTimer = null
+  }
+}
 
 const viewSuiteRecords = async (row) => {
   recordsSuiteName.value = row.name
+  recordsSuiteId.value = row.id
   showRecordsDialog.value = true
   recordsLoading.value = true
   executionRecords.value = []
   expandedRecords.value = []
+  stopRecordsPoll()
   try {
     const res = await getSuiteExecutionRecords(row.id)
     executionRecords.value = res.data || []
-    // 默认展开第一条
-    if (executionRecords.value.length > 0) {
-      expandedRecords.value = [executionRecords.value[0].id]
+    // 如果有运行中的记录，启动轮询
+    const hasRunning = executionRecords.value.some(r => r.status === 'RUNNING' || r.status === 'PENDING')
+    if (hasRunning) {
+      startRecordsPoll()
     }
   } catch (e) {
     console.error('获取执行记录失败:', e)
@@ -1278,6 +1312,24 @@ const caseDetailSqlExecs = computed(() => {
 
   // 格式1：套件执行 - 独立的 precondition_sql / postcondition 对象
   if (!Array.isArray(logs)) {
+    // 前置条件用例的SQL信息（独立模式下前置条件用例的SQL合并到了主用例日志中）
+    if (logs.precondition_cases_sql && Array.isArray(logs.precondition_cases_sql)) {
+      for (const preCase of logs.precondition_cases_sql) {
+        if (preCase.precondition_sql) {
+          result.push({
+            type: 'precondition_case',
+            label: `前置用例「${preCase.case_name}」- 前置数据SQL`,
+            success: preCase.precondition_sql.executed !== false && !preCase.precondition_sql.has_error,
+            executed: preCase.precondition_sql.executed !== false,
+            original_sql: preCase.precondition_sql.original_sql || '',
+            resolved_sql: preCase.precondition_sql.resolved_sql || '',
+            total_affected: preCase.precondition_sql.total_affected || 0,
+            details: preCase.precondition_sql.details || [],
+            error: preCase.precondition_sql.error || null
+          })
+        }
+      }
+    }
     if (logs.precondition_sql) {
       const pre = logs.precondition_sql
       result.push({
@@ -1360,6 +1412,15 @@ onMounted(async () => {
     projectId.value = projects.value[0].id
     await loadSuites()
   }
+})
+
+// 弹窗关闭时停止轮询
+watch(showRecordsDialog, (val) => {
+  if (!val) stopRecordsPoll()
+})
+
+onBeforeUnmount(() => {
+  stopRecordsPoll()
 })
 </script>
 
@@ -2104,6 +2165,32 @@ onMounted(async () => {
 </style>
 
 <style>
+/* ==================== 执行记录弹窗 ==================== */
+.el-dialog.suite-records-dialog {
+  height: 680px !important;
+  max-height: 680px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  margin-top: calc((100vh - 680px) / 2) !important;
+}
+.el-dialog.suite-records-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin: 0;
+  padding-bottom: 12px;
+}
+.el-dialog.suite-records-dialog .el-dialog__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+}
+.el-dialog.suite-records-dialog .suite-records-body {
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* ==================== 执行详情弹窗 ==================== */
 .el-dialog.history-detail-dialog {
   height: 680px !important;
   max-height: 680px !important;
