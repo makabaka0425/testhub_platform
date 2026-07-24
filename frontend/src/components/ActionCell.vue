@@ -1,5 +1,5 @@
 <template>
-  <div class="action-cell">
+  <div class="action-cell" @click.stop>
     <!-- 直接显示的按钮 -->
     <el-button
       v-for="action in visibleActions"

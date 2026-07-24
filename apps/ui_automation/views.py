@@ -2039,7 +2039,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                                 tag_map = {'input': 'input', 'button': 'button', 'a': 'a', 'select': 'select', 'span': 'span', 'div': 'div', 'label': 'label'}
                                 html_tag = tag_map.get(tag, tag)
                                 escaped = elem_text.replace('"', "'")
-                                text_xpath = f'//{html_tag}[contains(text(),"{escaped}")]'
+                                text_xpath = f'//{html_tag}[contains(.,"{escaped}")]'
                                 text_key = ('XPath', text_xpath, ai_result.get('containerSelector', ''))
                                 if text_key not in existing_keys:
                                     ai_result['locator_strategy'] = 'XPath'
@@ -2808,12 +2808,12 @@ class ElementViewSet(viewsets.ModelViewSet):
         if text and len(text) <= 80:
             # 尝试多种XPath文本定位方式
             candidates = []
-            # 1. 文本在元素自身
-            candidates.append(f'//{tag}[contains(text(),"{text}")]')
-            # 2. 文本在直接子元素
-            candidates.append(f'//{tag}[.//*[contains(text(),"{text}")]]')
-            # 3. 文本在任意后代元素
+            # 1. contains(.,"...") 最通用，文本在自身或子元素都能匹配
             candidates.append(f'//{tag}[contains(.,"{text}")]')
+            # 2. 文本在直接子元素（更精确）
+            candidates.append(f'//{tag}[.//*[contains(text(),"{text}")]]')
+            # 3. 文本在元素自身（仅当文本是直接子节点时有效）
+            candidates.append(f'//{tag}[contains(text(),"{text}")]')
 
             for xp in candidates:
                 try:
@@ -2941,14 +2941,14 @@ class ElementViewSet(viewsets.ModelViewSet):
 - 有name属性（不含空格）：用 name 策略
 - 有placeholder：用 placeholder 策略
 - 有aria-label：用 label 策略
-- 按钮类元素（button/a/[role=button]）且有文本内容：用 XPath 策略，值如 //button[contains(text(),"新增")] 或 //button[.//span[contains(text(),"新增")]]（根据文本在元素自身还是子元素中）
+- 按钮类元素（button/a/[role=button]）且有文本内容：用 XPath 策略，优先用 contains(.,"文本") 形式（能匹配文本在自身或子元素中的情况），如 //button[contains(.,"新增")]
 - 有唯一className组合：用 CSS 策略，如 button.ant-btn-primary
 - 以上都不满足时，结合 tag + 文本生成 XPath
 
 重要：定位值必须能唯一定位到该元素。不要返回简单的标签名（如 span、button），必须包含足够的限定条件。
 
 请严格按以下JSON格式返回，不要添加任何其他文字：
-{{"name": "元素名称", "element_type": "BUTTON", "locator_strategy": "XPath", "locator_value": "//button[contains(text(),\\"新增\\")]", "description": "简短描述"}}
+{{"name": "元素名称", "element_type": "BUTTON", "locator_strategy": "XPath", "locator_value": "//button[contains(.,'新增')]", "description": "简短描述"}}
 
 元素DOM数据：
 {json.dumps(elem_data, ensure_ascii=False)}"""
@@ -3919,6 +3919,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                                     continue
                                 # 尝试多种Ant Design按钮XPath模式
                                 ant_xpaths = [
+                                    f'//button[contains(.,"{elem_text}")]',
                                     f'//button[.//span[text()="{elem_text}"]]',
                                     f'//button[.//span[contains(text(),"{elem_text}")]]',
                                 ]
@@ -6150,7 +6151,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         element_id=step_data.get('element') if step_data.get('element') else None,
                         input_value=step_data.get('input_value', ''),
                         wait_time=step_data.get('wait_time', 1000),
-                        action_wait=step_data.get('action_wait', 0),
+                        action_wait=step_data.get('action_wait') or 0,
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
                         description=step_data.get('description', ''),
@@ -6387,7 +6388,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         element_id=step_data.get('element') if step_data.get('element') else None,
                         input_value=step_data.get('input_value', ''),
                         wait_time=step_data.get('wait_time', 1000),
-                        action_wait=step_data.get('action_wait', 0),
+                        action_wait=step_data.get('action_wait') or 0,
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
                         description=step_data.get('description', ''),
@@ -6733,11 +6734,12 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                             'description': ps.description,
                             'input_value': ps.input_value,
                             'wait_time': ps.wait_time,
-                            'action_wait': ps.action_wait,
+                            'action_wait': ps.action_wait or 0,
                             'assert_type': ps.assert_type,
                             'assert_value': ps.assert_value,
                             'output_var': ps.output_var or '',
                         }
+                        logger.info(f"[前置条件] 步骤 {ps.step_number}: action_wait={ps.action_wait}, resolved={psd['action_wait']}")
                         if ps.element:
                             psd['element_data'] = {
                                 'locator_strategy': ps.element.locator_strategy.name if ps.element.locator_strategy else 'css',
@@ -6879,9 +6881,10 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     })
 
                                     # action_wait: 步骤操作成功后等待指定秒数再执行下一步
-                                    if success and getattr(step, 'action_wait', 0) and step.action_wait > 0:
-                                        execution_logs.append(f"  ⏱️  操作后等待 {step.action_wait} 秒 (action_wait)")
-                                        time.sleep(step.action_wait)
+                                    action_wait = step_info.get('action_wait', 0) or 0
+                                    if success and action_wait > 0:
+                                        execution_logs.append(f"  ⏱️  操作后等待 {action_wait} 秒 (action_wait)")
+                                        time.sleep(action_wait)
 
                                     if not success:
                                         logger.info(f"[调试-Selenium] 步骤 {i} 执行失败，设置状态为 failed")
@@ -7146,6 +7149,12 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                     break
                                                 else:
                                                     execution_logs.append(f"  ✓ 前置步骤 {psi}: {ps_log.split(chr(10))[0]}")
+                                                    # action_wait: 前置步骤操作成功后等待指定秒数再执行下一步
+                                                    ps_action_wait = ps_info.get('action_wait') or 0
+                                                    logger.info(f"[前置执行] 步骤 {psi}: action_wait={ps_info.get('action_wait')}, resolved={ps_action_wait}")
+                                                    if ps_action_wait > 0:
+                                                        execution_logs.append(f"  ⏱️  操作后等待 {ps_action_wait} 秒 (action_wait)")
+                                                        await asyncio.sleep(ps_action_wait)
                                             except Exception as e:
                                                 pre_passed = False
                                                 execution_logs.append(f"  ✗ 前置步骤 {psi} 异常: {str(e)}")
@@ -7168,11 +7177,28 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                 pass
                                             return False
                                         execution_logs.append(f"✓ 前置用例「{pre_case_name}」执行通过")
+                                        # 前置用例之间等待页面稳定，避免下一个用例的步骤在页面还在加载时就开始
+                                        # SPA路由跳转后networkidle可能很快满足但页面未渲染完，需要多级等待
+                                        try:
+                                            await engine.page.wait_for_load_state('load', timeout=10000)
+                                        except:
+                                            pass
+                                        try:
+                                            await engine.page.wait_for_load_state('networkidle', timeout=5000)
+                                        except:
+                                            pass
+                                        # SPA渲染需要额外时间
+                                        await engine.page.wait_for_timeout(1500)
                                     execution_logs.append("")
 
                                     # 前置条件执行完后，等待页面稳定再开始主用例步骤
+                                    # SPA路由跳转后networkidle可能很快满足但页面未渲染完，需要多级等待
                                     try:
-                                        await engine.page.wait_for_load_state('networkidle', timeout=10000)
+                                        await engine.page.wait_for_load_state('load', timeout=10000)
+                                    except:
+                                        pass
+                                    try:
+                                        await engine.page.wait_for_load_state('networkidle', timeout=5000)
                                     except:
                                         pass
                                     await engine.page.wait_for_timeout(2000)
@@ -7362,9 +7388,10 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         step_results.append(step_result)
 
                                         # action_wait: 步骤操作成功后等待指定秒数再执行下一步
-                                        if success and getattr(step, 'action_wait', 0) and step.action_wait > 0:
-                                            execution_logs.append(f"  ⏱️  操作后等待 {step.action_wait} 秒 (action_wait)")
-                                            await asyncio.sleep(step.action_wait)
+                                        action_wait = step_info.get('action_wait', 0) or 0
+                                        if success and action_wait > 0:
+                                            execution_logs.append(f"  ⏱️  操作后等待 {action_wait} 秒 (action_wait)")
+                                            await asyncio.sleep(action_wait)
 
                                         # 如果步骤失败,保存截图
                                         if not success:
@@ -7970,6 +7997,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                         'description': step.description,
                                         'input_value': step.input_value,
                                         'wait_time': step.wait_time,
+                    'action_wait': step.action_wait or 0,
                                         'assert_type': step.assert_type,
                                         'assert_value': step.assert_value,
                                         'output_var': step.output_var,
