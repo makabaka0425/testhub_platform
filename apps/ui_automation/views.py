@@ -414,7 +414,7 @@ class ElementViewSet(viewsets.ModelViewSet):
     # 手动交互模式会话管理（类变量，跨请求共享）
     _manual_sessions = {}  # session_id -> {playwright, browser, page, context, captures, created_at}
     # 交互式选取模式会话管理
-    _pick_sessions = {}    # session_id -> {playwright, browser, page, context, picked_elements, created_at}
+    _pick_sessions = {}    # session_id -> {playwright, browser, page, context, picked_elements, created_at, current_mode}
 
     def get_serializer_class(self):
         if self.action in ['list', 'retrieve']:
@@ -1831,7 +1831,8 @@ class ElementViewSet(viewsets.ModelViewSet):
                 'context': start_result['context'],
                 'page': start_result['page'],
                 'picked_elements': [],
-                'created_at': time.time()
+                'created_at': time.time(),
+                'current_mode': 'select'
             }
 
             return Response({
@@ -2016,6 +2017,7 @@ class ElementViewSet(viewsets.ModelViewSet):
 
                     # 存入session（去重：相同 locator_strategy + locator_value + containerSelector 不重复添加）
                     # 关键修复：加入 containerSelector 区分主页面和弹窗的同id元素
+                    # 优化：如果定位表达式相同但文本不同，尝试用文本定位来区分
                     session = self._pick_sessions.get(session_id)
                     if session:
                         new_key = (
@@ -2027,7 +2029,29 @@ class ElementViewSet(viewsets.ModelViewSet):
                             (e.get('locator_strategy', ''), e.get('locator_value', ''), e.get('containerSelector', ''))
                             for e in session['picked_elements']
                         }
-                        if new_key not in existing_keys:
+
+                        if new_key in existing_keys:
+                            # 定位表达式重复，但文本不同时尝试改用文本定位
+                            elem_text = (ai_result.get('name', '') or '').strip()
+                            if elem_text:
+                                # 尝试用XPath文本定位
+                                tag = element_data.get('tag', 'button')
+                                tag_map = {'input': 'input', 'button': 'button', 'a': 'a', 'select': 'select', 'span': 'span', 'div': 'div', 'label': 'label'}
+                                html_tag = tag_map.get(tag, tag)
+                                escaped = elem_text.replace('"', "'")
+                                text_xpath = f'//{html_tag}[contains(text(),"{escaped}")]'
+                                text_key = ('XPath', text_xpath, ai_result.get('containerSelector', ''))
+                                if text_key not in existing_keys:
+                                    ai_result['locator_strategy'] = 'XPath'
+                                    ai_result['locator_value'] = text_xpath
+                                    ai_result['validation_status'] = 'VALID'
+                                    ai_result['validation_details'] = f'文本定位（原定位表达式重复）: {text_xpath}'
+                                    logger.info(f'[交互选取] 定位表达式重复，改用文本定位: {text_xpath}')
+                                    session['picked_elements'].append(ai_result)
+                                    return ai_result
+                            # 文本也相同或无法用文本区分，跳过
+                            logger.info(f'[交互选取] 元素已存在，跳过: {new_key}')
+                        else:
                             session['picked_elements'].append(ai_result)
                     return ai_result
                 return None
@@ -2049,6 +2073,16 @@ class ElementViewSet(viewsets.ModelViewSet):
             return False
 
         await page.expose_function('__aiPickRename', on_element_renamed)
+
+        async def on_mode_switched(mode):
+            """JS调用：用户切换选取/浏览模式时，同步更新session"""
+            session = self._pick_sessions.get(session_id)
+            if session and mode in ('select', 'browse'):
+                session['current_mode'] = mode
+                logger.info(f'[交互选取] 模式切换: {mode}')
+            return True
+
+        await page.expose_function('__aiPickModeSwitch', on_mode_switched)
 
         # 注入选取模式UI脚本
         pick_js = """
@@ -2194,20 +2228,35 @@ class ElementViewSet(viewsets.ModelViewSet):
             });
 
             // 模式切换：选取模式 vs 浏览模式
-            let pickMode = 'select'; // 'select' or 'browse'
+            window.__aiPickMode = window.__aiPickMode || 'select'; // 保留已有模式（导航后恢复），默认select
+            let pickMode = window.__aiPickMode; // 'select' or 'browse'
             const btnSelect = document.getElementById('pick-mode-select');
             const btnBrowse = document.getElementById('pick-mode-browse');
             const hintEl = document.getElementById('pick-hint');
+            // 初始化按钮状态（从window.__aiPickMode恢复）
+            if (pickMode === 'browse') {
+                btnBrowse.classList.add('active');
+                btnSelect.classList.remove('active');
+                hintEl.innerHTML = '<span class="pick-mode-badge browse">浏览</span> 正常操作页面，可点击按钮打开弹窗';
+            }
 
             btnSelect.addEventListener('click', () => {
                 pickMode = 'select';
+                window.__aiPickMode = 'select';
                 btnSelect.classList.add('active');
                 btnBrowse.classList.remove('active');
                 hintEl.innerHTML = '<span class="pick-mode-badge select">选取</span> 鼠标悬停高亮，点击选取元素';
+                // 广播模式切换给iframe
+                document.querySelectorAll('iframe').forEach(iframe => {
+                    try { iframe.contentWindow.postMessage({ type: 'ai-pick-mode', mode: 'select' }, '*'); } catch(e) {}
+                });
+                // 通知Python后端更新session
+                try { window.__aiPickModeSwitch('select'); } catch(e) {}
             });
 
             btnBrowse.addEventListener('click', () => {
                 pickMode = 'browse';
+                window.__aiPickMode = 'browse';
                 btnBrowse.classList.add('active');
                 btnSelect.classList.remove('active');
                 // 清除高亮
@@ -2216,6 +2265,12 @@ class ElementViewSet(viewsets.ModelViewSet):
                     highlightedEl = null;
                 }
                 hintEl.innerHTML = '<span class="pick-mode-badge browse">浏览</span> 正常操作页面，可点击按钮打开弹窗';
+                // 广播模式切换给iframe
+                document.querySelectorAll('iframe').forEach(iframe => {
+                    try { iframe.contentWindow.postMessage({ type: 'ai-pick-mode', mode: 'browse' }, '*'); } catch(e) {}
+                });
+                // 通知Python后端更新session
+                try { window.__aiPickModeSwitch('browse'); } catch(e) {}
             });
 
             let highlightedEl = null;
@@ -2407,7 +2462,273 @@ class ElementViewSet(viewsets.ModelViewSet):
             }, true);
         }
         """
+
+        # 主frame：监听iframe发来的选取消息
+        iframe_listener_js = """
+        () => {
+            // 主frame监听iframe消息
+            window.addEventListener('message', async (e) => {
+                if (e.data && e.data.type === 'ai-pick-element') {
+                    const elementData = e.data.elementData;
+                    if (!elementData) return;
+                    // 标记来自iframe
+                    elementData._fromIframe = true;
+
+                    const body = document.getElementById('pick-body');
+                    if (!body) return;
+
+                    // 显示加载状态
+                    const loadingDiv = document.createElement('div');
+                    loadingDiv.className = 'pick-loading';
+                    loadingDiv.id = 'pick-loading-iframe';
+                    loadingDiv.textContent = '正在分析iframe元素...';
+                    body.appendChild(loadingDiv);
+
+                    try {
+                        if (typeof window.__aiPickElement !== 'function') {
+                            throw new Error('__aiPickElement not registered');
+                        }
+                        const result = await window.__aiPickElement(elementData);
+                        const ld = document.getElementById('pick-loading-iframe');
+                        if (ld) ld.remove();
+
+                        if (result) {
+                            const empty = body.querySelector('.pick-empty');
+                            if (empty) empty.remove();
+
+                            const item = document.createElement('div');
+                            item.className = 'pick-item';
+                            const typeMap = {
+                                'INPUT': '输入框', 'BUTTON': '按钮', 'LINK': '链接',
+                                'DROPDOWN': '下拉框', 'CHECKBOX': '复选框', 'RADIO': '单选框',
+                                'TEXT': '文本', 'IMAGE': '图片', 'TABLE': '表格',
+                                'CONTAINER': '容器', 'FORM': '表单', 'MODAL': '弹窗'
+                            };
+                            const typeText = typeMap[result.element_type] || result.element_type || '元素';
+                            const itemName = result.name || '未命名';
+                            const itemIndex = body.querySelectorAll('.pick-item').length;
+                            item.innerHTML = `
+                                <span class="pick-item-name" contenteditable="true" data-index="${itemIndex}" title="点击编辑名称">${itemName}</span>
+                                <span class="pick-item-type">${typeText}</span>
+                            `;
+                            body.appendChild(item);
+
+                            const nameSpan = item.querySelector('.pick-item-name');
+                            nameSpan.addEventListener('blur', async () => {
+                                const newName = nameSpan.textContent.trim();
+                                const idx = parseInt(nameSpan.getAttribute('data-index'));
+                                if (newName) {
+                                    try { await window.__aiPickRename(idx, newName); } catch(e) {}
+                                }
+                            });
+                            nameSpan.addEventListener('keydown', (e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); nameSpan.blur(); }
+                            });
+
+                            const countEl = document.getElementById('pick-count');
+                            const items = body.querySelectorAll('.pick-item');
+                            countEl.textContent = items.length + ' 个元素';
+                        }
+                    } catch(err) {
+                        const ld = document.getElementById('pick-loading-iframe');
+                        if (ld) ld.remove();
+                        console.error('[交互选取] iframe元素分析失败:', err);
+                    }
+                }
+            });
+        }
+        """
         await page.evaluate(pick_js)
+        await page.evaluate(iframe_listener_js)
+
+        # 注入iframe：遍历所有frame，注入mouseover/click监听
+        iframe_pick_js = """
+        () => {
+            // 避免重复注入
+            if (window.__aiPickIframeInjected) return;
+            window.__aiPickIframeInjected = true;
+
+            // iframe的模式状态，默认跟随主frame（初始为select）
+            let iframePickMode = 'select';
+
+            // 监听主frame模式切换消息
+            window.addEventListener('message', (e) => {
+                if (e.data && e.data.type === 'ai-pick-mode') {
+                    iframePickMode = e.data.mode;
+                    // 浏览模式时清除高亮
+                    if (iframePickMode === 'browse' && window.__iframeHighlightedEl) {
+                        window.__iframeHighlightedEl.classList.remove('ai-pick-highlight');
+                        window.__iframeHighlightedEl = null;
+                    }
+                }
+            });
+
+            // 高亮样式
+            const style = document.createElement('style');
+            style.textContent = `
+                .ai-pick-highlight {
+                    outline: 2px solid #ff4d4f !important;
+                    outline-offset: 1px !important;
+                    cursor: crosshair !important;
+                }
+            `;
+            document.head.appendChild(style);
+
+            let highlightedEl = null;
+            window.__iframeHighlightedEl = null;
+
+            // mouseover高亮（仅选取模式）
+            document.addEventListener('mouseover', (e) => {
+                if (iframePickMode !== 'select') return;
+                const el = e.target;
+                if (highlightedEl && highlightedEl !== el) {
+                    highlightedEl.classList.remove('ai-pick-highlight');
+                }
+                el.classList.add('ai-pick-highlight');
+                highlightedEl = el;
+                window.__iframeHighlightedEl = el;
+            }, true);
+
+            // mouseout移除高亮
+            document.addEventListener('mouseout', (e) => {
+                if (highlightedEl) {
+                    highlightedEl.classList.remove('ai-pick-highlight');
+                }
+            }, true);
+
+            // click捕获（仅选取模式拦截，浏览模式放行）
+            document.addEventListener('click', (e) => {
+                // 浏览模式：不拦截，让页面正常响应
+                if (iframePickMode !== 'select') return;
+
+                let el = e.target;
+
+                // 拦截默认行为
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                // 向上查找交互元素
+                const interactiveSelectors = 'button, a[href], input, select, textarea, [role="button"], [role="link"], [role="switch"], [onclick], .ant-btn, .el-button';
+                let interactiveEl = el.closest(interactiveSelectors);
+                if (interactiveEl) {
+                    el = interactiveEl;
+                }
+
+                // 移除高亮
+                el.classList.remove('ai-pick-highlight');
+
+                // 收集元素信息
+                const rect = el.getBoundingClientRect();
+                let containerSelector = '';
+                try {
+                    const dialogEl = el.closest('.el-dialog, .ant-modal, .el-drawer, .ant-drawer, [role="dialog"]');
+                    if (dialogEl) {
+                        if (dialogEl.classList.contains('el-dialog')) containerSelector = '.el-dialog:visible';
+                        else if (dialogEl.classList.contains('ant-modal')) containerSelector = '.ant-modal:visible';
+                        else if (dialogEl.classList.contains('el-drawer')) containerSelector = '.el-drawer:visible';
+                        else if (dialogEl.classList.contains('ant-drawer')) containerSelector = '.ant-drawer:visible';
+                        else containerSelector = '[role="dialog"]:visible';
+                    }
+                } catch(e) {}
+
+                const elementData = {
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id || '',
+                    name: el.getAttribute('name') || '',
+                    className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
+                    type: el.type || '',
+                    placeholder: el.placeholder || '',
+                    value: (el.value || '').substring(0, 50),
+                    href: el.href || '',
+                    role: el.getAttribute('role') || '',
+                    ariaLabel: el.getAttribute('aria-label') || '',
+                    dataTestId: el.getAttribute('data-testid') || '',
+                    text: (el.textContent || '').trim().substring(0, 80),
+                    title: el.title || '',
+                    visible: true,
+                    rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+                    isInTableRow: false,
+                    tableRowIndex: -1,
+                    outerHTML: el.outerHTML.substring(0, 500),
+                    containerSelector: containerSelector,
+                    parentInfo: el.parentElement ? {
+                        tag: el.parentElement.tagName.toLowerCase(),
+                        className: (typeof el.parentElement.className === 'string') ? el.parentElement.className.substring(0, 100) : '',
+                        text: (el.parentElement.textContent || '').trim().substring(0, 80)
+                    } : null,
+                    _fromIframe: true,
+                    _iframeSrc: window.location.href
+                };
+
+                // 通知主frame
+                window.parent.postMessage({ type: 'ai-pick-element', elementData }, '*');
+            }, true);
+        }
+        """
+
+        # 遍历所有frame，给iframe注入选取脚本
+        # 从session读取当前模式，确保iframe与主frame同步
+        session_data = self._pick_sessions.get(session_id)
+        saved_mode = session_data.get('current_mode', 'select') if session_data else 'select'
+
+        try:
+            for frame in page.frames:
+                if frame == page.main_frame:
+                    continue  # 主frame已处理
+                try:
+                    await frame.evaluate(iframe_pick_js)
+                    # 同步当前模式给iframe
+                    current_mode_js = f"window.postMessage({{ type: 'ai-pick-mode', mode: '{saved_mode}' }}, '*')"
+                    await frame.evaluate(current_mode_js)
+                    logger.info(f'[交互选取] iframe脚本注入成功: {frame.url[:80]}')
+                except Exception as fe:
+                    # 跨域iframe无法注入，正常跳过
+                    logger.debug(f'[交互选取] iframe注入跳过（可能是跨域）: {frame.url[:80]} - {fe}')
+        except Exception as e:
+            logger.warning(f'[交互选取] iframe遍历异常: {e}')
+
+        # 监听frame导航事件，iframe页面跳转后自动重新注入脚本
+        async def on_frame_navigated(frame):
+            """iframe导航后重新注入选取脚本"""
+            # 从session读取当前模式
+            sess = self._pick_sessions.get(session_id)
+            cur_mode = sess.get('current_mode', 'select') if sess else 'select'
+
+            if frame == page.main_frame:
+                # 主frame导航后重新注入所有脚本，恢复之前的模式
+                try:
+                    await frame.wait_for_load_state('domcontentloaded', timeout=5000)
+                except:
+                    pass
+                await asyncio.sleep(0.5)
+                try:
+                    # 先在页面设置当前模式（脚本初始化时会读取window.__aiPickMode）
+                    await page.evaluate(f"window.__aiPickMode = '{cur_mode}';")
+                    # 重新注入JS脚本（不重新注册expose_function，因为它们绑定在page对象层面不受导航影响）
+                    await page.evaluate(pick_js)
+                    await page.evaluate(iframe_listener_js)
+                    logger.info(f'[交互选取] 主frame导航后重新注入脚本成功，恢复模式: {cur_mode}')
+                except Exception as e:
+                    logger.warning(f'[交互选取] 主frame重新注入失败: {e}')
+                return
+
+            # iframe导航后重新注入
+            try:
+                await frame.wait_for_load_state('domcontentloaded', timeout=5000)
+            except:
+                pass
+            await asyncio.sleep(0.5)
+            try:
+                await frame.evaluate(iframe_pick_js)
+                # 从session读取当前模式同步给iframe
+                mode_js = f"window.postMessage({{ type: 'ai-pick-mode', mode: '{cur_mode}' }}, '*')"
+                await frame.evaluate(mode_js)
+                logger.info(f'[交互选取] iframe导航后重新注入成功: {frame.url[:80]}')
+            except Exception as fe:
+                logger.debug(f'[交互选取] iframe导航后注入跳过: {frame.url[:80]} - {fe}')
+
+        page.on('framenavigated', on_frame_navigated)
 
     async def _validate_and_fix_locator(self, page, ai_result, element_data):
         """验证AI返回的定位器，如果不唯一则尝试生成更精确的定位表达式
@@ -2456,7 +2777,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             return ai_result
 
         # 不唯一或无效，尝试生成基于文本的精确XPath
-        if text and len(text) <= 30:
+        if text and len(text) <= 80:
             # 尝试多种XPath文本定位方式
             candidates = []
             # 1. 文本在元素自身
