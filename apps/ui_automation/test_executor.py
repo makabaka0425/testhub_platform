@@ -487,6 +487,7 @@ class TestExecutor:
                 test_case_id=case_data['id'],
                 project_id=case_data['project_id'],
                 test_suite=self.test_suite,
+                test_execution=self.execution,
                 execution_source='suite',
                 status='pending',  # 初始状态为 pending
                 engine=self.engine,
@@ -821,7 +822,7 @@ class TestExecutor:
                         # 执行前置条件（独立模式下每个用例有独立浏览器，可以安全执行前置条件）
                         # 前置条件共享 self.context_variables，输出变量可被主用例引用
                         test_case_obj = self.test_cases[i - 1]  # 原始TestCase对象
-                        pre_ok, pre_msg, pre_deferred = self._execute_preconditions(test_case_obj)
+                        pre_ok, pre_msg, pre_deferred, pre_cases_sql = self._execute_preconditions(test_case_obj)
                         # 收集前置条件的后置SQL（用例级，浏览器关闭前执行）
                         if pre_deferred:
                             for pre_case_data in pre_deferred:
@@ -844,6 +845,11 @@ class TestExecutor:
                             case_execution.status = 'skipped'
                             case_execution.finished_at = timezone.now()
                             case_execution.error_message = case_result['error']
+                            # 保存前置条件SQL信息（便于排障）
+                            skipped_logs = {'steps': []}
+                            if pre_cases_sql:
+                                skipped_logs['precondition_cases_sql'] = pre_cases_sql
+                            case_execution.execution_logs = json.dumps(skipped_logs, ensure_ascii=False)
                             case_execution.save()
                             # 回写用例状态为skipped
                             try:
@@ -884,7 +890,15 @@ class TestExecutor:
                         case_execution.finished_at = timezone.now()
                         case_execution.execution_time = (
                                     case_execution.finished_at - case_execution.started_at).total_seconds()
-                        case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
+                        per_case_logs = {
+                            'steps': case_result['steps'],
+                            'precondition_sql': case_result.get('precondition_sql'),
+                            'postcondition': case_result.get('postcondition')
+                        }
+                        # 合并前置条件用例的SQL信息到主用例执行日志
+                        if pre_cases_sql:
+                            per_case_logs['precondition_cases_sql'] = pre_cases_sql
+                        case_execution.execution_logs = json.dumps(per_case_logs, ensure_ascii=False)
                         if case_result['error']:
                             case_execution.error_message = case_result['error']
                         if case_result.get('screenshots'):
@@ -2719,6 +2733,7 @@ class TestExecutor:
                 test_case_id=case_data['id'],
                 project_id=case_data['project_id'],
                 test_suite=self.test_suite,
+                test_execution=self.execution,
                 execution_source='suite',
                 status='pending',  # 初始状态为 pending
                 engine=self.engine,
@@ -4440,14 +4455,15 @@ class TestExecutor:
             visited_set: 已访问用例ID集合，防止循环依赖
 
         Returns:
-            (success, message, deferred_postconditions): 前置条件是否全部通过，失败原因，以及延迟执行的后置SQL列表
+            (success, message, deferred_postconditions, precondition_cases_sql):
+                前置条件是否全部通过，失败原因，延迟执行的后置SQL列表，前置条件用例的SQL信息列表
         """
         from .models import TestCasePrecondition
 
         if visited_set is None:
             visited_set = set()
         if test_case.id in visited_set:
-            return True, '', []  # 已访问过，跳过避免循环
+            return True, '', [], []  # 已访问过，跳过避免循环
         visited_set.add(test_case.id)
 
         relations = TestCasePrecondition.objects.filter(
@@ -4455,19 +4471,22 @@ class TestExecutor:
         ).select_related('precondition').order_by('order')
 
         if not relations.exists():
-            return True, '', []
+            return True, '', [], []
 
         deferred_postconditions = []
+        precondition_cases_sql = []
 
         for rel in relations:
             precondition_case = rel.precondition
 
             # 先递归执行该前置条件自身的前置条件
-            sub_ok, sub_msg, sub_deferred = self._execute_preconditions(precondition_case, visited_set)
+            sub_ok, sub_msg, sub_deferred, sub_pre_sql = self._execute_preconditions(precondition_case, visited_set)
             if not sub_ok:
-                return False, f"前置用例「{precondition_case.name}」的前置条件失败: {sub_msg}", []
+                return False, f"前置用例「{precondition_case.name}」的前置条件失败: {sub_msg}", [], []
             # 收集子前置条件的后置SQL
             deferred_postconditions.extend(sub_deferred)
+            # 收集子前置条件的SQL信息
+            precondition_cases_sql.extend(sub_pre_sql)
 
             print(f"[前置条件] 执行前置用例: {precondition_case.name} (顺序: {rel.order})")
 
@@ -4514,7 +4533,11 @@ class TestExecutor:
             if pre_result and pre_result['status'] != 'passed':
                 msg = f"前置用例「{precondition_case.name}」执行失败: {pre_result.get('error', '未知错误')}"
                 print(f"[前置条件] {msg}")
-                return False, msg, []
+                # 即使失败也收集该前置用例的SQL信息（便于排障）
+                pre_case_sql_info = {'case_name': precondition_case.name}
+                if pre_result.get('precondition_sql'):
+                    pre_case_sql_info['precondition_sql'] = pre_result['precondition_sql']
+                return False, msg, [], [pre_case_sql_info]
 
             print(f"[前置条件] 前置用例「{precondition_case.name}」执行通过")
 
@@ -4522,4 +4545,10 @@ class TestExecutor:
             if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
                 deferred_postconditions.append(case_data)
 
-        return True, '', deferred_postconditions
+            # 收集该前置条件用例的SQL执行信息
+            pre_case_sql_info = {'case_name': precondition_case.name}
+            if pre_result and pre_result.get('precondition_sql'):
+                pre_case_sql_info['precondition_sql'] = pre_result['precondition_sql']
+            precondition_cases_sql.append(pre_case_sql_info)
+
+        return True, '', deferred_postconditions, precondition_cases_sql

@@ -990,7 +990,7 @@
                 <div class="sql-exec-list">
                   <div v-for="(sqlExec, idx) in historyDetailSqlExecs" :key="idx" class="sql-exec-item">
                     <div class="sql-exec-header">
-                      <el-tag :type="sqlExec.type === 'precondition' ? 'warning' : 'info'" size="small">{{ sqlExec.label }}</el-tag>
+                      <el-tag :type="sqlExec.type === 'precondition' ? 'warning' : sqlExec.type === 'precondition_case' ? 'success' : 'info'" size="small">{{ sqlExec.label }}</el-tag>
                       <el-tag :type="sqlExec.success ? 'success' : 'danger'" size="small">{{ sqlExec.success ? '执行成功' : '执行失败' }}</el-tag>
                       <span v-if="sqlExec.executed && sqlExec.total_affected !== undefined" class="sql-affected">影响 {{ sqlExec.total_affected }} 行</span>
                     </div>
@@ -1163,6 +1163,24 @@ const historyDetailSqlExecs = computed(() => {
   const result = []
 
   if (!Array.isArray(logs)) {
+    // 前置条件用例的SQL信息（独立模式下前置条件用例的SQL合并到了主用例日志中）
+    if (logs.precondition_cases_sql && Array.isArray(logs.precondition_cases_sql)) {
+      for (const preCase of logs.precondition_cases_sql) {
+        if (preCase.precondition_sql) {
+          result.push({
+            type: 'precondition_case',
+            label: `前置用例「${preCase.case_name}」- 前置数据SQL`,
+            success: preCase.precondition_sql.executed !== false && !preCase.precondition_sql.has_error,
+            executed: preCase.precondition_sql.executed !== false,
+            original_sql: preCase.precondition_sql.original_sql || '',
+            resolved_sql: preCase.precondition_sql.resolved_sql || '',
+            total_affected: preCase.precondition_sql.total_affected || 0,
+            details: preCase.precondition_sql.details || [],
+            error: preCase.precondition_sql.error || null
+          })
+        }
+      }
+    }
     if (logs.precondition_sql) {
       const pre = logs.precondition_sql
       result.push({

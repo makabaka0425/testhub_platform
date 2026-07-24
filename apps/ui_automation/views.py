@@ -5392,18 +5392,22 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
 
         data = []
         for exec_obj in executions:
-            # 查询该次执行下的所有用例执行记录
+            # 优先通过 test_execution 外键关联查询，兼容旧记录用时间窗口匹配
             case_executions = TestCaseExecution.objects.filter(
-                test_suite=test_suite,
-                execution_source='suite',
-                started_at__gte=exec_obj.started_at,
+                test_execution=exec_obj
             ).select_related('test_case').order_by('started_at')
 
-            # 过滤：只取属于本次执行时间窗口的记录
-            if exec_obj.finished_at:
-                case_executions = case_executions.filter(
-                    models.Q(finished_at__lte=exec_obj.finished_at) | models.Q(finished_at__isnull=True)
-                )
+            # 兼容旧记录：如果外键关联没查到记录，尝试时间窗口匹配
+            if not case_executions.exists():
+                case_executions = TestCaseExecution.objects.filter(
+                    test_suite=test_suite,
+                    execution_source='suite',
+                    started_at__gte=exec_obj.started_at,
+                ).select_related('test_case').order_by('started_at')
+                if exec_obj.finished_at:
+                    case_executions = case_executions.filter(
+                        started_at__lte=exec_obj.finished_at
+                    )
 
             cases_data = []
             for ce in case_executions:
