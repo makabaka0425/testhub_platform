@@ -2197,13 +2197,21 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             // 关键：在冒泡阶段阻止浮窗内事件冒泡到document，避免触发主页面弹窗关闭等副作用
             // 必须用冒泡阶段（不加true），让事件先到达内部按钮执行点击逻辑，再拦截冒泡
-            panel.addEventListener('click', (e) => {
-                e.stopPropagation();
+            // 同时需要阻止pointerdown/pointerup，因为部分UI框架（如Element Plus）用pointer事件做click-outside检测
+            ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup'].forEach(evt => {
+                panel.addEventListener(evt, (e) => {
+                    e.stopPropagation();
+                });
             });
+            // 阻止mousedown/pointerdown的默认行为，防止焦点转移到浮窗导致对话框失焦关闭
             panel.addEventListener('mousedown', (e) => {
-                e.stopPropagation();
+                e.preventDefault();
             });
-            panel.addEventListener('mouseup', (e) => {
+            panel.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+            });
+            // 阻止focusin事件冒泡，防止焦点变化触发弹窗关闭
+            panel.addEventListener('focusin', (e) => {
                 e.stopPropagation();
             });
 
