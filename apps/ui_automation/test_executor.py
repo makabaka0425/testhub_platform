@@ -258,12 +258,10 @@ class TestExecutor:
             finally:
                 if browser:
                     try:
-                        # 关闭前等待网络请求完成
                         try:
-                            self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                            self.current_page.wait_for_load_state('domcontentloaded', timeout=3000)
                         except Exception:
                             pass
-                        time.sleep(1)
                         browser.close()
                         print(f"[清理步骤] 浏览器已关闭\n")
                     except:
@@ -291,7 +289,6 @@ class TestExecutor:
                     )
                 except:
                     pass
-                time.sleep(2)
 
             # 执行登录用例
             login_config = getattr(self.test_suite, 'login_config', None)
@@ -354,7 +351,6 @@ class TestExecutor:
         finally:
             if driver:
                 try:
-                    time.sleep(1)
                     driver.quit()
                     print(f"[清理步骤] 浏览器已关闭\n")
                 except:
@@ -572,8 +568,7 @@ class TestExecutor:
                     if base_url:
                         print(f"[共享会话] 导航到项目基础URL: {base_url}")
                         try:
-                            self.current_page.goto(base_url, wait_until='networkidle', timeout=30000)
-                            time.sleep(2)
+                            self.current_page.goto(base_url, wait_until='domcontentloaded', timeout=30000)
                             print(f"[共享会话] 页面加载完成")
                         except Exception as e:
                             print(f"[共享会话] 导航失败: {str(e)}")
@@ -736,12 +731,10 @@ class TestExecutor:
                 finally:
                     if browser:
                         try:
-                            # 关闭前等待最后的网络请求完成，防止服务端操作（如保存数据）未完成
                             try:
-                                self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                                self.current_page.wait_for_load_state('domcontentloaded', timeout=3000)
                             except Exception:
                                 pass
-                            time.sleep(1)  # 兜底等待1秒，确保服务端请求处理完毕
                             browser.close()
                             print(f"✓ 浏览器已关闭（共享模式）\n")
                         except:
@@ -812,17 +805,11 @@ class TestExecutor:
                                 import platform
                                 is_linux = platform.system() == 'Linux'
 
-                                # 使用 networkidle 等待页面加载完成
-                                self.current_page.goto(self.test_suite.project.base_url, wait_until='networkidle',
+                                self.current_page.goto(self.test_suite.project.base_url, wait_until='domcontentloaded',
                                                        timeout=30000)
 
-                                # 额外等待，确保动态内容加载（Vue/React等SPA应用）
-                                # 服务器无头模式需要更长的等待时间
-                                extra_wait = 3 if is_linux else 2
-                                time.sleep(extra_wait)
-
                                 print(
-                                    f"✓ 成功导航到: {self.test_suite.project.base_url} (已等待页面加载完成，额外{extra_wait}秒)")
+                                    f"✓ 成功导航到: {self.test_suite.project.base_url}")
                             except Exception as e:
                                 print(f"✗ 导航失败: {str(e)}")
                                 # 导航失败，记录错误并继续下一个用例
@@ -984,10 +971,9 @@ class TestExecutor:
                         try:
                             # 关闭前等待最后的网络请求完成，防止服务端操作未完成
                             try:
-                                self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                                self.current_page.wait_for_load_state('domcontentloaded', timeout=3000)
                             except Exception:
                                 pass
-                            time.sleep(1)  # 兜底等待1秒
                             browser.close()
                             print(f"✓ 浏览器已关闭\n")
                         except:
@@ -1059,16 +1045,14 @@ class TestExecutor:
                 base_url = self.test_suite.project.base_url
                 if base_url:
                     try:
-                        self.current_page.goto(base_url, wait_until='networkidle', timeout=30000)
-                        time.sleep(1)
+                        self.current_page.goto(base_url, wait_until='domcontentloaded', timeout=30000)
                         print(f"[执行后动作] 新页面已导航到: {base_url}")
                     except Exception as e:
                         print(f"[执行后动作] 导航失败: {str(e)}")
 
             elif action == 'refresh_page':
                 # 刷新当前页面
-                self.current_page.reload(wait_until='networkidle', timeout=30000)
-                time.sleep(1)
+                self.current_page.reload(wait_until='domcontentloaded', timeout=30000)
                 print(f"[执行后动作] 页面已刷新: {self.current_page.url}")
 
             elif action == 'keep_state':
@@ -1131,8 +1115,7 @@ class TestExecutor:
             start_url = login_config.login_url or self.test_suite.project.base_url
             if start_url:
                 print(f"[登录] 正在导航到登录页: {start_url}")
-                self.current_page.goto(start_url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                self.current_page.goto(start_url, wait_until='domcontentloaded', timeout=30000)
                 print(f"[登录] 登录页加载完成")
 
             print(f"[登录] 执行登录用例「{test_case.name}」({len(login_case_data['steps'])}个步骤)")
@@ -1146,12 +1129,9 @@ class TestExecutor:
                 # 很多登录操作会触发页面跳转/重定向，需要等待导航完成
                 print(f"[登录] 等待页面跳转/稳定...")
                 try:
-                    # 等待网络请求完成，确保页面跳转到位
-                    self.current_page.wait_for_load_state('networkidle', timeout=10000)
+                    self.current_page.wait_for_load_state('domcontentloaded', timeout=10000)
                 except Exception as e:
-                    print(f"[登录] 等待networkidle超时（可能页面还在加载），继续执行: {str(e)}")
-                # 额外等待确保页面渲染完成
-                time.sleep(2)
+                    print(f"[登录] 等待domcontentloaded超时，继续执行: {str(e)}")
                 print(f"[登录] 登录完成，当前页面URL: {self.current_page.url}")
                 print(f"[登录] 当前页面标题: {self.current_page.title()}")
                 return True
@@ -2431,21 +2411,11 @@ class TestExecutor:
                     target_page.bring_to_front()
 
                     # 等待页面稳定
-                    # 新标签页可能需要时间加载和渲染
                     try:
-                        # 等待网络空闲状态（页面加载完成）
-                        target_page.wait_for_load_state('networkidle', timeout=10000)  # 增加到10秒
-                        print(f"  - 页面加载状态: networkidle")
+                        target_page.wait_for_load_state('domcontentloaded', timeout=5000)
+                        print(f"  - 页面加载状态: domcontentloaded")
                     except Exception as e:
-                        # 如果networkidle超时，至少等待domcontentloaded
-                        try:
-                            target_page.wait_for_load_state('domcontentloaded', timeout=5000)  # 增加到5秒
-                            print(f"  - 页面加载状态: domcontentloaded")
-                        except Exception as e2:
-                            print(f"  - 页面加载状态: 超时，继续执行 ({str(e2)[:50]})")
-
-                    # 额外等待一小段时间，确保页面完全稳定
-                    target_page.wait_for_timeout(1500)  # 使用 wait_for_timeout 代替 sleep
+                        print(f"  - 页面加载状态: 超时，继续执行 ({str(e)[:50]})")
 
                     # 验证页面确实已切换
                     print(f"  - 当前活动页面URL: {target_page.url}")
@@ -2478,8 +2448,7 @@ class TestExecutor:
                             uri = '/' + uri
                         full_url = base_url + uri
                     print(f"[路由跳转] 导航到: {full_url}")
-                    self.current_page.goto(full_url, wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
+                    self.current_page.goto(full_url, wait_until='domcontentloaded', timeout=30000)
                     print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
                     step_result['success'] = True
 
@@ -2570,19 +2539,10 @@ class TestExecutor:
 
                     # 等待页面稳定
                     try:
-                        # 等待网络空闲状态（页面加载完成）
-                        target_page.wait_for_load_state('networkidle', timeout=10000)  # 增加到10秒
-                        print(f"  - 页面加载状态: networkidle")
+                        target_page.wait_for_load_state('domcontentloaded', timeout=5000)
+                        print(f"  - 页面加载状态: domcontentloaded")
                     except Exception as e:
-                        # 如果networkidle超时，至少等待domcontentloaded
-                        try:
-                            target_page.wait_for_load_state('domcontentloaded', timeout=5000)  # 增加到5秒
-                            print(f"  - 页面加载状态: domcontentloaded")
-                        except Exception as e2:
-                            print(f"  - 页面加载状态: 超时，继续执行 ({str(e2)[:50]})")
-
-                    # 额外等待一小段时间，确保页面完全稳定
-                    target_page.wait_for_timeout(1500)  # 使用 wait_for_timeout 代替 sleep
+                        print(f"  - 页面加载状态: 超时，继续执行 ({str(e)[:50]})")
 
                     # 验证页面确实已切换
                     print(f"  - 当前活动页面URL: {target_page.url}")
@@ -2614,8 +2574,7 @@ class TestExecutor:
                             uri = '/' + uri
                         full_url = base_url + uri
                     print(f"[路由跳转] 导航到: {full_url}")
-                    self.current_page.goto(full_url, wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
+                    self.current_page.goto(full_url, wait_until='domcontentloaded', timeout=30000)
                     print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
                     step_result['success'] = True
 
@@ -2959,9 +2918,6 @@ class TestExecutor:
                         except:
                             pass  # 即使超时也继续执行
 
-                        # 额外等待，确保动态内容加载（Vue/React等SPA应用）
-                        extra_wait = 3 if is_linux else 2
-                        time.sleep(extra_wait)
 
                         print(
                             f"✓ 成功导航到: {self.test_suite.project.base_url} (已等待页面加载完成，额外{extra_wait}秒)")
@@ -3034,8 +2990,6 @@ class TestExecutor:
                 # Safari：每个用例执行完都关闭浏览器
                 if not use_browser_reuse and driver:
                     try:
-                        # 关闭前等待最后操作完成
-                        time.sleep(1)
                         driver.quit()
                         print(f"✓ Safari 浏览器已关闭\n")
                     except Exception as e:
@@ -3048,7 +3002,6 @@ class TestExecutor:
                 print(f"\n{'=' * 60}")
                 print(f"正在关闭浏览器...")
                 # 关闭前等待最后的网络请求完成
-                time.sleep(1)
                 driver.quit()
                 print(f"✓ 浏览器已关闭")
                 print(f"{'=' * 60}\n")
@@ -3893,7 +3846,6 @@ class TestExecutor:
                         full_url = base_url + uri
                     print(f"[路由跳转] 导航到: {full_url}")
                     driver.get(full_url)
-                    time.sleep(2)
                     print(f"[路由跳转] 页面加载完成，当前URL: {driver.current_url}")
                     step_result['success'] = True
 
@@ -4635,19 +4587,6 @@ class TestExecutor:
                 return False, msg, [], [pre_case_sql_info]
 
             print(f"[前置条件] 前置用例「{precondition_case.name}」执行通过")
-
-            # 前置用例之间等待页面稳定，避免下一个用例的步骤在页面还在加载时就开始
-            # SPA路由跳转后networkidle可能很快满足但页面未渲染完，需要多级等待
-            if self.current_page:
-                try:
-                    self.current_page.wait_for_load_state('load', timeout=10000)
-                except:
-                    pass
-                try:
-                    self.current_page.wait_for_load_state('networkidle', timeout=5000)
-                except:
-                    pass
-                self.current_page.wait_for_timeout(1500)
 
             # 收集该前置条件的后置SQL（用于主用例执行完后逆序执行）
             if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
