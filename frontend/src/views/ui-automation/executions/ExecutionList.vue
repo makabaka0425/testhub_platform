@@ -475,6 +475,7 @@ const loadExecutions = async () => {
 
 // 项目变更处理
 const onProjectChange = () => {
+  localStorage.setItem('lastProjectId', projectId.value)
   queryParams.search = ''
   queryParams.status = ''
   queryParams.browser = ''
@@ -622,7 +623,9 @@ const getExecutionActions = (row) => [
 onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
-    projectId.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
   }
   await loadExecutions()
 })

@@ -363,9 +363,11 @@ async function loadProjects() {
   try {
     const res = await getUiProjects()
     projects.value = res.data.results || res.data || []
-    if (projects.value.length > 0 && !projectId.value) {
-      projectId.value = projects.value[0].id
-    }
+  if (projects.value.length > 0 && !projectId.value) {
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
+  }
   } catch (e) { console.error(e) }
 }
 
@@ -430,6 +432,7 @@ async function loadPlanItems(planId) {
 }
 
 function onProjectChange() {
+  localStorage.setItem('lastProjectId', projectId.value)
   pagination.value.currentPage = 1
   loadPlans()
   loadLoginConfigs()

@@ -491,6 +491,7 @@ const loadElements = async () => {
 
 // 项目变更处理
 const onProjectChange = () => {
+  localStorage.setItem('lastProjectId', projectId.value)
   // 清空搜索和筛选条件
   searchText.value = ''
   strategyFilter.value = ''
@@ -835,9 +836,11 @@ onMounted(async () => {
     loadStrategies()
   ])
 
-  // 如果有项目，默认选择第一个
+  // 如果有项目，默认选择上次使用的或第一个
   if (projects.value.length > 0) {
-    projectId.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     createForm.project = projectId.value
     await loadElements()
     await loadLoginConfigs()

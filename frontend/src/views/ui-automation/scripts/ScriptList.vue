@@ -214,6 +214,7 @@ const loadScripts = async () => {
 
 // 项目切换
 const onProjectChange = async () => {
+  localStorage.setItem('lastProjectId', selectedProject.value)
   currentPage.value = 1
   await loadScripts()
 }
@@ -363,7 +364,9 @@ onMounted(async () => {
   await loadProjects()
 
   if (projects.value.length > 0) {
-    selectedProject.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    selectedProject.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     await loadScripts()
   }
 })

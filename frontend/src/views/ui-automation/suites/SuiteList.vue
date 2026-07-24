@@ -630,7 +630,7 @@ const loadGroupTree = async () => {
   } catch (e) { console.error(e) }
 }
 
-const onProjectChange = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
+const onProjectChange = async () => { if (batchEditMode.value) return; localStorage.setItem('lastProjectId', projectId.value); pagination.currentPage = 1; await loadSuites() }
 const handleSearch = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
 const handleSizeChange = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
 const handleCurrentChange = async () => { if (batchEditMode.value) return; await loadSuites() }
@@ -1442,7 +1442,9 @@ const viewCaseExecDetail = async (row) => {
 onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
-    projectId.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     await loadSuites()
   }
 })
