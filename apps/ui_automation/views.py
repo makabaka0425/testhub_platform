@@ -4851,6 +4851,7 @@ DOM数据：
                 'usage_count': element.usage_count,
                 'group_id': element.group_id,  # 用于前端关联到页面
                 'page': element.page,  # 保留向后兼容
+                'order': element.order,  # 排序字段
                 'children': []
             }
             element_data_list.append(element_data)

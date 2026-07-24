@@ -112,6 +112,19 @@
           </transition>
           <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id" @sort-change="onElementSortChange" :default-sort="{ prop: '', order: '' }">
             <el-table-column type="selection" width="40" />
+            <el-table-column label="排序" width="58" align="center">
+              <template #default="{ row }">
+                <el-input
+                  v-if="editingOrderId === row.id"
+                  v-model="editingOrderValue"
+                  size="small"
+                  class="order-edit-input"
+                  @keyup.enter="saveOrderEdit(row)"
+                  @blur="saveOrderEdit(row)"
+                />
+                <span v-else class="order-num" @click="startOrderEdit(row)">{{ row.order ?? 0 }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
                 <el-input v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.name" size="small" placeholder="元素名称" @click.stop />
@@ -690,7 +703,19 @@ const pageGroupTreeWithAll = computed(() => {
   return [allNode, ...buildPageTree(treeData.value)]
 })
 
+// 元素列表分页和排序状态（必须在 filteredElements computed 之前定义）
+const elementCurrentPage = ref(1)
+const elementPageSize = ref(10)
+const elementSortProp = ref('')
+const elementSortOrder = ref('')
+const onElementSortChange = ({ prop, order }) => {
+  elementSortProp.value = prop || ''
+  elementSortOrder.value = order || ''
+  elementCurrentPage.value = 1
+}
+
 // 根据选中页面和搜索关键词过滤元素
+
 const filteredElements = computed(() => {
   let result = allElements.value
   // 按页面分组筛选
@@ -757,17 +782,6 @@ const filteredElements = computed(() => {
   return result
 })
 
-// 元素列表分页
-const elementCurrentPage = ref(1)
-const elementPageSize = ref(10)
-// 元素列表排序状态
-const elementSortProp = ref('')
-const elementSortOrder = ref('')
-const onElementSortChange = ({ prop, order }) => {
-  elementSortProp.value = prop || ''
-  elementSortOrder.value = order || ''
-  elementCurrentPage.value = 1
-}
 const pagedElements = computed(() => {
   const start = (elementCurrentPage.value - 1) * elementPageSize.value
   return filteredElements.value.slice(start, start + elementPageSize.value)
@@ -2108,12 +2122,49 @@ const getElementActions = (row) => [
   { key: 'delete', icon: Delete, danger: true, onClick: (r) => deleteElementFromList(r) }
 ]
 
+// 直接修改排序号：点击数字进入编辑，回车/失焦才保存
+const editingOrderId = ref(null)
+const editingOrderValue = ref('')
+const editingOrderBackup = ref(0)
+
+const startOrderEdit = (row) => {
+  editingOrderBackup.value = row.order ?? 0
+  editingOrderValue.value = String(row.order ?? 0)
+  editingOrderId.value = row.id
+  nextTick(() => {
+    const input = document.querySelector('.order-edit-input .el-input__inner')
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  })
+}
+
+const saveOrderEdit = async (row) => {
+  if (editingOrderId.value !== row.id) return
+  const newOrder = parseInt(editingOrderValue.value)
+  editingOrderId.value = null
+
+  if (isNaN(newOrder) || newOrder === editingOrderBackup.value) return
+
+  row.order = newOrder
+  try {
+    await batchReorderElements({ orders: [{ id: row.id, order: newOrder }] })
+  } catch (error) {
+    console.error('保存元素排序失败:', error)
+    ElMessage.error('保存排序失败')
+    row.order = editingOrderBackup.value
+  }
+}
+
 onMounted(async () => {
   await loadProjects()
   await loadLocatorStrategies()
 
   if (projects.value.length > 0) {
-    selectedProject.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    selectedProject.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     await onProjectChange()
   }
 
@@ -2296,6 +2347,7 @@ const loadElementTree = async () => {
 
 // 项目切换
 const onProjectChange = async () => {
+  localStorage.setItem('lastProjectId', selectedProject.value)
   selectedElement.value = null
   suggestions.value = []
 
@@ -2617,6 +2669,31 @@ const updatePage = async () => {
 </script>
 
 <style scoped>
+/* 排序号 */
+.order-num {
+  cursor: pointer;
+  color: var(--gray-500, #64748b);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.order-num:hover {
+  color: var(--brand-500, #4f8cff);
+  background: var(--brand-50, #eff6ff);
+}
+.order-edit-input {
+  width: 44px !important;
+}
+.order-edit-input :deep(.el-input__inner) {
+  text-align: center;
+  font-size: 12px;
+  padding: 0 4px;
+}
+.order-edit-input :deep(.el-input__wrapper) {
+  padding: 1px 4px;
+}
+
 /* 页面容器 */
 .page-container {
   height: 100%;
