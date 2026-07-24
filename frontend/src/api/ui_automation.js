@@ -282,6 +282,15 @@ export function addTestCasesToTestSuite(id, data) {
   })
 }
 
+// 更新套件中用例的执行后动作
+export function updateTestCasePostAction(suiteId, suiteTcId, postAction) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/update_test_case_post_action/`,
+    method: 'patch',
+    data: { suite_tc_id: suiteTcId, post_action: postAction }
+  })
+}
+
 // 从测试套件移除测试用例
 export function removeTestCaseFromTestSuite(suiteId, testCaseId) {
   return request({

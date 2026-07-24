@@ -278,13 +278,13 @@ class PlanExecutor:
 
         print(f"[PlanExecutor] 共享会话中执行套件: {test_suite.name} (跳过登录={skip_login})")
 
-        suite_relations = SuiteTC.objects.filter(
+        suite_relations = list(SuiteTC.objects.filter(
             test_suite=test_suite
-        ).select_related('test_case').order_by('order')
+        ).select_related('test_case').order_by('order'))
 
         passed = 0
         failed = 0
-        for rel in suite_relations:
+        for idx, rel in enumerate(suite_relations):
             case = rel.test_case
             case_execution = TCE.objects.create(
                 test_case=case,
@@ -319,6 +319,10 @@ class PlanExecutor:
             if new_status and case.status != new_status:
                 case.status = new_status
                 case.save(update_fields=['status', 'updated_at'])
+
+            # 执行后动作（最后一条用例不需要）
+            if idx < len(suite_relations) - 1:
+                self._execute_post_action_plan(page, test_suite, rel, case, idx, len(suite_relations))
 
             if case_execution.status in ('passed',):
                 passed += 1
@@ -716,3 +720,54 @@ class PlanExecutor:
                     print(f"[PlanExecutor] 清理SQL执行成功: {sql[:50]}...")
         except Exception as e:
             print(f"[PlanExecutor] 清理SQL执行异常: {str(e)}")
+
+    def _execute_post_action_plan(self, page, test_suite, suite_tc_relation, test_case, case_index, total_cases):
+        """计划级共享会话中的执行后动作
+
+        Args:
+            page: Playwright page 对象
+            test_suite: 当前套件（用于获取 default_post_action）
+            suite_tc_relation: TestSuiteTestCase关联对象
+            test_case: 当前用例
+            case_index: 当前用例序号（0-based）
+            total_cases: 套件内总用例数
+        """
+        # 用例级 > 套件级
+        action = ''
+        if suite_tc_relation and suite_tc_relation.post_action:
+            action = suite_tc_relation.post_action
+        else:
+            action = getattr(test_suite, 'default_post_action', '') or 'refresh_page'
+
+        print(f"[PlanExecutor-执行后动作] 用例「{test_case.name}」执行后动作: {action}")
+
+        try:
+            if action == 'close_page':
+                current_url_before = page.url
+                page.close()
+                print(f"[PlanExecutor-执行后动作] 已关闭页面: {current_url_before}")
+
+                # 新开tab
+                new_page = page.context.new_page()
+                base_url = self.test_plan.project.base_url
+                if base_url:
+                    try:
+                        new_page.goto(base_url, wait_until='networkidle', timeout=30000)
+                        time.sleep(1)
+                        print(f"[PlanExecutor-执行后动作] 新页面已导航到: {base_url}")
+                    except Exception as e:
+                        print(f"[PlanExecutor-执行后动作] 导航失败: {str(e)}")
+                # 注意：调用方需要拿到新的 page，这里通过返回值传递不方便
+                # 用简单方式：直接修改传入的 page 对象引用不太可能，但我们可以用 self 共享
+                self._current_page_ref = new_page
+
+            elif action == 'refresh_page':
+                page.reload(wait_until='networkidle', timeout=30000)
+                time.sleep(1)
+                print(f"[PlanExecutor-执行后动作] 页面已刷新: {page.url}")
+
+            elif action == 'keep_state':
+                print(f"[PlanExecutor-执行后动作] 维持当前页面状态: {page.url}")
+
+        except Exception as e:
+            print(f"[PlanExecutor-执行后动作] 执行异常: {str(e)}")

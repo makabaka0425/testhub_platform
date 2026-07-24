@@ -475,6 +475,16 @@ class TestSuite(models.Model):
     cleanup_sql = models.TextField(blank=True, default='', verbose_name='清理SQL',
                                     help_text='清理测试数据的SQL语句，多条用分号分隔。如: DELETE FROM users WHERE username LIKE "测试%";')
 
+    # 默认执行后动作（仅共享会话模式生效）
+    POST_ACTION_CHOICES = [
+        ('close_page', '关闭页面'),
+        ('refresh_page', '保持并刷新'),
+        ('keep_state', '维持当前状态'),
+    ]
+    default_post_action = models.CharField(max_length=20, choices=POST_ACTION_CHOICES, blank=True, default='refresh_page',
+                                            verbose_name='默认执行后动作',
+                                            help_text='共享会话模式下用例执行完后的默认页面操作，用例级可单独覆盖')
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
@@ -503,9 +513,17 @@ class TestSuiteScript(models.Model):
 
 class TestSuiteTestCase(models.Model):
     """测试套件与测试用例的关联模型"""
+    POST_ACTION_CHOICES = [
+        ('close_page', '关闭页面'),
+        ('refresh_page', '保持并刷新'),
+        ('keep_state', '维持当前状态'),
+    ]
+
     test_suite = models.ForeignKey(TestSuite, on_delete=models.CASCADE, related_name='suite_test_cases', verbose_name='测试套件')
     test_case = models.ForeignKey('TestCase', on_delete=models.CASCADE, verbose_name='测试用例')
     order = models.IntegerField(default=0, verbose_name='执行顺序')
+    post_action = models.CharField(max_length=20, choices=POST_ACTION_CHOICES, blank=True, default='', verbose_name='执行后动作',
+                                   help_text='当前用例执行完后的页面操作，仅共享会话模式生效。留空则使用套件默认配置')
 
     class Meta:
         db_table = 'ui_test_suite_test_cases'

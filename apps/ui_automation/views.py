@@ -5331,6 +5331,24 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['patch'])
+    def update_test_case_post_action(self, request, pk=None):
+        """更新套件中用例的执行后动作"""
+        test_suite = self.get_object()
+        suite_tc_id = request.data.get('suite_tc_id')
+        post_action = request.data.get('post_action', '')
+
+        try:
+            from .models import TestSuiteTestCase
+            suite_tc = TestSuiteTestCase.objects.get(id=suite_tc_id, test_suite=test_suite)
+            suite_tc.post_action = post_action
+            suite_tc.save(update_fields=['post_action'])
+            return Response(TestSuiteTestCaseSerializer(suite_tc).data)
+        except TestSuiteTestCase.DoesNotExist:
+            return Response({'error': '未找到关联记录'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=True, methods=['delete'])
     def remove_test_case(self, request, pk=None):
         """从测试套件移除测试用例"""
