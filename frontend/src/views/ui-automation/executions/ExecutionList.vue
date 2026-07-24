@@ -66,7 +66,7 @@
           </div>
 
           <div class="panel__body execution-table-wrapper">
-            <el-table :data="executions" v-loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
+            <el-table :data="executions" v-loading="loading" height="100%" @selection-change="handleSelectionChange">
               <el-table-column type="selection" width="55" align="center" />
               <el-table-column prop="id" label="ID" width="80" align="center" />
               <el-table-column prop="test_case_name" :label="$t('uiAutomation.execution.caseName')" min-width="200">
@@ -702,7 +702,7 @@ onMounted(async () => {
 
 .execution-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 

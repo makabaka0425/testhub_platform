@@ -61,7 +61,7 @@
           </div>
 
           <div class="panel__body scheduled-task-table-wrapper">
-            <el-table :data="tasks" v-loading="loading">
+            <el-table :data="tasks" v-loading="loading" height="100%">
               <el-table-column prop="name" :label="$t('uiAutomation.scheduledTask.taskName')" min-width="200" />
               <el-table-column prop="task_type" :label="$t('uiAutomation.scheduledTask.taskType')" width="120">
                 <template #default="scope">
@@ -795,7 +795,7 @@ const deleteTask = async (task) => {
 
 .scheduled-task-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 

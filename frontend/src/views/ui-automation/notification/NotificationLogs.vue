@@ -67,7 +67,7 @@
                 :data="logsData"
                 v-loading="loading"
                 :element-loading-text="$t('uiAutomation.notification.logs.messages.loading')"
-                style="width: 100%"
+                height="100%"
                 @sort-change="handleSortChange"
             >
               <el-table-column
@@ -619,7 +619,7 @@ export default {
 
 .notification-log-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 

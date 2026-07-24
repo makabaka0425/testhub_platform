@@ -45,7 +45,7 @@
           </div>
 
           <div class="panel__body plan-table-wrapper">
-            <el-table :data="filteredPlans" v-loading="loading" style="width: 100%">
+            <el-table :data="filteredPlans" v-loading="loading" height="100%">
               <el-table-column prop="name" label="计划名称" min-width="200">
                 <template #default="{ row }">
                   <el-link @click="goToDetail(row.id)" type="primary">{{ row.name }}</el-link>
@@ -703,7 +703,7 @@ onMounted(async () => {
 
 .plan-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 

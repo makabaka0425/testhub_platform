@@ -110,7 +110,8 @@
               </div>
             </div>
           </transition>
-          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id" @sort-change="onElementSortChange" :default-sort="{ prop: '', order: '' }">
+          <div class="table-area">
+            <el-table :data="pagedElements" height="100%" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id" @sort-change="onElementSortChange" :default-sort="{ prop: '', order: '' }">
             <el-table-column type="selection" width="40" />
             <el-table-column label="排序" width="58" align="center">
               <template #default="{ row }">
@@ -191,7 +192,8 @@
               </template>
             </el-table-column>
           </el-table>
-          <div v-if="filteredElements.length === 0" class="no-data-tip">暂无元素</div>
+            <div v-if="filteredElements.length === 0" class="no-data-tip">暂无元素</div>
+          </div>
         </div>
         <div class="pagination-container">
           <el-pagination
@@ -2770,9 +2772,17 @@ const updatePage = async () => {
 
 .list-panel .panel__body {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
   padding: 0;
+}
+
+.list-panel .table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 分组面板宽度由 grid 列定义 */

@@ -45,7 +45,7 @@
           </div>
 
           <div class="panel__body project-table-wrapper">
-            <el-table :data="projects" v-loading="loading" style="width: 100%">
+            <el-table :data="projects" v-loading="loading" height="100%">
               <el-table-column prop="name" :label="$t('uiAutomation.project.projectName')" min-width="200">
                 <template #default="{ row }">
                   <el-link @click="goToProjectDetail(row.id)" type="primary">
@@ -850,7 +850,7 @@ onMounted(() => {
 
 .project-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 
