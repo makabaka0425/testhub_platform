@@ -2195,17 +2195,17 @@ class ElementViewSet(viewsets.ModelViewSet):
             `;
             document.body.appendChild(panel);
 
-            // 关键：阻止浮窗内所有click事件冒泡到document，避免触发主页面弹窗关闭等副作用
+            // 关键：在冒泡阶段阻止浮窗内事件冒泡到document，避免触发主页面弹窗关闭等副作用
+            // 必须用冒泡阶段（不加true），让事件先到达内部按钮执行点击逻辑，再拦截冒泡
             panel.addEventListener('click', (e) => {
                 e.stopPropagation();
-            }, true);
-            // 同时阻止mousedown/mouseup冒泡，防止影响主页面交互状态
+            });
             panel.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
-            }, true);
+            });
             panel.addEventListener('mouseup', (e) => {
                 e.stopPropagation();
-            }, true);
+            });
 
             // 拖拽逻辑：按住 header 拖动面板
             const pickHeader = panel.querySelector('.pick-header');
