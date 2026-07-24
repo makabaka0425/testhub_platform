@@ -531,7 +531,7 @@ class TestExecutor:
         execution_mode = getattr(self.test_suite, 'execution_mode', 'per_case')
         login_config = getattr(self.test_suite, 'login_config', None)
 
-        if execution_mode == 'shared_session' and login_config:
+        if execution_mode == 'shared_session':
             # ============ 共享会话模式：登录一次，所有用例共享浏览器 ============
             print(f"[共享会话模式] 使用共享浏览器会话执行测试")
             with sync_playwright() as p:
@@ -565,24 +565,37 @@ class TestExecutor:
                     self.context = browser.new_context(**context_kwargs)
                     self.current_page = self.context.new_page()
 
-                    # 执行登录
-                    login_success = self._perform_login(login_config)
-                    if not login_success:
-                        error_msg = "共享会话模式：登录失败，终止套件执行"
-                        for case_data in test_cases_data:
-                            case_execution = case_executions[case_data['id']]
-                            case_execution.status = 'failed'
-                            case_execution.error_message = error_msg
-                            case_execution.started_at = timezone.now()
-                            case_execution.finished_at = timezone.now()
-                            case_execution.save()
-                            failed += 1
-                        browser.close()
-                        duration = time.time() - start_time
-                        self.update_execution_result('FAILED', passed, failed, skipped, duration, error_msg)
-                        return
+                    # 导航到项目基础URL（如果有）
+                    base_url = self.test_suite.project.base_url
+                    if base_url:
+                        print(f"[共享会话] 导航到项目基础URL: {base_url}")
+                        try:
+                            self.current_page.goto(base_url, wait_until='networkidle', timeout=30000)
+                            time.sleep(2)
+                            print(f"[共享会话] 页面加载完成")
+                        except Exception as e:
+                            print(f"[共享会话] 导航失败: {str(e)}")
 
-                    print(f"✓ 登录成功，开始执行 {len(test_cases_data)} 个测试用例")
+                    # 执行登录（如果有login_config）
+                    if login_config:
+                        login_success = self._perform_login(login_config)
+                        if not login_success:
+                            error_msg = "共享会话模式：登录失败，终止套件执行"
+                            for case_data in test_cases_data:
+                                case_execution = case_executions[case_data['id']]
+                                case_execution.status = 'failed'
+                                case_execution.error_message = error_msg
+                                case_execution.started_at = timezone.now()
+                                case_execution.finished_at = timezone.now()
+                                case_execution.save()
+                                failed += 1
+                            browser.close()
+                            duration = time.time() - start_time
+                            self.update_execution_result('FAILED', passed, failed, skipped, duration, error_msg)
+                            return
+                        print(f"✓ 登录成功，开始执行 {len(test_cases_data)} 个测试用例")
+                    else:
+                        print(f"[共享会话] 未配置登录，直接开始执行 {len(test_cases_data)} 个测试用例")
 
                     # 执行每个测试用例（共享同一个浏览器上下文）
                     for i, case_data in enumerate(test_cases_data, 1):
