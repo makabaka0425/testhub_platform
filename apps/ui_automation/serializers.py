@@ -160,20 +160,22 @@ class TestSuiteScriptSerializer(serializers.ModelSerializer):
 class TestSuiteTestCaseSerializer(serializers.ModelSerializer):
     test_case = serializers.SerializerMethodField()
     test_case_id = serializers.IntegerField(write_only=True)
+    post_action_display = serializers.CharField(source='get_post_action_display', read_only=True, default='')
 
     class Meta:
         model = TestSuiteTestCase
-        fields = ('id', 'test_case', 'test_case_id', 'order')
+        fields = ('id', 'test_case', 'test_case_id', 'order', 'post_action', 'post_action_display')
 
     def get_test_case(self, obj):
         """获取测试用例信息"""
         test_case = obj.test_case
         # 查询该用例在当前套件下最近一次执行记录（仅套件执行来源）
+        # 按id降序取最新记录（不能用started_at，因为新记录初始started_at为NULL，降序排最后）
         last_exec = TestCaseExecution.objects.filter(
             test_case=test_case,
             test_suite=obj.test_suite,
             execution_source='suite'
-        ).order_by('-started_at').first()
+        ).order_by('-id').first()
         suite_last_duration = last_exec.execution_time if last_exec and last_exec.execution_time else None
         suite_last_finished = last_exec.finished_at if last_exec and last_exec.finished_at else None
         # 套件内状态：基于套件执行记录推导，与用例管理状态独立
@@ -270,6 +272,7 @@ class TestSuiteSerializer(serializers.ModelSerializer):
     test_case_count = serializers.SerializerMethodField()
     login_config_name = serializers.CharField(source='login_config.name', read_only=True, default='')
     execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
+    default_post_action_display = serializers.CharField(source='get_default_post_action_display', read_only=True, default='')
     has_cleanup_steps = serializers.SerializerMethodField()
     last_execution_time = serializers.SerializerMethodField()
 
@@ -301,14 +304,14 @@ class TestSuiteSerializer(serializers.ModelSerializer):
 class TestSuiteCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSuite
-        fields = ('id', 'project', 'name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
+        fields = ('id', 'project', 'name', 'description', 'login_config', 'execution_mode', 'cleanup_sql', 'default_post_action')
         read_only_fields = ('id',)
 
 
 class TestSuiteUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSuite
-        fields = ('name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
+        fields = ('name', 'description', 'login_config', 'execution_mode', 'cleanup_sql', 'default_post_action')
 
 
 class TestSuiteWithScriptsSerializer(serializers.ModelSerializer):
