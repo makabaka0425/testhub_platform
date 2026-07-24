@@ -1742,7 +1742,9 @@ const loadElements = async () => {
     const attachedElementIds = new Set()
     const attachElementsToPages = (pages) => {
       pages.forEach(page => {
-        const pageElements = treeElements.filter(element => element.group_id === page.id)
+        const pageElements = treeElements
+          .filter(element => element.group_id === page.id)
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
         const elementNodes = pageElements.map(element => {
           attachedElementIds.add(element.id)
           return { ...element, type: 'element' }
@@ -1761,6 +1763,7 @@ const loadElements = async () => {
       return !attachedElementIds.has(element.id)
     })
     if (unassignedElements.length > 0) {
+      unassignedElements.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       pageNodes.unshift({
         id: 'unassigned',
         name: '未关联页面',
