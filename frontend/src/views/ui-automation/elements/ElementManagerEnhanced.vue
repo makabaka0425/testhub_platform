@@ -110,15 +110,15 @@
               </div>
             </div>
           </transition>
-          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id">
+          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id" @sort-change="onElementSortChange" :default-sort="{ prop: '', order: '' }">
             <el-table-column type="selection" width="40" />
-            <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip>
+            <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
                 <el-input v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.name" size="small" placeholder="元素名称" @click.stop />
                 <span v-else>{{ row.name }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="element_type" label="类型" width="100">
+            <el-table-column prop="element_type" label="类型" width="100" sortable="custom">
               <template #default="{ row }">
                 <el-select v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.element_type" size="small" style="width: 100%">
                   <el-option label="输入框" value="INPUT" />
@@ -137,7 +137,7 @@
                 <span v-else class="element-type-tag" :class="(row.element_type || '').toLowerCase()">{{ getElementTypeLabel(row.element_type) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="定位策略" width="110">
+            <el-table-column label="定位策略" width="110" sortable="custom" prop="locator_strategy_id">
               <template #default="{ row }">
                 <el-select v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.locator_strategy_id" size="small" style="width: 100%">
                   <el-option v-for="strategy in locatorStrategies" :key="strategy.id" :label="strategy.name" :value="strategy.id" />
@@ -145,7 +145,7 @@
                 <span v-else>{{ getStrategyName(row.locator_strategy_id) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="locator_value" label="定位表达式" min-width="160" show-overflow-tooltip>
+            <el-table-column prop="locator_value" label="定位表达式" min-width="160" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
                 <el-input v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.locator_value" size="small" placeholder="定位表达式" @click.stop />
                 <span v-else>{{ row.locator_value }}</span>
@@ -732,12 +732,42 @@ const filteredElements = computed(() => {
   }
   // 按 order 字段排序（拖拽排序后 order 会更新）
   result = [...result].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  // 应用表头排序（全量排序后再分页）
+  if (elementSortProp.value) {
+    const prop = elementSortProp.value
+    const order = elementSortOrder.value
+    result = [...result].sort((a, b) => {
+      let va = a[prop]
+      let vb = b[prop]
+      // 特殊处理：locator_strategy_id 显示名称排序
+      if (prop === 'locator_strategy_id') {
+        va = getStrategyName(va) || ''
+        vb = getStrategyName(vb) || ''
+      }
+      if (va == null) va = ''
+      if (vb == null) vb = ''
+      if (typeof va === 'string') va = va.toLowerCase()
+      if (typeof vb === 'string') vb = vb.toLowerCase()
+      let cmp = 0
+      if (va < vb) cmp = -1
+      else if (va > vb) cmp = 1
+      return order === 'descending' ? -cmp : cmp
+    })
+  }
   return result
 })
 
 // 元素列表分页
 const elementCurrentPage = ref(1)
 const elementPageSize = ref(10)
+// 元素列表排序状态
+const elementSortProp = ref('')
+const elementSortOrder = ref('')
+const onElementSortChange = ({ prop, order }) => {
+  elementSortProp.value = prop || ''
+  elementSortOrder.value = order || ''
+  elementCurrentPage.value = 1
+}
 const pagedElements = computed(() => {
   const start = (elementCurrentPage.value - 1) * elementPageSize.value
   return filteredElements.value.slice(start, start + elementPageSize.value)
@@ -745,6 +775,8 @@ const pagedElements = computed(() => {
 // 筛选条件或页面切换时重置到第1页并清空选择
 watch([searchName, searchType, searchStrategy, selectedPageId], () => {
   elementCurrentPage.value = 1
+  elementSortProp.value = ''
+  elementSortOrder.value = ''
   clearSelection()
 })
 // 翻页时清空选择
