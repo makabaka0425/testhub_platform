@@ -2204,11 +2204,18 @@ class ElementViewSet(viewsets.ModelViewSet):
                 });
             });
             // 阻止mousedown/pointerdown的默认行为，防止焦点转移到浮窗导致对话框失焦关闭
+            // 但不能对输入框/textarea阻止，否则无法编辑元素名称
             panel.addEventListener('mousedown', (e) => {
-                e.preventDefault();
+                const tag = e.target.tagName;
+                if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !e.target.isContentEditable) {
+                    e.preventDefault();
+                }
             });
             panel.addEventListener('pointerdown', (e) => {
-                e.preventDefault();
+                const tag = e.target.tagName;
+                if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !e.target.isContentEditable) {
+                    e.preventDefault();
+                }
             });
             // 阻止focusin事件冒泡，防止焦点变化触发弹窗关闭
             panel.addEventListener('focusin', (e) => {
