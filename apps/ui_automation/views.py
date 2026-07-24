@@ -1022,19 +1022,16 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             # 登录（如有）
             if login_start_url and login_steps_data:
-                page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                 for i, step_data in enumerate(login_steps_data):
                     self._execute_login_step(page, step_data)
                 try:
-                    page.wait_for_load_state('networkidle', timeout=10000)
+                    page.wait_for_load_state('domcontentloaded', timeout=10000)
                 except:
                     pass
-                time.sleep(2)
 
             # 导航到目标页面
-            page.goto(url, wait_until='networkidle', timeout=30000)
-            time.sleep(2)
+            page.goto(url, wait_until='domcontentloaded', timeout=30000)
             page_title = page.title()
 
             for btn_info in buttons:
@@ -1095,7 +1092,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                         time.sleep(1)
                         continue
 
-                    time.sleep(2)  # 等待弹窗内容完全渲染
+                    # 等待弹窗内容渲染（依赖domcontentloaded后的DOM就绪）
 
                     # 获取弹窗标题（用于来源标注）
                     dialog_title = btn_text
@@ -1341,19 +1338,16 @@ class ElementViewSet(viewsets.ModelViewSet):
 
                         # 登录（如有）
                         if login_start_url and login_steps_data:
-                            await page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                            await asyncio.sleep(2)
+                            await page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                             for step_data in login_steps_data:
                                 await self._async_execute_login_step(page, step_data)
                             try:
-                                await page.wait_for_load_state('networkidle', timeout=10000)
+                                await page.wait_for_load_state('domcontentloaded', timeout=10000)
                             except:
                                 pass
-                            await asyncio.sleep(2)
 
                         # 导航到目标页面
-                        await page.goto(url, wait_until='networkidle', timeout=30000)
-                        await asyncio.sleep(2)
+                        await page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
                         # 注入浮动按钮
                         await self._async_inject_fab_button(page, session_id)
@@ -1782,18 +1776,15 @@ class ElementViewSet(viewsets.ModelViewSet):
                         page = await context.new_page()
 
                         if login_start_url and login_steps_data:
-                            await page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                            await asyncio.sleep(2)
+                            await page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                             for step_data in login_steps_data:
                                 await self._async_execute_login_step(page, step_data)
                             try:
-                                await page.wait_for_load_state('networkidle', timeout=10000)
+                                await page.wait_for_load_state('domcontentloaded', timeout=10000)
                             except:
                                 pass
-                            await asyncio.sleep(2)
 
-                        await page.goto(url, wait_until='networkidle', timeout=30000)
-                        await asyncio.sleep(2)
+                        await page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
                         # 注入交互式选取脚本
                         await self._async_inject_pick_script(page, session_id)
@@ -3004,8 +2995,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             if action in _no_element_actions:
                 if action == 'navigate':
                     # navigate需要用项目的base_url拼接相对路径
-                    await page.goto(input_value, wait_until='networkidle', timeout=30000)
-                    await asyncio.sleep(1)
+                    await page.goto(input_value, wait_until='domcontentloaded', timeout=30000)
                 elif action == 'wait':
                     wait_ms = step_data.get('wait_time', 1000)
                     await asyncio.sleep(wait_ms / 1000)
@@ -3355,8 +3345,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             # 如有登录配置，先登录
             if login_start_url and login_steps_data:
                 print(f'[AI提取] 开始登录流程: login_start_url={login_start_url}')
-                page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                 print(f'[AI提取] 已打开登录页面: {page.url}')
 
                 # 执行登录用例步骤
@@ -3366,16 +3355,14 @@ class ElementViewSet(viewsets.ModelViewSet):
 
                 # 等待登录跳转
                 try:
-                    page.wait_for_load_state('networkidle', timeout=10000)
+                    page.wait_for_load_state('domcontentloaded', timeout=10000)
                 except Exception:
                     pass
-                time.sleep(2)
                 print(f'[AI提取] 登录步骤执行完毕, 当前URL: {page.url}')
 
             # 导航到目标页面
             print(f'[AI提取] 导航到目标页面: {url}')
-            page.goto(url, wait_until='networkidle', timeout=30000)
-            time.sleep(2)
+            page.goto(url, wait_until='domcontentloaded', timeout=30000)
             final_url = page.url
             print(f'[AI提取] 导航完成, 最终URL: {final_url}')
 
@@ -3685,8 +3672,7 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             if action in _no_element_actions:
                 if action == 'navigate':
-                    page.goto(input_value, wait_until='networkidle', timeout=30000)
-                    time.sleep(1)
+                    page.goto(input_value, wait_until='domcontentloaded', timeout=30000)
                 elif action == 'wait':
                     wait_ms = step_data.get('wait_time', 1000)
                     time.sleep(wait_ms / 1000)
@@ -3785,15 +3771,12 @@ class ElementViewSet(viewsets.ModelViewSet):
                 
                 # 如有登录配置，先登录
                 if login_start_url and login_steps_data:
-                    page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
+                    page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                     for step_data in login_steps_data:
                         self._execute_login_step(page, step_data)
-                    time.sleep(2)
                 
                 # 导航到目标页面
-                page.goto(url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 
                 # 逐个验证未验证的元素
                 validated_count = 0
@@ -5410,8 +5393,7 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
                 # 导航到登录页（优先使用login_config的login_url，否则使用项目基础URL）
                 start_url = login_config.login_url or login_config.project.base_url
                 if start_url:
-                    page.goto(start_url, wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
+                    page.goto(start_url, wait_until='domcontentloaded', timeout=30000)
 
                 # 执行登录用例的每个步骤
                 step_errors = []
@@ -7168,41 +7150,17 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                             try:
                                                 if not headless:
                                                     try:
-                                                        await engine.page.wait_for_load_state('networkidle', timeout=5000)
+                                                        await engine.page.wait_for_load_state('domcontentloaded', timeout=5000)
                                                     except:
                                                         pass
-                                                    await asyncio.sleep(1)
                                                 await engine.stop()
                                             except:
                                                 pass
                                             return False
                                         execution_logs.append(f"✓ 前置用例「{pre_case_name}」执行通过")
-                                        # 前置用例之间等待页面稳定，避免下一个用例的步骤在页面还在加载时就开始
-                                        # SPA路由跳转后networkidle可能很快满足但页面未渲染完，需要多级等待
-                                        try:
-                                            await engine.page.wait_for_load_state('load', timeout=10000)
-                                        except:
-                                            pass
-                                        try:
-                                            await engine.page.wait_for_load_state('networkidle', timeout=5000)
-                                        except:
-                                            pass
-                                        # SPA渲染需要额外时间
-                                        await engine.page.wait_for_timeout(1500)
                                     execution_logs.append("")
 
-                                    # 前置条件执行完后，等待页面稳定再开始主用例步骤
-                                    # SPA路由跳转后networkidle可能很快满足但页面未渲染完，需要多级等待
-                                    try:
-                                        await engine.page.wait_for_load_state('load', timeout=10000)
-                                    except:
-                                        pass
-                                    try:
-                                        await engine.page.wait_for_load_state('networkidle', timeout=5000)
-                                    except:
-                                        pass
-                                    await engine.page.wait_for_timeout(2000)
-                                    execution_logs.append("✓ 前置条件执行完毕，页面已稳定")
+                                    execution_logs.append("✓ 前置条件执行完毕")
 
                                 # 执行前置数据SQL（在登录和前置条件之后，主用例步骤之前）
                                 # 这样可以引用前置用例的输出变量

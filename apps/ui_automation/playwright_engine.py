@@ -307,13 +307,9 @@ class PlaywrightTestEngine:
 
                 # 等待新页面加载稳定
                 try:
-                    await self.page.wait_for_load_state('networkidle', timeout=10000)
+                    await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
                 except:
-                    try:
-                        await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
-                    except:
-                        pass
-                await asyncio.sleep(1.5)
+                    pass
 
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 切换标签页成功\n"
@@ -347,9 +343,7 @@ class PlaywrightTestEngine:
                     base_url = f"{parsed.scheme}://{parsed.netloc}"
                     target_url = urljoin(base_url + '/', target_path.lstrip('/'))
 
-                await self.page.goto(target_url, wait_until='networkidle', timeout=timeout_ms)
-                # SPA页面网络空闲后还需等待Vue渲染
-                await asyncio.sleep(2)
+                await self.page.goto(target_url, wait_until='domcontentloaded', timeout=timeout_ms)
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 路由跳转成功\n"
                 log += f"  - 目标路径: {target_path}\n"
@@ -1488,16 +1482,10 @@ class PlaywrightTestEngine:
             import platform
             is_linux = platform.system() == 'Linux'
 
-            # 使用 networkidle 等待页面加载完成
-            await self.page.goto(url, wait_until='networkidle', timeout=30000)
+            # 使用 domcontentloaded 等待页面加载完成（SPA应用通常有长连接/轮询，networkidle会等满超时）
+            await self.page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
-            # 额外等待，确保动态内容加载（Vue/React等SPA应用）
-            # 服务器无头模式需要更长的等待时间
-            extra_wait = 3 if is_linux else 2
-            await asyncio.sleep(extra_wait)
-
-            log = f"✓ 成功导航到: {url}\n"
-            log += f"  - 等待页面加载完成（networkidle + 额外{extra_wait}秒）"
+            log = f"✓ 成功导航到: {url}"
             return True, log
         except Exception as e:
             log = f"✗ 导航失败: {url}\n  - 错误: {str(e)}"
