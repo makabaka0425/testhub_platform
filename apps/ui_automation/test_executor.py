@@ -77,8 +77,10 @@ class TestExecutor:
 
     def get_test_cases(self):
         """获取测试套件中的所有测试用例"""
-        suite_test_cases = self.test_suite.suite_test_cases.select_related('test_case').order_by('order')
-        self.test_cases = [stc.test_case for stc in suite_test_cases]
+        self.suite_test_case_relations = list(
+            self.test_suite.suite_test_cases.select_related('test_case').order_by('order')
+        )
+        self.test_cases = [stc.test_case for stc in self.suite_test_case_relations]
         print(f"从套件 '{self.test_suite.name}' 获取到 {len(self.test_cases)} 个测试用例")
         for i, tc in enumerate(self.test_cases, 1):
             print(f"  {i}. {tc.name} (ID: {tc.id})")
@@ -655,6 +657,13 @@ class TestExecutor:
                             print(f"✓ 用例执行完成，状态: {case_result['status']}")
                             print(f"[变量共享] 用例执行后套件变量: {dict(suite_context_variables)}")
 
+                            # === 执行后动作（仅共享会话模式） ===
+                            if i - 1 < len(self.suite_test_case_relations):
+                                stc = self.suite_test_case_relations[i - 1]
+                            else:
+                                stc = None
+                            self._execute_post_action(case_data, stc, i, len(test_cases_data))
+
                             # 收集后置SQL，稍后统一执行
                             if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
                                 pending_postconditions.append((case_data, case_result))
@@ -991,11 +1000,84 @@ class TestExecutor:
             print(f"{'=' * 60}")
             self._execute_postconditions_reverse_order(pending_postconditions, suite_context_variables)
 
-        # 注意：每个用例的执行记录已在执行过程中实时更新，不需要在这里统一更新
+            # 后置SQL执行完后，回写execution_logs（更新postcondition信息）
+            for case_data, case_result in pending_postconditions:
+                if case_result.get('postcondition'):
+                    try:
+                        ce = case_executions[case_data['id']]
+                        ce.execution_logs = json.dumps({
+                            'steps': case_result['steps'],
+                            'precondition_sql': case_result.get('precondition_sql'),
+                            'postcondition': case_result.get('postcondition')
+                        }, ensure_ascii=False)
+                        ce.save(update_fields=['execution_logs'])
+                    except Exception as e:
+                        print(f"[后置清理] 回写execution_logs失败: {str(e)}")
 
         duration = time.time() - start_time
         status = 'SUCCESS' if failed == 0 else 'FAILED'
         self.update_execution_result(status, passed, failed, skipped, duration)
+
+    def _execute_post_action(self, case_data, suite_tc_relation, case_index, total_cases):
+        """执行后动作（仅共享会话模式生效）
+
+        根据用例级 post_action 或套件级 default_post_action 决定用例执行完后的页面操作：
+        - close_page: 关闭当前tab，下一条用例新开tab并导航到基础URL
+        - refresh_page: 保持当前tab，刷新页面
+        - keep_state: 保持当前tab，不做任何操作
+        - 空值(默认): 使用套件级 default_post_action
+
+        Args:
+            case_data: 当前用例数据
+            suite_tc_relation: TestSuiteTestCase关联对象（含post_action字段）
+            case_index: 当前用例序号（1-based）
+            total_cases: 总用例数
+        """
+        # 最后一条用例不需要执行后动作（浏览器即将关闭）
+        if case_index >= total_cases:
+            print(f"[执行后动作] 最后一条用例，跳过")
+            return
+
+        # 确定执行后动作：用例级 > 套件级
+        action = ''
+        if suite_tc_relation and suite_tc_relation.post_action:
+            action = suite_tc_relation.post_action
+        else:
+            action = getattr(self.test_suite, 'default_post_action', '') or 'refresh_page'
+
+        print(f"[执行后动作] 用例「{case_data['name']}」执行后动作: {action}")
+
+        try:
+            if action == 'close_page':
+                # 关闭当前tab
+                current_url_before = self.current_page.url
+                self.current_page.close()
+                print(f"[执行后动作] 已关闭页面: {current_url_before}")
+
+                # 新开tab并导航到项目基础URL
+                self.current_page = self.context.new_page()
+                base_url = self.test_suite.project.base_url
+                if base_url:
+                    try:
+                        self.current_page.goto(base_url, wait_until='networkidle', timeout=30000)
+                        time.sleep(1)
+                        print(f"[执行后动作] 新页面已导航到: {base_url}")
+                    except Exception as e:
+                        print(f"[执行后动作] 导航失败: {str(e)}")
+
+            elif action == 'refresh_page':
+                # 刷新当前页面
+                self.current_page.reload(wait_until='networkidle', timeout=30000)
+                time.sleep(1)
+                print(f"[执行后动作] 页面已刷新: {self.current_page.url}")
+
+            elif action == 'keep_state':
+                # 维持当前状态，不做任何操作
+                print(f"[执行后动作] 维持当前页面状态: {self.current_page.url}")
+
+        except Exception as e:
+            print(f"[执行后动作] 执行异常: {str(e)}")
+            # 执行后动作失败不影响用例结果，只记录日志
 
     def _perform_login(self, login_config):
         """执行登录操作（共享会话模式用）— 通过执行关联的登录测试用例
