@@ -2197,8 +2197,8 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             // 关键：在冒泡阶段阻止浮窗内事件冒泡到document，避免触发主页面弹窗关闭等副作用
             // 必须用冒泡阶段（不加true），让事件先到达内部按钮执行点击逻辑，再拦截冒泡
-            // 同时需要阻止pointerdown/pointerup，因为部分UI框架（如Element Plus）用pointer事件做click-outside检测
-            ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup'].forEach(evt => {
+            // 注意：mouseup和pointerup不阻止冒泡，否则拖拽逻辑的document.mouseup收不到事件导致isDragging永远为true
+            ['click', 'mousedown', 'pointerdown'].forEach(evt => {
                 panel.addEventListener(evt, (e) => {
                     e.stopPropagation();
                 });
