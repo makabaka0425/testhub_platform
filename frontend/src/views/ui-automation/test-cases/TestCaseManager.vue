@@ -351,6 +351,7 @@
                                 class="step-input"
                                 check-strictly
                                 :render-after-expand="false"
+                                filterable
                                 @change="onElementChange(element)"
                               >
                                 <template #default="{ node, data }">
