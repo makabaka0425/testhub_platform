@@ -6818,6 +6818,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                 execution_result['error_message'] = "导航到测试页面失败"
                                 return False
 
+                        # 用例级变量表，存储步骤输出变量
+                        context_variables = {}
+
                         if steps_data:
                             execution_logs.append("========== 执行测试步骤 ==========")
                             step_count = len(steps_data)
@@ -6848,7 +6851,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     execution_logs.append(f"  (此步骤不需要元素)")
 
                                 try:
-                                    success, step_log, screenshot_base64 = engine.execute_step(step, element_data or {})
+                                    success, step_log, screenshot_base64 = engine.execute_step(step, element_data or {}, context_variables)
                                     execution_logs.append(f"  {step_log}")
                                     execution_logs.append("")
 
@@ -7980,6 +7983,9 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                 execution_logs = []
                                 execution_result = {'status': 'passed', 'error_message': None}
 
+                                # 用例级变量表，存储步骤输出变量
+                                context_variables = {}
+
                                 # 根据引擎类型执行
                                 if task.engine == 'selenium':
                                     from .selenium_engine import SeleniumTestEngine
@@ -8025,7 +8031,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                             element_data = step_info['element_data']
 
                                             success, step_log, screenshot_base64 = engine.execute_step(step,
-                                                                                                       element_data or {})
+                                                                                                       element_data or {},
+                                                                                                       context_variables)
 
                                             step_results.append({
                                                 'step_number': i,
@@ -8103,7 +8110,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                                 element_data = step_info['element_data']
 
                                                 success, step_log, screenshot_base64 = await engine.execute_step(step,
-                                                                                                                 element_data or {})
+                                                                                                                 element_data or {},
+                                                                                                                 context_variables)
 
                                                 step_results.append({
                                                     'step_number': i,
