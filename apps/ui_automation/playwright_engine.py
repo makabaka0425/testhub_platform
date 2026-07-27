@@ -362,6 +362,12 @@ class PlaywrightTestEngine:
                 locator_value = element_data.get('locator_value', '')
                 element_name = element_data.get('name', '未知元素')
 
+                # 定位器值支持变量解析（如 //span[contains(.,'${roleName}')]）
+                resolved_locator_value = resolve_variables(locator_value, context_variables)
+                if resolved_locator_value != locator_value:
+                    print(f"[变量解析] 定位器: {locator_value} -> {resolved_locator_value}")
+                    locator_value = resolved_locator_value
+
                 # 获取强制操作选项（用于visibility:hidden的元素）
                 force_action = element_data.get('force_action', False)
 
@@ -989,9 +995,21 @@ class PlaywrightTestEngine:
                     for retry in range(max_retries):
                         try:
                             table_result = await self.page.evaluate(f"""(() => {{
-                                const tbl = document.querySelector('.ant-table') ||
-                                            document.querySelector('.el-table') ||
-                                            document.querySelector('table');
+                                // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                let tbl = null;
+                                try {{
+                                    const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                    for (const _d of _allDlg) {{
+                                        if (_d.offsetParent === null) continue;
+                                        const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                        if (_t) {{ tbl = _t; break; }}
+                                    }}
+                                }} catch(e) {{}}
+                                if (!tbl) {{
+                                    tbl = document.querySelector('.ant-table') ||
+                                          document.querySelector('.el-table') ||
+                                          document.querySelector('table');
+                                }}
                                 if (!tbl) return {{ found: false }};
                                 const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
                                 const matchingRows = [];
@@ -1048,9 +1066,21 @@ class PlaywrightTestEngine:
                     # 表格为空断言：自动查找表格容器，不需要元素定位器
                     try:
                         empty_result = await self.page.evaluate("""(() => {
-                            const tbl = document.querySelector('.ant-table') ||
-                                        document.querySelector('.el-table') ||
-                                        document.querySelector('table');
+                            // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                            let tbl = null;
+                            try {
+                                const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                for (const _d of _allDlg) {
+                                    if (_d.offsetParent === null) continue;
+                                    const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                    if (_t) { tbl = _t; break; }
+                                }
+                            } catch(e) {}
+                            if (!tbl) {
+                                tbl = document.querySelector('.ant-table') ||
+                                      document.querySelector('.el-table') ||
+                                      document.querySelector('table');
+                            }
                             if (!tbl) return { found: false };
                             const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
                             const dataRows = Array.from(rows).filter(r => !r.classList.contains('ant-table-placeholder') && (r.textContent || '').trim().length > 0);

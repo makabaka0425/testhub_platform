@@ -411,28 +411,31 @@ class SeleniumTestEngine:
 
         return by_type, locator_value
 
-    def execute_step(self, step, element_data: Dict) -> Tuple[bool, str, Optional[str]]:
+    def execute_step(self, step, element_data: Dict, context_variables: Dict = None) -> Tuple[bool, str, Optional[str]]:
         """
         执行单个测试步骤
 
         Args:
             step: 测试步骤对象
             element_data: 元素数据字典 {locator_strategy, locator_value, name}
+            context_variables: 上下文变量字典，用于变量解析
 
         Returns:
             (是否成功, 日志信息, 截图base64)
         """
+        if context_variables is None:
+            context_variables = {}
         print(f"\n🔵 开始执行步骤: action_type={step.action_type}")
         action_type = step.action_type
         
         # 预先解析变量
         resolved_input_value = step.input_value
         if step.input_value:
-            resolved_input_value = resolve_variables(step.input_value)
+            resolved_input_value = resolve_variables(step.input_value, context_variables)
             
         resolved_assert_value = step.assert_value
         if step.assert_value:
-            resolved_assert_value = resolve_variables(step.assert_value)
+            resolved_assert_value = resolve_variables(step.assert_value, context_variables)
             
         start_time = time.time()
         screenshot_base64 = None
@@ -520,6 +523,12 @@ class SeleniumTestEngine:
             locator_strategy = element_data.get('locator_strategy', 'css')
             locator_value = element_data.get('locator_value', '')
             element_name = element_data.get('name', '未知元素')
+
+            # 定位器值支持变量解析（如 //span[contains(.,'${roleName}')]）
+            resolved_locator_value = resolve_variables(locator_value, context_variables)
+            if resolved_locator_value != locator_value:
+                print(f"[变量解析] 定位器: {locator_value} -> {resolved_locator_value}")
+                locator_value = resolved_locator_value
 
             # 获取强制操作选项
             force_action = element_data.get('force_action', False)

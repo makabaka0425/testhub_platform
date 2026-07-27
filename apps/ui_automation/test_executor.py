@@ -1498,6 +1498,12 @@ class TestExecutor:
                 locator_strategy = element['locator_strategy'].lower()
                 element_name = element.get('name', '未知元素')
 
+                # 定位器值支持变量解析（如 //span[contains(.,'${roleName}')]）
+                resolved_locator_value = resolve_variables(locator_value, self.context_variables)
+                if resolved_locator_value != locator_value:
+                    print(f"[变量解析] 定位器: {locator_value} -> {resolved_locator_value}")
+                    locator_value = resolved_locator_value
+
                 # 根据定位策略构造 Playwright 选择器
                 if locator_strategy in ['css', 'css selector']:
                     selector = locator_value
@@ -2216,10 +2222,19 @@ class TestExecutor:
                             try:
                                 js_table_check = f"""
                                     (() => {{
-                                        // 自动在页面上查找表格容器（优先 Ant Design，其次 Element Plus，最后原生）
-                                        const tbl = document.querySelector('.ant-table') ||
-                                                    document.querySelector('.el-table') ||
-                                                    document.querySelector('table');
+                                        // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                        let tbl = null;
+                                        try {{
+                                            const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                            for (const _d of _allDlg) {{
+                                                if (_d.offsetParent === null) continue;
+                                                const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                                if (_t) {{ tbl = _t; break; }}
+                                            }}
+                                        }} catch(e) {{}}
+                                        if (!tbl) {{
+                                            tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                        }}
                                         if (!tbl) return {{ found: false, reason: 'no-table' }};
                                         
                                         // 遍历数据行
@@ -2262,9 +2277,19 @@ class TestExecutor:
                         try:
                             js_table_check = f"""
                                 (() => {{
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
+                                    // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                    let tbl = null;
+                                    try {{
+                                        const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                        for (const _d of _allDlg) {{
+                                            if (_d.offsetParent === null) continue;
+                                            const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                            if (_t) {{ tbl = _t; break; }}
+                                        }}
+                                    }} catch(e) {{}}
+                                    if (!tbl) {{
+                                        tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                    }}
                                     if (!tbl) return {{ found: false, reason: 'no-table' }};
 
                                     const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
@@ -2297,9 +2322,19 @@ class TestExecutor:
                         try:
                             js_empty_check = """
                                 (() => {
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
+                                    // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                    let tbl = null;
+                                    try {
+                                        const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                        for (const _d of _allDlg) {
+                                            if (_d.offsetParent === null) continue;
+                                            const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                            if (_t) { tbl = _t; break; }
+                                        }
+                                    } catch(e) {}
+                                    if (!tbl) {
+                                        tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                    }
                                     if (!tbl) return { found: false, reason: 'no-table' };
                                     
                                     // 检查数据行数
@@ -2588,9 +2623,19 @@ class TestExecutor:
                         try:
                             js_table_check = f"""
                                 (() => {{
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
+                                    // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                    let tbl = null;
+                                    try {{
+                                        const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                        for (const _d of _allDlg) {{
+                                            if (_d.offsetParent === null) continue;
+                                            const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                            if (_t) {{ tbl = _t; break; }}
+                                        }}
+                                    }} catch(e) {{}}
+                                    if (!tbl) {{
+                                        tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                    }}
                                     if (!tbl) return {{ found: false, reason: 'no-table' }};
 
                                     const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
@@ -2629,9 +2674,19 @@ class TestExecutor:
                         try:
                             js_empty_check = """
                                 (() => {
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
+                                    // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                    let tbl = null;
+                                    try {
+                                        const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                        for (const _d of _allDlg) {
+                                            if (_d.offsetParent === null) continue;
+                                            const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                            if (_t) { tbl = _t; break; }
+                                        }
+                                    } catch(e) {}
+                                    if (!tbl) {
+                                        tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                    }
                                     if (!tbl) return { found: false, reason: 'no-table' };
 
                                     const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
@@ -3392,6 +3447,12 @@ class TestExecutor:
                 locator_strategy = element['locator_strategy'].lower()
                 element_name = element.get('name', '未知元素')
 
+                # 定位器值支持变量解析（如 //span[contains(.,'${roleName}')]）
+                resolved_locator_value = resolve_variables(locator_value, self.context_variables)
+                if resolved_locator_value != locator_value:
+                    print(f"[变量解析] 定位器: {locator_value} -> {resolved_locator_value}")
+                    locator_value = resolved_locator_value
+
                 # 根据定位策略获取元素
                 wait = WebDriverWait(driver, step_data['wait_time'] / 1000)
 
@@ -3738,14 +3799,30 @@ class TestExecutor:
                         # Selenium版表格包含文本断言 - 自动查找表格容器
                         try:
                             table = None
-                            # 按优先级查找表格容器
-                            for selector in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, selector)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            # 弹窗内没找到，回退页面级查找
+                            if not table:
+                                for selector in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, selector)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             else:
@@ -3761,13 +3838,29 @@ class TestExecutor:
                         # Selenium版表格不包含文本断言 - 自动查找表格容器
                         try:
                             table = None
-                            for selector in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, selector)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            if not table:
+                                for selector in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, selector)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             else:
@@ -3783,13 +3876,29 @@ class TestExecutor:
                         # Selenium版表格为空断言 - 自动查找表格容器
                         try:
                             table = None
-                            for selector in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, selector)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            if not table:
+                                for selector in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, selector)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             else:
@@ -3858,13 +3967,29 @@ class TestExecutor:
                     if step_data['assert_type'] in ('tableContains', 'tableNotContains'):
                         try:
                             table = None
-                            for sel in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, sel)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            if not table:
+                                for sel in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, sel)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             elif step_data['assert_type'] == 'tableContains':
@@ -3885,13 +4010,29 @@ class TestExecutor:
                     elif step_data['assert_type'] == 'tableEmpty':
                         try:
                             table = None
-                            for sel in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, sel)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            if not table:
+                                for sel in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, sel)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             else:
