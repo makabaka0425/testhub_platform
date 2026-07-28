@@ -124,6 +124,7 @@
                   <span style="color: #e6a23c; font-weight: bold">{{ row.skipped_count || 0 }}</span>
                 </template>
               </el-table-column>
+              <el-table-column prop="last_execution_time" label="执行时间" width="180" :formatter="formatDate" />
               <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
               <el-table-column label="操作" width="160" fixed="right" v-if="!batchEditMode">
                 <template #default="{ row }">
