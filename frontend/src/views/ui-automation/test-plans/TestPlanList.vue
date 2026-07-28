@@ -45,23 +45,56 @@
           </div>
 
           <div class="panel__body plan-table-wrapper">
-            <el-table :data="filteredPlans" v-loading="loading" height="100%">
+            <!-- 批量工具栏（选中状态） -->
+            <div class="batch-toolbar" v-if="!batchEditMode && selectedPlans.length > 0">
+              <span class="batch-count">已选 {{ selectedPlans.length }} 项</span>
+              <el-button size="small" type="primary" @click="enterBatchEditMode">批量编辑</el-button>
+              <el-button size="small" type="success" @click="batchRunPlans" :loading="batchRunLoading">批量执行</el-button>
+              <el-button size="small" type="danger" plain @click="batchDeletePlans">批量删除</el-button>
+            </div>
+
+            <!-- 批量编辑操作栏 -->
+            <div class="batch-edit-bar" v-if="batchEditMode">
+              <span class="batch-count">批量编辑模式：已选 {{ batchEditIds.length }} 项</span>
+              <div class="batch-edit-actions">
+                <el-button size="small" @click="cancelBatchEdit">取消</el-button>
+                <el-button size="small" type="primary" @click="saveBatchEdit" :loading="batchEditLoading">保存</el-button>
+              </div>
+            </div>
+
+            <el-table :data="filteredPlans" v-loading="loading" height="100%" row-key="id" ref="planTableRef" @selection-change="handlePlanSelectionChange">
+              <el-table-column v-if="!batchEditMode" type="selection" width="45" />
               <el-table-column prop="name" label="计划名称" min-width="200">
                 <template #default="{ row }">
-                  <el-link @click="goToDetail(row.id)" type="primary">{{ row.name }}</el-link>
+                  <el-input v-if="isPlanInBatchEdit(row)" v-model="row.name" size="small" placeholder="计划名称" />
+                  <el-link v-else @click="goToDetail(row.id)" type="primary">{{ row.name }}</el-link>
                 </template>
               </el-table-column>
-              <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
+              <el-table-column prop="description" label="描述" min-width="150">
+                <template #default="{ row }">
+                  <el-input v-if="isPlanInBatchEdit(row)" v-model="row.description" size="small" placeholder="描述" />
+                  <span v-else class="desc-text">{{ row.description || '-' }}</span>
+                </template>
+              </el-table-column>
               <el-table-column label="执行模式" width="130">
                 <template #default="{ row }">
-                  <el-tag size="small" :type="row.execution_mode === 'shared_session' ? 'success' : 'info'">
+                  <el-select v-if="isPlanInBatchEdit(row)" v-model="row.execution_mode" size="small" style="width: 100%">
+                    <el-option label="共享会话" value="shared_session" />
+                    <el-option label="独立模式" value="per_case" />
+                  </el-select>
+                  <el-tag v-else size="small" :type="row.execution_mode === 'shared_session' ? 'success' : 'info'">
                     {{ row.execution_mode === 'shared_session' ? '共享会话' : '独立模式' }}
                   </el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="登录配置" width="150">
                 <template #default="{ row }">
-                  <span v-if="row.login_config_name">{{ row.login_config_name }}</span>
+                  <el-select v-if="isPlanInBatchEdit(row) && row.execution_mode === 'shared_session'"
+                    v-model="row.login_config" size="small" clearable filterable placeholder="选择配置" style="width: 100%">
+                    <el-option v-for="cfg in loginConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.id" />
+                  </el-select>
+                  <span v-else-if="isPlanInBatchEdit(row)" style="color: #909399; font-size: 12px">无需配置</span>
+                  <span v-else-if="row.login_config_name">{{ row.login_config_name }}</span>
                   <span v-else style="color: #909399">未配置</span>
                 </template>
               </el-table-column>
@@ -92,7 +125,7 @@
                 </template>
               </el-table-column>
               <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
-              <el-table-column label="操作" width="160" fixed="right">
+              <el-table-column label="操作" width="160" fixed="right" v-if="!batchEditMode">
                 <template #default="{ row }">
                   <ActionCell :actions="getPlanActions(row)" :row="row" :max-visible="3" />
                 </template>
@@ -392,13 +425,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, ArrowRight } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
 import {
   getTestPlans, getTestPlan, createTestPlan, updateTestPlan, deleteTestPlan,
+  batchUpdateTestPlans,
   getPlanItems, addPlanItem, addPlanItemsBatch, removePlanItem, runTestPlan,
   getUiProjects, getTestCasesAll, getTestSuites, getLoginConfigs, getTestCaseGroupTree,
   getPlanExecutionHistory, getTestCaseExecutionDetail
@@ -453,6 +487,166 @@ const planGroupFilter = ref(null)
 const planGroupTree = ref([])
 const addSuiteSearch = ref('')
 const selectedSuites = ref([])
+
+// ==================== 批量编辑 ====================
+const selectedPlans = ref([])
+const batchEditMode = ref(false)
+const batchEditIds = ref([])
+const batchEditBackup = ref({})
+const batchEditLoading = ref(false)
+const batchRunLoading = ref(false)
+const planTableRef = ref(null)
+
+const handlePlanSelectionChange = (rows) => {
+  if (batchEditMode.value) return
+  selectedPlans.value = rows
+}
+
+const isPlanInBatchEdit = (row) => {
+  return batchEditMode.value && batchEditIds.value.includes(row.id)
+}
+
+const enterBatchEditMode = async () => {
+  if (selectedPlans.value.length === 0) return
+  batchEditIds.value = selectedPlans.value.map(s => s.id)
+  const backup = {}
+  for (const plan of plans.value) {
+    if (batchEditIds.value.includes(plan.id)) {
+      backup[plan.id] = {
+        name: plan.name,
+        description: plan.description,
+        execution_mode: plan.execution_mode,
+        login_config: plan.login_config
+      }
+    }
+  }
+  batchEditBackup.value = backup
+  batchEditMode.value = true
+  await loadLoginConfigs()
+  nextTick(() => {
+    if (planTableRef.value) planTableRef.value.clearSelection()
+  })
+}
+
+const cancelBatchEdit = () => {
+  for (const plan of plans.value) {
+    if (batchEditIds.value.includes(plan.id)) {
+      const bk = batchEditBackup.value[plan.id]
+      if (bk) {
+        plan.name = bk.name
+        plan.description = bk.description
+        plan.execution_mode = bk.execution_mode
+        plan.login_config = bk.login_config
+      }
+    }
+  }
+  batchEditMode.value = false
+  batchEditIds.value = []
+  batchEditBackup.value = {}
+  selectedPlans.value = []
+}
+
+const saveBatchEdit = async () => {
+  for (const id of batchEditIds.value) {
+    const plan = plans.value.find(s => s.id === id)
+    if (!plan || !plan.name || !plan.name.trim()) {
+      ElMessage.warning('计划名称不能为空')
+      return
+    }
+  }
+
+  const updates = []
+  for (const id of batchEditIds.value) {
+    const plan = plans.value.find(s => s.id === id)
+    const bk = batchEditBackup.value[id]
+    if (!plan || !bk) continue
+
+    const item = { id }
+    if (plan.name !== bk.name) item.name = plan.name
+    if (plan.description !== bk.description) item.description = plan.description
+    if (plan.execution_mode !== bk.execution_mode) {
+      item.execution_mode = plan.execution_mode
+      if (plan.execution_mode === 'per_case') item.login_config = null
+    }
+    if (plan.login_config !== bk.login_config) {
+      item.login_config = plan.execution_mode === 'shared_session' ? plan.login_config : null
+    }
+
+    if (Object.keys(item).length > 1) updates.push(item)
+  }
+
+  if (updates.length === 0) {
+    ElMessage.info('没有变更')
+    batchEditMode.value = false
+    batchEditIds.value = []
+    batchEditBackup.value = {}
+    selectedPlans.value = []
+    return
+  }
+
+  batchEditLoading.value = true
+  try {
+    const res = await batchUpdateTestPlans({ updates })
+    ElMessage.success(res.data.message || `成功更新 ${updates.length} 个计划`)
+    batchEditMode.value = false
+    batchEditIds.value = []
+    batchEditBackup.value = {}
+    selectedPlans.value = []
+    await loadPlans()
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('批量更新失败')
+  } finally {
+    batchEditLoading.value = false
+  }
+}
+
+// ==================== 批量删除计划 ====================
+const batchDeletePlans = async () => {
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selectedPlans.value.length} 个计划？`, '提示', { type: 'warning' })
+    let ok = 0, fail = 0
+    for (const plan of selectedPlans.value) {
+      try {
+        await deleteTestPlan(plan.id)
+        ok++
+      } catch (e) { fail++; console.error(e) }
+    }
+    if (ok) ElMessage.success(`成功删除 ${ok} 个计划` + (fail ? `，${fail} 个失败` : ''))
+    selectedPlans.value = []
+    await loadPlans()
+  } catch (e) { if (e !== 'cancel') console.error(e) }
+}
+
+// ==================== 批量执行计划 ====================
+const batchRunPlans = async () => {
+  const valid = selectedPlans.value.filter(p => p.plan_item_count && p.plan_item_count > 0)
+  const empty = selectedPlans.value.length - valid.length
+  if (valid.length === 0) {
+    ElMessage.warning('选中的计划均未包含计划项，无法执行')
+    return
+  }
+  try {
+    const tip = `确定批量执行 ${valid.length} 个计划？` + (empty ? `（${empty} 个计划无计划项，将跳过）` : '')
+    await ElMessageBox.confirm(tip, '批量执行', { type: 'info' })
+  } catch (e) { return }
+
+  batchRunLoading.value = true
+  let ok = 0, fail = 0
+  for (const plan of valid) {
+    try {
+      await runTestPlan(plan.id, { engine: 'playwright', browser: 'chrome', headless: false })
+      ok++
+    } catch (e) {
+      fail++
+      console.error(e)
+    }
+  }
+  if (ok) ElMessage.success(`已启动 ${ok} 个计划执行` + (fail ? `，${fail} 个失败` : ''))
+  batchRunLoading.value = false
+  selectedPlans.value = []
+  await loadPlans()
+}
 
 // 计算属性
 const filteredPlans = computed(() => {
@@ -766,6 +960,7 @@ async function loadPlanItems(planId) {
 }
 
 function onProjectChange() {
+  if (batchEditMode.value) return
   localStorage.setItem('lastProjectId', projectId.value)
   pagination.value.currentPage = 1
   loadPlans()
@@ -1095,6 +1290,54 @@ onMounted(async () => {
 
 .op-btn--danger {
   --el-button-text-color: #f56c6c;
+}
+
+// ==================== 批量编辑 ====================
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 6px;
+  margin-bottom: 0;
+
+  .batch-count {
+    font-size: 13px;
+    color: #409eff;
+    font-weight: 500;
+  }
+}
+
+.batch-edit-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #fef0f0;
+  border: 1px solid #fde2e2;
+  border-radius: 6px;
+  margin-bottom: 0;
+
+  .batch-count {
+    font-size: 13px;
+    color: #f56c6c;
+    font-weight: 500;
+  }
+
+  .batch-edit-actions {
+    display: flex;
+    gap: 8px;
+  }
+}
+
+.desc-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mode-desc {

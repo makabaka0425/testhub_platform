@@ -9839,6 +9839,71 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    @action(detail=False, methods=['post'], url_path='batch_update')
+    def batch_update(self, request):
+        """批量更新计划字段（name, description, execution_mode, login_config）"""
+        updates = request.data.get('updates', [])
+        if not updates or not isinstance(updates, list):
+            return Response({'error': '请提供计划更新数据列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_fields = {'name', 'description', 'execution_mode', 'login_config'}
+
+        success_count, fail_count = 0, 0
+        failed_items = []
+        for item in updates:
+            plan_id = item.get('id')
+            if not plan_id:
+                fail_count += 1
+                failed_items.append({'id': plan_id, 'reason': '缺少计划ID'})
+                continue
+            try:
+                plan = UiTestPlan.objects.get(id=plan_id)
+                changed = False
+                for field in allowed_fields:
+                    if field in item:
+                        val = item[field]
+                        if field == 'name' and (not val or not str(val).strip()):
+                            fail_count += 1
+                            failed_items.append({'id': plan_id, 'reason': '名称不能为空'})
+                            continue
+                        if field == 'login_config':
+                            if val:
+                                try:
+                                    cfg = LoginConfig.objects.get(id=val)
+                                    plan.login_config = cfg
+                                except LoginConfig.DoesNotExist:
+                                    fail_count += 1
+                                    failed_items.append({'id': plan_id, 'reason': '登录配置不存在'})
+                                    continue
+                            else:
+                                plan.login_config = None
+                            changed = True
+                        elif field == 'execution_mode':
+                            plan.execution_mode = val
+                            if val == 'per_case':
+                                plan.login_config = None
+                            changed = True
+                        else:
+                            setattr(plan, field, val)
+                            changed = True
+                if changed:
+                    plan.save()
+                    log_operation('edit', 'plan', plan.id, plan.name, request.user)
+                    success_count += 1
+            except UiTestPlan.DoesNotExist:
+                fail_count += 1
+                failed_items.append({'id': plan_id, 'reason': '计划不存在'})
+            except Exception as e:
+                fail_count += 1
+                failed_items.append({'id': plan_id, 'reason': str(e)})
+
+        return Response({
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'failed_items': failed_items,
+            'message': f'成功更新 {success_count} 个计划' + (f'，{fail_count} 个失败' if fail_count else '')
+        })
+
     @action(detail=True, methods=['get'])
     def plan_items(self, request, pk=None):
         """获取计划项列表"""
