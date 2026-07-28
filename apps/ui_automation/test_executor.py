@@ -673,7 +673,7 @@ class TestExecutor:
                             case_execution.status = case_result['status']
                             case_execution.finished_at = timezone.now()
                             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-                            case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
+                            case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition'), 'variable_snapshot': case_result.get('variable_snapshot', {})}, ensure_ascii=False)
                             if case_result['error']:
                                 case_execution.error_message = case_result['error']
                             if case_result.get('screenshots'):
@@ -855,7 +855,7 @@ class TestExecutor:
                             case_execution.finished_at = timezone.now()
                             case_execution.error_message = case_result['error']
                             # 保存前置条件SQL信息（便于排障）
-                            skipped_logs = {'steps': []}
+                            skipped_logs = {'steps': [], 'variable_snapshot': {}}
                             if pre_cases_sql:
                                 skipped_logs['precondition_cases_sql'] = pre_cases_sql
                             case_execution.execution_logs = json.dumps(skipped_logs, ensure_ascii=False)
@@ -902,7 +902,8 @@ class TestExecutor:
                         per_case_logs = {
                             'steps': case_result['steps'],
                             'precondition_sql': case_result.get('precondition_sql'),
-                            'postcondition': case_result.get('postcondition')
+                            'postcondition': case_result.get('postcondition'),
+                            'variable_snapshot': case_result.get('variable_snapshot', {})
                         }
                         # 合并前置条件用例的SQL信息到主用例执行日志
                         if pre_cases_sql:
@@ -994,7 +995,8 @@ class TestExecutor:
                         ce.execution_logs = json.dumps({
                             'steps': case_result['steps'],
                             'precondition_sql': case_result.get('precondition_sql'),
-                            'postcondition': case_result.get('postcondition')
+                            'postcondition': case_result.get('postcondition'),
+                            'variable_snapshot': case_result.get('variable_snapshot', {})
                         }, ensure_ascii=False)
                         ce.save(update_fields=['execution_logs'])
                     except Exception as e:
@@ -1385,6 +1387,9 @@ class TestExecutor:
 
         result['end_time'] = datetime.now().isoformat()
 
+        # 保存当前变量池快照（用于变量流转展示）
+        result['variable_snapshot'] = dict(self.context_variables)
+
         # 恢复原始变量表和保护变量集合
         if shared_variables is not None:
             self.context_variables = original_context_variables
@@ -1438,7 +1443,7 @@ class TestExecutor:
             case_execution.status = result['status']
             case_execution.finished_at = timezone.now()
             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition')}, ensure_ascii=False)
+            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition'), 'variable_snapshot': result.get('variable_snapshot', {})}, ensure_ascii=False)
             if result['error']:
                 case_execution.error_message = result['error']
             if result.get('screenshots'):
@@ -1849,6 +1854,7 @@ class TestExecutor:
                     if step_data.get('output_var'):
                         self._set_output_var(step_data['output_var'], resolved_value)
                         step_result['output_var'] = step_data['output_var']
+                        step_result['output_var_value'] = resolved_value
                         print(f"  ✓ 输出变量: {step_data['output_var']} = {resolved_value}")
 
                 elif step_data['action_type'] == 'select':
@@ -2115,6 +2121,7 @@ class TestExecutor:
                                 output_value = ','.join(selected_options) if isinstance(selected_options, list) else str(selected_options)
                                 self._set_output_var(step_data['output_var'], output_value)
                                 step_result['output_var'] = step_data['output_var']
+                                step_result['output_var_value'] = output_value
                                 print(f"  ✓ 输出变量: {step_data['output_var']} = {output_value}")
                         else:
                             step_result['error'] = f'选择下拉选项失败: {"; ".join(select_errors)}'
@@ -2127,9 +2134,11 @@ class TestExecutor:
 
                     # 捕获输出变量
                     if step_data.get('output_var') and text is not None:
-                        self._set_output_var(step_data['output_var'], text.strip() if text else '')
+                        output_var_value = text.strip() if text else ''
+                        self._set_output_var(step_data['output_var'], output_var_value)
                         step_result['output_var'] = step_data['output_var']
-                        print(f"  ✓ 输出变量: {step_data['output_var']} = {text.strip() if text else ''}")
+                        step_result['output_var_value'] = output_var_value
+                        print(f"  ✓ 输出变量: {step_data['output_var']} = {output_var_value}")
 
                 elif step_data['action_type'] == 'waitFor':
                     # 检测是否是下拉框选项（下拉框选项可能是隐藏的）
@@ -3002,7 +3011,7 @@ class TestExecutor:
                 case_execution.status = case_result['status']
                 case_execution.finished_at = timezone.now()
                 case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-                case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
+                case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition'), 'variable_snapshot': case_result.get('variable_snapshot', {})}, ensure_ascii=False)
                 if case_result['error']:
                     case_execution.error_message = case_result['error']
                 if case_result.get('screenshots'):
@@ -3343,6 +3352,10 @@ class TestExecutor:
                 print(f"捕获异常截图失败: {str(screenshot_error)}")
 
         result['end_time'] = datetime.now().isoformat()
+
+        # 保存当前变量池快照（用于变量流转展示）
+        result['variable_snapshot'] = dict(self.context_variables)
+
         return result
 
     def execute_test_case_selenium(self, driver, case_data):
@@ -3392,7 +3405,7 @@ class TestExecutor:
             case_execution.status = result['status']
             case_execution.finished_at = timezone.now()
             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition')}, ensure_ascii=False)
+            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition'), 'variable_snapshot': result.get('variable_snapshot', {})}, ensure_ascii=False)
             if result['error']:
                 case_execution.error_message = result['error']
             case_execution.save()

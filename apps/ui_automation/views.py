@@ -5734,6 +5734,62 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['get'])
+    def variable_flow(self, request, pk=None):
+        """分析套件内用例的变量流转关系
+        返回每个用例的输出变量、消费变量、及未定义变量标记
+        """
+        import re
+        from .models import TestSuiteTestCase
+        test_suite = self.get_object()
+        suite_cases = TestSuiteTestCase.objects.filter(
+            test_suite=test_suite
+        ).select_related('test_case').order_by('order')
+
+        # 用例变量关系列表
+        case_vars_list = []
+        # 所有已定义变量名集合（按顺序累积）
+        all_defined_vars = set()
+
+        for stc in suite_cases:
+            tc = stc.test_case
+            steps = tc.steps.all().order_by('step_number')
+
+            outputs = []   # 本用例输出的变量名
+            consumes = []  # 本用例消费的变量名
+
+            # 变量名正则：匹配 ${xxx}
+            var_pattern = re.compile(r'\$\{(\w+)\}')
+
+            for step in steps:
+                # 收集输出变量
+                if step.output_var:
+                    outputs.append(step.output_var)
+
+                # 收集消费变量（从 input_value 和 assert_value 中提取）
+                for field_val in [step.input_value or '', step.assert_value or '']:
+                    for match in var_pattern.finditer(field_val):
+                        var_name = match.group(1)
+                        if var_name not in consumes:
+                            consumes.append(var_name)
+
+            # 判断消费变量中哪些未定义（在当前用例及之前的所有输出中找不到）
+            available_vars = all_defined_vars | set(outputs)
+            undefined = [v for v in consumes if v not in available_vars]
+            # 本用例输出加入已定义集合
+            all_defined_vars.update(outputs)
+
+            case_vars_list.append({
+                'test_case_id': tc.id,
+                'test_case_name': tc.name,
+                'order': stc.order,
+                'outputs': list(dict.fromkeys(outputs)),   # 去重保持顺序
+                'consumes': list(dict.fromkeys(consumes)),  # 去重保持顺序
+                'undefined': list(dict.fromkeys(undefined)), # 去重保持顺序
+            })
+
+        return Response(case_vars_list)
+
+    @action(detail=True, methods=['get'])
     def execution_records(self, request, pk=None):
         """获取套件的执行记录列表（含每次执行下的用例明细）"""
         test_suite = self.get_object()
@@ -7533,7 +7589,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             # 同时保存文本日志供调试
             combined_logs = {
                 'steps': step_results,
-                'text_logs': '\n'.join(execution_logs)
+                'text_logs': '\n'.join(execution_logs),
+                'variable_snapshot': context_variables
             }
             execution.execution_logs = json.dumps(combined_logs, ensure_ascii=False)
             execution.execution_time = total_time

@@ -355,6 +355,13 @@ export function runSuiteDbCleanup(suiteId) {
   })
 }
 
+export function getSuiteVariableFlow(suiteId) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/variable_flow/`,
+    method: 'get'
+  })
+}
+
 // ==================== 测试计划相关API ====================
 
 // 获取测试计划列表
