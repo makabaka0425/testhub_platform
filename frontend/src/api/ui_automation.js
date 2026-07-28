@@ -1177,6 +1177,23 @@ export function batchDeleteTestCaseExecutions(ids) {
   })
 }
 
+// 获取统一执行记录列表（计划/套件/用例层级）
+export function getExecutionUnifiedList(params) {
+  return request({
+    url: '/ui-automation/test-case-executions/unified-list/',
+    method: 'get',
+    params
+  })
+}
+
+// 获取执行记录子项（计划→套件+用例，套件→用例）
+export function getExecutionChildren(executionId) {
+  return request({
+    url: `/ui-automation/test-executions/${executionId}/children/`,
+    method: 'get'
+  })
+}
+
 // 批量运行测试用例
 export function batchRunTestCases(data) {
   return request({

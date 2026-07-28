@@ -48,13 +48,6 @@
             <el-form-item>
               <el-button type="primary" @click="handleSearch">{{ $t('uiAutomation.common.query') }}</el-button>
               <el-button @click="resetQuery">{{ $t('uiAutomation.common.reset') }}</el-button>
-              <el-button
-                type="danger"
-                :disabled="selectedIds.length === 0"
-                @click="handleBatchDelete"
-              >
-                {{ $t('uiAutomation.common.batchDelete') }}
-              </el-button>
             </el-form-item>
           </el-form>
         </div>
@@ -66,61 +59,150 @@
           </div>
 
           <div class="panel__body execution-table-wrapper">
-            <el-table :data="executions" v-loading="loading" height="100%" @selection-change="handleSelectionChange">
-              <el-table-column type="selection" width="55" align="center" />
-              <el-table-column prop="id" label="ID" width="80" align="center" />
-              <el-table-column prop="test_case_name" :label="$t('uiAutomation.execution.caseName')" min-width="200">
+            <el-table
+              :data="executions"
+              v-loading="loading"
+              height="100%"
+              row-key="id"
+              :expand-row-keys="expandedKeys"
+              :row-class-name="getRowClassName"
+              @expand-change="handleExpandChange"
+            >
+              <!-- 展开列（仅计划/套件类型显示） -->
+              <el-table-column type="expand" width="50">
                 <template #default="{ row }">
-                  <el-link @click="viewExecutionDetail(row)" type="primary">
-                    {{ row.test_case_name }}
-                  </el-link>
+                  <div v-if="row._loadingChildren" class="expand-loading">
+                    <el-icon class="is-loading"><Loading /></el-icon>
+                    <span>加载中...</span>
+                  </div>
+                  <div v-else-if="row.item_type === 'plan'" class="expand-content">
+                    <!-- 计划子项：套件+用例 -->
+                    <template v-for="child in (row._children || [])" :key="child.id">
+                      <!-- 套件子项 -->
+                      <div v-if="child.item_type === 'suite'" class="child-suite">
+                        <div class="child-grid-row" @click="toggleSuiteChildren(row, child)">
+                          <div class="cg-name">
+                            <el-icon class="expand-icon" :class="{ 'is-expanded': child._expanded }">
+                              <ArrowRight />
+                            </el-icon>
+                            <span>{{ child.name }}</span>
+                          </div>
+                          <div class="cg-center"><el-tag type="warning" size="small">套件</el-tag></div>
+                          <div class="cg-center"><el-tag :type="getStatusType(child.status)" size="small">{{ getStatusText(child.status) }}</el-tag></div>
+                          <div class="cg-center">{{ formatDateTime(child.started_at) }}</div>
+                          <div class="cg-center"><span v-if="child.duration != null">{{ formatDuration(child.duration) }}</span><span v-else>-</span></div>
+                          <div class="cg-center"><span v-if="child.total_cases">{{ child.passed_cases || 0 }}/{{ child.total_cases }}</span><span v-else>-</span></div>
+                          <div class="cg-center">-</div>
+                          <div class="cg-center">-</div>
+                        </div>
+                        <!-- 套件内用例（三级） -->
+                        <div v-if="child._expanded && child.children" class="suite-children">
+                          <div
+                            v-for="subCase in child.children"
+                            :key="subCase.id"
+                            class="child-grid-row sub-case-row"
+                            @click="viewCaseDetail(subCase)"
+                          >
+                            <div class="cg-name" style="padding-left: 28px;">{{ subCase.name }}</div>
+                            <div class="cg-center"><el-tag type="info" size="small">用例</el-tag></div>
+                            <div class="cg-center"><el-tag :type="getStatusType(subCase.status)" size="small">{{ getStatusText(subCase.status) }}</el-tag></div>
+                            <div class="cg-center">{{ formatDateTime(subCase.started_at) }}</div>
+                            <div class="cg-center"><span v-if="subCase.duration != null">{{ formatDuration(subCase.duration) }}</span><span v-else>-</span></div>
+                            <div class="cg-center">-</div>
+                            <div class="cg-center">-</div>
+                            <div class="cg-center">-</div>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- 独立用例子项 -->
+                      <div v-else class="child-grid-row sub-case-row" @click="viewCaseDetail(child)">
+                        <div class="cg-name">{{ child.name }}</div>
+                        <div class="cg-center"><el-tag type="info" size="small">用例</el-tag></div>
+                        <div class="cg-center"><el-tag :type="getStatusType(child.status)" size="small">{{ getStatusText(child.status) }}</el-tag></div>
+                        <div class="cg-center">{{ formatDateTime(child.started_at) }}</div>
+                        <div class="cg-center"><span v-if="child.duration != null">{{ formatDuration(child.duration) }}</span><span v-else>-</span></div>
+                        <div class="cg-center">-</div>
+                        <div class="cg-center">-</div>
+                        <div class="cg-center">-</div>
+                      </div>
+                    </template>
+                  </div>
+                  <div v-else-if="row.item_type === 'suite'" class="expand-content">
+                    <!-- 套件子项：用例列表 -->
+                    <div
+                      v-for="child in (row._children || [])"
+                      :key="child.id"
+                      class="child-grid-row sub-case-row"
+                      @click="viewCaseDetail(child)"
+                    >
+                      <div class="cg-name">{{ child.name }}</div>
+                      <div class="cg-center"><el-tag type="info" size="small">用例</el-tag></div>
+                      <div class="cg-center"><el-tag :type="getStatusType(child.status)" size="small">{{ getStatusText(child.status) }}</el-tag></div>
+                      <div class="cg-center">{{ formatDateTime(child.started_at) }}</div>
+                      <div class="cg-center"><span v-if="child.duration != null">{{ formatDuration(child.duration) }}</span><span v-else>-</span></div>
+                      <div class="cg-center">-</div>
+                      <div class="cg-center">-</div>
+                      <div class="cg-center">-</div>
+                    </div>
+                  </div>
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('uiAutomation.execution.relatedObject')" width="100" align="center">
+
+              <!-- 名称列 -->
+              <el-table-column prop="name" label="名称" min-width="200">
                 <template #default="{ row }">
-                  <el-tag v-if="!row.test_suite" type="info" size="small">{{ $t('uiAutomation.execution.case') }}</el-tag>
-                  <el-tag v-else type="warning" size="small">{{ $t('uiAutomation.execution.suiteTag') }}</el-tag>
+                  <span class="name-text">{{ row.name }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="status" :label="$t('uiAutomation.execution.statusFilter')" width="100" align="center">
+
+              <!-- 类型列 -->
+              <el-table-column label="类型" width="100" align="center">
+                <template #default="{ row }">
+                  <el-tag v-if="row.item_type === 'plan'" type="" size="small">计划</el-tag>
+                  <el-tag v-else-if="row.item_type === 'suite'" type="warning" size="small">套件</el-tag>
+                  <el-tag v-else type="info" size="small">用例</el-tag>
+                </template>
+              </el-table-column>
+
+              <!-- 状态列 -->
+              <el-table-column prop="status" label="状态" width="100" align="center">
                 <template #default="{ row }">
                   <el-tag :type="getStatusType(row.status)" size="small">{{ getStatusText(row.status) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="engine" :label="$t('uiAutomation.execution.testEngine')" width="120" align="center">
-                <template #default="{ row }">
-                  {{ getEngineText(row.engine) }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="headless" :label="$t('uiAutomation.execution.executionMode')" width="100" align="center">
-                <template #default="{ row }">
-                  {{ row.headless ? $t('uiAutomation.execution.headlessMode') : $t('uiAutomation.execution.headedMode') }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="browser" :label="$t('uiAutomation.execution.browserFilter')" width="100" align="center">
-                <template #default="{ row }">
-                  {{ getBrowserText(row.browser) }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="created_by_name" :label="$t('uiAutomation.execution.executor')" width="120" align="center" />
-              <el-table-column prop="started_at" :label="$t('uiAutomation.execution.startTime')" width="180" align="center">
+
+              <!-- 执行时间列 -->
+              <el-table-column label="执行时间" width="180" align="center">
                 <template #default="{ row }">
                   {{ formatDateTime(row.started_at) }}
                 </template>
               </el-table-column>
-              <el-table-column prop="finished_at" :label="$t('uiAutomation.execution.endTime')" width="180" align="center">
+
+              <!-- 耗时列 -->
+              <el-table-column label="耗时" width="120" align="center">
                 <template #default="{ row }">
-                  {{ formatDateTime(row.finished_at) }}
+                  <span v-if="row.duration != null">{{ formatDuration(row.duration) }}</span>
+                  <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('uiAutomation.execution.duration')" width="120" align="center">
+
+              <!-- 通过率列（仅计划/套件） -->
+              <el-table-column label="通过率" width="100" align="center">
                 <template #default="{ row }">
-                  {{ formatDuration(row.execution_time) }}
+                  <span v-if="row.total_cases != null && row.total_cases > 0">
+                    {{ row.passed_cases || 0 }}/{{ row.total_cases }}
+                  </span>
+                  <span v-else>-</span>
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('uiAutomation.common.operation')" width="160" fixed="right">
+
+              <!-- 执行人列 -->
+              <el-table-column prop="executed_by" label="执行人" width="120" align="center" />
+
+              <!-- 操作列 -->
+              <el-table-column label="操作" width="160" fixed="right">
                 <template #default="{ row }">
-                  <ActionCell :actions="getExecutionActions(row)" :row="row" :max-visible="3" />
+                  <ActionCell :actions="getActions(row)" :row="row" :max-visible="3" />
                 </template>
               </el-table-column>
             </el-table>
@@ -142,31 +224,31 @@
     </div>
 
     <!-- 执行详情对话框 -->
-    <el-dialog v-model="showDetailDialog" :title="$t('uiAutomation.execution.executionDetail')" width="900px">
+    <el-dialog v-model="showDetailDialog" title="执行详情" width="900px">
       <div v-if="currentExecution" class="execution-detail">
         <!-- 基本信息 -->
         <el-descriptions :column="2" border>
-          <el-descriptions-item :label="$t('uiAutomation.execution.caseName')">{{ currentExecution.test_case_name }}</el-descriptions-item>
-          <el-descriptions-item :label="$t('uiAutomation.execution.statusFilter')">
+          <el-descriptions-item label="用例名称">{{ currentExecution.name }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
             <el-tag :type="getStatusType(currentExecution.status)">{{ getStatusText(currentExecution.status) }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('uiAutomation.execution.browserFilter')">{{ getBrowserText(currentExecution.browser) }}</el-descriptions-item>
-          <el-descriptions-item :label="$t('uiAutomation.execution.executor')">{{ currentExecution.created_by_name }}</el-descriptions-item>
-          <el-descriptions-item :label="$t('uiAutomation.execution.startTime')">{{ formatDateTime(currentExecution.started_at) }}</el-descriptions-item>
-          <el-descriptions-item :label="$t('uiAutomation.execution.endTime')">{{ formatDateTime(currentExecution.finished_at) }}</el-descriptions-item>
-          <el-descriptions-item :label="$t('uiAutomation.execution.duration')" :span="2">{{ formatDuration(currentExecution.execution_time) }}</el-descriptions-item>
+          <el-descriptions-item label="浏览器">{{ getBrowserText(currentExecution.browser) }}</el-descriptions-item>
+          <el-descriptions-item label="执行人">{{ currentExecution.executed_by }}</el-descriptions-item>
+          <el-descriptions-item label="开始时间">{{ formatDateTime(currentExecution.started_at) }}</el-descriptions-item>
+          <el-descriptions-item label="结束时间">{{ formatDateTime(currentExecution.finished_at) }}</el-descriptions-item>
+          <el-descriptions-item label="耗时" :span="2">{{ formatDuration(currentExecution.duration) }}</el-descriptions-item>
         </el-descriptions>
 
         <!-- 执行结果选项卡 -->
         <el-tabs v-model="activeTab" class="execution-tabs" style="margin-top: 20px;">
-          <!-- 执行日志 - 所有状态都显示 -->
-          <el-tab-pane :label="$t('uiAutomation.execution.executionLogs')" name="logs">
+          <!-- 执行日志 -->
+          <el-tab-pane label="执行日志" name="logs">
             <div class="logs-container">
               <div v-if="currentExecution.execution_logs">
                 <div v-for="(step, index) in parseExecutionLogs(currentExecution.execution_logs)" :key="index" class="log-item">
                   <div class="log-header">
                     <el-tag :type="step.success ? 'success' : 'danger'" size="small">
-                      {{ $t('uiAutomation.execution.step') }} {{ step.step_number }}
+                      步骤 {{ step.step_number }}
                     </el-tag>
                     <span class="log-action">{{ getActionText(step.action_type) }}</span>
                     <span class="log-desc">{{ step.description }}</span>
@@ -177,17 +259,16 @@
                   </div>
                 </div>
               </div>
-              <el-empty v-else :description="$t('uiAutomation.execution.noLogs')" />
+              <el-empty v-else description="暂无执行日志" />
             </div>
           </el-tab-pane>
 
-          <!-- 失败截图 - 仅失败或错误状态显示 -->
-          <el-tab-pane :label="$t('uiAutomation.execution.failedScreenshots')" name="screenshots" v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'">
+          <!-- 失败截图 -->
+          <el-tab-pane label="失败截图" name="screenshots" v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'">
             <div class="screenshots-container">
               <div v-if="currentExecution.screenshots && currentExecution.screenshots.length > 0">
                 <div v-for="(screenshot, index) in currentExecution.screenshots" :key="index" class="screenshot-item">
-                  <h5>{{ screenshot.description || `${$t('uiAutomation.execution.screenshot')} ${index + 1}` }}</h5>
-                  <!-- 检查截图URL是否有效 -->
+                  <h5>{{ screenshot.description || `截图 ${index + 1}` }}</h5>
                   <div v-if="screenshot.url" class="screenshot-wrapper">
                     <img
                       :src="screenshot.url"
@@ -198,43 +279,43 @@
                   </div>
                   <div v-else class="screenshot-error">
                     <el-icon><WarningFilled /></el-icon>
-                    <span>{{ $t('uiAutomation.execution.screenshotFailed') }}{{ screenshot.error || $t('uiAutomation.execution.unknownReason') }}</span>
+                    <span>截图加载失败{{ screenshot.error || '未知原因' }}</span>
                   </div>
                   <p class="screenshot-time">{{ formatDateTime(screenshot.timestamp) }}</p>
                 </div>
               </div>
-              <el-empty v-else :description="$t('uiAutomation.execution.noScreenshots')" />
+              <el-empty v-else description="暂无截图" />
             </div>
           </el-tab-pane>
 
-          <!-- 错误信息 - 仅失败或错误状态显示 -->
-          <el-tab-pane :label="$t('uiAutomation.execution.errorInfo')" name="error" v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'">
+          <!-- 错误信息 -->
+          <el-tab-pane label="错误信息" name="error" v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'">
             <div class="errors-container">
               <div v-if="currentExecution.error_message" class="error-item">
                 <div class="error-content">
                   <pre class="error-text">{{ currentExecution.error_message }}</pre>
                 </div>
               </div>
-              <el-empty v-else :description="$t('uiAutomation.execution.noError')" />
+              <el-empty v-else description="暂无错误信息" />
             </div>
           </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
-        <el-button @click="showDetailDialog = false">{{ $t('uiAutomation.common.close') }}</el-button>
+        <el-button @click="showDetailDialog = false">关闭</el-button>
       </template>
     </el-dialog>
 
     <!-- 重跑测试用例对话框 -->
-    <el-dialog v-model="showRerunDialogVisible" :title="$t('uiAutomation.execution.rerunTitle')" width="500px">
+    <el-dialog v-model="showRerunDialogVisible" title="重新运行" width="500px">
       <el-form :model="rerunFormData" label-width="100px">
-        <el-form-item :label="$t('uiAutomation.execution.testEngine')">
+        <el-form-item label="测试引擎">
           <el-radio-group v-model="rerunFormData.engine">
             <el-radio label="playwright">Playwright</el-radio>
             <el-radio label="selenium">Selenium</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item :label="$t('uiAutomation.execution.browserFilter')">
+        <el-form-item label="浏览器">
           <el-select v-model="rerunFormData.browser" style="width: 100%">
             <el-option label="Chrome" value="chrome" />
             <el-option label="Firefox" value="firefox" />
@@ -242,16 +323,16 @@
             <el-option label="Edge" value="edge" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="$t('uiAutomation.execution.executionMode')">
+        <el-form-item label="执行模式">
           <el-radio-group v-model="rerunFormData.headless">
-            <el-radio :label="false">{{ $t('uiAutomation.execution.headedMode') }}</el-radio>
-            <el-radio :label="true">{{ $t('uiAutomation.execution.headlessMode') }}</el-radio>
+            <el-radio :label="false">有头模式</el-radio>
+            <el-radio :label="true">无头模式</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showRerunDialogVisible = false">{{ $t('uiAutomation.common.cancel') }}</el-button>
-        <el-button type="primary" @click="handleRerun" :loading="rerunning">{{ $t('uiAutomation.execution.confirmRerun') }}</el-button>
+        <el-button @click="showRerunDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleRerun" :loading="rerunning">确认重跑</el-button>
       </template>
     </el-dialog>
   </div>
@@ -260,18 +341,16 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, View, WarningFilled, Refresh } from '@element-plus/icons-vue'
-import { useI18n } from 'vue-i18n'
+import { Search, WarningFilled, ArrowRight, Loading } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
 import {
-  getTestCaseExecutions,
+  getExecutionUnifiedList,
+  getExecutionChildren,
   getUiProjects,
+  getTestCaseExecutionDetail,
   deleteTestCaseExecution,
-  batchDeleteTestCaseExecutions,
   runTestCase
 } from '@/api/ui_automation'
-
-const { t } = useI18n()
 
 // 项目和执行数据
 const projects = ref([])
@@ -286,12 +365,13 @@ const pagination = reactive({
 
 // 搜索和筛选
 const queryParams = reactive({
-  project: undefined,
   search: '',
   status: '',
   browser: ''
 })
-const selectedIds = ref([])
+
+// 展开控制
+const expandedKeys = ref([])
 
 // 详情对话框相关
 const showDetailDialog = ref(false)
@@ -323,28 +403,9 @@ const formatDateTime = (dateString) => {
   })
 }
 
-// 处理图片加载错误
-const handleImageError = (event, screenshot) => {
-  console.error('Screenshot load failed:', screenshot)
-  const img = event.target
-  img.style.display = 'none'
-  // Show error message after image
-  const errorDiv = img.parentElement.querySelector('.img-load-error')
-  if (!errorDiv) {
-    const div = document.createElement('div')
-    div.className = 'img-load-error'
-    div.innerHTML = `
-      <i class="el-icon-warning"></i>
-      <span>${t('uiAutomation.execution.imageLoadFailed')}</span>
-    `
-    img.parentElement.appendChild(div)
-  }
-}
-
-// 格式化持续时间（execution_time单位是秒）
+// 格式化持续时间
 const formatDuration = (seconds) => {
-  if (!seconds && seconds !== 0) return '-'
-
+  if (seconds == null) return '-'
   const totalSeconds = Math.floor(seconds)
   const hours = Math.floor(totalSeconds / 3600)
   const minutes = Math.floor((totalSeconds % 3600) / 60)
@@ -375,11 +436,11 @@ const getStatusType = (status) => {
 // 获取状态文本
 const getStatusText = (status) => {
   const statusMap = {
-    'pending': t('uiAutomation.status.pending'),
-    'running': t('uiAutomation.status.running'),
-    'passed': t('uiAutomation.status.passed'),
-    'failed': t('uiAutomation.status.failed'),
-    'error': t('uiAutomation.status.error'),
+    'pending': '待执行',
+    'running': '执行中',
+    'passed': '通过',
+    'failed': '失败',
+    'error': '错误',
     'skipped': '跳过'
   }
   return statusMap[status] || status
@@ -396,28 +457,19 @@ const getBrowserText = (browser) => {
   return browserMap[browser] || browser || 'Chrome'
 }
 
-// 获取测试引擎文本
-const getEngineText = (engine) => {
-  const engineMap = {
-    'playwright': 'Playwright',
-    'selenium': 'Selenium'
-  }
-  return engineMap[engine] || engine || 'Playwright'
-}
-
 // 获取操作类型文本
 const getActionText = (actionType) => {
   const actionMap = {
-    'click': t('uiAutomation.actionTypes.click'),
-    'fill': t('uiAutomation.actionTypes.fill'),
-    'select': '选择下拉选项',
-    'getText': t('uiAutomation.actionTypes.getText'),
-    'waitFor': t('uiAutomation.actionTypes.waitFor'),
-    'hover': t('uiAutomation.actionTypes.hover'),
-    'scroll': t('uiAutomation.actionTypes.scroll'),
-    'screenshot': t('uiAutomation.actionTypes.screenshot'),
-    'assert': t('uiAutomation.actionTypes.assert'),
-    'wait': t('uiAutomation.actionTypes.wait'),
+    'click': '点击',
+    'fill': '输入',
+    'select': '选择',
+    'getText': '获取文本',
+    'waitFor': '等待元素',
+    'hover': '悬停',
+    'scroll': '滚动',
+    'screenshot': '截图',
+    'assert': '断言',
+    'wait': '等待',
     'navigate': '路由跳转'
   }
   return actionMap[actionType] || actionType
@@ -434,13 +486,19 @@ const parseExecutionLogs = (logs) => {
   }
 }
 
+// 处理图片加载错误
+const handleImageError = (event) => {
+  const img = event.target
+  img.style.display = 'none'
+}
+
 // 加载项目列表
 const loadProjects = async () => {
   try {
     const response = await getUiProjects({ page_size: 100 })
     projects.value = response.data.results || response.data
   } catch (error) {
-    ElMessage.error(t('uiAutomation.project.messages.loadFailed'))
+    ElMessage.error('获取项目列表失败')
     console.error('获取项目列表失败:', error)
   }
 }
@@ -455,21 +513,88 @@ const loadExecutions = async () => {
       ...queryParams
     }
 
-    // 添加项目筛选
     if (projectId.value) {
       params.project = projectId.value
-    } else {
-      params.project = undefined // Ensure project is undefined if not selected
     }
 
-    const response = await getTestCaseExecutions(params)
-    executions.value = response.data.results || response.data
-    total.value = response.data.count || executions.value.length
+    const response = await getExecutionUnifiedList(params)
+    const results = response.data.results || []
+    // 为每条记录添加内部状态
+    executions.value = results.map(item => ({
+      ...item,
+      _children: null,
+      _loadingChildren: false,
+    }))
+    total.value = response.data.count || 0
+    // 清空展开状态
+    expandedKeys.value = []
   } catch (error) {
-    ElMessage.error(t('uiAutomation.execution.messages.loadFailed'))
+    ElMessage.error('获取执行列表失败')
     console.error('获取执行列表失败:', error)
   } finally {
     loading.value = false
+  }
+}
+
+// 处理展开/收起
+const handleExpandChange = async (row, expandedRows) => {
+  if (!row.has_children) return
+
+  const isExpanding = expandedRows.some(r => r.id === row.id)
+  if (isExpanding) {
+    // 展开时加载子项
+    expandedKeys.value = [row.id]
+    await loadChildren(row)
+  } else {
+    expandedKeys.value = expandedKeys.value.filter(id => id !== row.id)
+  }
+}
+
+// 行类名（用于隐藏用例行的展开图标）
+const getRowClassName = ({ row }) => {
+  return row.item_type === 'case' ? 'row-case' : ''
+}
+
+// 加载子项数据
+const loadChildren = async (row) => {
+  if (row._children) return // 已加载过
+
+  row._loadingChildren = true
+  try {
+    const response = await getExecutionChildren(row.raw_id)
+    const items = response.data.items || []
+    // 为子项添加内部状态
+    row._children = items.map(item => ({
+      ...item,
+      _expanded: false,
+    }))
+  } catch (error) {
+    console.error('加载子项失败:', error)
+    ElMessage.error('加载子项失败')
+    row._children = []
+  } finally {
+    row._loadingChildren = false
+  }
+}
+
+// 切换套件子项展开
+const toggleSuiteChildren = (parentRow, suiteChild) => {
+  suiteChild._expanded = !suiteChild._expanded
+}
+
+// 查看用例执行详情
+const viewCaseDetail = async (child) => {
+  // 子项数据来自children API，需要加载完整详情
+  try {
+    const rawId = child.raw_id
+    if (!rawId) return
+    const response = await getTestCaseExecutionDetail(rawId)
+    currentExecution.value = response.data
+    activeTab.value = 'logs'
+    showDetailDialog.value = true
+  } catch (error) {
+    console.error('获取执行详情失败:', error)
+    ElMessage.error('获取执行详情失败')
   }
 }
 
@@ -510,70 +635,47 @@ const handleCurrentChange = (val) => {
   loadExecutions()
 }
 
-// 表格多选
-const handleSelectionChange = (selection) => {
-  selectedIds.value = selection.map(item => item.id)
-}
-
-// 删除单个执行记录
+// 删除执行记录
 const handleDelete = (row) => {
-  ElMessageBox.confirm(t('uiAutomation.execution.messages.deleteConfirm'), t('uiAutomation.messages.confirm.tip'), {
-    confirmButtonText: t('uiAutomation.common.confirm'),
-    cancelButtonText: t('uiAutomation.common.cancel'),
+  ElMessageBox.confirm('确认删除此执行记录？', '提示', {
+    confirmButtonText: '确认',
+    cancelButtonText: '取消',
     type: 'warning'
   }).then(async () => {
     try {
-      await deleteTestCaseExecution(row.id)
-      ElMessage.success(t('uiAutomation.execution.messages.deleteSuccess'))
+      if (row.item_type === 'case') {
+        await deleteTestCaseExecution(row.raw_id)
+      }
+      ElMessage.success('删除成功')
       loadExecutions()
     } catch (error) {
       console.error('删除失败:', error)
-      ElMessage.error(t('uiAutomation.execution.messages.deleteFailed'))
+      ElMessage.error('删除失败')
     }
   })
-}
-
-// 批量删除执行记录
-const handleBatchDelete = () => {
-  if (selectedIds.value.length === 0) return
-
-  ElMessageBox.confirm(t('uiAutomation.execution.messages.batchDeleteConfirm', { count: selectedIds.value.length }), t('uiAutomation.messages.confirm.tip'), {
-    confirmButtonText: t('uiAutomation.common.confirm'),
-    cancelButtonText: t('uiAutomation.common.cancel'),
-    type: 'warning'
-  }).then(async () => {
-    try {
-      await batchDeleteTestCaseExecutions(selectedIds.value)
-      ElMessage.success(t('uiAutomation.execution.messages.batchDeleteSuccess'))
-      selectedIds.value = []
-      loadExecutions()
-    } catch (error) {
-      console.error('批量删除失败:', error)
-      ElMessage.error(t('uiAutomation.execution.messages.batchDeleteFailed'))
-    }
-  })
-}
-
-// 查看执行详情
-const viewExecutionDetail = (execution) => {
-  currentExecution.value = execution
-  activeTab.value = 'logs'
-  showDetailDialog.value = true
 }
 
 // 显示重跑对话框
 const showRerunDialog = (execution) => {
-  rerunFormData.testCaseId = execution.test_case
-  rerunFormData.engine = execution.engine || 'playwright'
-  rerunFormData.browser = execution.browser || 'chrome'
-  rerunFormData.headless = execution.headless || false
-  showRerunDialogVisible.value = true
+  // 从统一列表中的用例行，或从子项用例
+  if (execution.item_type === 'case') {
+    // 需要获取test_case_id
+    const testCaseId = execution.raw_id // 对于case类型，raw_id是TestCaseExecution的id
+    // 但runTestCase需要的是test_case的id，从详情中获取
+    getTestCaseExecutionDetail(execution.raw_id).then(res => {
+      rerunFormData.testCaseId = res.data.test_case
+      rerunFormData.engine = res.data.engine || 'playwright'
+      rerunFormData.browser = res.data.browser || 'chrome'
+      rerunFormData.headless = res.data.headless || false
+      showRerunDialogVisible.value = true
+    })
+  }
 }
 
 // 执行重跑
 const handleRerun = async () => {
   if (!rerunFormData.testCaseId) {
-    ElMessage.error(t('uiAutomation.execution.messages.invalidCaseId'))
+    ElMessage.error('无效的用例ID')
     return
   }
 
@@ -585,25 +687,21 @@ const handleRerun = async () => {
       headless: rerunFormData.headless
     })
 
-    // 无论成功失败，都关闭弹框并刷新列表
     showRerunDialogVisible.value = false
 
-    // 延迟一下再刷新，确保后端已经保存完成
     setTimeout(async () => {
       await loadExecutions()
     }, 500)
 
-    // 根据返回结果显示消息
     if (response.data.success) {
-      ElMessage.success(t('uiAutomation.execution.messages.rerunSuccess'))
+      ElMessage.success('重跑成功')
     } else {
-      ElMessage.warning(t('uiAutomation.execution.messages.rerunCompleteWithFailure') + ': ' + (response.data.errors?.[0]?.message || t('uiAutomation.execution.messages.viewDetails')))
+      ElMessage.warning('重跑完成，但有失败')
     }
   } catch (error) {
     showRerunDialogVisible.value = false
-    ElMessage.error(t('uiAutomation.execution.messages.rerunFailed') + ': ' + (error.response?.data?.message || error.message || t('uiAutomation.messages.error.unknown')))
+    ElMessage.error('重跑失败: ' + (error.response?.data?.message || error.message || '未知错误'))
     console.error('重跑失败:', error)
-    // 即使失败也刷新列表，因为可能已经创建了执行记录
     setTimeout(async () => {
       await loadExecutions()
     }, 500)
@@ -612,13 +710,20 @@ const handleRerun = async () => {
   }
 }
 
-// 组件挂载时加载数据
-// 操作列 actions
-const getExecutionActions = (row) => [
-  { key: 'detail', label: t('uiAutomation.common.details'), onClick: (r) => viewExecutionDetail(r) },
-  { key: 'rerun', label: t('uiAutomation.common.rerun'), hidden: row.status !== 'failed' && row.status !== 'error', onClick: (r) => showRerunDialog(r) },
-  { key: 'delete', label: t('uiAutomation.common.delete'), danger: true, onClick: (r) => handleDelete(r) }
-]
+// 操作列按钮
+const getActions = (row) => {
+  const actions = []
+  if (row.item_type === 'case') {
+    actions.push({ key: 'detail', label: '详情', onClick: (r) => viewCaseDetail(r) })
+    actions.push({
+      key: 'rerun', label: '重跑',
+      hidden: row.status !== 'failed' && row.status !== 'error',
+      onClick: (r) => showRerunDialog(r)
+    })
+    actions.push({ key: 'delete', label: '删除', danger: true, onClick: (r) => handleDelete(r) })
+  }
+  return actions
+}
 
 onMounted(async () => {
   await loadProjects()
@@ -633,7 +738,7 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 /* ============================================================
-   页面容器 / 标题栏 / 工作区（参照套件管理）
+   页面容器 / 标题栏 / 工作区
    ============================================================ */
 .page-container {
   height: 100%;
@@ -732,6 +837,121 @@ onMounted(async () => {
   background: var(--gray-50) !important;
 }
 
+/* 展开区域样式 — CSS Grid 对齐表头列 */
+.expand-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  color: var(--gray-400);
+  font-size: 13px;
+}
+
+.expand-content {
+  padding: 0;
+  padding-left: 50px; /* 偏移展开列宽度，使子项名称与父级名称列对齐 */
+}
+
+.child-grid-row {
+  display: grid;
+  /* 8列与表头对齐：名称 / 类型(100) / 状态(100) / 执行时间(180) / 耗时(120) / 通过率(100) / 执行人(120) / 操作(160) */
+  grid-template-columns: minmax(200px, 1fr) 100px 100px 180px 120px 100px 120px 160px;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--gray-800);
+  cursor: default;
+  min-height: 36px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.child-grid-row:last-child {
+  border-bottom: none;
+}
+
+/* 套件行 — 左侧蓝色竖条标记层级 */
+.child-suite > .child-grid-row {
+  border-left: 3px solid #409eff;
+  cursor: pointer;
+  &:hover {
+    background: #f5f7fa;
+  }
+}
+
+/* 计划下的独立用例行 — 左侧灰色竖条 */
+.expand-content > .sub-case-row {
+  border-left: 3px solid var(--gray-300, #d0d0d0);
+}
+
+.sub-case-row {
+  cursor: pointer;
+  &:hover {
+    background: var(--gray-50);
+  }
+}
+
+/* 套件内三级用例行 — 浅灰背景 + 左侧虚线竖条 */
+.suite-children .sub-case-row {
+  background: #fafbfc;
+  border-left: 3px dashed var(--gray-300, #d0d0d0);
+  &:hover {
+    background: #f3f5f7;
+  }
+}
+
+.cg-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cg-center {
+  text-align: center;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
+.child-suite {
+  display: flex;
+  flex-direction: column;
+  margin: 4px 0;
+}
+
+.suite-children {
+  margin-left: 3px;  /* 与套件行左侧蓝色竖条对齐 */
+  border-left: none;
+  background: #fafbfc;
+}
+
+.expand-icon {
+  transition: transform 0.2s;
+  font-size: 12px;
+  color: var(--gray-400);
+  flex-shrink: 0;
+
+  &.is-expanded {
+    transform: rotate(90deg);
+  }
+}
+
+.name-text {
+  font-size: 13px;
+  color: var(--gray-800);
+}
+
+/* 隐藏用例行的展开图标 */
+.list-panel :deep(.el-table .el-table__expanded-cell) {
+  padding: 0;
+}
+
+.list-panel :deep(.el-table .row-case .el-table__expand-icon) {
+  visibility: hidden;
+}
+
 /* 分页 */
 .pagination-container {
   display: flex;
@@ -743,23 +963,7 @@ onMounted(async () => {
   background: var(--gray-0);
 }
 
-/* 操作按钮 */
-.op-btns {
-  display: flex;
-  align-items: center;
-  gap: 0;
-}
-
-.op-btn {
-  --el-button-text-color: var(--brand-500, #4f8cff);
-  padding: 2px 4px !important;
-  border-radius: var(--radius-sm, 6px);
-}
-
-.op-btn--danger {
-  --el-button-text-color: #f56c6c;
-}
-
+/* 执行详情弹窗样式 */
 .execution-detail {
   .execution-tabs {
     margin-top: 20px;
@@ -802,7 +1006,7 @@ onMounted(async () => {
 
       .log-error {
         display: flex;
-        align-items: flex-start;  /* 改为 flex-start，适配多行文本 */
+        align-items: flex-start;
         gap: 8px;
         color: #f56c6c;
         background: #fef0f0;
@@ -817,14 +1021,14 @@ onMounted(async () => {
           font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
           font-size: 13px;
           line-height: 1.6;
-          white-space: pre-wrap;  /* 保留换行符和空格 */
-          word-break: break-word;  /* 长单词换行 */
+          white-space: pre-wrap;
+          word-break: break-word;
           flex: 1;
         }
 
         .el-icon {
-          margin-top: 2px;  /* 图标与文本顶部对齐 */
-          flex-shrink: 0;  /* 图标不缩小 */
+          margin-top: 2px;
+          flex-shrink: 0;
         }
       }
     }
@@ -872,23 +1076,6 @@ onMounted(async () => {
         }
       }
 
-      .img-load-error {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 20px;
-        background: #fff7e6;
-        color: #e6a23c;
-        border: 1px solid #f5dab1;
-        border-radius: 4px;
-        font-size: 14px;
-        margin-top: 10px;
-
-        i {
-          font-size: 16px;
-        }
-      }
-
       .screenshot-time {
         margin: 10px 0 0 0;
         color: #909399;
@@ -932,21 +1119,6 @@ onMounted(async () => {
     white-space: pre-wrap;
     word-wrap: break-word;
     overflow-x: auto;
-  }
-
-  .error-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 15px;
-    padding-bottom: 15px;
-    border-bottom: 1px solid #f5f5f5;
-  }
-
-  .error-header .el-tag {
-    font-size: 16px;
-    padding: 10px 15px;
-    font-weight: 600;
   }
 }
 </style>
