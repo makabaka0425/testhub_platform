@@ -1192,6 +1192,7 @@ class UiTestPlanSerializer(serializers.ModelSerializer):
     login_config_name = serializers.CharField(source='login_config.name', read_only=True, default='')
     execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True, default='')
+    last_execution_time = serializers.SerializerMethodField()
 
     class Meta:
         model = UiTestPlan
@@ -1200,6 +1201,11 @@ class UiTestPlanSerializer(serializers.ModelSerializer):
 
     def get_plan_item_count(self, obj):
         return obj.plan_items.count()
+
+    def get_last_execution_time(self, obj):
+        from .models import TestExecution
+        last_exec = TestExecution.objects.filter(test_plan=obj).order_by('-started_at').first()
+        return last_exec.started_at.isoformat() if last_exec and last_exec.started_at else None
 
 
 class UiTestPlanCreateSerializer(serializers.ModelSerializer):
