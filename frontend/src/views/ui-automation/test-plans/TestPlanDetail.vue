@@ -79,10 +79,13 @@
 
         <!-- 最近执行历史 -->
         <div class="panel-card">
-          <div class="panel-title">执行历史</div>
+          <div class="panel-title-row">
+            <div class="panel-title">执行历史</div>
+            <el-button v-if="executionHistory.length > 0" link type="primary" size="small" @click="openRecordsDialog">查看全部</el-button>
+          </div>
           <div v-if="executionHistory.length === 0" class="empty-text">暂无执行记录</div>
           <div v-else class="history-list">
-            <div v-for="record in executionHistory.slice(0, 5)" :key="record.id" class="history-item">
+            <div v-for="record in executionHistory.slice(0, 5)" :key="record.id" class="history-item" @click="openRecordsDialog">
               <el-tag size="small" :type="getHistoryStatusTag(record.status)">{{ getHistoryStatusText(record.status) }}</el-tag>
               <span class="history-time">{{ formatDate(record.started_at) }}</span>
               <span class="history-result">{{ record.passed_cases || 0 }}/{{ record.total_cases || 0 }}</span>
@@ -259,19 +262,207 @@
         <el-button type="primary" @click="confirmRun" :loading="runLoading">执行</el-button>
       </template>
     </el-dialog>
+
+    <!-- ==================== 执行记录弹窗 ==================== -->
+    <el-dialog v-model="showRecordsDialog" :title="`执行记录 - ${plan.name}`" width="860px" :close-on-click-modal="false" class="plan-records-dialog">
+      <div v-loading="recordsLoading" class="plan-records-body">
+        <el-empty v-if="!recordsLoading && planExecutionRecords.length === 0" description="暂无执行记录" :image-size="60" />
+        <el-collapse v-model="expandedRecords" v-if="planExecutionRecords.length > 0">
+          <el-collapse-item v-for="record in planExecutionRecords" :key="record.id" :name="record.id">
+            <template #title>
+              <div class="record-header">
+                <span class="record-status" :class="`status-${record.status?.toLowerCase()}`">{{ getExecStatusText(record.status) }}</span>
+                <span class="record-time">{{ formatRecordTime(record.started_at) }}</span>
+                <span class="record-duration" v-if="record.duration">{{ record.duration.toFixed(1) }}s</span>
+                <span class="record-stats">
+                  <span class="stat-passed" v-if="record.passed_cases">通过{{ record.passed_cases }}</span>
+                  <span class="stat-failed" v-if="record.failed_cases">失败{{ record.failed_cases }}</span>
+                  <span class="stat-skipped" v-if="record.skipped_cases">跳过{{ record.skipped_cases }}</span>
+                </span>
+                <span class="record-executor">{{ record.executed_by }}</span>
+              </div>
+            </template>
+
+            <!-- 按计划项组织：套件可折叠，单用例平铺 -->
+            <div class="record-items">
+              <template v-for="(item, idx) in record.items" :key="idx">
+                <!-- 套件项 -->
+                <div v-if="item.item_type === 'test_suite'" class="record-suite">
+                  <div class="record-suite-header" @click="toggleSuiteExpand(record.id, item.suite_id)">
+                    <el-tag size="small" type="warning">套件</el-tag>
+                    <span class="record-suite-name">{{ item.suite_name }}</span>
+                    <span class="record-suite-count">{{ item.cases?.length || 0 }} 个用例</span>
+                    <el-icon class="suite-expand-icon" :class="{ 'is-expanded': isSuiteExpanded(record.id, item.suite_id) }"><ArrowRight /></el-icon>
+                  </div>
+                  <el-table v-show="isSuiteExpanded(record.id, item.suite_id)" :data="item.cases" size="small" style="width: 100%">
+                    <el-table-column type="index" label="#" width="45" />
+                    <el-table-column prop="test_case_name" label="用例名称" min-width="180" show-overflow-tooltip />
+                    <el-table-column label="状态" width="70" align="center">
+                      <template #default="{ row }">
+                        <span class="status-tag" :class="`status-${row.status}`">{{ getCaseExecStatusText(row.status) }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="时长" width="80" align="center">
+                      <template #default="{ row }">
+                        <span v-if="row.execution_time">{{ row.execution_time.toFixed(2) }}s</span>
+                        <span v-else style="color: #9ca3af">-</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="80" align="center">
+                      <template #default="{ row }">
+                        <el-button link type="primary" size="small" @click="viewCaseExecDetail(row)">详情</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </div>
+
+                <!-- 单用例项 -->
+                <div v-else class="record-case-row">
+                  <el-tag size="small" type="info">用例</el-tag>
+                  <span class="record-case-name">{{ item.test_case_name }}</span>
+                  <span class="status-tag" :class="`status-${item.status}`">{{ getCaseExecStatusText(item.status) }}</span>
+                  <span class="record-case-time" v-if="item.execution_time">{{ item.execution_time.toFixed(2) }}s</span>
+                  <el-button link type="primary" size="small" @click="viewCaseExecDetail(item)" style="margin-left: auto">详情</el-button>
+                </div>
+              </template>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+    </el-dialog>
+
+    <!-- ==================== 用例执行详情弹窗 ==================== -->
+    <el-dialog v-model="caseDetailVisible" title="执行记录详情" width="680px" destroy-on-close append-to-body class="history-detail-dialog">
+      <div v-if="caseDetailData" v-loading="caseDetailLoading" class="history-detail-inner">
+        <div class="history-detail-header">
+          <el-descriptions :column="3" size="small" border>
+            <el-descriptions-item label="状态">
+              <el-tag :type="getCaseExecTagType(caseDetailData.status)" size="small">{{ getCaseExecStatusText(caseDetailData.status) }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="时长">{{ caseDetailData.execution_time ? caseDetailData.execution_time.toFixed(1) + 's' : '-' }}</el-descriptions-item>
+            <el-descriptions-item label="测试引擎">{{ getEngineText(caseDetailData.engine) }}</el-descriptions-item>
+            <el-descriptions-item label="浏览器">{{ caseDetailData.browser || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="开始时间">{{ formatRecordTime(caseDetailData.started_at) }}</el-descriptions-item>
+            <el-descriptions-item label="结束时间">{{ formatRecordTime(caseDetailData.finished_at) }}</el-descriptions-item>
+          </el-descriptions>
+        </div>
+        <div class="history-detail-tabs">
+          <el-tabs v-model="caseDetailActiveTab">
+            <el-tab-pane label="执行日志" name="logs">
+              <div class="history-detail-scroll">
+                <div class="history-detail-logs" v-if="caseDetailData.parsedLogs">
+                  <div v-for="(step, index) in (Array.isArray(caseDetailData.parsedLogs) ? caseDetailData.parsedLogs : caseDetailData.parsedLogs.steps || [])" :key="index" class="log-item">
+                    <div class="log-header">
+                      <el-tag :type="step.success ? 'success' : 'danger'" size="small">
+                        <template v-if="step.step_number === 'sql'">
+                          <span style="display: inline-flex; align-items: center; gap: 4px;">SQL</span>
+                        </template>
+                        <template v-else>步骤 {{ step.step_number }}</template>
+                      </el-tag>
+                      <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
+                      <span class="log-desc">{{ step.description }}</span>
+                      <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
+                    </div>
+                    <div v-if="step.error" class="log-error">
+                      <pre class="error-message">{{ step.error }}</pre>
+                    </div>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无执行日志" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="SQL执行" name="sql" v-if="caseDetailSqlExecs.length > 0">
+              <div class="history-detail-scroll">
+                <div class="sql-exec-list">
+                  <div v-for="(sqlExec, idx) in caseDetailSqlExecs" :key="idx" class="sql-exec-item">
+                    <div class="sql-exec-header">
+                      <el-tag :type="sqlExec.type === 'precondition' ? 'warning' : sqlExec.type === 'precondition_case' ? 'success' : 'info'" size="small">{{ sqlExec.label }}</el-tag>
+                      <el-tag :type="sqlExec.success ? 'success' : 'danger'" size="small">{{ sqlExec.success ? '执行成功' : '执行失败' }}</el-tag>
+                      <span v-if="sqlExec.executed && sqlExec.total_affected !== undefined" class="sql-affected">影响 {{ sqlExec.total_affected }} 行</span>
+                    </div>
+                    <div v-if="sqlExec.error" class="sql-exec-error">
+                      <pre class="error-message">{{ sqlExec.error }}</pre>
+                    </div>
+                    <div v-if="sqlExec.original_sql" class="sql-block">
+                      <div class="sql-block-label">原始SQL{{ sqlExec.original_sql !== sqlExec.resolved_sql ? '（含变量）' : '' }}：</div>
+                      <pre class="sql-code">{{ sqlExec.original_sql }}</pre>
+                    </div>
+                    <div v-if="sqlExec.resolved_sql && sqlExec.resolved_sql !== sqlExec.original_sql" class="sql-block">
+                      <div class="sql-block-label">解析后SQL：</div>
+                      <pre class="sql-code sql-resolved">{{ sqlExec.resolved_sql }}</pre>
+                    </div>
+                    <div v-if="sqlExec.details && sqlExec.details.length > 0" class="sql-details">
+                      <div class="sql-details-label">执行明细：</div>
+                      <div v-for="(detail, di) in sqlExec.details" :key="di" class="sql-detail-row">
+                        <span :class="['sql-detail-status', detail.error ? 'fail' : 'ok']">{{ detail.error ? '✗' : '✓' }}</span>
+                        <pre class="sql-detail-code">{{ detail.sql }}</pre>
+                        <span v-if="detail.affected !== undefined" class="sql-detail-affected">影响 {{ detail.affected }} 行</span>
+                        <span v-if="detail.error" class="sql-detail-error">{{ detail.error }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="失败截图" name="screenshots" v-if="caseDetailData.screenshots && caseDetailData.screenshots.length > 0">
+              <div class="history-detail-scroll">
+                <div class="history-detail-screenshots">
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <el-image v-for="(img, idx) in caseDetailData.screenshots" :key="idx" :src="img.url || img" style="width: 120px; height: 80px; border-radius: 4px; border: 1px solid #e4e7ed;" fit="cover" :preview-src-list="caseDetailData.screenshots.map(s => s.url || s)" :initial-index="idx" />
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="错误信息" name="errors" v-if="caseDetailErrors.length > 0">
+              <div class="history-detail-scroll">
+                <div class="errors-container">
+                  <div v-for="(error, idx) in caseDetailErrors" :key="idx" class="error-item">
+                    <div class="error-header">
+                      <el-tag type="danger" size="large">
+                        <span class="error-tag-inner"><span>✕ {{ error.message }}</span></span>
+                      </el-tag>
+                      <span v-if="error.step_number" class="error-step">步骤 {{ error.step_number }}</span>
+                    </div>
+                    <div v-if="error.action_type || error.element || error.description" class="error-meta">
+                      <div v-if="error.action_type" class="meta-item">
+                        <span class="meta-label">操作类型:</span>
+                        <span class="meta-value">{{ error.action_type }}</span>
+                      </div>
+                      <div v-if="error.element" class="meta-item">
+                        <span class="meta-label">目标元素:</span>
+                        <span class="meta-value">{{ error.element }}</span>
+                      </div>
+                      <div v-if="error.description" class="meta-item">
+                        <span class="meta-label">步骤描述:</span>
+                        <span class="meta-value">{{ error.description }}</span>
+                      </div>
+                    </div>
+                    <div v-if="error.details" class="error-details">
+                      <div class="details-header">详细错误信息:</div>
+                      <pre class="details-content">{{ error.details }}</pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Edit, Delete, VideoPlay, Plus, Search, Rank, Close } from '@element-plus/icons-vue'
+import { ArrowLeft, Edit, Delete, VideoPlay, Plus, Search, Rank, Close, ArrowRight } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import {
   getTestPlan, updateTestPlan, deleteTestPlan,
   getPlanItems, addPlanItemsBatch, removePlanItem, updatePlanItemOrder, runTestPlan,
-  getPlanExecutionHistory, getTestCasesAll, getTestSuites, getLoginConfigs, getTestCaseGroupTree
+  getPlanExecutionHistory, getTestCasesAll, getTestSuites, getLoginConfigs, getTestCaseGroupTree,
+  getTestCaseExecutionDetail
 } from '@/api/ui_automation'
 
 const route = useRoute()
@@ -576,10 +767,218 @@ function openEditDialog() {
   showEditDialog.value = true
 }
 
+// ==================== 执行记录弹窗 ====================
+const showRecordsDialog = ref(false)
+const planExecutionRecords = ref([])
+const recordsLoading = ref(false)
+const expandedRecords = ref([])
+const expandedSuites = ref({})  // `${recordId}-${suiteId}` -> boolean
+let recordsPollTimer = null
+
+const isSuiteExpanded = (recordId, suiteId) => {
+  return expandedSuites.value[`${recordId}-${suiteId}`] || false
+}
+const toggleSuiteExpand = (recordId, suiteId) => {
+  const key = `${recordId}-${suiteId}`
+  expandedSuites.value[key] = !expandedSuites.value[key]
+}
+
+const refreshExecutionRecords = async () => {
+  try {
+    const res = await getPlanExecutionHistory(planId.value)
+    planExecutionRecords.value = res.data.results || res.data || []
+  } catch (e) {
+    // 静默失败
+  }
+}
+
+const startRecordsPoll = () => {
+  stopRecordsPoll()
+  recordsPollTimer = setInterval(async () => {
+    await refreshExecutionRecords()
+    const hasRunning = planExecutionRecords.value.some(r => r.status === 'RUNNING' || r.status === 'PENDING')
+    if (!hasRunning) stopRecordsPoll()
+  }, 3000)
+}
+
+const stopRecordsPoll = () => {
+  if (recordsPollTimer) {
+    clearInterval(recordsPollTimer)
+    recordsPollTimer = null
+  }
+}
+
+const openRecordsDialog = async () => {
+  showRecordsDialog.value = true
+  recordsLoading.value = true
+  planExecutionRecords.value = []
+  expandedRecords.value = []
+  expandedSuites.value = {}
+  stopRecordsPoll()
+  try {
+    const res = await getPlanExecutionHistory(planId.value)
+    planExecutionRecords.value = res.data.results || res.data || []
+    const hasRunning = planExecutionRecords.value.some(r => r.status === 'RUNNING' || r.status === 'PENDING')
+    if (hasRunning) startRecordsPoll()
+  } catch (e) {
+    console.error('获取执行记录失败:', e)
+    ElMessage.error('获取执行记录失败')
+  } finally {
+    recordsLoading.value = false
+  }
+}
+
+const getExecStatusText = (s) => ({ PENDING: '待执行', RUNNING: '运行中', SUCCESS: '成功', FAILED: '失败', ABORTED: '中止' }[s] || '未知')
+const getCaseExecStatusText = (s) => ({ pending: '待执行', running: '执行中', passed: '通过', failed: '失败', skipped: '跳过', error: '错误' }[s] || '未知')
+const getCaseExecTagType = (s) => ({ pending: 'info', running: 'warning', passed: 'success', failed: 'danger', skipped: 'warning', error: 'danger' }[s] || 'info')
+const formatRecordTime = (val) => val ? new Date(val).toLocaleString() : '-'
+
+const getActionText = (action) => ({
+  click: '点击', fill: '输入', select: '选择', navigate: '导航',
+  assert: '断言', wait: '等待', hover: '悬停', getText: '获取文本',
+  screenshot: '截图', scroll: '滚动', keyboard: '键盘操作',
+  precondition_sql: '前置数据SQL', postcondition_sql: '后置清理SQL'
+}[action] || action)
+
+const getEngineText = (engine) => ({ playwright: 'Playwright', selenium: 'Selenium' }[engine] || engine || '-')
+
+// ==================== 用例执行详情弹窗 ====================
+const caseDetailVisible = ref(false)
+const caseDetailData = ref(null)
+const caseDetailLoading = ref(false)
+const caseDetailActiveTab = ref('logs')
+
+const caseDetailErrors = computed(() => {
+  if (!caseDetailData.value) return []
+  const steps = Array.isArray(caseDetailData.value.parsedLogs)
+    ? caseDetailData.value.parsedLogs
+    : (caseDetailData.value.parsedLogs?.steps || [])
+  const errors = []
+  for (const step of steps) {
+    if (step.error && !step.success) {
+      errors.push({
+        message: step.step_number === 'sql'
+          ? `${step.action_type === 'postcondition_sql' ? '后置清理SQL' : '前置数据SQL'}执行失败`
+          : `步骤${step.step_number}执行失败`,
+        step_number: step.step_number === 'sql' ? null : step.step_number,
+        action_type: step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type || ''),
+        element: '',
+        description: step.description || '',
+        details: step.error || ''
+      })
+    }
+  }
+  return errors
+})
+
+const caseDetailSqlExecs = computed(() => {
+  if (!caseDetailData.value || !caseDetailData.value.parsedLogs) return []
+  const logs = caseDetailData.value.parsedLogs
+  const result = []
+
+  // 格式1：套件执行 - 独立的 precondition_sql / postcondition 对象
+  if (!Array.isArray(logs)) {
+    if (logs.precondition_cases_sql && Array.isArray(logs.precondition_cases_sql)) {
+      for (const preCase of logs.precondition_cases_sql) {
+        if (preCase.precondition_sql) {
+          result.push({
+            type: 'precondition_case',
+            label: `前置用例「${preCase.case_name}」- 前置数据SQL`,
+            success: preCase.precondition_sql.executed !== false && !preCase.precondition_sql.has_error,
+            executed: preCase.precondition_sql.executed !== false,
+            original_sql: preCase.precondition_sql.original_sql || '',
+            resolved_sql: preCase.precondition_sql.resolved_sql || '',
+            total_affected: preCase.precondition_sql.total_affected || 0,
+            details: preCase.precondition_sql.details || [],
+            error: preCase.precondition_sql.error || null
+          })
+        }
+      }
+    }
+    if (logs.precondition_sql) {
+      const pre = logs.precondition_sql
+      result.push({
+        type: 'precondition',
+        label: '前置数据SQL',
+        success: pre.executed !== false && !pre.has_error,
+        executed: pre.executed !== false,
+        original_sql: pre.original_sql || '',
+        resolved_sql: pre.resolved_sql || '',
+        total_affected: pre.total_affected || 0,
+        details: pre.details || [],
+        error: pre.error || null
+      })
+    }
+    if (logs.postcondition) {
+      const post = logs.postcondition
+      result.push({
+        type: 'postcondition',
+        label: '后置清理SQL',
+        success: post.executed !== false,
+        executed: post.executed !== false,
+        original_sql: post.original_sql || '',
+        resolved_sql: post.resolved_sql || '',
+        total_affected: post.total_affected || 0,
+        details: post.details || [],
+        error: post.error || null
+      })
+    }
+  }
+
+  // 格式2：单用例执行 - SQL信息嵌入在 steps 数组中
+  const steps = Array.isArray(logs) ? logs : (logs.steps || [])
+  for (const step of steps) {
+    if (step.step_number === 'sql' && (step.original_sql || step.resolved_sql || step.details)) {
+      result.push({
+        type: step.action_type === 'postcondition_sql' ? 'postcondition' : 'precondition',
+        label: step.description || (step.action_type === 'postcondition_sql' ? '后置清理SQL' : '前置数据SQL'),
+        success: step.success,
+        executed: true,
+        original_sql: step.original_sql || '',
+        resolved_sql: step.resolved_sql || '',
+        total_affected: step.total_affected || 0,
+        details: step.details || [],
+        error: step.error || null
+      })
+    }
+  }
+
+  return result
+})
+
+const viewCaseExecDetail = async (row) => {
+  caseDetailVisible.value = true
+  caseDetailLoading.value = true
+  caseDetailData.value = null
+  caseDetailActiveTab.value = 'logs'
+  try {
+    const res = await getTestCaseExecutionDetail(row.id)
+    const record = res.data
+    let logs = record.execution_logs
+    if (typeof logs === 'string') {
+      try { logs = JSON.parse(logs) } catch { logs = null }
+    }
+    caseDetailData.value = { ...record, parsedLogs: logs }
+  } catch (e) {
+    console.error('获取执行详情失败:', e)
+    ElMessage.error('获取执行详情失败')
+  } finally {
+    caseDetailLoading.value = false
+  }
+}
+
 // 监听编辑对话框打开
-import { watch } from 'vue'
 watch(showEditDialog, (val) => {
   if (val) openEditDialog()
+})
+
+// 弹窗关闭时停止轮询
+watch(showRecordsDialog, (val) => {
+  if (!val) stopRecordsPoll()
+})
+
+onBeforeUnmount(() => {
+  stopRecordsPoll()
 })
 
 onMounted(async () => {
@@ -835,4 +1234,199 @@ onMounted(async () => {
   font-size: 12px;
   color: #909399;
 }
+
+// ==================== 执行记录弹窗 ====================
+.record-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+  width: 100%;
+
+  .record-status {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+
+    &.status-success { background: #ecfdf5; color: #059669; }
+    &.status-running { background: #fef3c7; color: #d97706; }
+    &.status-failed, &.status-aborted { background: #fef2f2; color: #dc2626; }
+    &.status-pending { background: #f3f4f6; color: #9ca3af; }
+  }
+
+  .record-time { color: #606266; }
+  .record-duration { color: #909399; font-size: 12px; }
+
+  .record-stats {
+    display: flex;
+    gap: 8px;
+    font-size: 12px;
+    .stat-passed { color: #059669; }
+    .stat-failed { color: #dc2626; }
+    .stat-skipped { color: #d97706; }
+  }
+
+  .record-executor { color: #909399; font-size: 12px; margin-left: auto; }
+}
+
+.record-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.record-suite {
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  overflow: hidden;
+
+  .record-suite-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #fafbfc;
+    cursor: pointer;
+    user-select: none;
+
+    &:hover { background: #f0f2f5; }
+  }
+
+  .record-suite-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #303133;
+  }
+
+  .record-suite-count {
+    font-size: 12px;
+    color: #909399;
+  }
+
+  .suite-expand-icon {
+    margin-left: auto;
+    transition: transform 0.2s;
+    color: #909399;
+
+    &.is-expanded { transform: rotate(90deg); }
+  }
+}
+
+.record-case-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #f5f7fa;
+  font-size: 13px;
+
+  &:last-child { border-bottom: none; }
+
+  .record-case-name {
+    color: #303133;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .record-case-time {
+    color: #909399;
+    font-size: 12px;
+  }
+}
+
+.status-tag {
+  font-size: 12px;
+  &.status-passed { color: #059669; }
+  &.status-failed { color: #dc2626; }
+  &.status-running { color: #d97706; }
+  &.status-pending, &.status-skipped { color: #d97706; }
+  &.status-error { color: #dc2626; }
+}
+
+// ==================== 用例执行详情弹窗 ====================
+.history-detail-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.history-detail-header { flex-shrink: 0; margin-bottom: 16px; }
+.history-detail-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.history-detail-tabs :deep(.el-tabs) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.history-detail-tabs :deep(.el-tabs__header) { flex-shrink: 0; margin-bottom: 8px; }
+.history-detail-tabs :deep(.el-tabs__content) { flex: 1; min-height: 0; overflow: hidden; }
+.history-detail-tabs :deep(.el-tab-pane) { height: 100%; }
+.history-detail-scroll { height: 100%; overflow-y: auto; padding-right: 8px; }
+
+.log-item {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  font-size: 13px;
+
+  .log-header { display: flex; align-items: center; gap: 8px; }
+  .log-action { color: #606266; font-weight: 500; }
+  .log-desc { color: #909399; }
+  .log-value { color: var(--brand-600, #409eff); font-size: 12px; font-weight: 500; background: var(--brand-50, #ecf5ff); padding: 1px 6px; border-radius: 3px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .log-error {
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: #fef2f2;
+    border-radius: 4px;
+    .error-message { margin: 0; font-size: 12px; color: #dc2626; white-space: pre-wrap; word-break: break-all; }
+  }
+}
+
+// SQL执行
+.sql-exec-item { margin-bottom: 12px; padding: 12px; background: #f8f9fa; border-radius: 6px; }
+.sql-exec-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sql-affected { font-size: 12px; color: #909399; }
+.sql-exec-error { margin-bottom: 8px; }
+.sql-block { margin-bottom: 8px; }
+.sql-block-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
+.sql-code { margin: 0; padding: 8px; background: #2d2d2d; color: #e5e5e5; border-radius: 4px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.sql-resolved { border: 1px dashed #67c23a; }
+.sql-details-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
+.sql-detail-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.sql-detail-status { font-weight: 600; &.ok { color: #059669; } &.fail { color: #dc2626; } }
+.sql-detail-code { margin: 0; font-size: 12px; background: #2d2d2d; color: #e5e5e5; padding: 4px 8px; border-radius: 3px; flex: 1; white-space: pre-wrap; word-break: break-all; }
+.sql-detail-affected { font-size: 12px; color: #909399; }
+.sql-detail-error { font-size: 12px; color: #dc2626; }
+
+// 错误信息
+.errors-container { display: flex; flex-direction: column; gap: 12px; }
+.error-item {
+  background: #fff;
+  border: 2px solid #dc2626;
+  border-radius: 8px;
+  padding: 16px;
+
+  .error-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6; gap: 8px;
+    .el-tag { font-size: 14px; padding: 8px 12px; font-weight: 600; }
+  }
+  .error-tag-inner { display: inline-flex; align-items: center; gap: 6px; }
+  .error-step { background: #fef2f2; color: #dc2626; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 13px; }
+  .error-meta { background: #f9fafb; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+  .meta-item { display: flex; align-items: flex-start; margin-bottom: 8px; &:last-child { margin-bottom: 0; } }
+  .meta-label { font-weight: 600; color: #6b7280; min-width: 80px; margin-right: 8px; font-size: 13px; }
+  .meta-value { color: #111827; flex: 1; font-size: 13px; word-break: break-word; }
+  .error-details { background: #2d2d2d; border-radius: 8px; overflow: hidden; }
+  .details-header { color: #e5e5e5; font-size: 13px; padding: 12px 16px 6px; font-weight: 600; }
+  .details-content { margin: 0; padding: 0 16px 12px; color: #f87171; font-size: 12px; white-space: pre-wrap; word-break: break-all; font-family: 'Cascadia Code', Consolas, monospace; }
+}
+
+// 截图
+.history-detail-screenshots { padding: 8px 0; }
 </style>

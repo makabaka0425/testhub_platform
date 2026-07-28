@@ -10044,12 +10044,104 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def execution_history(self, request, pk=None):
-        """获取计划的执行历史"""
+        """获取计划的执行历史（含每次执行下的用例明细，套件项可折叠）"""
         test_plan = self.get_object()
-        executions = TestExecution.objects.filter(test_plan=test_plan).order_by('-created_at')
-        from .serializers import TestExecutionSerializer
-        serializer = TestExecutionSerializer(executions, many=True)
-        return Response(serializer.data)
+        executions = TestExecution.objects.filter(test_plan=test_plan).order_by('-started_at')
+
+        data = []
+        for exec_obj in executions:
+            # 查询该执行批次下的所有用例执行记录
+            case_executions = TestCaseExecution.objects.filter(
+                test_execution=exec_obj
+            ).select_related('test_case', 'test_suite').order_by('started_at')
+
+            # 兼容旧记录：如果外键关联没查到记录，尝试时间窗口匹配
+            if not case_executions.exists():
+                case_executions = TestCaseExecution.objects.filter(
+                    test_plan=test_plan,
+                    started_at__gte=exec_obj.started_at,
+                ).select_related('test_case', 'test_suite').order_by('started_at')
+                if exec_obj.finished_at:
+                    case_executions = case_executions.filter(
+                        started_at__lte=exec_obj.finished_at
+                    )
+
+            # 按计划项结构组织用例明细
+            # 1. 收集所有用例执行记录
+            # 2. 按是否属于套件进行分组
+            cases_data = []
+            suites_data = {}  # {suite_id: {suite_name, suite_id, cases: []}}
+
+            for ce in case_executions:
+                case_item = {
+                    'id': ce.id,
+                    'test_case_id': ce.test_case_id,
+                    'test_case_name': ce.test_case.name if ce.test_case else '-',
+                    'status': ce.status,
+                    'execution_time': ce.execution_time,
+                    'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                    'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                    'error_message': ce.error_message,
+                }
+                if ce.test_suite:
+                    suite_id = ce.test_suite_id
+                    if suite_id not in suites_data:
+                        suites_data[suite_id] = {
+                            'item_type': 'test_suite',
+                            'suite_id': suite_id,
+                            'suite_name': ce.test_suite.name if ce.test_suite else '-',
+                            'cases': [],
+                        }
+                    suites_data[suite_id]['cases'].append(case_item)
+                else:
+                    # 单用例项
+                    cases_data.append({
+                        'item_type': 'test_case',
+                        **case_item,
+                    })
+
+            # 按计划项顺序合并：先单用例，再套件（保持执行顺序）
+            # 尝试按计划项顺序组织
+            ordered_items = []
+            plan_items = test_plan.plan_items.all().order_by('order')
+            suite_ids_seen = set()
+
+            for pi in plan_items:
+                if pi.item_type == 'test_case':
+                    # 找到对应的单用例执行记录
+                    for cd in cases_data:
+                        if cd['test_case_id'] == pi.test_case_id:
+                            ordered_items.append(cd)
+                            break
+                elif pi.item_type == 'test_suite':
+                    suite_id = pi.test_suite_id
+                    if suite_id in suites_data and suite_id not in suite_ids_seen:
+                        ordered_items.append(suites_data[suite_id])
+                        suite_ids_seen.add(suite_id)
+
+            # 追加未匹配到计划项的记录（兼容旧数据）
+            for cd in cases_data:
+                if cd not in ordered_items:
+                    ordered_items.append(cd)
+            for suite_id, sd in suites_data.items():
+                if suite_id not in suite_ids_seen:
+                    ordered_items.append(sd)
+
+            data.append({
+                'id': exec_obj.id,
+                'status': exec_obj.status,
+                'started_at': exec_obj.started_at.isoformat() if exec_obj.started_at else None,
+                'finished_at': exec_obj.finished_at.isoformat() if exec_obj.finished_at else None,
+                'duration': exec_obj.duration,
+                'total_cases': exec_obj.total_cases,
+                'passed_cases': exec_obj.passed_cases,
+                'failed_cases': exec_obj.failed_cases,
+                'skipped_cases': exec_obj.skipped_cases,
+                'executed_by': exec_obj.executed_by.username if exec_obj.executed_by else '-',
+                'items': ordered_items,
+            })
+
+        return Response(data)
 
     def _update_plan_counts(self, test_plan):
         """更新计划的用例统计"""
