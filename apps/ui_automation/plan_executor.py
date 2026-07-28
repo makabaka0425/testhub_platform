@@ -2,6 +2,7 @@
 
 import os
 import time
+import json
 import traceback
 from datetime import datetime
 
@@ -208,6 +209,46 @@ class PlanExecutor:
             test_suite=test_suite
         ).order_by('-created_at').first()
 
+        # 将套件内用例的执行记录关联到计划级 TestExecution
+        # 这样 execution_history 接口才能通过 test_execution 外键查到套件内用例
+        if latest_execution and self.plan_execution:
+            suite_case_executions = TestCaseExecution.objects.filter(
+                test_execution=latest_execution
+            )
+            updated_count = suite_case_executions.update(
+                test_plan=self.test_plan,
+                execution_source='plan',
+            )
+            # 同时将这些记录也关联到计划级 TestExecution
+            # 通过在同一时间窗口内匹配来建立关联
+            if updated_count == 0:
+                # 旧记录可能没有 test_execution 外键，通过套件+时间窗口匹配
+                time_window_cases = TestCaseExecution.objects.filter(
+                    test_suite=test_suite,
+                    started_at__gte=self.plan_execution.started_at,
+                )
+                if self.plan_execution.finished_at:
+                    time_window_cases = time_window_cases.filter(
+                        started_at__lte=self.plan_execution.finished_at
+                    )
+                time_window_cases.update(
+                    test_plan=self.test_plan,
+                    execution_source='plan',
+                )
+                updated_count = time_window_cases.count()
+
+            # 将套件内用例执行记录也关联到计划级 test_execution
+            # 创建一个映射关系：在 test_execution 外键上设置计划级ID
+            if updated_count > 0:
+                # 重新查询已更新的记录，设置计划级test_execution
+                TestCaseExecution.objects.filter(
+                    test_suite=test_suite,
+                    test_plan=self.test_plan,
+                    execution_source='plan',
+                    started_at__gte=self.plan_execution.started_at,
+                ).update(test_execution=self.plan_execution)
+                print(f"[PlanExecutor] 已关联 {updated_count} 条套件用例到计划执行记录")
+
         return {
             'item_type': 'test_suite',
             'item_id': test_suite.id,
@@ -239,8 +280,19 @@ class PlanExecutor:
         start_time = time.time()
         try:
             result = self._run_single_case(test_case)
-            case_execution.status = 'passed' if result.get('success') else 'failed'
-            case_execution.execution_logs = result.get('logs', '')
+            # 兼容 Playwright(success) 和 Selenium(status) 两种返回格式
+            if 'success' in result:
+                case_execution.status = 'passed' if result.get('success') else 'failed'
+            else:
+                case_execution.status = result.get('status', 'failed')
+            case_execution.execution_logs = json.dumps({
+                'steps': result.get('steps', []),
+                'variable_snapshot': result.get('variable_snapshot', {})
+            }, ensure_ascii=False)
+            if result.get('error'):
+                case_execution.error_message = result['error']
+            if result.get('screenshots'):
+                case_execution.screenshots = result['screenshots']
         except Exception as e:
             case_execution.status = 'error'
             case_execution.error_message = str(e)
@@ -304,7 +356,14 @@ class PlanExecutor:
             try:
                 result = self._run_case_with_page(page, case)
                 case_execution.status = 'passed' if result.get('success') else 'failed'
-                case_execution.execution_logs = result.get('logs', '')
+                case_execution.execution_logs = json.dumps({
+                    'steps': result.get('steps', []),
+                    'variable_snapshot': result.get('variable_snapshot', {})
+                }, ensure_ascii=False)
+                if result.get('error'):
+                    case_execution.error_message = result['error']
+                if result.get('screenshots'):
+                    case_execution.screenshots = result['screenshots']
             except Exception as e:
                 case_execution.status = 'error'
                 case_execution.error_message = str(e)
@@ -361,7 +420,14 @@ class PlanExecutor:
         try:
             result = self._run_case_with_page(page, test_case)
             case_execution.status = 'passed' if result.get('success') else 'failed'
-            case_execution.execution_logs = result.get('logs', '')
+            case_execution.execution_logs = json.dumps({
+                'steps': result.get('steps', []),
+                'variable_snapshot': result.get('variable_snapshot', {})
+            }, ensure_ascii=False)
+            if result.get('error'):
+                case_execution.error_message = result['error']
+            if result.get('screenshots'):
+                case_execution.screenshots = result['screenshots']
         except Exception as e:
             case_execution.status = 'error'
             case_execution.error_message = str(e)
@@ -429,8 +495,15 @@ class PlanExecutor:
                 case_data = executor._build_case_data(case)
                 result = executor.execute_test_case_selenium_no_db(driver, case_data)
 
-                case_execution.status = 'passed' if result.get('success') else 'failed'
-                case_execution.execution_logs = result.get('logs', '')
+                case_execution.status = result.get('status', 'failed')
+                case_execution.execution_logs = json.dumps({
+                    'steps': result.get('steps', []),
+                    'variable_snapshot': result.get('variable_snapshot', {})
+                }, ensure_ascii=False)
+                if result.get('error'):
+                    case_execution.error_message = result['error']
+                if result.get('screenshots'):
+                    case_execution.screenshots = result['screenshots']
             except Exception as e:
                 case_execution.status = 'error'
                 case_execution.error_message = str(e)
@@ -487,8 +560,15 @@ class PlanExecutor:
             case_data = executor._build_case_data(test_case)
             result = executor.execute_test_case_selenium_no_db(driver, case_data)
 
-            case_execution.status = 'passed' if result.get('success') else 'failed'
-            case_execution.execution_logs = result.get('logs', '')
+            case_execution.status = result.get('status', 'failed')
+            case_execution.execution_logs = json.dumps({
+                'steps': result.get('steps', []),
+                'variable_snapshot': result.get('variable_snapshot', {})
+            }, ensure_ascii=False)
+            if result.get('error'):
+                case_execution.error_message = result['error']
+            if result.get('screenshots'):
+                case_execution.screenshots = result['screenshots']
         except Exception as e:
             case_execution.status = 'error'
             case_execution.error_message = str(e)
@@ -546,7 +626,11 @@ class PlanExecutor:
         executor.execute_test_case_selenium_no_db(driver, case_data)
 
     def _run_case_with_page(self, page, test_case):
-        """用给定 page 对象执行单用例步骤（PlanExecutor 专用）"""
+        """用给定 page 对象执行单用例步骤（PlanExecutor 专用）
+
+        返回结构化数据，与套件执行器格式一致：
+        {'success': bool, 'steps': [...], 'error': str, 'screenshots': [...], 'variable_snapshot': {...}}
+        """
         from .test_executor import TestExecutor
         from .models import TestCaseStep
 
@@ -584,31 +668,58 @@ class PlanExecutor:
                 }
             step_data_list.append(sd)
 
-        logs = []
+        steps_list = []
         all_success = True
+        error = None
+        screenshots = []
 
         for sd in step_data_list:
             try:
-                result = executor.execute_step_playwright(sd)
-                if not result.get('success', False):
+                step_result = executor.execute_step_playwright(sd)
+                steps_list.append(step_result)
+                if not step_result.get('success', False):
                     all_success = False
-                    logs.append(f"步骤{sd['step_number']} 失败: {result.get('error', '未知错误')}")
-                else:
-                    logs.append(f"步骤{sd['step_number']} 成功")
-                    if sd.get('output_var') and sd.get('output_var').strip():
-                        log_msg = f"  输出变量: {sd['output_var']}"
-                        if result.get('resolved_value'):
-                            log_msg += f" = {result['resolved_value']}"
-                        logs.append(log_msg)
+                    error = step_result.get('error', f"步骤{sd['step_number']} 执行失败")
+                    # 捕获失败截图
+                    try:
+                        import base64
+                        page.evaluate("window.scrollTo(0, 0)")
+                        page.wait_for_timeout(300)
+                        screenshot_bytes = page.screenshot(timeout=5000)
+                        screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+                        screenshots.append({
+                            'url': f'data:image/png;base64,{screenshot_base64}',
+                            'description': f"步骤 {sd['step_number']} 失败截图",
+                            'step_number': sd['step_number'],
+                            'timestamp': datetime.now().isoformat()
+                        })
+                    except Exception as screenshot_err:
+                        print(f"[PlanExecutor] 捕获失败截图失败: {str(screenshot_err)}")
+                    break  # 步骤失败后停止
             except Exception as e:
                 all_success = False
-                logs.append(f"步骤{sd['step_number']} 异常: {str(e)}")
+                error = str(e)
+                steps_list.append({
+                    'step_number': sd['step_number'],
+                    'action_type': sd['action_type'],
+                    'description': sd['description'],
+                    'input_value': sd.get('input_value', ''),
+                    'success': False,
+                    'error': str(e)
+                })
+                break  # 异常后停止
 
         # 同步变量池回计划级
         self.plan_context_variables = executor.context_variables
         self.plan_protected_vars = executor._protected_vars
 
-        return {'success': all_success, 'logs': '\n'.join(logs)}
+        return {
+            'success': all_success,
+            'steps': steps_list,
+            'error': error,
+            'screenshots': screenshots,
+            'variable_snapshot': dict(self.plan_context_variables)
+        }
 
     def _run_single_case(self, test_case):
         """独立模式执行单用例（新建浏览器）"""
@@ -644,7 +755,7 @@ class PlanExecutor:
             from .test_executor import TestExecutor
             dummy_suite = self.test_plan.project.test_suites.first()
             if not dummy_suite:
-                return {'success': False, 'logs': '无可用的套件对象创建Selenium驱动'}
+                return {'success': False, 'steps': [], 'error': '无可用的套件对象创建Selenium驱动'}
 
             executor = TestExecutor(dummy_suite, engine='selenium', browser=self.browser, headless=self.headless)
             driver = executor.create_selenium_driver()

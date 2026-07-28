@@ -241,7 +241,7 @@
               <div class="record-header">
                 <span class="record-status" :class="`status-${record.status?.toLowerCase()}`">{{ getExecStatusText(record.status) }}</span>
                 <span class="record-time">{{ formatRecordTime(record.started_at) }}</span>
-                <span class="record-duration" v-if="record.duration">{{ record.duration.toFixed(1) }}s</span>
+                <span class="record-duration" v-if="record.duration != null">耗时 {{ record.duration.toFixed(1) }}s</span>
                 <span class="record-stats">
                   <span class="stat-passed" v-if="record.passed_cases">通过{{ record.passed_cases }}</span>
                   <span class="stat-failed" v-if="record.failed_cases">失败{{ record.failed_cases }}</span>
@@ -252,44 +252,48 @@
             </template>
 
             <div class="record-items">
+              <!-- 列头 -->
+              <div class="record-item-header">
+                <span class="col-type">类型</span>
+                <span class="col-name">名称</span>
+                <span class="col-status">状态</span>
+                <span class="col-time">执行时间</span>
+                <span class="col-duration">耗时</span>
+                <span class="col-action">操作</span>
+              </div>
               <template v-for="(item, idx) in record.items" :key="idx">
                 <!-- 套件项 -->
-                <div v-if="item.item_type === 'test_suite'" class="record-suite">
-                  <div class="record-suite-header" @click="toggleSuiteExpand(record.id, item.suite_id)">
-                    <el-tag size="small" type="warning">套件</el-tag>
-                    <span class="record-suite-name">{{ item.suite_name }}</span>
-                    <span class="record-suite-count">{{ item.cases?.length || 0 }} 个用例</span>
-                    <el-icon class="suite-expand-icon" :class="{ 'is-expanded': isSuiteExpanded(record.id, item.suite_id) }"><ArrowRight /></el-icon>
+                <div v-if="item.item_type === 'test_suite'" class="record-item-block">
+                  <div class="record-item-row is-suite" @click="toggleSuiteExpand(record.id, item.suite_id)">
+                    <span class="col-type"><el-tag size="small" type="warning">套件</el-tag></span>
+                    <span class="col-name">{{ item.suite_name }}</span>
+                    <span class="col-status"><span class="status-tag" :class="`status-${getSuiteStatus(item)}`">{{ getCaseExecStatusText(getSuiteStatus(item)) }}</span></span>
+                    <span class="col-time">{{ formatRecordTime(item.started_at || item.cases?.[0]?.started_at) }}</span>
+                    <span class="col-duration" v-if="getSuiteDuration(item)">{{ getSuiteDuration(item).toFixed(1) }}s</span>
+                    <span class="col-action">
+                      <el-icon class="suite-expand-icon" :class="{ 'is-expanded': isSuiteExpanded(record.id, item.suite_id) }"><ArrowRight /></el-icon>
+                    </span>
                   </div>
-                  <el-table v-show="isSuiteExpanded(record.id, item.suite_id)" :data="item.cases" size="small" style="width: 100%">
-                    <el-table-column type="index" label="#" width="45" />
-                    <el-table-column prop="test_case_name" label="用例名称" min-width="180" show-overflow-tooltip />
-                    <el-table-column label="状态" width="70" align="center">
-                      <template #default="{ row }">
-                        <span class="status-tag" :class="`status-${row.status}`">{{ getCaseExecStatusText(row.status) }}</span>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="时长" width="80" align="center">
-                      <template #default="{ row }">
-                        <span v-if="row.execution_time">{{ row.execution_time.toFixed(2) }}s</span>
-                        <span v-else style="color: #9ca3af">-</span>
-                      </template>
-                    </el-table-column>
-                    <el-table-column label="操作" width="80" align="center">
-                      <template #default="{ row }">
-                        <el-button link type="primary" size="small" @click="viewCaseExecDetail(row)">详情</el-button>
-                      </template>
-                    </el-table-column>
-                  </el-table>
+                  <div v-show="isSuiteExpanded(record.id, item.suite_id)" class="record-suite-cases">
+                    <div v-for="(c, ci) in item.cases" :key="ci" class="record-item-row is-sub">
+                      <span class="col-type"><el-tag size="small" type="info">用例</el-tag></span>
+                      <span class="col-name">{{ c.test_case_name }}</span>
+                      <span class="col-status"><span class="status-tag" :class="`status-${c.status}`">{{ getCaseExecStatusText(c.status) }}</span></span>
+                      <span class="col-time">{{ formatRecordTime(c.started_at) }}</span>
+                      <span class="col-duration" v-if="c.execution_time">{{ c.execution_time.toFixed(1) }}s</span>
+                      <span class="col-action"><el-button link type="primary" size="small" @click="viewCaseExecDetail(c)">详情</el-button></span>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- 单用例项 -->
-                <div v-else class="record-case-row">
-                  <el-tag size="small" type="info">用例</el-tag>
-                  <span class="record-case-name">{{ item.test_case_name }}</span>
-                  <span class="status-tag" :class="`status-${item.status}`">{{ getCaseExecStatusText(item.status) }}</span>
-                  <span class="record-case-time" v-if="item.execution_time">{{ item.execution_time.toFixed(2) }}s</span>
-                  <el-button link type="primary" size="small" @click="viewCaseExecDetail(item)" style="margin-left: auto">详情</el-button>
+                <div v-else class="record-item-row">
+                  <span class="col-type"><el-tag size="small" type="info">用例</el-tag></span>
+                  <span class="col-name">{{ item.test_case_name }}</span>
+                  <span class="col-status"><span class="status-tag" :class="`status-${item.status}`">{{ getCaseExecStatusText(item.status) }}</span></span>
+                  <span class="col-time">{{ formatRecordTime(item.started_at) }}</span>
+                  <span class="col-duration" v-if="item.execution_time">{{ item.execution_time.toFixed(1) }}s</span>
+                  <span class="col-action"><el-button link type="primary" size="small" @click="viewCaseExecDetail(item)">详情</el-button></span>
                 </div>
               </template>
             </div>
@@ -557,6 +561,21 @@ const openRecordsDialog = async (plan) => {
 const getExecStatusText = (s) => ({ PENDING: '待执行', RUNNING: '运行中', SUCCESS: '成功', FAILED: '失败', ABORTED: '中止' }[s] || '未知')
 const getCaseExecStatusText = (s) => ({ pending: '待执行', running: '执行中', passed: '通过', failed: '失败', skipped: '跳过', error: '错误' }[s] || '未知')
 const getCaseExecTagType = (s) => ({ pending: 'info', running: 'warning', passed: 'success', failed: 'danger', skipped: 'warning', error: 'danger' }[s] || 'info')
+// 套件聚合状态：任一失败则失败，否则任一跳过则跳过，否则通过
+const getSuiteStatus = (item) => {
+  const cases = item.cases || []
+  if (cases.some(c => c.status === 'failed' || c.status === 'error')) return 'failed'
+  if (cases.some(c => c.status === 'skipped')) return 'skipped'
+  if (cases.every(c => c.status === 'passed')) return 'passed'
+  if (cases.some(c => c.status === 'running')) return 'running'
+  return 'pending'
+}
+// 套件聚合时长：累加用例时长
+const getSuiteDuration = (item) => {
+  const cases = item.cases || []
+  const total = cases.reduce((sum, c) => sum + (c.execution_time || 0), 0)
+  return total > 0 ? total : null
+}
 const formatRecordTime = (val) => val ? new Date(val).toLocaleString() : '-'
 const getActionText = (action) => ({
   click: '点击', fill: '输入', select: '选择', navigate: '导航',
@@ -634,7 +653,14 @@ const viewCaseExecDetail = async (row) => {
     const res = await getTestCaseExecutionDetail(row.id)
     const record = res.data
     let logs = record.execution_logs
-    if (typeof logs === 'string') { try { logs = JSON.parse(logs) } catch { logs = null } }
+    if (typeof logs === 'string') {
+      try { logs = JSON.parse(logs) } catch {
+        // 纯文本格式：转换为步骤列表
+        logs = { steps: logs.split('\n').filter(Boolean).map((line, i) => ({
+          step_number: i + 1, action_type: '', description: '', success: !line.includes('失败'), error: line.includes('失败') ? line : null, input_value: ''
+        })) }
+      }
+    }
     caseDetailData.value = { ...record, parsedLogs: logs }
   } catch (e) {
     console.error('获取执行详情失败:', e)
@@ -1078,6 +1104,10 @@ onMounted(async () => {
 }
 
 // ==================== 执行记录弹窗 ====================
+.plan-records-body {
+  height: 580px;
+  overflow-y: auto;
+}
 .record-header {
   display: flex; align-items: center; gap: 16px; font-size: 13px; width: 100%;
   .record-status {
@@ -1092,20 +1122,40 @@ onMounted(async () => {
   .record-stats { display: flex; gap: 8px; font-size: 12px; .stat-passed { color: #059669; } .stat-failed { color: #dc2626; } .stat-skipped { color: #d97706; } }
   .record-executor { color: #909399; font-size: 12px; margin-left: auto; }
 }
-.record-items { display: flex; flex-direction: column; gap: 8px; }
-.record-suite {
-  border: 1px solid #ebeef5; border-radius: 6px; overflow: hidden;
-  .record-suite-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fafbfc; cursor: pointer; user-select: none; &:hover { background: #f0f2f5; } }
-  .record-suite-name { font-size: 13px; font-weight: 500; color: #303133; }
-  .record-suite-count { font-size: 12px; color: #909399; }
-  .suite-expand-icon { margin-left: auto; transition: transform 0.2s; color: #909399; &.is-expanded { transform: rotate(90deg); } }
+.record-items { display: flex; flex-direction: column; gap: 0; }
+.record-item-header {
+  display: grid;
+  grid-template-columns: 56px 1fr 60px 150px 60px 60px;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #909399;
+  font-weight: 500;
+  border-bottom: 1px solid #ebeef5;
+  background: #fafbfc;
+  align-items: center;
 }
-.record-case-row {
-  display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #f5f7fa; font-size: 13px;
+.record-item-block { border-bottom: 1px solid #ebeef5; overflow: hidden; }
+.record-item-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 60px 150px 60px 60px;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  align-items: center;
+  border-bottom: 1px solid #f5f7fa;
   &:last-child { border-bottom: none; }
-  .record-case-name { color: #303133; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .record-case-time { color: #909399; font-size: 12px; }
+  &.is-suite { cursor: pointer; user-select: none; background: #fafbfc; &:hover { background: #f0f2f5; } }
+  &.is-sub { background: #fafbfc; }
 }
+.col-type { text-align: center; }
+.col-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #303133; font-weight: 500; }
+.col-time { color: #909399; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-status { text-align: center; }
+.col-duration { color: #909399; font-size: 12px; text-align: right; }
+.col-action { text-align: center; }
+.suite-expand-icon { transition: transform 0.2s; color: #909399; &.is-expanded { transform: rotate(90deg); } }
+.record-suite-cases { border-top: 1px solid #ebeef5; }
 .status-tag {
   font-size: 12px;
   &.status-passed { color: #059669; } &.status-failed { color: #dc2626; } &.status-running { color: #d97706; }
@@ -1142,5 +1192,13 @@ onMounted(async () => {
   .error-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6; gap: 8px; .el-tag { font-size: 14px; padding: 8px 12px; font-weight: 600; } }
   .error-step { background: #fef2f2; color: #dc2626; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 13px; }
   .error-details { background: #2d2d2d; border-radius: 8px; overflow: hidden; .details-header { color: #e5e5e5; font-size: 13px; padding: 12px 16px 6px; font-weight: 600; } .details-content { margin: 0; padding: 0 16px 12px; color: #f87171; font-size: 12px; white-space: pre-wrap; word-break: break-all; } }
+}
+</style>
+
+<style lang="scss">
+.plan-records-dialog .el-dialog__body {
+  max-height: 680px;
+  overflow: hidden;
+  padding-bottom: 0;
 }
 </style>
