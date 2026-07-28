@@ -6112,6 +6112,166 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
         log_operation('delete', 'report', instance.id, suite_name, self.request.user)
         instance.delete()
 
+    @action(detail=True, methods=['get'], url_path='children')
+    def children(self, request, pk=None):
+        """获取执行记录的子项（计划→套件+用例，套件→用例）"""
+        test_execution = self.get_object()
+        user = request.user
+
+        # 权限检查
+        accessible_projects = UiProject.objects.filter(
+            models.Q(owner=user) | models.Q(members=user)
+        ).distinct()
+        if test_execution.project not in accessible_projects:
+            return Response({'error': '无权限访问'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 查询该执行批次下的所有用例执行记录
+        case_executions = TestCaseExecution.objects.filter(
+            test_execution=test_execution
+        ).select_related('test_case', 'test_suite').order_by('started_at')
+
+        # 兼容旧数据：如果 test_execution FK 没有关联，用时间窗口匹配
+        if case_executions.count() == 0:
+            fallback_filter = TestCaseExecution.objects.filter(
+                project=test_execution.project,
+                started_at__gte=test_execution.started_at,
+            )
+            if test_execution.finished_at:
+                fallback_filter = fallback_filter.filter(
+                    started_at__lte=test_execution.finished_at
+                )
+            if test_execution.test_plan:
+                fallback_filter = fallback_filter.filter(test_plan=test_execution.test_plan)
+            elif test_execution.test_suite:
+                fallback_filter = fallback_filter.filter(test_suite=test_execution.test_suite)
+            case_executions = fallback_filter.select_related(
+                'test_case', 'test_suite'
+            ).order_by('started_at')
+
+        # 状态映射
+        te_status_map = {
+            'PENDING': 'pending', 'RUNNING': 'running',
+            'SUCCESS': 'passed', 'FAILED': 'failed', 'ABORTED': 'error',
+        }
+
+        if test_execution.test_plan:
+            # 计划级：按套件分组，套件可展开
+            suites_data = {}  # {suite_id: {item_type, name, ...}}
+            cases_data = []   # 不属于任何套件的用例
+
+            for ce in case_executions:
+                case_item = {
+                    'id': f'ce_{ce.id}',
+                    'raw_id': ce.id,
+                    'item_type': 'case',
+                    'name': ce.test_case.name if ce.test_case else '-',
+                    'status': ce.status,
+                    'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                    'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                    'duration': ce.execution_time,
+                    'error_message': ce.error_message,
+                    'has_children': False,
+                }
+                if ce.test_suite:
+                    suite_id = ce.test_suite_id
+                    if suite_id not in suites_data:
+                        suites_data[suite_id] = {
+                            'id': f'suite_{suite_id}',
+                            'item_type': 'suite',
+                            'name': ce.test_suite.name if ce.test_suite else '-',
+                            'started_at': None,
+                            'finished_at': None,
+                            'duration': None,
+                            'total_cases': 0,
+                            'passed_cases': 0,
+                            'failed_cases': 0,
+                            'skipped_cases': 0,
+                            'has_children': True,
+                            'children': [],
+                        }
+                    suites_data[suite_id]['children'].append(case_item)
+                    suites_data[suite_id]['total_cases'] += 1
+                    if ce.status == 'passed':
+                        suites_data[suite_id]['passed_cases'] += 1
+                    elif ce.status == 'failed':
+                        suites_data[suite_id]['failed_cases'] += 1
+                    elif ce.status == 'skipped':
+                        suites_data[suite_id]['skipped_cases'] += 1
+                else:
+                    cases_data.append(case_item)
+
+            # 计算套件级汇总状态和时间
+            items = []
+            for suite_id, sd in suites_data.items():
+                cases = sd['children']
+                if cases:
+                    sd['started_at'] = cases[0].get('started_at')
+                    sd['finished_at'] = cases[-1].get('finished_at')
+                    first_start = cases[0].get('started_at')
+                    last_finish = cases[-1].get('finished_at')
+                    if first_start and last_finish:
+                        from datetime import datetime as dt
+                        start = dt.fromisoformat(first_start.replace('Z', '+00:00'))
+                        end = dt.fromisoformat(last_finish.replace('Z', '+00:00'))
+                        sd['duration'] = (end - start).total_seconds()
+                # 套件状态：全部通过→passed，有失败→failed
+                if sd['failed_cases'] > 0:
+                    sd['status'] = 'failed'
+                elif sd['passed_cases'] == sd['total_cases']:
+                    sd['status'] = 'passed'
+                else:
+                    sd['status'] = 'running'
+                items.append(sd)
+
+            # 独立用例追加到末尾
+            items.extend(cases_data)
+
+            # 按计划项顺序排列（如果有计划项）
+            if test_execution.test_plan:
+                plan_items = test_execution.test_plan.plan_items.all().order_by('order')
+                ordered = []
+                seen_suite_ids = set()
+                for pi in plan_items:
+                    if pi.item_type == 'test_suite':
+                        sid = pi.test_suite_id
+                        if sid in suites_data and sid not in seen_suite_ids:
+                            ordered.append(suites_data[sid])
+                            seen_suite_ids.add(sid)
+                    elif pi.item_type == 'test_case':
+                        for cd in cases_data:
+                            if cd['raw_id'] in [ce.id for ce in case_executions if ce.test_case_id == pi.test_case_id]:
+                                if cd not in ordered:
+                                    ordered.append(cd)
+                                break
+                # 追加未匹配到的
+                for item in items:
+                    if item not in ordered:
+                        ordered.append(item)
+                items = ordered
+
+            return Response({'items': items})
+
+        elif test_execution.test_suite:
+            # 套件级：直接返回用例列表
+            items = []
+            for ce in case_executions:
+                items.append({
+                    'id': f'ce_{ce.id}',
+                    'raw_id': ce.id,
+                    'item_type': 'case',
+                    'name': ce.test_case.name if ce.test_case else '-',
+                    'status': ce.status,
+                    'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                    'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                    'duration': ce.execution_time,
+                    'error_message': ce.error_message,
+                    'has_children': False,
+                })
+            return Response({'items': items})
+
+        else:
+            return Response({'items': []})
+
 
 class ScreenshotViewSet(viewsets.ModelViewSet):
     queryset = Screenshot.objects.all()
@@ -7772,6 +7932,148 @@ class TestCaseExecutionViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"批量删除测试用例执行记录失败: {str(e)}", exc_info=True)
             return Response({'error': f'批量删除失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='unified-list')
+    def unified_list(self, request):
+        """统一执行记录列表（计划/套件/用例层级结构）"""
+        user = request.user
+        accessible_projects = UiProject.objects.filter(
+            models.Q(owner=user) | models.Q(members=user)
+        ).distinct()
+
+        project_id = request.query_params.get('project')
+        search = request.query_params.get('search', '')
+        status_filter = request.query_params.get('status', '')
+        browser = request.query_params.get('browser', '')
+
+        # 状态映射：TestExecution 大写 → 统一小写
+        te_status_map = {
+            'PENDING': 'pending', 'RUNNING': 'running',
+            'SUCCESS': 'passed', 'FAILED': 'failed', 'ABORTED': 'error',
+        }
+        # 反向映射：小写 → 大写
+        unified_to_te = {
+            'pending': 'PENDING', 'running': 'RUNNING',
+            'passed': 'SUCCESS', 'failed': 'FAILED', 'error': 'ABORTED',
+            'skipped': None,  # TestExecution 没有 skipped
+        }
+
+        items = []
+
+        # 1. 查询 TestExecution 记录（计划级和独立套件级）
+        test_executions = TestExecution.objects.filter(
+            project__in=accessible_projects
+        ).select_related('test_plan', 'test_suite', 'executed_by')
+
+        if project_id:
+            test_executions = test_executions.filter(project_id=project_id)
+        if status_filter:
+            te_status = unified_to_te.get(status_filter)
+            if te_status:
+                test_executions = test_executions.filter(status=te_status)
+            else:
+                test_executions = test_executions.none()
+        if browser:
+            test_executions = test_executions.filter(browser=browser)
+        if search:
+            test_executions = test_executions.filter(
+                models.Q(test_plan__name__icontains=search) |
+                models.Q(test_suite__name__icontains=search)
+            )
+
+        for te in test_executions:
+            if te.test_plan:
+                item_type = 'plan'
+                name = te.test_plan.name
+            elif te.test_suite:
+                # 检查是否属于计划内执行（如果有 TestCaseExecution 指向它则说明是独立套件执行）
+                child_count = TestCaseExecution.objects.filter(test_execution=te).count()
+                if child_count == 0:
+                    continue  # 属于计划内执行，用例已被重指向计划级 TestExecution
+                item_type = 'suite'
+                name = te.test_suite.name
+            else:
+                continue  # 无计划无套件的 TestExecution，跳过
+
+            items.append({
+                'id': f'te_{te.id}',
+                'raw_id': te.id,
+                'item_type': item_type,
+                'name': name,
+                'status': te_status_map.get(te.status, te.status.lower()),
+                'engine': te.engine or 'playwright',
+                'browser': te.browser or 'chrome',
+                'headless': te.headless or False,
+                'executed_by': te.executed_by.username if te.executed_by else '-',
+                'started_at': te.started_at.isoformat() if te.started_at else None,
+                'finished_at': te.finished_at.isoformat() if te.finished_at else None,
+                'duration': te.duration or (
+                    (te.finished_at - te.started_at).total_seconds()
+                    if te.started_at and te.finished_at else None
+                ),
+                'total_cases': te.total_cases,
+                'passed_cases': te.passed_cases,
+                'failed_cases': te.failed_cases,
+                'skipped_cases': te.skipped_cases,
+                'has_children': True,
+                'created_at': te.created_at.isoformat() if te.created_at else None,
+            })
+
+        # 2. 查询独立用例执行记录（不属于任何 TestExecution 批次）
+        standalone_cases = TestCaseExecution.objects.filter(
+            project__in=accessible_projects,
+            test_execution__isnull=True,
+            execution_source='manual'
+        ).select_related('test_case', 'created_by')
+
+        if project_id:
+            standalone_cases = standalone_cases.filter(project_id=project_id)
+        if status_filter:
+            standalone_cases = standalone_cases.filter(status=status_filter)
+        if browser:
+            standalone_cases = standalone_cases.filter(browser=browser)
+        if search:
+            standalone_cases = standalone_cases.filter(
+                test_case__name__icontains=search
+            )
+
+        for ce in standalone_cases:
+            items.append({
+                'id': f'ce_{ce.id}',
+                'raw_id': ce.id,
+                'item_type': 'case',
+                'name': ce.test_case.name if ce.test_case else '-',
+                'status': ce.status,
+                'engine': ce.engine or 'playwright',
+                'browser': ce.browser or 'chrome',
+                'headless': ce.headless or False,
+                'executed_by': ce.created_by.username if ce.created_by else '-',
+                'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                'duration': ce.execution_time,
+                'total_cases': None,
+                'passed_cases': None,
+                'failed_cases': None,
+                'skipped_cases': None,
+                'has_children': False,
+                'created_at': ce.created_at.isoformat() if ce.created_at else None,
+            })
+
+        # 按时间降序排列
+        items.sort(key=lambda x: x.get('started_at') or x.get('created_at') or '', reverse=True)
+
+        # 分页
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        total = len(items)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated = items[start:end]
+
+        return Response({
+            'count': total,
+            'results': paginated,
+        })
 
 
 class OperationRecordViewSet(viewsets.ReadOnlyModelViewSet):
