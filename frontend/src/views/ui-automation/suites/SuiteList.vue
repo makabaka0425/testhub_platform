@@ -191,7 +191,33 @@
               <span class="drag-handle"><el-icon style="cursor: grab"><Rank /></el-icon></span>
             </template>
           </el-table-column>
-          <el-table-column prop="test_case.name" label="用例名称" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="test_case.name" label="用例名称" min-width="200" show-overflow-tooltip />
+          <el-table-column min-width="200">
+            <template #header>
+              <span>变量流转</span>
+              <el-tooltip placement="top" :show-after="200">
+                <template #content>
+                  <div style="max-width: 320px; line-height: 1.6;">
+                    <b>变量流转</b>：展示套件内用例间的变量传递关系。<br/>
+                    <span style="color: #67c23a;">→ varName</span>：本用例输出变量（步骤中通过「输出变量」捕获）<br/>
+                    <span style="color: #409eff;">← varName</span>：本用例消费变量（输入值中引用 ${varName}）<br/>
+                    <span style="color: #f56c6c;">← varName ⚠</span>：消费了未定义变量（上游无此变量输出）
+                  </div>
+                </template>
+                <svg class="var-flow-help" viewBox="0 0 16 16" width="14" height="14" style="margin-left: 4px; vertical-align: middle; cursor: help;">
+                  <circle cx="8" cy="8" r="7" fill="none" stroke="#909399" stroke-width="1.2"/>
+                  <text x="8" y="8" text-anchor="middle" dominant-baseline="central" fill="#909399" font-size="10" font-weight="700" font-family="sans-serif">?</text>
+                </svg>
+              </el-tooltip>
+            </template>
+            <template #default="{ row }">
+              <div class="var-flow-tags" v-if="caseVarMap[row.test_case?.id]">
+                <el-tag v-for="v in (caseVarMap[row.test_case.id]?.outputs || [])" :key="'o-'+v" size="small" type="success" effect="plain" class="var-tag var-tag--output">&rarr; {{ v }}</el-tag>
+                <el-tag v-for="v in (caseVarMap[row.test_case.id]?.consumes || [])" :key="'c-'+v" size="small" :type="caseVarMap[row.test_case.id]?.undefined?.includes(v) ? 'danger' : 'info'" effect="plain" class="var-tag var-tag--input">&larr; {{ v }}<span v-if="caseVarMap[row.test_case.id]?.undefined?.includes(v)" title="上游无此变量">&nbsp;&#9888;</span></el-tag>
+              </div>
+              <span v-else style="color: var(--gray-400)">-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="优先级" width="80" align="center">
             <template #default="{ row }">
               <el-tag size="small" :type="getPriorityTag(row.test_case.priority)">{{ getPriorityText(row.test_case.priority) }}</el-tag>
@@ -538,6 +564,22 @@
                 </div>
               </div>
             </el-tab-pane>
+            <el-tab-pane label="变量流转" name="variables" v-if="caseDetailVarFlow.length > 0">
+              <div class="history-detail-scroll">
+                <div class="var-flow-timeline">
+                  <div v-for="(item, idx) in caseDetailVarFlow" :key="idx" class="var-flow-item" :class="`var-flow-item--${item.type}`">
+                    <div class="var-flow-dot"></div>
+                    <div class="var-flow-content">
+                      <span class="var-flow-step">步骤 {{ item.step }}</span>
+                      <span class="var-flow-action">{{ item.action }}</span>
+                      <span class="var-flow-name" :class="`var-flow-name--${item.type}`">{{ item.name }}</span>
+                      <span class="var-flow-eq">=</span>
+                      <span class="var-flow-value">{{ item.value }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
           </el-tabs>
         </div>
       </div>
@@ -558,7 +600,7 @@ import {
   removeTestCaseFromTestSuite, removeTestCasesFromTestSuite,
   updateTestCaseOrder, runTestSuite, getLoginConfigs, getTestCaseGroupTree,
   batchUpdateTestSuites, getSuiteExecutionRecords, getTestCaseExecutionDetail,
-  updateTestCasePostAction
+  updateTestCasePostAction, getSuiteVariableFlow
 } from '@/api/ui_automation'
 
 // ==================== 通用数据 ====================
@@ -815,6 +857,9 @@ const selectedCaseIds = ref([])
 const suiteCasesTableRef = ref(null)
 let sortableInstance = null
 
+// 变量流转数据：{ testCaseId: { outputs: [], consumes: [], undefined: [] } }
+const caseVarMap = ref({})
+
 const filteredSuiteCases = computed(() => {
   if (!suiteCaseSearch.value) return suiteCases.value
   const kw = suiteCaseSearch.value.toLowerCase()
@@ -824,6 +869,7 @@ const filteredSuiteCases = computed(() => {
 const enterSuiteDetail = (row) => {
   currentSuite.value = row
   loadSuiteCases()
+  loadVariableFlow()
 }
 
 const exitSuiteDetail = () => {
@@ -832,7 +878,23 @@ const exitSuiteDetail = () => {
   suiteCases.value = []
   suiteCaseSearch.value = ''
   selectedCaseIds.value = []
+  caseVarMap.value = {}
   loadSuites()
+}
+
+const loadVariableFlow = async () => {
+  if (!currentSuite.value) return
+  try {
+    const res = await getSuiteVariableFlow(currentSuite.value.id)
+    const data = res.data || res
+    const map = {}
+    for (const item of data) {
+      map[item.test_case_id] = item
+    }
+    caseVarMap.value = map
+  } catch (e) {
+    caseVarMap.value = {}
+  }
 }
 
 const loadSuiteCases = async ({ silent = false } = {}) => {
@@ -878,6 +940,7 @@ const saveCaseOrder = async () => {
     }))
     await updateTestCaseOrder(currentSuite.value.id, orderData)
     ElMessage.success('顺序已保存')
+    loadVariableFlow()
   } catch (e) {
     console.error('保存排序失败:', e)
     ElMessage.error('保存排序失败')
@@ -1337,6 +1400,44 @@ const caseDetailErrors = computed(() => {
     }
   }
   return errors
+})
+
+// 从执行记录步骤中提取变量流转信息
+const caseDetailVarFlow = computed(() => {
+  if (!caseDetailData.value) return []
+  const steps = Array.isArray(caseDetailData.value.parsedLogs)
+    ? caseDetailData.value.parsedLogs
+    : (caseDetailData.value.parsedLogs?.steps || [])
+  const flow = []
+  for (const step of steps) {
+    if (step.step_number === 'sql') continue
+    // 输出变量（步骤产生了新变量）
+    if (step.output_var && step.output_var_value !== undefined) {
+      flow.push({
+        type: 'output',
+        step: step.step_number,
+        action: getActionText(step.action_type || ''),
+        name: step.output_var,
+        value: typeof step.output_var_value === 'string' && step.output_var_value.length > 80
+          ? step.output_var_value.substring(0, 80) + '...'
+          : step.output_var_value
+      })
+    }
+    // 消费变量（输入值中引用了 ${varName}）
+    if (step.input_value && typeof step.input_value === 'string') {
+      const matches = step.input_value.matchAll(/\$\{(\w+)\}/g)
+      for (const match of matches) {
+        flow.push({
+          type: 'input',
+          step: step.step_number,
+          action: getActionText(step.action_type || ''),
+          name: match[1],
+          value: step.input_value
+        })
+      }
+    }
+  }
+  return flow
 })
 
 // 从执行记录中提取SQL执行信息（统一处理套件和单用例两种格式）
@@ -2281,5 +2382,120 @@ onBeforeUnmount(() => {
 }
 .el-dialog.history-detail-dialog .el-tab-pane {
   height: 100%;
+}
+
+/* ==================== 变量流转标签 ==================== */
+.var-flow-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.var-flow-tags .var-tag {
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.var-flow-tags .var-tag--output {
+  background: #f0f9eb;
+  border-color: #e1f3d8;
+  color: #67c23a;
+}
+.var-flow-tags .var-tag--input {
+  background: #ecf5ff;
+  border-color: #d9ecff;
+  color: #409eff;
+}
+.var-flow-tags .el-tag--danger.var-tag--input {
+  background: #fef0f0;
+  border-color: #fde2e2;
+  color: #f56c6c;
+}
+
+/* ==================== 变量流转时间轴 ==================== */
+.var-flow-timeline {
+  padding: 8px 0;
+}
+.var-flow-item {
+  display: flex;
+  align-items: flex-start;
+  position: relative;
+  padding-left: 24px;
+  padding-bottom: 12px;
+}
+.var-flow-item:last-child {
+  padding-bottom: 0;
+}
+.var-flow-item::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  bottom: -4px;
+  width: 1px;
+  background: #e4e7ed;
+}
+.var-flow-item:last-child::before {
+  display: none;
+}
+.var-flow-dot {
+  position: absolute;
+  left: 1px;
+  top: 6px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #409eff;
+  background: #fff;
+}
+.var-flow-item--output .var-flow-dot {
+  border-color: #67c23a;
+  background: #f0f9eb;
+}
+.var-flow-item--input .var-flow-dot {
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+.var-flow-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  flex-wrap: wrap;
+}
+.var-flow-step {
+  color: #909399;
+  font-size: 12px;
+}
+.var-flow-action {
+  color: #606266;
+  font-size: 12px;
+}
+.var-flow-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.var-flow-name--output {
+  color: #67c23a;
+}
+.var-flow-name--input {
+  color: #409eff;
+}
+.var-flow-eq {
+  color: #909399;
+}
+.var-flow-value {
+  color: #303133;
+  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  background: #f5f7fa;
+  padding: 1px 6px;
+  border-radius: 3px;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
