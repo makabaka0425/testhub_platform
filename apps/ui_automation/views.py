@@ -10048,23 +10048,53 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
         test_plan = self.get_object()
         executions = TestExecution.objects.filter(test_plan=test_plan).order_by('-started_at')
 
+        # 获取计划中包含的套件ID列表
+        plan_suite_ids = set(
+            test_plan.plan_items.filter(item_type='test_suite').values_list('test_suite_id', flat=True)
+        )
+
         data = []
         for exec_obj in executions:
             # 查询该执行批次下的所有用例执行记录
-            case_executions = TestCaseExecution.objects.filter(
+            # 途径1: 通过 test_execution 外键关联
+            fk_cases = TestCaseExecution.objects.filter(
                 test_execution=exec_obj
-            ).select_related('test_case', 'test_suite').order_by('started_at')
+            ).values_list('id', flat=True)
 
-            # 兼容旧记录：如果外键关联没查到记录，尝试时间窗口匹配
-            if not case_executions.exists():
-                case_executions = TestCaseExecution.objects.filter(
-                    test_plan=test_plan,
+            # 途径2: 时间窗口匹配（兼容未设置 test_execution 外键的旧记录）
+            time_cases = TestCaseExecution.objects.filter(
+                test_plan=test_plan,
+                execution_source='plan',
+                started_at__gte=exec_obj.started_at,
+            )
+            if exec_obj.finished_at:
+                time_cases = time_cases.filter(started_at__lte=exec_obj.finished_at)
+            time_case_ids = set(time_cases.values_list('id', flat=True))
+
+            # 途径3: 独立模式下，套件通过自己的TestExecution执行
+            # 套件内用例的 test_execution 指向套件的 TestExecution，
+            # 而非计划级 TestExecution，需要通过时间窗口+套件归属匹配
+            suite_case_ids = set()
+            if plan_suite_ids:
+                # 查找在计划执行时间窗口内、属于计划中套件的用例执行记录
+                suite_exec_filter = TestCaseExecution.objects.filter(
+                    test_suite_id__in=plan_suite_ids,
                     started_at__gte=exec_obj.started_at,
-                ).select_related('test_case', 'test_suite').order_by('started_at')
+                )
                 if exec_obj.finished_at:
-                    case_executions = case_executions.filter(
+                    suite_exec_filter = suite_exec_filter.filter(
                         started_at__lte=exec_obj.finished_at
                     )
+                # 排除已通过途径1和2找到的记录
+                existing_ids = set(fk_cases) | time_case_ids
+                suite_exec_filter = suite_exec_filter.exclude(id__in=existing_ids)
+                suite_case_ids = set(suite_exec_filter.values_list('id', flat=True))
+
+            # 合并所有查询结果（去重）
+            all_case_ids = set(fk_cases) | time_case_ids | suite_case_ids
+            case_executions = TestCaseExecution.objects.filter(
+                id__in=all_case_ids
+            ).select_related('test_case', 'test_suite').order_by('started_at')
 
             # 按计划项结构组织用例明细
             # 1. 收集所有用例执行记录
@@ -10100,15 +10130,20 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
                         **case_item,
                     })
 
-            # 按计划项顺序合并：先单用例，再套件（保持执行顺序）
-            # 尝试按计划项顺序组织
+            # 为套件项补充 started_at（取套件内第一个用例的开始时间）
+            for sd in suites_data.values():
+                suite_cases = sd.get('cases', [])
+                if suite_cases:
+                    sd['started_at'] = suite_cases[0].get('started_at')
+                    sd['finished_at'] = suite_cases[-1].get('finished_at')
+
+            # 按计划项顺序合并
             ordered_items = []
             plan_items = test_plan.plan_items.all().order_by('order')
             suite_ids_seen = set()
 
             for pi in plan_items:
                 if pi.item_type == 'test_case':
-                    # 找到对应的单用例执行记录
                     for cd in cases_data:
                         if cd['test_case_id'] == pi.test_case_id:
                             ordered_items.append(cd)
@@ -10132,7 +10167,10 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
                 'status': exec_obj.status,
                 'started_at': exec_obj.started_at.isoformat() if exec_obj.started_at else None,
                 'finished_at': exec_obj.finished_at.isoformat() if exec_obj.finished_at else None,
-                'duration': exec_obj.duration,
+                'duration': exec_obj.duration if exec_obj.duration else (
+                    (exec_obj.finished_at - exec_obj.started_at).total_seconds()
+                    if exec_obj.started_at and exec_obj.finished_at else None
+                ),
                 'total_cases': exec_obj.total_cases,
                 'passed_cases': exec_obj.passed_cases,
                 'failed_cases': exec_obj.failed_cases,

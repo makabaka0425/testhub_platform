@@ -1527,7 +1527,12 @@ const viewCaseExecDetail = async (row) => {
     const record = res.data
     let logs = record.execution_logs
     if (typeof logs === 'string') {
-      try { logs = JSON.parse(logs) } catch { logs = null }
+      try { logs = JSON.parse(logs) } catch {
+        // 纯文本格式：转换为步骤列表
+        logs = { steps: logs.split('\n').filter(Boolean).map((line, i) => ({
+          step_number: i + 1, action_type: '', description: '', success: !line.includes('失败'), error: line.includes('失败') ? line : null, input_value: ''
+        })) }
+      }
     }
     caseDetailData.value = {
       ...record,
