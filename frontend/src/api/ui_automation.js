@@ -407,6 +407,15 @@ export function deleteTestPlan(id) {
   })
 }
 
+// 批量更新测试计划
+export function batchUpdateTestPlans(data) {
+  return request({
+    url: '/ui-automation/test-plans/batch_update/',
+    method: 'post',
+    data
+  })
+}
+
 // 获取计划项列表
 export function getPlanItems(planId) {
   return request({
