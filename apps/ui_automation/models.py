@@ -1266,3 +1266,44 @@ class AIExecutionRecord(models.Model):
 
     def __str__(self):
         return f"{self.case_name} - {self.get_status_display()}"
+
+
+class AllureReport(models.Model):
+    """Allure测试报告模型"""
+    STATUS_CHOICES = [
+        ('generating', '生成中'),
+        ('completed', '已完成'),
+        ('failed', '生成失败'),
+    ]
+
+    name = models.CharField(max_length=200, verbose_name='报告名称')
+    project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='allure_reports', verbose_name='所属项目')
+    test_plan = models.ForeignKey('UiTestPlan', on_delete=models.SET_NULL, null=True, blank=True, related_name='allure_reports', verbose_name='测试计划')
+    test_execution = models.ForeignKey('TestExecution', on_delete=models.SET_NULL, null=True, blank=True, related_name='allure_reports', verbose_name='执行批次')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='generating', verbose_name='生成状态')
+    report_dir = models.CharField(max_length=500, blank=True, default='', verbose_name='报告目录路径')
+    error_message = models.TextField(blank=True, default='', verbose_name='错误信息')
+
+    # 报告统计摘要（生成完成后写入）
+    total_cases = models.IntegerField(default=0, verbose_name='总用例数')
+    passed_cases = models.IntegerField(default=0, verbose_name='通过用例数')
+    failed_cases = models.IntegerField(default=0, verbose_name='失败用例数')
+    skipped_cases = models.IntegerField(default=0, verbose_name='跳过用例数')
+    pass_rate = models.FloatField(default=0, verbose_name='通过率(%)')
+    avg_duration = models.FloatField(default=0, verbose_name='平均执行耗时(秒)')
+
+    # 浏览器/环境信息
+    browser = models.CharField(max_length=50, blank=True, default='', verbose_name='浏览器')
+    environment = models.CharField(max_length=100, blank=True, default='', verbose_name='执行环境')
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='allure_reports', verbose_name='创建人')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        db_table = 'ui_allure_reports'
+        verbose_name = 'Allure测试报告'
+        verbose_name_plural = 'Allure测试报告'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} - {self.get_status_display()}"

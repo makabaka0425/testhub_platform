@@ -1570,3 +1570,56 @@ export function testLoginConfig(id) {
     timeout: 60000
   })
 }
+
+// ===================== Allure 测试报告 =====================
+
+// 获取Allure报告列表
+export function getAllureReports(params) {
+  return request({
+    url: '/ui-automation/allure-reports/',
+    method: 'get',
+    params
+  })
+}
+
+// 创建Allure报告
+export function createAllureReport(data) {
+  return request({
+    url: '/ui-automation/allure-reports/',
+    method: 'post',
+    data
+  })
+}
+
+// 获取Allure报告详情
+export function getAllureReportDetail(id) {
+  return request({
+    url: `/ui-automation/allure-reports/${id}/`,
+    method: 'get'
+  })
+}
+
+// 删除Allure报告
+export function deleteAllureReport(id) {
+  return request({
+    url: `/ui-automation/allure-reports/${id}/`,
+    method: 'delete'
+  })
+}
+
+// 重新生成Allure报告
+export function regenerateAllureReport(id) {
+  return request({
+    url: `/ui-automation/allure-reports/${id}/regenerate/`,
+    method: 'post'
+  })
+}
+
+// 获取计划的执行批次列表
+export function getPlanExecutionBatches(planId) {
+  return request({
+    url: '/ui-automation/allure-reports/execution_batches/',
+    method: 'get',
+    params: { plan_id: planId }
+  })
+}

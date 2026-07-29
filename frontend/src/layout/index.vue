@@ -161,6 +161,10 @@
               <el-icon><DataAnalysis /></el-icon>
               <span>{{ $t('menu.testReport') }}</span>
             </el-menu-item>
+            <el-menu-item index="/ui-automation/allure-reports">
+              <el-icon><Histogram /></el-icon>
+              <span>Allure报告</span>
+            </el-menu-item>
             <el-menu-item index="/ui-automation/scheduled-tasks">
               <el-icon><AlarmClock /></el-icon>
               <span>{{ $t('menu.scheduledTasks') }}</span>
@@ -353,7 +357,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -447,6 +451,7 @@ const breadcrumbTitle = computed(() => {
     '/ui-automation/login-configs': t('menu.loginConfig'),
     '/ui-automation/executions': t('menu.executionRecords'),
     '/ui-automation/reports': t('menu.testReport'),
+    '/ui-automation/allure-reports': 'Allure报告',
     '/ui-automation/scheduled-tasks': t('menu.scheduledTasks'),
     '/ui-automation/notification-logs': t('menu.notificationList'),
 
