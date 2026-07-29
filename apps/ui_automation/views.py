@@ -414,7 +414,7 @@ class ElementViewSet(viewsets.ModelViewSet):
     # 手动交互模式会话管理（类变量，跨请求共享）
     _manual_sessions = {}  # session_id -> {playwright, browser, page, context, captures, created_at}
     # 交互式选取模式会话管理
-    _pick_sessions = {}    # session_id -> {playwright, browser, page, context, picked_elements, created_at}
+    _pick_sessions = {}    # session_id -> {playwright, browser, page, context, picked_elements, created_at, current_mode}
 
     def get_serializer_class(self):
         if self.action in ['list', 'retrieve']:
@@ -1022,19 +1022,16 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             # 登录（如有）
             if login_start_url and login_steps_data:
-                page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                 for i, step_data in enumerate(login_steps_data):
                     self._execute_login_step(page, step_data)
                 try:
-                    page.wait_for_load_state('networkidle', timeout=10000)
+                    page.wait_for_load_state('domcontentloaded', timeout=10000)
                 except:
                     pass
-                time.sleep(2)
 
             # 导航到目标页面
-            page.goto(url, wait_until='networkidle', timeout=30000)
-            time.sleep(2)
+            page.goto(url, wait_until='domcontentloaded', timeout=30000)
             page_title = page.title()
 
             for btn_info in buttons:
@@ -1095,7 +1092,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                         time.sleep(1)
                         continue
 
-                    time.sleep(2)  # 等待弹窗内容完全渲染
+                    # 等待弹窗内容渲染（依赖domcontentloaded后的DOM就绪）
 
                     # 获取弹窗标题（用于来源标注）
                     dialog_title = btn_text
@@ -1341,19 +1338,16 @@ class ElementViewSet(viewsets.ModelViewSet):
 
                         # 登录（如有）
                         if login_start_url and login_steps_data:
-                            await page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                            await asyncio.sleep(2)
+                            await page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                             for step_data in login_steps_data:
                                 await self._async_execute_login_step(page, step_data)
                             try:
-                                await page.wait_for_load_state('networkidle', timeout=10000)
+                                await page.wait_for_load_state('domcontentloaded', timeout=10000)
                             except:
                                 pass
-                            await asyncio.sleep(2)
 
                         # 导航到目标页面
-                        await page.goto(url, wait_until='networkidle', timeout=30000)
-                        await asyncio.sleep(2)
+                        await page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
                         # 注入浮动按钮
                         await self._async_inject_fab_button(page, session_id)
@@ -1782,18 +1776,15 @@ class ElementViewSet(viewsets.ModelViewSet):
                         page = await context.new_page()
 
                         if login_start_url and login_steps_data:
-                            await page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                            await asyncio.sleep(2)
+                            await page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                             for step_data in login_steps_data:
                                 await self._async_execute_login_step(page, step_data)
                             try:
-                                await page.wait_for_load_state('networkidle', timeout=10000)
+                                await page.wait_for_load_state('domcontentloaded', timeout=10000)
                             except:
                                 pass
-                            await asyncio.sleep(2)
 
-                        await page.goto(url, wait_until='networkidle', timeout=30000)
-                        await asyncio.sleep(2)
+                        await page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
                         # 注入交互式选取脚本
                         await self._async_inject_pick_script(page, session_id)
@@ -1831,7 +1822,8 @@ class ElementViewSet(viewsets.ModelViewSet):
                 'context': start_result['context'],
                 'page': start_result['page'],
                 'picked_elements': [],
-                'created_at': time.time()
+                'created_at': time.time(),
+                'current_mode': 'select'
             }
 
             return Response({
@@ -2016,6 +2008,7 @@ class ElementViewSet(viewsets.ModelViewSet):
 
                     # 存入session（去重：相同 locator_strategy + locator_value + containerSelector 不重复添加）
                     # 关键修复：加入 containerSelector 区分主页面和弹窗的同id元素
+                    # 优化：如果定位表达式相同但文本不同，尝试用文本定位来区分
                     session = self._pick_sessions.get(session_id)
                     if session:
                         new_key = (
@@ -2027,7 +2020,29 @@ class ElementViewSet(viewsets.ModelViewSet):
                             (e.get('locator_strategy', ''), e.get('locator_value', ''), e.get('containerSelector', ''))
                             for e in session['picked_elements']
                         }
-                        if new_key not in existing_keys:
+
+                        if new_key in existing_keys:
+                            # 定位表达式重复，但文本不同时尝试改用文本定位
+                            elem_text = (ai_result.get('name', '') or '').strip()
+                            if elem_text:
+                                # 尝试用XPath文本定位
+                                tag = element_data.get('tag', 'button')
+                                tag_map = {'input': 'input', 'button': 'button', 'a': 'a', 'select': 'select', 'span': 'span', 'div': 'div', 'label': 'label'}
+                                html_tag = tag_map.get(tag, tag)
+                                escaped = elem_text.replace('"', "'")
+                                text_xpath = f'//{html_tag}[contains(.,"{escaped}")]'
+                                text_key = ('XPath', text_xpath, ai_result.get('containerSelector', ''))
+                                if text_key not in existing_keys:
+                                    ai_result['locator_strategy'] = 'XPath'
+                                    ai_result['locator_value'] = text_xpath
+                                    ai_result['validation_status'] = 'VALID'
+                                    ai_result['validation_details'] = f'文本定位（原定位表达式重复）: {text_xpath}'
+                                    logger.info(f'[交互选取] 定位表达式重复，改用文本定位: {text_xpath}')
+                                    session['picked_elements'].append(ai_result)
+                                    return ai_result
+                            # 文本也相同或无法用文本区分，跳过
+                            logger.info(f'[交互选取] 元素已存在，跳过: {new_key}')
+                        else:
                             session['picked_elements'].append(ai_result)
                     return ai_result
                 return None
@@ -2049,6 +2064,16 @@ class ElementViewSet(viewsets.ModelViewSet):
             return False
 
         await page.expose_function('__aiPickRename', on_element_renamed)
+
+        async def on_mode_switched(mode):
+            """JS调用：用户切换选取/浏览模式时，同步更新session"""
+            session = self._pick_sessions.get(session_id)
+            if session and mode in ('select', 'browse'):
+                session['current_mode'] = mode
+                logger.info(f'[交互选取] 模式切换: {mode}')
+            return True
+
+        await page.expose_function('__aiPickModeSwitch', on_mode_switched)
 
         # 注入选取模式UI脚本
         pick_js = """
@@ -2161,6 +2186,34 @@ class ElementViewSet(viewsets.ModelViewSet):
             `;
             document.body.appendChild(panel);
 
+            // 关键：在冒泡阶段阻止浮窗内事件冒泡到document，避免触发主页面弹窗关闭等副作用
+            // 必须用冒泡阶段（不加true），让事件先到达内部按钮执行点击逻辑，再拦截冒泡
+            // 注意：mouseup和pointerup不阻止冒泡，否则拖拽逻辑的document.mouseup收不到事件导致isDragging永远为true
+            ['click', 'mousedown', 'pointerdown'].forEach(evt => {
+                panel.addEventListener(evt, (e) => {
+                    e.stopPropagation();
+                });
+            });
+            // 阻止mousedown/pointerdown的默认行为，防止焦点转移到浮窗导致对话框失焦关闭
+            // 但不能对输入框/textarea/可编辑元素阻止，否则无法编辑元素名称
+            // 也不能对header阻止，否则影响拖拽
+            panel.addEventListener('mousedown', (e) => {
+                const tag = e.target.tagName;
+                if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !e.target.isContentEditable && !e.target.closest('.pick-header')) {
+                    e.preventDefault();
+                }
+            });
+            panel.addEventListener('pointerdown', (e) => {
+                const tag = e.target.tagName;
+                if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !e.target.isContentEditable && !e.target.closest('.pick-header')) {
+                    e.preventDefault();
+                }
+            });
+            // 阻止focusin事件冒泡，防止焦点变化触发弹窗关闭
+            panel.addEventListener('focusin', (e) => {
+                e.stopPropagation();
+            });
+
             // 拖拽逻辑：按住 header 拖动面板
             const pickHeader = panel.querySelector('.pick-header');
             let isDragging = false;
@@ -2194,20 +2247,35 @@ class ElementViewSet(viewsets.ModelViewSet):
             });
 
             // 模式切换：选取模式 vs 浏览模式
-            let pickMode = 'select'; // 'select' or 'browse'
+            window.__aiPickMode = window.__aiPickMode || 'select'; // 保留已有模式（导航后恢复），默认select
+            let pickMode = window.__aiPickMode; // 'select' or 'browse'
             const btnSelect = document.getElementById('pick-mode-select');
             const btnBrowse = document.getElementById('pick-mode-browse');
             const hintEl = document.getElementById('pick-hint');
+            // 初始化按钮状态（从window.__aiPickMode恢复）
+            if (pickMode === 'browse') {
+                btnBrowse.classList.add('active');
+                btnSelect.classList.remove('active');
+                hintEl.innerHTML = '<span class="pick-mode-badge browse">浏览</span> 正常操作页面，可点击按钮打开弹窗';
+            }
 
             btnSelect.addEventListener('click', () => {
                 pickMode = 'select';
+                window.__aiPickMode = 'select';
                 btnSelect.classList.add('active');
                 btnBrowse.classList.remove('active');
                 hintEl.innerHTML = '<span class="pick-mode-badge select">选取</span> 鼠标悬停高亮，点击选取元素';
+                // 广播模式切换给iframe
+                document.querySelectorAll('iframe').forEach(iframe => {
+                    try { iframe.contentWindow.postMessage({ type: 'ai-pick-mode', mode: 'select' }, '*'); } catch(e) {}
+                });
+                // 通知Python后端更新session
+                try { window.__aiPickModeSwitch('select'); } catch(e) {}
             });
 
             btnBrowse.addEventListener('click', () => {
                 pickMode = 'browse';
+                window.__aiPickMode = 'browse';
                 btnBrowse.classList.add('active');
                 btnSelect.classList.remove('active');
                 // 清除高亮
@@ -2216,6 +2284,12 @@ class ElementViewSet(viewsets.ModelViewSet):
                     highlightedEl = null;
                 }
                 hintEl.innerHTML = '<span class="pick-mode-badge browse">浏览</span> 正常操作页面，可点击按钮打开弹窗';
+                // 广播模式切换给iframe
+                document.querySelectorAll('iframe').forEach(iframe => {
+                    try { iframe.contentWindow.postMessage({ type: 'ai-pick-mode', mode: 'browse' }, '*'); } catch(e) {}
+                });
+                // 通知Python后端更新session
+                try { window.__aiPickModeSwitch('browse'); } catch(e) {}
             });
 
             let highlightedEl = null;
@@ -2407,7 +2481,273 @@ class ElementViewSet(viewsets.ModelViewSet):
             }, true);
         }
         """
+
+        # 主frame：监听iframe发来的选取消息
+        iframe_listener_js = """
+        () => {
+            // 主frame监听iframe消息
+            window.addEventListener('message', async (e) => {
+                if (e.data && e.data.type === 'ai-pick-element') {
+                    const elementData = e.data.elementData;
+                    if (!elementData) return;
+                    // 标记来自iframe
+                    elementData._fromIframe = true;
+
+                    const body = document.getElementById('pick-body');
+                    if (!body) return;
+
+                    // 显示加载状态
+                    const loadingDiv = document.createElement('div');
+                    loadingDiv.className = 'pick-loading';
+                    loadingDiv.id = 'pick-loading-iframe';
+                    loadingDiv.textContent = '正在分析iframe元素...';
+                    body.appendChild(loadingDiv);
+
+                    try {
+                        if (typeof window.__aiPickElement !== 'function') {
+                            throw new Error('__aiPickElement not registered');
+                        }
+                        const result = await window.__aiPickElement(elementData);
+                        const ld = document.getElementById('pick-loading-iframe');
+                        if (ld) ld.remove();
+
+                        if (result) {
+                            const empty = body.querySelector('.pick-empty');
+                            if (empty) empty.remove();
+
+                            const item = document.createElement('div');
+                            item.className = 'pick-item';
+                            const typeMap = {
+                                'INPUT': '输入框', 'BUTTON': '按钮', 'LINK': '链接',
+                                'DROPDOWN': '下拉框', 'CHECKBOX': '复选框', 'RADIO': '单选框',
+                                'TEXT': '文本', 'IMAGE': '图片', 'TABLE': '表格',
+                                'CONTAINER': '容器', 'FORM': '表单', 'MODAL': '弹窗'
+                            };
+                            const typeText = typeMap[result.element_type] || result.element_type || '元素';
+                            const itemName = result.name || '未命名';
+                            const itemIndex = body.querySelectorAll('.pick-item').length;
+                            item.innerHTML = `
+                                <span class="pick-item-name" contenteditable="true" data-index="${itemIndex}" title="点击编辑名称">${itemName}</span>
+                                <span class="pick-item-type">${typeText}</span>
+                            `;
+                            body.appendChild(item);
+
+                            const nameSpan = item.querySelector('.pick-item-name');
+                            nameSpan.addEventListener('blur', async () => {
+                                const newName = nameSpan.textContent.trim();
+                                const idx = parseInt(nameSpan.getAttribute('data-index'));
+                                if (newName) {
+                                    try { await window.__aiPickRename(idx, newName); } catch(e) {}
+                                }
+                            });
+                            nameSpan.addEventListener('keydown', (e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); nameSpan.blur(); }
+                            });
+
+                            const countEl = document.getElementById('pick-count');
+                            const items = body.querySelectorAll('.pick-item');
+                            countEl.textContent = items.length + ' 个元素';
+                        }
+                    } catch(err) {
+                        const ld = document.getElementById('pick-loading-iframe');
+                        if (ld) ld.remove();
+                        console.error('[交互选取] iframe元素分析失败:', err);
+                    }
+                }
+            });
+        }
+        """
         await page.evaluate(pick_js)
+        await page.evaluate(iframe_listener_js)
+
+        # 注入iframe：遍历所有frame，注入mouseover/click监听
+        iframe_pick_js = """
+        () => {
+            // 避免重复注入
+            if (window.__aiPickIframeInjected) return;
+            window.__aiPickIframeInjected = true;
+
+            // iframe的模式状态，默认跟随主frame（初始为select）
+            let iframePickMode = 'select';
+
+            // 监听主frame模式切换消息
+            window.addEventListener('message', (e) => {
+                if (e.data && e.data.type === 'ai-pick-mode') {
+                    iframePickMode = e.data.mode;
+                    // 浏览模式时清除高亮
+                    if (iframePickMode === 'browse' && window.__iframeHighlightedEl) {
+                        window.__iframeHighlightedEl.classList.remove('ai-pick-highlight');
+                        window.__iframeHighlightedEl = null;
+                    }
+                }
+            });
+
+            // 高亮样式
+            const style = document.createElement('style');
+            style.textContent = `
+                .ai-pick-highlight {
+                    outline: 2px solid #ff4d4f !important;
+                    outline-offset: 1px !important;
+                    cursor: crosshair !important;
+                }
+            `;
+            document.head.appendChild(style);
+
+            let highlightedEl = null;
+            window.__iframeHighlightedEl = null;
+
+            // mouseover高亮（仅选取模式）
+            document.addEventListener('mouseover', (e) => {
+                if (iframePickMode !== 'select') return;
+                const el = e.target;
+                if (highlightedEl && highlightedEl !== el) {
+                    highlightedEl.classList.remove('ai-pick-highlight');
+                }
+                el.classList.add('ai-pick-highlight');
+                highlightedEl = el;
+                window.__iframeHighlightedEl = el;
+            }, true);
+
+            // mouseout移除高亮
+            document.addEventListener('mouseout', (e) => {
+                if (highlightedEl) {
+                    highlightedEl.classList.remove('ai-pick-highlight');
+                }
+            }, true);
+
+            // click捕获（仅选取模式拦截，浏览模式放行）
+            document.addEventListener('click', (e) => {
+                // 浏览模式：不拦截，让页面正常响应
+                if (iframePickMode !== 'select') return;
+
+                let el = e.target;
+
+                // 拦截默认行为
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                // 向上查找交互元素
+                const interactiveSelectors = 'button, a[href], input, select, textarea, [role="button"], [role="link"], [role="switch"], [onclick], .ant-btn, .el-button';
+                let interactiveEl = el.closest(interactiveSelectors);
+                if (interactiveEl) {
+                    el = interactiveEl;
+                }
+
+                // 移除高亮
+                el.classList.remove('ai-pick-highlight');
+
+                // 收集元素信息
+                const rect = el.getBoundingClientRect();
+                let containerSelector = '';
+                try {
+                    const dialogEl = el.closest('.el-dialog, .ant-modal, .el-drawer, .ant-drawer, [role="dialog"]');
+                    if (dialogEl) {
+                        if (dialogEl.classList.contains('el-dialog')) containerSelector = '.el-dialog:visible';
+                        else if (dialogEl.classList.contains('ant-modal')) containerSelector = '.ant-modal:visible';
+                        else if (dialogEl.classList.contains('el-drawer')) containerSelector = '.el-drawer:visible';
+                        else if (dialogEl.classList.contains('ant-drawer')) containerSelector = '.ant-drawer:visible';
+                        else containerSelector = '[role="dialog"]:visible';
+                    }
+                } catch(e) {}
+
+                const elementData = {
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id || '',
+                    name: el.getAttribute('name') || '',
+                    className: (typeof el.className === 'string') ? el.className.substring(0, 200) : '',
+                    type: el.type || '',
+                    placeholder: el.placeholder || '',
+                    value: (el.value || '').substring(0, 50),
+                    href: el.href || '',
+                    role: el.getAttribute('role') || '',
+                    ariaLabel: el.getAttribute('aria-label') || '',
+                    dataTestId: el.getAttribute('data-testid') || '',
+                    text: (el.textContent || '').trim().substring(0, 80),
+                    title: el.title || '',
+                    visible: true,
+                    rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+                    isInTableRow: false,
+                    tableRowIndex: -1,
+                    outerHTML: el.outerHTML.substring(0, 500),
+                    containerSelector: containerSelector,
+                    parentInfo: el.parentElement ? {
+                        tag: el.parentElement.tagName.toLowerCase(),
+                        className: (typeof el.parentElement.className === 'string') ? el.parentElement.className.substring(0, 100) : '',
+                        text: (el.parentElement.textContent || '').trim().substring(0, 80)
+                    } : null,
+                    _fromIframe: true,
+                    _iframeSrc: window.location.href
+                };
+
+                // 通知主frame
+                window.parent.postMessage({ type: 'ai-pick-element', elementData }, '*');
+            }, true);
+        }
+        """
+
+        # 遍历所有frame，给iframe注入选取脚本
+        # 从session读取当前模式，确保iframe与主frame同步
+        session_data = self._pick_sessions.get(session_id)
+        saved_mode = session_data.get('current_mode', 'select') if session_data else 'select'
+
+        try:
+            for frame in page.frames:
+                if frame == page.main_frame:
+                    continue  # 主frame已处理
+                try:
+                    await frame.evaluate(iframe_pick_js)
+                    # 同步当前模式给iframe
+                    current_mode_js = f"window.postMessage({{ type: 'ai-pick-mode', mode: '{saved_mode}' }}, '*')"
+                    await frame.evaluate(current_mode_js)
+                    logger.info(f'[交互选取] iframe脚本注入成功: {frame.url[:80]}')
+                except Exception as fe:
+                    # 跨域iframe无法注入，正常跳过
+                    logger.debug(f'[交互选取] iframe注入跳过（可能是跨域）: {frame.url[:80]} - {fe}')
+        except Exception as e:
+            logger.warning(f'[交互选取] iframe遍历异常: {e}')
+
+        # 监听frame导航事件，iframe页面跳转后自动重新注入脚本
+        async def on_frame_navigated(frame):
+            """iframe导航后重新注入选取脚本"""
+            # 从session读取当前模式
+            sess = self._pick_sessions.get(session_id)
+            cur_mode = sess.get('current_mode', 'select') if sess else 'select'
+
+            if frame == page.main_frame:
+                # 主frame导航后重新注入所有脚本，恢复之前的模式
+                try:
+                    await frame.wait_for_load_state('domcontentloaded', timeout=5000)
+                except:
+                    pass
+                await asyncio.sleep(0.5)
+                try:
+                    # 先在页面设置当前模式（脚本初始化时会读取window.__aiPickMode）
+                    await page.evaluate(f"window.__aiPickMode = '{cur_mode}';")
+                    # 重新注入JS脚本（不重新注册expose_function，因为它们绑定在page对象层面不受导航影响）
+                    await page.evaluate(pick_js)
+                    await page.evaluate(iframe_listener_js)
+                    logger.info(f'[交互选取] 主frame导航后重新注入脚本成功，恢复模式: {cur_mode}')
+                except Exception as e:
+                    logger.warning(f'[交互选取] 主frame重新注入失败: {e}')
+                return
+
+            # iframe导航后重新注入
+            try:
+                await frame.wait_for_load_state('domcontentloaded', timeout=5000)
+            except:
+                pass
+            await asyncio.sleep(0.5)
+            try:
+                await frame.evaluate(iframe_pick_js)
+                # 从session读取当前模式同步给iframe
+                mode_js = f"window.postMessage({{ type: 'ai-pick-mode', mode: '{cur_mode}' }}, '*')"
+                await frame.evaluate(mode_js)
+                logger.info(f'[交互选取] iframe导航后重新注入成功: {frame.url[:80]}')
+            except Exception as fe:
+                logger.debug(f'[交互选取] iframe导航后注入跳过: {frame.url[:80]} - {fe}')
+
+        page.on('framenavigated', on_frame_navigated)
 
     async def _validate_and_fix_locator(self, page, ai_result, element_data):
         """验证AI返回的定位器，如果不唯一则尝试生成更精确的定位表达式
@@ -2456,15 +2796,15 @@ class ElementViewSet(viewsets.ModelViewSet):
             return ai_result
 
         # 不唯一或无效，尝试生成基于文本的精确XPath
-        if text and len(text) <= 30:
+        if text and len(text) <= 80:
             # 尝试多种XPath文本定位方式
             candidates = []
-            # 1. 文本在元素自身
-            candidates.append(f'//{tag}[contains(text(),"{text}")]')
-            # 2. 文本在直接子元素
-            candidates.append(f'//{tag}[.//*[contains(text(),"{text}")]]')
-            # 3. 文本在任意后代元素
+            # 1. contains(.,"...") 最通用，文本在自身或子元素都能匹配
             candidates.append(f'//{tag}[contains(.,"{text}")]')
+            # 2. 文本在直接子元素（更精确）
+            candidates.append(f'//{tag}[.//*[contains(text(),"{text}")]]')
+            # 3. 文本在元素自身（仅当文本是直接子节点时有效）
+            candidates.append(f'//{tag}[contains(text(),"{text}")]')
 
             for xp in candidates:
                 try:
@@ -2592,14 +2932,14 @@ class ElementViewSet(viewsets.ModelViewSet):
 - 有name属性（不含空格）：用 name 策略
 - 有placeholder：用 placeholder 策略
 - 有aria-label：用 label 策略
-- 按钮类元素（button/a/[role=button]）且有文本内容：用 XPath 策略，值如 //button[contains(text(),"新增")] 或 //button[.//span[contains(text(),"新增")]]（根据文本在元素自身还是子元素中）
+- 按钮类元素（button/a/[role=button]）且有文本内容：用 XPath 策略，优先用 contains(.,"文本") 形式（能匹配文本在自身或子元素中的情况），如 //button[contains(.,"新增")]
 - 有唯一className组合：用 CSS 策略，如 button.ant-btn-primary
 - 以上都不满足时，结合 tag + 文本生成 XPath
 
 重要：定位值必须能唯一定位到该元素。不要返回简单的标签名（如 span、button），必须包含足够的限定条件。
 
 请严格按以下JSON格式返回，不要添加任何其他文字：
-{{"name": "元素名称", "element_type": "BUTTON", "locator_strategy": "XPath", "locator_value": "//button[contains(text(),\\"新增\\")]", "description": "简短描述"}}
+{{"name": "元素名称", "element_type": "BUTTON", "locator_strategy": "XPath", "locator_value": "//button[contains(.,'新增')]", "description": "简短描述"}}
 
 元素DOM数据：
 {json.dumps(elem_data, ensure_ascii=False)}"""
@@ -2655,8 +2995,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             if action in _no_element_actions:
                 if action == 'navigate':
                     # navigate需要用项目的base_url拼接相对路径
-                    await page.goto(input_value, wait_until='networkidle', timeout=30000)
-                    await asyncio.sleep(1)
+                    await page.goto(input_value, wait_until='domcontentloaded', timeout=30000)
                 elif action == 'wait':
                     wait_ms = step_data.get('wait_time', 1000)
                     await asyncio.sleep(wait_ms / 1000)
@@ -3006,8 +3345,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             # 如有登录配置，先登录
             if login_start_url and login_steps_data:
                 print(f'[AI提取] 开始登录流程: login_start_url={login_start_url}')
-                page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                 print(f'[AI提取] 已打开登录页面: {page.url}')
 
                 # 执行登录用例步骤
@@ -3017,16 +3355,14 @@ class ElementViewSet(viewsets.ModelViewSet):
 
                 # 等待登录跳转
                 try:
-                    page.wait_for_load_state('networkidle', timeout=10000)
+                    page.wait_for_load_state('domcontentloaded', timeout=10000)
                 except Exception:
                     pass
-                time.sleep(2)
                 print(f'[AI提取] 登录步骤执行完毕, 当前URL: {page.url}')
 
             # 导航到目标页面
             print(f'[AI提取] 导航到目标页面: {url}')
-            page.goto(url, wait_until='networkidle', timeout=30000)
-            time.sleep(2)
+            page.goto(url, wait_until='domcontentloaded', timeout=30000)
             final_url = page.url
             print(f'[AI提取] 导航完成, 最终URL: {final_url}')
 
@@ -3336,8 +3672,7 @@ class ElementViewSet(viewsets.ModelViewSet):
 
             if action in _no_element_actions:
                 if action == 'navigate':
-                    page.goto(input_value, wait_until='networkidle', timeout=30000)
-                    time.sleep(1)
+                    page.goto(input_value, wait_until='domcontentloaded', timeout=30000)
                 elif action == 'wait':
                     wait_ms = step_data.get('wait_time', 1000)
                     time.sleep(wait_ms / 1000)
@@ -3436,15 +3771,12 @@ class ElementViewSet(viewsets.ModelViewSet):
                 
                 # 如有登录配置，先登录
                 if login_start_url and login_steps_data:
-                    page.goto(login_start_url, wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
+                    page.goto(login_start_url, wait_until='domcontentloaded', timeout=30000)
                     for step_data in login_steps_data:
                         self._execute_login_step(page, step_data)
-                    time.sleep(2)
                 
                 # 导航到目标页面
-                page.goto(url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 
                 # 逐个验证未验证的元素
                 validated_count = 0
@@ -3570,6 +3902,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                                     continue
                                 # 尝试多种Ant Design按钮XPath模式
                                 ant_xpaths = [
+                                    f'//button[contains(.,"{elem_text}")]',
                                     f'//button[.//span[text()="{elem_text}"]]',
                                     f'//button[.//span[contains(text(),"{elem_text}")]]',
                                 ]
@@ -4502,6 +4835,7 @@ DOM数据：
                 'usage_count': element.usage_count,
                 'group_id': element.group_id,  # 用于前端关联到页面
                 'page': element.page,  # 保留向后兼容
+                'order': element.order,  # 排序字段
                 'children': []
             }
             element_data_list.append(element_data)
@@ -5059,8 +5393,7 @@ class LoginConfigViewSet(viewsets.ModelViewSet):
                 # 导航到登录页（优先使用login_config的login_url，否则使用项目基础URL）
                 start_url = login_config.login_url or login_config.project.base_url
                 if start_url:
-                    page.goto(start_url, wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
+                    page.goto(start_url, wait_until='domcontentloaded', timeout=30000)
 
                 # 执行登录用例的每个步骤
                 step_errors = []
@@ -5331,6 +5664,24 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['patch'])
+    def update_test_case_post_action(self, request, pk=None):
+        """更新套件中用例的执行后动作"""
+        test_suite = self.get_object()
+        suite_tc_id = request.data.get('suite_tc_id')
+        post_action = request.data.get('post_action', '')
+
+        try:
+            from .models import TestSuiteTestCase
+            suite_tc = TestSuiteTestCase.objects.get(id=suite_tc_id, test_suite=test_suite)
+            suite_tc.post_action = post_action
+            suite_tc.save(update_fields=['post_action'])
+            return Response(TestSuiteTestCaseSerializer(suite_tc).data)
+        except TestSuiteTestCase.DoesNotExist:
+            return Response({'error': '未找到关联记录'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=True, methods=['delete'])
     def remove_test_case(self, request, pk=None):
         """从测试套件移除测试用例"""
@@ -5383,6 +5734,62 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['get'])
+    def variable_flow(self, request, pk=None):
+        """分析套件内用例的变量流转关系
+        返回每个用例的输出变量、消费变量、及未定义变量标记
+        """
+        import re
+        from .models import TestSuiteTestCase
+        test_suite = self.get_object()
+        suite_cases = TestSuiteTestCase.objects.filter(
+            test_suite=test_suite
+        ).select_related('test_case').order_by('order')
+
+        # 用例变量关系列表
+        case_vars_list = []
+        # 所有已定义变量名集合（按顺序累积）
+        all_defined_vars = set()
+
+        for stc in suite_cases:
+            tc = stc.test_case
+            steps = tc.steps.all().order_by('step_number')
+
+            outputs = []   # 本用例输出的变量名
+            consumes = []  # 本用例消费的变量名
+
+            # 变量名正则：匹配 ${xxx}
+            var_pattern = re.compile(r'\$\{(\w+)\}')
+
+            for step in steps:
+                # 收集输出变量
+                if step.output_var:
+                    outputs.append(step.output_var)
+
+                # 收集消费变量（从 input_value 和 assert_value 中提取）
+                for field_val in [step.input_value or '', step.assert_value or '']:
+                    for match in var_pattern.finditer(field_val):
+                        var_name = match.group(1)
+                        if var_name not in consumes:
+                            consumes.append(var_name)
+
+            # 判断消费变量中哪些未定义（在当前用例及之前的所有输出中找不到）
+            available_vars = all_defined_vars | set(outputs)
+            undefined = [v for v in consumes if v not in available_vars]
+            # 本用例输出加入已定义集合
+            all_defined_vars.update(outputs)
+
+            case_vars_list.append({
+                'test_case_id': tc.id,
+                'test_case_name': tc.name,
+                'order': stc.order,
+                'outputs': list(dict.fromkeys(outputs)),   # 去重保持顺序
+                'consumes': list(dict.fromkeys(consumes)),  # 去重保持顺序
+                'undefined': list(dict.fromkeys(undefined)), # 去重保持顺序
+            })
+
+        return Response(case_vars_list)
+
+    @action(detail=True, methods=['get'])
     def execution_records(self, request, pk=None):
         """获取套件的执行记录列表（含每次执行下的用例明细）"""
         test_suite = self.get_object()
@@ -5392,18 +5799,22 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
 
         data = []
         for exec_obj in executions:
-            # 查询该次执行下的所有用例执行记录
+            # 优先通过 test_execution 外键关联查询，兼容旧记录用时间窗口匹配
             case_executions = TestCaseExecution.objects.filter(
-                test_suite=test_suite,
-                execution_source='suite',
-                started_at__gte=exec_obj.started_at,
+                test_execution=exec_obj
             ).select_related('test_case').order_by('started_at')
 
-            # 过滤：只取属于本次执行时间窗口的记录
-            if exec_obj.finished_at:
-                case_executions = case_executions.filter(
-                    models.Q(finished_at__lte=exec_obj.finished_at) | models.Q(finished_at__isnull=True)
-                )
+            # 兼容旧记录：如果外键关联没查到记录，尝试时间窗口匹配
+            if not case_executions.exists():
+                case_executions = TestCaseExecution.objects.filter(
+                    test_suite=test_suite,
+                    execution_source='suite',
+                    started_at__gte=exec_obj.started_at,
+                ).select_related('test_case').order_by('started_at')
+                if exec_obj.finished_at:
+                    case_executions = case_executions.filter(
+                        started_at__lte=exec_obj.finished_at
+                    )
 
             cases_data = []
             for ce in case_executions:
@@ -5701,6 +6112,166 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
         log_operation('delete', 'report', instance.id, suite_name, self.request.user)
         instance.delete()
 
+    @action(detail=True, methods=['get'], url_path='children')
+    def children(self, request, pk=None):
+        """获取执行记录的子项（计划→套件+用例，套件→用例）"""
+        test_execution = self.get_object()
+        user = request.user
+
+        # 权限检查
+        accessible_projects = UiProject.objects.filter(
+            models.Q(owner=user) | models.Q(members=user)
+        ).distinct()
+        if test_execution.project not in accessible_projects:
+            return Response({'error': '无权限访问'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 查询该执行批次下的所有用例执行记录
+        case_executions = TestCaseExecution.objects.filter(
+            test_execution=test_execution
+        ).select_related('test_case', 'test_suite').order_by('started_at')
+
+        # 兼容旧数据：如果 test_execution FK 没有关联，用时间窗口匹配
+        if case_executions.count() == 0:
+            fallback_filter = TestCaseExecution.objects.filter(
+                project=test_execution.project,
+                started_at__gte=test_execution.started_at,
+            )
+            if test_execution.finished_at:
+                fallback_filter = fallback_filter.filter(
+                    started_at__lte=test_execution.finished_at
+                )
+            if test_execution.test_plan:
+                fallback_filter = fallback_filter.filter(test_plan=test_execution.test_plan)
+            elif test_execution.test_suite:
+                fallback_filter = fallback_filter.filter(test_suite=test_execution.test_suite)
+            case_executions = fallback_filter.select_related(
+                'test_case', 'test_suite'
+            ).order_by('started_at')
+
+        # 状态映射
+        te_status_map = {
+            'PENDING': 'pending', 'RUNNING': 'running',
+            'SUCCESS': 'passed', 'FAILED': 'failed', 'ABORTED': 'error',
+        }
+
+        if test_execution.test_plan:
+            # 计划级：按套件分组，套件可展开
+            suites_data = {}  # {suite_id: {item_type, name, ...}}
+            cases_data = []   # 不属于任何套件的用例
+
+            for ce in case_executions:
+                case_item = {
+                    'id': f'ce_{ce.id}',
+                    'raw_id': ce.id,
+                    'item_type': 'case',
+                    'name': ce.test_case.name if ce.test_case else '-',
+                    'status': ce.status,
+                    'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                    'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                    'duration': ce.execution_time,
+                    'error_message': ce.error_message,
+                    'has_children': False,
+                }
+                if ce.test_suite:
+                    suite_id = ce.test_suite_id
+                    if suite_id not in suites_data:
+                        suites_data[suite_id] = {
+                            'id': f'suite_{suite_id}',
+                            'item_type': 'suite',
+                            'name': ce.test_suite.name if ce.test_suite else '-',
+                            'started_at': None,
+                            'finished_at': None,
+                            'duration': None,
+                            'total_cases': 0,
+                            'passed_cases': 0,
+                            'failed_cases': 0,
+                            'skipped_cases': 0,
+                            'has_children': True,
+                            'children': [],
+                        }
+                    suites_data[suite_id]['children'].append(case_item)
+                    suites_data[suite_id]['total_cases'] += 1
+                    if ce.status == 'passed':
+                        suites_data[suite_id]['passed_cases'] += 1
+                    elif ce.status == 'failed':
+                        suites_data[suite_id]['failed_cases'] += 1
+                    elif ce.status == 'skipped':
+                        suites_data[suite_id]['skipped_cases'] += 1
+                else:
+                    cases_data.append(case_item)
+
+            # 计算套件级汇总状态和时间
+            items = []
+            for suite_id, sd in suites_data.items():
+                cases = sd['children']
+                if cases:
+                    sd['started_at'] = cases[0].get('started_at')
+                    sd['finished_at'] = cases[-1].get('finished_at')
+                    first_start = cases[0].get('started_at')
+                    last_finish = cases[-1].get('finished_at')
+                    if first_start and last_finish:
+                        from datetime import datetime as dt
+                        start = dt.fromisoformat(first_start.replace('Z', '+00:00'))
+                        end = dt.fromisoformat(last_finish.replace('Z', '+00:00'))
+                        sd['duration'] = (end - start).total_seconds()
+                # 套件状态：全部通过→passed，有失败→failed
+                if sd['failed_cases'] > 0:
+                    sd['status'] = 'failed'
+                elif sd['passed_cases'] == sd['total_cases']:
+                    sd['status'] = 'passed'
+                else:
+                    sd['status'] = 'running'
+                items.append(sd)
+
+            # 独立用例追加到末尾
+            items.extend(cases_data)
+
+            # 按计划项顺序排列（如果有计划项）
+            if test_execution.test_plan:
+                plan_items = test_execution.test_plan.plan_items.all().order_by('order')
+                ordered = []
+                seen_suite_ids = set()
+                for pi in plan_items:
+                    if pi.item_type == 'test_suite':
+                        sid = pi.test_suite_id
+                        if sid in suites_data and sid not in seen_suite_ids:
+                            ordered.append(suites_data[sid])
+                            seen_suite_ids.add(sid)
+                    elif pi.item_type == 'test_case':
+                        for cd in cases_data:
+                            if cd['raw_id'] in [ce.id for ce in case_executions if ce.test_case_id == pi.test_case_id]:
+                                if cd not in ordered:
+                                    ordered.append(cd)
+                                break
+                # 追加未匹配到的
+                for item in items:
+                    if item not in ordered:
+                        ordered.append(item)
+                items = ordered
+
+            return Response({'items': items})
+
+        elif test_execution.test_suite:
+            # 套件级：直接返回用例列表
+            items = []
+            for ce in case_executions:
+                items.append({
+                    'id': f'ce_{ce.id}',
+                    'raw_id': ce.id,
+                    'item_type': 'case',
+                    'name': ce.test_case.name if ce.test_case else '-',
+                    'status': ce.status,
+                    'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                    'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                    'duration': ce.execution_time,
+                    'error_message': ce.error_message,
+                    'has_children': False,
+                })
+            return Response({'items': items})
+
+        else:
+            return Response({'items': []})
+
 
 class ScreenshotViewSet(viewsets.ModelViewSet):
     queryset = Screenshot.objects.all()
@@ -5778,7 +6349,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         element_id=step_data.get('element') if step_data.get('element') else None,
                         input_value=step_data.get('input_value', ''),
                         wait_time=step_data.get('wait_time', 1000),
-                        action_wait=step_data.get('action_wait', 0),
+                        action_wait=step_data.get('action_wait') or 0,
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
                         description=step_data.get('description', ''),
@@ -6015,7 +6586,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         element_id=step_data.get('element') if step_data.get('element') else None,
                         input_value=step_data.get('input_value', ''),
                         wait_time=step_data.get('wait_time', 1000),
-                        action_wait=step_data.get('action_wait', 0),
+                        action_wait=step_data.get('action_wait') or 0,
                         assert_type=step_data.get('assert_type', ''),
                         assert_value=step_data.get('assert_value', ''),
                         description=step_data.get('description', ''),
@@ -6361,11 +6932,12 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                             'description': ps.description,
                             'input_value': ps.input_value,
                             'wait_time': ps.wait_time,
-                            'action_wait': ps.action_wait,
+                            'action_wait': ps.action_wait or 0,
                             'assert_type': ps.assert_type,
                             'assert_value': ps.assert_value,
                             'output_var': ps.output_var or '',
                         }
+                        logger.info(f"[前置条件] 步骤 {ps.step_number}: action_wait={ps.action_wait}, resolved={psd['action_wait']}")
                         if ps.element:
                             psd['element_data'] = {
                                 'locator_strategy': ps.element.locator_strategy.name if ps.element.locator_strategy else 'css',
@@ -6462,6 +7034,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                 execution_result['error_message'] = "导航到测试页面失败"
                                 return False
 
+                        # 用例级变量表，存储步骤输出变量
+                        context_variables = {}
+
                         if steps_data:
                             execution_logs.append("========== 执行测试步骤 ==========")
                             step_count = len(steps_data)
@@ -6492,7 +7067,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     execution_logs.append(f"  (此步骤不需要元素)")
 
                                 try:
-                                    success, step_log, screenshot_base64 = engine.execute_step(step, element_data or {})
+                                    success, step_log, screenshot_base64 = engine.execute_step(step, element_data or {}, context_variables)
                                     execution_logs.append(f"  {step_log}")
                                     execution_logs.append("")
 
@@ -6507,9 +7082,10 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                     })
 
                                     # action_wait: 步骤操作成功后等待指定秒数再执行下一步
-                                    if success and getattr(step, 'action_wait', 0) and step.action_wait > 0:
-                                        execution_logs.append(f"  ⏱️  操作后等待 {step.action_wait} 秒 (action_wait)")
-                                        time.sleep(step.action_wait)
+                                    action_wait = step_info.get('action_wait', 0) or 0
+                                    if success and action_wait > 0:
+                                        execution_logs.append(f"  ⏱️  操作后等待 {action_wait} 秒 (action_wait)")
+                                        time.sleep(action_wait)
 
                                     if not success:
                                         logger.info(f"[调试-Selenium] 步骤 {i} 执行失败，设置状态为 failed")
@@ -6774,6 +7350,12 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                     break
                                                 else:
                                                     execution_logs.append(f"  ✓ 前置步骤 {psi}: {ps_log.split(chr(10))[0]}")
+                                                    # action_wait: 前置步骤操作成功后等待指定秒数再执行下一步
+                                                    ps_action_wait = ps_info.get('action_wait') or 0
+                                                    logger.info(f"[前置执行] 步骤 {psi}: action_wait={ps_info.get('action_wait')}, resolved={ps_action_wait}")
+                                                    if ps_action_wait > 0:
+                                                        execution_logs.append(f"  ⏱️  操作后等待 {ps_action_wait} 秒 (action_wait)")
+                                                        await asyncio.sleep(ps_action_wait)
                                             except Exception as e:
                                                 pre_passed = False
                                                 execution_logs.append(f"  ✗ 前置步骤 {psi} 异常: {str(e)}")
@@ -6787,10 +7369,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                             try:
                                                 if not headless:
                                                     try:
-                                                        await engine.page.wait_for_load_state('networkidle', timeout=5000)
+                                                        await engine.page.wait_for_load_state('domcontentloaded', timeout=5000)
                                                     except:
                                                         pass
-                                                    await asyncio.sleep(1)
                                                 await engine.stop()
                                             except:
                                                 pass
@@ -6798,13 +7379,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         execution_logs.append(f"✓ 前置用例「{pre_case_name}」执行通过")
                                     execution_logs.append("")
 
-                                    # 前置条件执行完后，等待页面稳定再开始主用例步骤
-                                    try:
-                                        await engine.page.wait_for_load_state('networkidle', timeout=10000)
-                                    except:
-                                        pass
-                                    await engine.page.wait_for_timeout(2000)
-                                    execution_logs.append("✓ 前置条件执行完毕，页面已稳定")
+                                    execution_logs.append("✓ 前置条件执行完毕")
 
                                 # 执行前置数据SQL（在登录和前置条件之后，主用例步骤之前）
                                 # 这样可以引用前置用例的输出变量
@@ -6990,9 +7565,10 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         step_results.append(step_result)
 
                                         # action_wait: 步骤操作成功后等待指定秒数再执行下一步
-                                        if success and getattr(step, 'action_wait', 0) and step.action_wait > 0:
-                                            execution_logs.append(f"  ⏱️  操作后等待 {step.action_wait} 秒 (action_wait)")
-                                            await asyncio.sleep(step.action_wait)
+                                        action_wait = step_info.get('action_wait', 0) or 0
+                                        if success and action_wait > 0:
+                                            execution_logs.append(f"  ⏱️  操作后等待 {action_wait} 秒 (action_wait)")
+                                            await asyncio.sleep(action_wait)
 
                                         # 如果步骤失败,保存截图
                                         if not success:
@@ -7173,7 +7749,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             # 同时保存文本日志供调试
             combined_logs = {
                 'steps': step_results,
-                'text_logs': '\n'.join(execution_logs)
+                'text_logs': '\n'.join(execution_logs),
+                'variable_snapshot': context_variables
             }
             execution.execution_logs = json.dumps(combined_logs, ensure_ascii=False)
             execution.execution_time = total_time
@@ -7355,6 +7932,148 @@ class TestCaseExecutionViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"批量删除测试用例执行记录失败: {str(e)}", exc_info=True)
             return Response({'error': f'批量删除失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='unified-list')
+    def unified_list(self, request):
+        """统一执行记录列表（计划/套件/用例层级结构）"""
+        user = request.user
+        accessible_projects = UiProject.objects.filter(
+            models.Q(owner=user) | models.Q(members=user)
+        ).distinct()
+
+        project_id = request.query_params.get('project')
+        search = request.query_params.get('search', '')
+        status_filter = request.query_params.get('status', '')
+        browser = request.query_params.get('browser', '')
+
+        # 状态映射：TestExecution 大写 → 统一小写
+        te_status_map = {
+            'PENDING': 'pending', 'RUNNING': 'running',
+            'SUCCESS': 'passed', 'FAILED': 'failed', 'ABORTED': 'error',
+        }
+        # 反向映射：小写 → 大写
+        unified_to_te = {
+            'pending': 'PENDING', 'running': 'RUNNING',
+            'passed': 'SUCCESS', 'failed': 'FAILED', 'error': 'ABORTED',
+            'skipped': None,  # TestExecution 没有 skipped
+        }
+
+        items = []
+
+        # 1. 查询 TestExecution 记录（计划级和独立套件级）
+        test_executions = TestExecution.objects.filter(
+            project__in=accessible_projects
+        ).select_related('test_plan', 'test_suite', 'executed_by')
+
+        if project_id:
+            test_executions = test_executions.filter(project_id=project_id)
+        if status_filter:
+            te_status = unified_to_te.get(status_filter)
+            if te_status:
+                test_executions = test_executions.filter(status=te_status)
+            else:
+                test_executions = test_executions.none()
+        if browser:
+            test_executions = test_executions.filter(browser=browser)
+        if search:
+            test_executions = test_executions.filter(
+                models.Q(test_plan__name__icontains=search) |
+                models.Q(test_suite__name__icontains=search)
+            )
+
+        for te in test_executions:
+            if te.test_plan:
+                item_type = 'plan'
+                name = te.test_plan.name
+            elif te.test_suite:
+                # 检查是否属于计划内执行（如果有 TestCaseExecution 指向它则说明是独立套件执行）
+                child_count = TestCaseExecution.objects.filter(test_execution=te).count()
+                if child_count == 0:
+                    continue  # 属于计划内执行，用例已被重指向计划级 TestExecution
+                item_type = 'suite'
+                name = te.test_suite.name
+            else:
+                continue  # 无计划无套件的 TestExecution，跳过
+
+            items.append({
+                'id': f'te_{te.id}',
+                'raw_id': te.id,
+                'item_type': item_type,
+                'name': name,
+                'status': te_status_map.get(te.status, te.status.lower()),
+                'engine': te.engine or 'playwright',
+                'browser': te.browser or 'chrome',
+                'headless': te.headless or False,
+                'executed_by': te.executed_by.username if te.executed_by else '-',
+                'started_at': te.started_at.isoformat() if te.started_at else None,
+                'finished_at': te.finished_at.isoformat() if te.finished_at else None,
+                'duration': te.duration or (
+                    (te.finished_at - te.started_at).total_seconds()
+                    if te.started_at and te.finished_at else None
+                ),
+                'total_cases': te.total_cases,
+                'passed_cases': te.passed_cases,
+                'failed_cases': te.failed_cases,
+                'skipped_cases': te.skipped_cases,
+                'has_children': True,
+                'created_at': te.created_at.isoformat() if te.created_at else None,
+            })
+
+        # 2. 查询独立用例执行记录（不属于任何 TestExecution 批次）
+        standalone_cases = TestCaseExecution.objects.filter(
+            project__in=accessible_projects,
+            test_execution__isnull=True,
+            execution_source='manual'
+        ).select_related('test_case', 'created_by')
+
+        if project_id:
+            standalone_cases = standalone_cases.filter(project_id=project_id)
+        if status_filter:
+            standalone_cases = standalone_cases.filter(status=status_filter)
+        if browser:
+            standalone_cases = standalone_cases.filter(browser=browser)
+        if search:
+            standalone_cases = standalone_cases.filter(
+                test_case__name__icontains=search
+            )
+
+        for ce in standalone_cases:
+            items.append({
+                'id': f'ce_{ce.id}',
+                'raw_id': ce.id,
+                'item_type': 'case',
+                'name': ce.test_case.name if ce.test_case else '-',
+                'status': ce.status,
+                'engine': ce.engine or 'playwright',
+                'browser': ce.browser or 'chrome',
+                'headless': ce.headless or False,
+                'executed_by': ce.created_by.username if ce.created_by else '-',
+                'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                'duration': ce.execution_time,
+                'total_cases': None,
+                'passed_cases': None,
+                'failed_cases': None,
+                'skipped_cases': None,
+                'has_children': False,
+                'created_at': ce.created_at.isoformat() if ce.created_at else None,
+            })
+
+        # 按时间降序排列
+        items.sort(key=lambda x: x.get('started_at') or x.get('created_at') or '', reverse=True)
+
+        # 分页
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        total = len(items)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated = items[start:end]
+
+        return Response({
+            'count': total,
+            'results': paginated,
+        })
 
 
 class OperationRecordViewSet(viewsets.ReadOnlyModelViewSet):
@@ -7598,6 +8317,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                         'description': step.description,
                                         'input_value': step.input_value,
                                         'wait_time': step.wait_time,
+                    'action_wait': step.action_wait or 0,
                                         'assert_type': step.assert_type,
                                         'assert_value': step.assert_value,
                                         'output_var': step.output_var,
@@ -7621,6 +8341,9 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                 screenshots = []
                                 execution_logs = []
                                 execution_result = {'status': 'passed', 'error_message': None}
+
+                                # 用例级变量表，存储步骤输出变量
+                                context_variables = {}
 
                                 # 根据引擎类型执行
                                 if task.engine == 'selenium':
@@ -7667,7 +8390,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                             element_data = step_info['element_data']
 
                                             success, step_log, screenshot_base64 = engine.execute_step(step,
-                                                                                                       element_data or {})
+                                                                                                       element_data or {},
+                                                                                                       context_variables)
 
                                             step_results.append({
                                                 'step_number': i,
@@ -7745,7 +8469,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                                 element_data = step_info['element_data']
 
                                                 success, step_log, screenshot_base64 = await engine.execute_step(step,
-                                                                                                                 element_data or {})
+                                                                                                                 element_data or {},
+                                                                                                                 context_variables)
 
                                                 step_results.append({
                                                     'step_number': i,
@@ -9416,6 +10141,71 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    @action(detail=False, methods=['post'], url_path='batch_update')
+    def batch_update(self, request):
+        """批量更新计划字段（name, description, execution_mode, login_config）"""
+        updates = request.data.get('updates', [])
+        if not updates or not isinstance(updates, list):
+            return Response({'error': '请提供计划更新数据列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        allowed_fields = {'name', 'description', 'execution_mode', 'login_config'}
+
+        success_count, fail_count = 0, 0
+        failed_items = []
+        for item in updates:
+            plan_id = item.get('id')
+            if not plan_id:
+                fail_count += 1
+                failed_items.append({'id': plan_id, 'reason': '缺少计划ID'})
+                continue
+            try:
+                plan = UiTestPlan.objects.get(id=plan_id)
+                changed = False
+                for field in allowed_fields:
+                    if field in item:
+                        val = item[field]
+                        if field == 'name' and (not val or not str(val).strip()):
+                            fail_count += 1
+                            failed_items.append({'id': plan_id, 'reason': '名称不能为空'})
+                            continue
+                        if field == 'login_config':
+                            if val:
+                                try:
+                                    cfg = LoginConfig.objects.get(id=val)
+                                    plan.login_config = cfg
+                                except LoginConfig.DoesNotExist:
+                                    fail_count += 1
+                                    failed_items.append({'id': plan_id, 'reason': '登录配置不存在'})
+                                    continue
+                            else:
+                                plan.login_config = None
+                            changed = True
+                        elif field == 'execution_mode':
+                            plan.execution_mode = val
+                            if val == 'per_case':
+                                plan.login_config = None
+                            changed = True
+                        else:
+                            setattr(plan, field, val)
+                            changed = True
+                if changed:
+                    plan.save()
+                    log_operation('edit', 'plan', plan.id, plan.name, request.user)
+                    success_count += 1
+            except UiTestPlan.DoesNotExist:
+                fail_count += 1
+                failed_items.append({'id': plan_id, 'reason': '计划不存在'})
+            except Exception as e:
+                fail_count += 1
+                failed_items.append({'id': plan_id, 'reason': str(e)})
+
+        return Response({
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'failed_items': failed_items,
+            'message': f'成功更新 {success_count} 个计划' + (f'，{fail_count} 个失败' if fail_count else '')
+        })
+
     @action(detail=True, methods=['get'])
     def plan_items(self, request, pk=None):
         """获取计划项列表"""
@@ -9621,12 +10411,142 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def execution_history(self, request, pk=None):
-        """获取计划的执行历史"""
+        """获取计划的执行历史（含每次执行下的用例明细，套件项可折叠）"""
         test_plan = self.get_object()
-        executions = TestExecution.objects.filter(test_plan=test_plan).order_by('-created_at')
-        from .serializers import TestExecutionSerializer
-        serializer = TestExecutionSerializer(executions, many=True)
-        return Response(serializer.data)
+        executions = TestExecution.objects.filter(test_plan=test_plan).order_by('-started_at')
+
+        # 获取计划中包含的套件ID列表
+        plan_suite_ids = set(
+            test_plan.plan_items.filter(item_type='test_suite').values_list('test_suite_id', flat=True)
+        )
+
+        data = []
+        for exec_obj in executions:
+            # 查询该执行批次下的所有用例执行记录
+            # 途径1: 通过 test_execution 外键关联
+            fk_cases = TestCaseExecution.objects.filter(
+                test_execution=exec_obj
+            ).values_list('id', flat=True)
+
+            # 途径2: 时间窗口匹配（兼容未设置 test_execution 外键的旧记录）
+            time_cases = TestCaseExecution.objects.filter(
+                test_plan=test_plan,
+                execution_source='plan',
+                started_at__gte=exec_obj.started_at,
+            )
+            if exec_obj.finished_at:
+                time_cases = time_cases.filter(started_at__lte=exec_obj.finished_at)
+            time_case_ids = set(time_cases.values_list('id', flat=True))
+
+            # 途径3: 独立模式下，套件通过自己的TestExecution执行
+            # 套件内用例的 test_execution 指向套件的 TestExecution，
+            # 而非计划级 TestExecution，需要通过时间窗口+套件归属匹配
+            suite_case_ids = set()
+            if plan_suite_ids:
+                # 查找在计划执行时间窗口内、属于计划中套件的用例执行记录
+                suite_exec_filter = TestCaseExecution.objects.filter(
+                    test_suite_id__in=plan_suite_ids,
+                    started_at__gte=exec_obj.started_at,
+                )
+                if exec_obj.finished_at:
+                    suite_exec_filter = suite_exec_filter.filter(
+                        started_at__lte=exec_obj.finished_at
+                    )
+                # 排除已通过途径1和2找到的记录
+                existing_ids = set(fk_cases) | time_case_ids
+                suite_exec_filter = suite_exec_filter.exclude(id__in=existing_ids)
+                suite_case_ids = set(suite_exec_filter.values_list('id', flat=True))
+
+            # 合并所有查询结果（去重）
+            all_case_ids = set(fk_cases) | time_case_ids | suite_case_ids
+            case_executions = TestCaseExecution.objects.filter(
+                id__in=all_case_ids
+            ).select_related('test_case', 'test_suite').order_by('started_at')
+
+            # 按计划项结构组织用例明细
+            # 1. 收集所有用例执行记录
+            # 2. 按是否属于套件进行分组
+            cases_data = []
+            suites_data = {}  # {suite_id: {suite_name, suite_id, cases: []}}
+
+            for ce in case_executions:
+                case_item = {
+                    'id': ce.id,
+                    'test_case_id': ce.test_case_id,
+                    'test_case_name': ce.test_case.name if ce.test_case else '-',
+                    'status': ce.status,
+                    'execution_time': ce.execution_time,
+                    'started_at': ce.started_at.isoformat() if ce.started_at else None,
+                    'finished_at': ce.finished_at.isoformat() if ce.finished_at else None,
+                    'error_message': ce.error_message,
+                }
+                if ce.test_suite:
+                    suite_id = ce.test_suite_id
+                    if suite_id not in suites_data:
+                        suites_data[suite_id] = {
+                            'item_type': 'test_suite',
+                            'suite_id': suite_id,
+                            'suite_name': ce.test_suite.name if ce.test_suite else '-',
+                            'cases': [],
+                        }
+                    suites_data[suite_id]['cases'].append(case_item)
+                else:
+                    # 单用例项
+                    cases_data.append({
+                        'item_type': 'test_case',
+                        **case_item,
+                    })
+
+            # 为套件项补充 started_at（取套件内第一个用例的开始时间）
+            for sd in suites_data.values():
+                suite_cases = sd.get('cases', [])
+                if suite_cases:
+                    sd['started_at'] = suite_cases[0].get('started_at')
+                    sd['finished_at'] = suite_cases[-1].get('finished_at')
+
+            # 按计划项顺序合并
+            ordered_items = []
+            plan_items = test_plan.plan_items.all().order_by('order')
+            suite_ids_seen = set()
+
+            for pi in plan_items:
+                if pi.item_type == 'test_case':
+                    for cd in cases_data:
+                        if cd['test_case_id'] == pi.test_case_id:
+                            ordered_items.append(cd)
+                            break
+                elif pi.item_type == 'test_suite':
+                    suite_id = pi.test_suite_id
+                    if suite_id in suites_data and suite_id not in suite_ids_seen:
+                        ordered_items.append(suites_data[suite_id])
+                        suite_ids_seen.add(suite_id)
+
+            # 追加未匹配到计划项的记录（兼容旧数据）
+            for cd in cases_data:
+                if cd not in ordered_items:
+                    ordered_items.append(cd)
+            for suite_id, sd in suites_data.items():
+                if suite_id not in suite_ids_seen:
+                    ordered_items.append(sd)
+
+            data.append({
+                'id': exec_obj.id,
+                'status': exec_obj.status,
+                'started_at': exec_obj.started_at.isoformat() if exec_obj.started_at else None,
+                'finished_at': exec_obj.finished_at.isoformat() if exec_obj.finished_at else None,
+                'duration': exec_obj.duration if exec_obj.duration else (
+                    (exec_obj.finished_at - exec_obj.started_at).total_seconds()
+                    if exec_obj.started_at and exec_obj.finished_at else None
+                ),
+                'total_cases': exec_obj.total_cases,
+                'passed_cases': exec_obj.passed_cases,
+                'failed_cases': exec_obj.failed_cases,
+                'skipped_cases': exec_obj.skipped_cases,
+                'executed_by': exec_obj.executed_by.username if exec_obj.executed_by else '-',
+                'items': ordered_items,
+            })
+
+        return Response(data)
 
     def _update_plan_counts(self, test_plan):
         """更新计划的用例统计"""

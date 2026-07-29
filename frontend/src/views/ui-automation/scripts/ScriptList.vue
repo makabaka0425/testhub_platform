@@ -14,7 +14,8 @@
     </div>
 
     <div class="table-scroll-area">
-      <el-table :data="scripts" style="width: 100%">
+      <div class="table-area">
+      <el-table :data="scripts" height="100%">
         <el-table-column type="index" :label="$t('uiAutomation.script.index')" width="60" />
         <el-table-column :label="$t('uiAutomation.script.projectColumn')" width="150">
           <template #default="{ row }">
@@ -50,6 +51,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </div>
 
       <div class="pagination-container">
         <el-pagination
@@ -214,6 +216,7 @@ const loadScripts = async () => {
 
 // 项目切换
 const onProjectChange = async () => {
+  localStorage.setItem('lastProjectId', selectedProject.value)
   currentPage.value = 1
   await loadScripts()
 }
@@ -363,13 +366,26 @@ onMounted(async () => {
   await loadProjects()
 
   if (projects.value.length > 0) {
-    selectedProject.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    selectedProject.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     await loadScripts()
   }
 })
 </script>
 
 <style scoped>
+.table-scroll-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.table-scroll-area .table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .header-actions {
   display: flex;
   align-items: center;

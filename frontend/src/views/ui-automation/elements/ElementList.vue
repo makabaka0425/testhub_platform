@@ -44,7 +44,8 @@
     </div>
 
     <div class="table-scroll-area">
-      <el-table :data="elements" v-loading="loading" style="width: 100%">
+      <div class="table-area">
+      <el-table :data="elements" v-loading="loading" height="100%">
         <el-table-column type="selection" width="55" />
         <el-table-column prop="name" :label="$t('uiAutomation.element.elementName')" min-width="150">
           <template #default="{ row }">
@@ -71,6 +72,7 @@
           </template>
         </el-table-column>
       </el-table>
+      </div>
       
       <div class="pagination-container">
         <el-pagination
@@ -491,6 +493,7 @@ const loadElements = async () => {
 
 // 项目变更处理
 const onProjectChange = () => {
+  localStorage.setItem('lastProjectId', projectId.value)
   // 清空搜索和筛选条件
   searchText.value = ''
   strategyFilter.value = ''
@@ -835,9 +838,11 @@ onMounted(async () => {
     loadStrategies()
   ])
 
-  // 如果有项目，默认选择第一个
+  // 如果有项目，默认选择上次使用的或第一个
   if (projects.value.length > 0) {
-    projectId.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     createForm.project = projectId.value
     await loadElements()
     await loadLoginConfigs()
@@ -847,4 +852,14 @@ onMounted(async () => {
 
 <style scoped>
 /* 页面样式统一使用 global.scss 中的全局类 */
+.table-scroll-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.table-scroll-area .table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 </style>

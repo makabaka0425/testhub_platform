@@ -282,6 +282,15 @@ export function addTestCasesToTestSuite(id, data) {
   })
 }
 
+// 更新套件中用例的执行后动作
+export function updateTestCasePostAction(suiteId, suiteTcId, postAction) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/update_test_case_post_action/`,
+    method: 'patch',
+    data: { suite_tc_id: suiteTcId, post_action: postAction }
+  })
+}
+
 // 从测试套件移除测试用例
 export function removeTestCaseFromTestSuite(suiteId, testCaseId) {
   return request({
@@ -346,6 +355,13 @@ export function runSuiteDbCleanup(suiteId) {
   })
 }
 
+export function getSuiteVariableFlow(suiteId) {
+  return request({
+    url: `/ui-automation/test-suites/${suiteId}/variable_flow/`,
+    method: 'get'
+  })
+}
+
 // ==================== 测试计划相关API ====================
 
 // 获取测试计划列表
@@ -388,6 +404,15 @@ export function deleteTestPlan(id) {
   return request({
     url: `/ui-automation/test-plans/${id}/`,
     method: 'delete'
+  })
+}
+
+// 批量更新测试计划
+export function batchUpdateTestPlans(data) {
+  return request({
+    url: '/ui-automation/test-plans/batch_update/',
+    method: 'post',
+    data
   })
 }
 
@@ -1149,6 +1174,23 @@ export function batchDeleteTestCaseExecutions(ids) {
     url: '/ui-automation/test-case-executions/batch-delete/',
     method: 'post',
     data: { ids }
+  })
+}
+
+// 获取统一执行记录列表（计划/套件/用例层级）
+export function getExecutionUnifiedList(params) {
+  return request({
+    url: '/ui-automation/test-case-executions/unified-list/',
+    method: 'get',
+    params
+  })
+}
+
+// 获取执行记录子项（计划→套件+用例，套件→用例）
+export function getExecutionChildren(executionId) {
+  return request({
+    url: `/ui-automation/test-executions/${executionId}/children/`,
+    method: 'get'
   })
 }
 

@@ -307,13 +307,9 @@ class PlaywrightTestEngine:
 
                 # 等待新页面加载稳定
                 try:
-                    await self.page.wait_for_load_state('networkidle', timeout=10000)
+                    await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
                 except:
-                    try:
-                        await self.page.wait_for_load_state('domcontentloaded', timeout=5000)
-                    except:
-                        pass
-                await asyncio.sleep(1.5)
+                    pass
 
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 切换标签页成功\n"
@@ -347,9 +343,7 @@ class PlaywrightTestEngine:
                     base_url = f"{parsed.scheme}://{parsed.netloc}"
                     target_url = urljoin(base_url + '/', target_path.lstrip('/'))
 
-                await self.page.goto(target_url, wait_until='networkidle', timeout=timeout_ms)
-                # SPA页面网络空闲后还需等待Vue渲染
-                await asyncio.sleep(2)
+                await self.page.goto(target_url, wait_until='domcontentloaded', timeout=timeout_ms)
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 路由跳转成功\n"
                 log += f"  - 目标路径: {target_path}\n"
@@ -367,6 +361,12 @@ class PlaywrightTestEngine:
                 locator_strategy = element_data.get('locator_strategy', 'css')
                 locator_value = element_data.get('locator_value', '')
                 element_name = element_data.get('name', '未知元素')
+
+                # 定位器值支持变量解析（如 //span[contains(.,'${roleName}')]）
+                resolved_locator_value = resolve_variables(locator_value, context_variables)
+                if resolved_locator_value != locator_value:
+                    print(f"[变量解析] 定位器: {locator_value} -> {resolved_locator_value}")
+                    locator_value = resolved_locator_value
 
                 # 获取强制操作选项（用于visibility:hidden的元素）
                 force_action = element_data.get('force_action', False)
@@ -995,9 +995,21 @@ class PlaywrightTestEngine:
                     for retry in range(max_retries):
                         try:
                             table_result = await self.page.evaluate(f"""(() => {{
-                                const tbl = document.querySelector('.ant-table') ||
-                                            document.querySelector('.el-table') ||
-                                            document.querySelector('table');
+                                // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                let tbl = null;
+                                try {{
+                                    const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                    for (const _d of _allDlg) {{
+                                        if (_d.offsetParent === null) continue;
+                                        const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                        if (_t) {{ tbl = _t; break; }}
+                                    }}
+                                }} catch(e) {{}}
+                                if (!tbl) {{
+                                    tbl = document.querySelector('.ant-table') ||
+                                          document.querySelector('.el-table') ||
+                                          document.querySelector('table');
+                                }}
                                 if (!tbl) return {{ found: false }};
                                 const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
                                 const matchingRows = [];
@@ -1054,9 +1066,21 @@ class PlaywrightTestEngine:
                     # 表格为空断言：自动查找表格容器，不需要元素定位器
                     try:
                         empty_result = await self.page.evaluate("""(() => {
-                            const tbl = document.querySelector('.ant-table') ||
-                                        document.querySelector('.el-table') ||
-                                        document.querySelector('table');
+                            // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                            let tbl = null;
+                            try {
+                                const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                for (const _d of _allDlg) {
+                                    if (_d.offsetParent === null) continue;
+                                    const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                    if (_t) { tbl = _t; break; }
+                                }
+                            } catch(e) {}
+                            if (!tbl) {
+                                tbl = document.querySelector('.ant-table') ||
+                                      document.querySelector('.el-table') ||
+                                      document.querySelector('table');
+                            }
                             if (!tbl) return { found: false };
                             const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
                             const dataRows = Array.from(rows).filter(r => !r.classList.contains('ant-table-placeholder') && (r.textContent || '').trim().length > 0);
@@ -1488,16 +1512,10 @@ class PlaywrightTestEngine:
             import platform
             is_linux = platform.system() == 'Linux'
 
-            # 使用 networkidle 等待页面加载完成
-            await self.page.goto(url, wait_until='networkidle', timeout=30000)
+            # 使用 domcontentloaded 等待页面加载完成（SPA应用通常有长连接/轮询，networkidle会等满超时）
+            await self.page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
-            # 额外等待，确保动态内容加载（Vue/React等SPA应用）
-            # 服务器无头模式需要更长的等待时间
-            extra_wait = 3 if is_linux else 2
-            await asyncio.sleep(extra_wait)
-
-            log = f"✓ 成功导航到: {url}\n"
-            log += f"  - 等待页面加载完成（networkidle + 额外{extra_wait}秒）"
+            log = f"✓ 成功导航到: {url}"
             return True, log
         except Exception as e:
             log = f"✗ 导航失败: {url}\n  - 错误: {str(e)}"

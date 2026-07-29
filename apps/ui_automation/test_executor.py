@@ -77,8 +77,10 @@ class TestExecutor:
 
     def get_test_cases(self):
         """获取测试套件中的所有测试用例"""
-        suite_test_cases = self.test_suite.suite_test_cases.select_related('test_case').order_by('order')
-        self.test_cases = [stc.test_case for stc in suite_test_cases]
+        self.suite_test_case_relations = list(
+            self.test_suite.suite_test_cases.select_related('test_case').order_by('order')
+        )
+        self.test_cases = [stc.test_case for stc in self.suite_test_case_relations]
         print(f"从套件 '{self.test_suite.name}' 获取到 {len(self.test_cases)} 个测试用例")
         for i, tc in enumerate(self.test_cases, 1):
             print(f"  {i}. {tc.name} (ID: {tc.id})")
@@ -256,12 +258,10 @@ class TestExecutor:
             finally:
                 if browser:
                     try:
-                        # 关闭前等待网络请求完成
                         try:
-                            self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                            self.current_page.wait_for_load_state('domcontentloaded', timeout=3000)
                         except Exception:
                             pass
-                        time.sleep(1)
                         browser.close()
                         print(f"[清理步骤] 浏览器已关闭\n")
                     except:
@@ -289,7 +289,6 @@ class TestExecutor:
                     )
                 except:
                     pass
-                time.sleep(2)
 
             # 执行登录用例
             login_config = getattr(self.test_suite, 'login_config', None)
@@ -352,7 +351,6 @@ class TestExecutor:
         finally:
             if driver:
                 try:
-                    time.sleep(1)
                     driver.quit()
                     print(f"[清理步骤] 浏览器已关闭\n")
                 except:
@@ -487,6 +485,7 @@ class TestExecutor:
                 test_case_id=case_data['id'],
                 project_id=case_data['project_id'],
                 test_suite=self.test_suite,
+                test_execution=self.execution,
                 execution_source='suite',
                 status='pending',  # 初始状态为 pending
                 engine=self.engine,
@@ -530,7 +529,7 @@ class TestExecutor:
         execution_mode = getattr(self.test_suite, 'execution_mode', 'per_case')
         login_config = getattr(self.test_suite, 'login_config', None)
 
-        if execution_mode == 'shared_session' and login_config:
+        if execution_mode == 'shared_session':
             # ============ 共享会话模式：登录一次，所有用例共享浏览器 ============
             print(f"[共享会话模式] 使用共享浏览器会话执行测试")
             with sync_playwright() as p:
@@ -564,24 +563,36 @@ class TestExecutor:
                     self.context = browser.new_context(**context_kwargs)
                     self.current_page = self.context.new_page()
 
-                    # 执行登录
-                    login_success = self._perform_login(login_config)
-                    if not login_success:
-                        error_msg = "共享会话模式：登录失败，终止套件执行"
-                        for case_data in test_cases_data:
-                            case_execution = case_executions[case_data['id']]
-                            case_execution.status = 'failed'
-                            case_execution.error_message = error_msg
-                            case_execution.started_at = timezone.now()
-                            case_execution.finished_at = timezone.now()
-                            case_execution.save()
-                            failed += 1
-                        browser.close()
-                        duration = time.time() - start_time
-                        self.update_execution_result('FAILED', passed, failed, skipped, duration, error_msg)
-                        return
+                    # 导航到项目基础URL（如果有）
+                    base_url = self.test_suite.project.base_url
+                    if base_url:
+                        print(f"[共享会话] 导航到项目基础URL: {base_url}")
+                        try:
+                            self.current_page.goto(base_url, wait_until='domcontentloaded', timeout=30000)
+                            print(f"[共享会话] 页面加载完成")
+                        except Exception as e:
+                            print(f"[共享会话] 导航失败: {str(e)}")
 
-                    print(f"✓ 登录成功，开始执行 {len(test_cases_data)} 个测试用例")
+                    # 执行登录（如果有login_config）
+                    if login_config:
+                        login_success = self._perform_login(login_config)
+                        if not login_success:
+                            error_msg = "共享会话模式：登录失败，终止套件执行"
+                            for case_data in test_cases_data:
+                                case_execution = case_executions[case_data['id']]
+                                case_execution.status = 'failed'
+                                case_execution.error_message = error_msg
+                                case_execution.started_at = timezone.now()
+                                case_execution.finished_at = timezone.now()
+                                case_execution.save()
+                                failed += 1
+                            browser.close()
+                            duration = time.time() - start_time
+                            self.update_execution_result('FAILED', passed, failed, skipped, duration, error_msg)
+                            return
+                        print(f"✓ 登录成功，开始执行 {len(test_cases_data)} 个测试用例")
+                    else:
+                        print(f"[共享会话] 未配置登录，直接开始执行 {len(test_cases_data)} 个测试用例")
 
                     # 执行每个测试用例（共享同一个浏览器上下文）
                     for i, case_data in enumerate(test_cases_data, 1):
@@ -641,6 +652,13 @@ class TestExecutor:
                             print(f"✓ 用例执行完成，状态: {case_result['status']}")
                             print(f"[变量共享] 用例执行后套件变量: {dict(suite_context_variables)}")
 
+                            # === 执行后动作（仅共享会话模式） ===
+                            if i - 1 < len(self.suite_test_case_relations):
+                                stc = self.suite_test_case_relations[i - 1]
+                            else:
+                                stc = None
+                            self._execute_post_action(case_data, stc, i, len(test_cases_data))
+
                             # 收集后置SQL，稍后统一执行
                             if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
                                 pending_postconditions.append((case_data, case_result))
@@ -655,7 +673,7 @@ class TestExecutor:
                             case_execution.status = case_result['status']
                             case_execution.finished_at = timezone.now()
                             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-                            case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
+                            case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition'), 'variable_snapshot': case_result.get('variable_snapshot', {})}, ensure_ascii=False)
                             if case_result['error']:
                                 case_execution.error_message = case_result['error']
                             if case_result.get('screenshots'):
@@ -713,12 +731,10 @@ class TestExecutor:
                 finally:
                     if browser:
                         try:
-                            # 关闭前等待最后的网络请求完成，防止服务端操作（如保存数据）未完成
                             try:
-                                self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                                self.current_page.wait_for_load_state('domcontentloaded', timeout=3000)
                             except Exception:
                                 pass
-                            time.sleep(1)  # 兜底等待1秒，确保服务端请求处理完毕
                             browser.close()
                             print(f"✓ 浏览器已关闭（共享模式）\n")
                         except:
@@ -789,17 +805,11 @@ class TestExecutor:
                                 import platform
                                 is_linux = platform.system() == 'Linux'
 
-                                # 使用 networkidle 等待页面加载完成
-                                self.current_page.goto(self.test_suite.project.base_url, wait_until='networkidle',
+                                self.current_page.goto(self.test_suite.project.base_url, wait_until='domcontentloaded',
                                                        timeout=30000)
 
-                                # 额外等待，确保动态内容加载（Vue/React等SPA应用）
-                                # 服务器无头模式需要更长的等待时间
-                                extra_wait = 3 if is_linux else 2
-                                time.sleep(extra_wait)
-
                                 print(
-                                    f"✓ 成功导航到: {self.test_suite.project.base_url} (已等待页面加载完成，额外{extra_wait}秒)")
+                                    f"✓ 成功导航到: {self.test_suite.project.base_url}")
                             except Exception as e:
                                 print(f"✗ 导航失败: {str(e)}")
                                 # 导航失败，记录错误并继续下一个用例
@@ -821,7 +831,7 @@ class TestExecutor:
                         # 执行前置条件（独立模式下每个用例有独立浏览器，可以安全执行前置条件）
                         # 前置条件共享 self.context_variables，输出变量可被主用例引用
                         test_case_obj = self.test_cases[i - 1]  # 原始TestCase对象
-                        pre_ok, pre_msg, pre_deferred = self._execute_preconditions(test_case_obj)
+                        pre_ok, pre_msg, pre_deferred, pre_cases_sql = self._execute_preconditions(test_case_obj)
                         # 收集前置条件的后置SQL（用例级，浏览器关闭前执行）
                         if pre_deferred:
                             for pre_case_data in pre_deferred:
@@ -844,6 +854,11 @@ class TestExecutor:
                             case_execution.status = 'skipped'
                             case_execution.finished_at = timezone.now()
                             case_execution.error_message = case_result['error']
+                            # 保存前置条件SQL信息（便于排障）
+                            skipped_logs = {'steps': [], 'variable_snapshot': {}}
+                            if pre_cases_sql:
+                                skipped_logs['precondition_cases_sql'] = pre_cases_sql
+                            case_execution.execution_logs = json.dumps(skipped_logs, ensure_ascii=False)
                             case_execution.save()
                             # 回写用例状态为skipped
                             try:
@@ -884,7 +899,16 @@ class TestExecutor:
                         case_execution.finished_at = timezone.now()
                         case_execution.execution_time = (
                                     case_execution.finished_at - case_execution.started_at).total_seconds()
-                        case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
+                        per_case_logs = {
+                            'steps': case_result['steps'],
+                            'precondition_sql': case_result.get('precondition_sql'),
+                            'postcondition': case_result.get('postcondition'),
+                            'variable_snapshot': case_result.get('variable_snapshot', {})
+                        }
+                        # 合并前置条件用例的SQL信息到主用例执行日志
+                        if pre_cases_sql:
+                            per_case_logs['precondition_cases_sql'] = pre_cases_sql
+                        case_execution.execution_logs = json.dumps(per_case_logs, ensure_ascii=False)
                         if case_result['error']:
                             case_execution.error_message = case_result['error']
                         if case_result.get('screenshots'):
@@ -948,10 +972,9 @@ class TestExecutor:
                         try:
                             # 关闭前等待最后的网络请求完成，防止服务端操作未完成
                             try:
-                                self.current_page.wait_for_load_state('networkidle', timeout=5000)
+                                self.current_page.wait_for_load_state('domcontentloaded', timeout=3000)
                             except Exception:
                                 pass
-                            time.sleep(1)  # 兜底等待1秒
                             browser.close()
                             print(f"✓ 浏览器已关闭\n")
                         except:
@@ -964,11 +987,83 @@ class TestExecutor:
             print(f"{'=' * 60}")
             self._execute_postconditions_reverse_order(pending_postconditions, suite_context_variables)
 
-        # 注意：每个用例的执行记录已在执行过程中实时更新，不需要在这里统一更新
+            # 后置SQL执行完后，回写execution_logs（更新postcondition信息）
+            for case_data, case_result in pending_postconditions:
+                if case_result.get('postcondition'):
+                    try:
+                        ce = case_executions[case_data['id']]
+                        ce.execution_logs = json.dumps({
+                            'steps': case_result['steps'],
+                            'precondition_sql': case_result.get('precondition_sql'),
+                            'postcondition': case_result.get('postcondition'),
+                            'variable_snapshot': case_result.get('variable_snapshot', {})
+                        }, ensure_ascii=False)
+                        ce.save(update_fields=['execution_logs'])
+                    except Exception as e:
+                        print(f"[后置清理] 回写execution_logs失败: {str(e)}")
 
         duration = time.time() - start_time
         status = 'SUCCESS' if failed == 0 else 'FAILED'
         self.update_execution_result(status, passed, failed, skipped, duration)
+
+    def _execute_post_action(self, case_data, suite_tc_relation, case_index, total_cases):
+        """执行后动作（仅共享会话模式生效）
+
+        根据用例级 post_action 或套件级 default_post_action 决定用例执行完后的页面操作：
+        - close_page: 关闭当前tab，下一条用例新开tab并导航到基础URL
+        - refresh_page: 保持当前tab，刷新页面
+        - keep_state: 保持当前tab，不做任何操作
+        - 空值(默认): 使用套件级 default_post_action
+
+        Args:
+            case_data: 当前用例数据
+            suite_tc_relation: TestSuiteTestCase关联对象（含post_action字段）
+            case_index: 当前用例序号（1-based）
+            total_cases: 总用例数
+        """
+        # 最后一条用例不需要执行后动作（浏览器即将关闭）
+        if case_index >= total_cases:
+            print(f"[执行后动作] 最后一条用例，跳过")
+            return
+
+        # 确定执行后动作：用例级 > 套件级
+        action = ''
+        if suite_tc_relation and suite_tc_relation.post_action:
+            action = suite_tc_relation.post_action
+        else:
+            action = getattr(self.test_suite, 'default_post_action', '') or 'refresh_page'
+
+        print(f"[执行后动作] 用例「{case_data['name']}」执行后动作: {action}")
+
+        try:
+            if action == 'close_page':
+                # 关闭当前tab
+                current_url_before = self.current_page.url
+                self.current_page.close()
+                print(f"[执行后动作] 已关闭页面: {current_url_before}")
+
+                # 新开tab并导航到项目基础URL
+                self.current_page = self.context.new_page()
+                base_url = self.test_suite.project.base_url
+                if base_url:
+                    try:
+                        self.current_page.goto(base_url, wait_until='domcontentloaded', timeout=30000)
+                        print(f"[执行后动作] 新页面已导航到: {base_url}")
+                    except Exception as e:
+                        print(f"[执行后动作] 导航失败: {str(e)}")
+
+            elif action == 'refresh_page':
+                # 刷新当前页面
+                self.current_page.reload(wait_until='domcontentloaded', timeout=30000)
+                print(f"[执行后动作] 页面已刷新: {self.current_page.url}")
+
+            elif action == 'keep_state':
+                # 维持当前状态，不做任何操作
+                print(f"[执行后动作] 维持当前页面状态: {self.current_page.url}")
+
+        except Exception as e:
+            print(f"[执行后动作] 执行异常: {str(e)}")
+            # 执行后动作失败不影响用例结果，只记录日志
 
     def _perform_login(self, login_config):
         """执行登录操作（共享会话模式用）— 通过执行关联的登录测试用例
@@ -1022,8 +1117,7 @@ class TestExecutor:
             start_url = login_config.login_url or self.test_suite.project.base_url
             if start_url:
                 print(f"[登录] 正在导航到登录页: {start_url}")
-                self.current_page.goto(start_url, wait_until='networkidle', timeout=30000)
-                time.sleep(2)
+                self.current_page.goto(start_url, wait_until='domcontentloaded', timeout=30000)
                 print(f"[登录] 登录页加载完成")
 
             print(f"[登录] 执行登录用例「{test_case.name}」({len(login_case_data['steps'])}个步骤)")
@@ -1037,12 +1131,9 @@ class TestExecutor:
                 # 很多登录操作会触发页面跳转/重定向，需要等待导航完成
                 print(f"[登录] 等待页面跳转/稳定...")
                 try:
-                    # 等待网络请求完成，确保页面跳转到位
-                    self.current_page.wait_for_load_state('networkidle', timeout=10000)
+                    self.current_page.wait_for_load_state('domcontentloaded', timeout=10000)
                 except Exception as e:
-                    print(f"[登录] 等待networkidle超时（可能页面还在加载），继续执行: {str(e)}")
-                # 额外等待确保页面渲染完成
-                time.sleep(2)
+                    print(f"[登录] 等待domcontentloaded超时，继续执行: {str(e)}")
                 print(f"[登录] 登录完成，当前页面URL: {self.current_page.url}")
                 print(f"[登录] 当前页面标题: {self.current_page.title()}")
                 return True
@@ -1296,6 +1387,9 @@ class TestExecutor:
 
         result['end_time'] = datetime.now().isoformat()
 
+        # 保存当前变量池快照（用于变量流转展示）
+        result['variable_snapshot'] = dict(self.context_variables)
+
         # 恢复原始变量表和保护变量集合
         if shared_variables is not None:
             self.context_variables = original_context_variables
@@ -1349,7 +1443,7 @@ class TestExecutor:
             case_execution.status = result['status']
             case_execution.finished_at = timezone.now()
             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition')}, ensure_ascii=False)
+            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition'), 'variable_snapshot': result.get('variable_snapshot', {})}, ensure_ascii=False)
             if result['error']:
                 case_execution.error_message = result['error']
             if result.get('screenshots'):
@@ -1408,6 +1502,12 @@ class TestExecutor:
                 locator_value = element['locator_value']
                 locator_strategy = element['locator_strategy'].lower()
                 element_name = element.get('name', '未知元素')
+
+                # 定位器值支持变量解析（如 //span[contains(.,'${roleName}')]）
+                resolved_locator_value = resolve_variables(locator_value, self.context_variables)
+                if resolved_locator_value != locator_value:
+                    print(f"[变量解析] 定位器: {locator_value} -> {resolved_locator_value}")
+                    locator_value = resolved_locator_value
 
                 # 根据定位策略构造 Playwright 选择器
                 if locator_strategy in ['css', 'css selector']:
@@ -1754,6 +1854,7 @@ class TestExecutor:
                     if step_data.get('output_var'):
                         self._set_output_var(step_data['output_var'], resolved_value)
                         step_result['output_var'] = step_data['output_var']
+                        step_result['output_var_value'] = resolved_value
                         print(f"  ✓ 输出变量: {step_data['output_var']} = {resolved_value}")
 
                 elif step_data['action_type'] == 'select':
@@ -2020,6 +2121,7 @@ class TestExecutor:
                                 output_value = ','.join(selected_options) if isinstance(selected_options, list) else str(selected_options)
                                 self._set_output_var(step_data['output_var'], output_value)
                                 step_result['output_var'] = step_data['output_var']
+                                step_result['output_var_value'] = output_value
                                 print(f"  ✓ 输出变量: {step_data['output_var']} = {output_value}")
                         else:
                             step_result['error'] = f'选择下拉选项失败: {"; ".join(select_errors)}'
@@ -2032,9 +2134,11 @@ class TestExecutor:
 
                     # 捕获输出变量
                     if step_data.get('output_var') and text is not None:
-                        self._set_output_var(step_data['output_var'], text.strip() if text else '')
+                        output_var_value = text.strip() if text else ''
+                        self._set_output_var(step_data['output_var'], output_var_value)
                         step_result['output_var'] = step_data['output_var']
-                        print(f"  ✓ 输出变量: {step_data['output_var']} = {text.strip() if text else ''}")
+                        step_result['output_var_value'] = output_var_value
+                        print(f"  ✓ 输出变量: {step_data['output_var']} = {output_var_value}")
 
                 elif step_data['action_type'] == 'waitFor':
                     # 检测是否是下拉框选项（下拉框选项可能是隐藏的）
@@ -2127,10 +2231,19 @@ class TestExecutor:
                             try:
                                 js_table_check = f"""
                                     (() => {{
-                                        // 自动在页面上查找表格容器（优先 Ant Design，其次 Element Plus，最后原生）
-                                        const tbl = document.querySelector('.ant-table') ||
-                                                    document.querySelector('.el-table') ||
-                                                    document.querySelector('table');
+                                        // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                        let tbl = null;
+                                        try {{
+                                            const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                            for (const _d of _allDlg) {{
+                                                if (_d.offsetParent === null) continue;
+                                                const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                                if (_t) {{ tbl = _t; break; }}
+                                            }}
+                                        }} catch(e) {{}}
+                                        if (!tbl) {{
+                                            tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                        }}
                                         if (!tbl) return {{ found: false, reason: 'no-table' }};
                                         
                                         // 遍历数据行
@@ -2173,9 +2286,19 @@ class TestExecutor:
                         try:
                             js_table_check = f"""
                                 (() => {{
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
+                                    // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                    let tbl = null;
+                                    try {{
+                                        const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                        for (const _d of _allDlg) {{
+                                            if (_d.offsetParent === null) continue;
+                                            const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                            if (_t) {{ tbl = _t; break; }}
+                                        }}
+                                    }} catch(e) {{}}
+                                    if (!tbl) {{
+                                        tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                    }}
                                     if (!tbl) return {{ found: false, reason: 'no-table' }};
 
                                     const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
@@ -2208,9 +2331,19 @@ class TestExecutor:
                         try:
                             js_empty_check = """
                                 (() => {
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
+                                    // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                    let tbl = null;
+                                    try {
+                                        const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                        for (const _d of _allDlg) {
+                                            if (_d.offsetParent === null) continue;
+                                            const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                            if (_t) { tbl = _t; break; }
+                                        }
+                                    } catch(e) {}
+                                    if (!tbl) {
+                                        tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                    }
                                     if (!tbl) return { found: false, reason: 'no-table' };
                                     
                                     // 检查数据行数
@@ -2322,21 +2455,11 @@ class TestExecutor:
                     target_page.bring_to_front()
 
                     # 等待页面稳定
-                    # 新标签页可能需要时间加载和渲染
                     try:
-                        # 等待网络空闲状态（页面加载完成）
-                        target_page.wait_for_load_state('networkidle', timeout=10000)  # 增加到10秒
-                        print(f"  - 页面加载状态: networkidle")
+                        target_page.wait_for_load_state('domcontentloaded', timeout=5000)
+                        print(f"  - 页面加载状态: domcontentloaded")
                     except Exception as e:
-                        # 如果networkidle超时，至少等待domcontentloaded
-                        try:
-                            target_page.wait_for_load_state('domcontentloaded', timeout=5000)  # 增加到5秒
-                            print(f"  - 页面加载状态: domcontentloaded")
-                        except Exception as e2:
-                            print(f"  - 页面加载状态: 超时，继续执行 ({str(e2)[:50]})")
-
-                    # 额外等待一小段时间，确保页面完全稳定
-                    target_page.wait_for_timeout(1500)  # 使用 wait_for_timeout 代替 sleep
+                        print(f"  - 页面加载状态: 超时，继续执行 ({str(e)[:50]})")
 
                     # 验证页面确实已切换
                     print(f"  - 当前活动页面URL: {target_page.url}")
@@ -2369,8 +2492,7 @@ class TestExecutor:
                             uri = '/' + uri
                         full_url = base_url + uri
                     print(f"[路由跳转] 导航到: {full_url}")
-                    self.current_page.goto(full_url, wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
+                    self.current_page.goto(full_url, wait_until='domcontentloaded', timeout=30000)
                     print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
                     step_result['success'] = True
 
@@ -2461,19 +2583,10 @@ class TestExecutor:
 
                     # 等待页面稳定
                     try:
-                        # 等待网络空闲状态（页面加载完成）
-                        target_page.wait_for_load_state('networkidle', timeout=10000)  # 增加到10秒
-                        print(f"  - 页面加载状态: networkidle")
+                        target_page.wait_for_load_state('domcontentloaded', timeout=5000)
+                        print(f"  - 页面加载状态: domcontentloaded")
                     except Exception as e:
-                        # 如果networkidle超时，至少等待domcontentloaded
-                        try:
-                            target_page.wait_for_load_state('domcontentloaded', timeout=5000)  # 增加到5秒
-                            print(f"  - 页面加载状态: domcontentloaded")
-                        except Exception as e2:
-                            print(f"  - 页面加载状态: 超时，继续执行 ({str(e2)[:50]})")
-
-                    # 额外等待一小段时间，确保页面完全稳定
-                    target_page.wait_for_timeout(1500)  # 使用 wait_for_timeout 代替 sleep
+                        print(f"  - 页面加载状态: 超时，继续执行 ({str(e)[:50]})")
 
                     # 验证页面确实已切换
                     print(f"  - 当前活动页面URL: {target_page.url}")
@@ -2505,8 +2618,7 @@ class TestExecutor:
                             uri = '/' + uri
                         full_url = base_url + uri
                     print(f"[路由跳转] 导航到: {full_url}")
-                    self.current_page.goto(full_url, wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
+                    self.current_page.goto(full_url, wait_until='domcontentloaded', timeout=30000)
                     print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
                     step_result['success'] = True
 
@@ -2520,9 +2632,19 @@ class TestExecutor:
                         try:
                             js_table_check = f"""
                                 (() => {{
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
+                                    // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                    let tbl = null;
+                                    try {{
+                                        const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                        for (const _d of _allDlg) {{
+                                            if (_d.offsetParent === null) continue;
+                                            const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                            if (_t) {{ tbl = _t; break; }}
+                                        }}
+                                    }} catch(e) {{}}
+                                    if (!tbl) {{
+                                        tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                    }}
                                     if (!tbl) return {{ found: false, reason: 'no-table' }};
 
                                     const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
@@ -2561,9 +2683,19 @@ class TestExecutor:
                         try:
                             js_empty_check = """
                                 (() => {
-                                    const tbl = document.querySelector('.ant-table') ||
-                                                document.querySelector('.el-table') ||
-                                                document.querySelector('table');
+                                    // 优先在可见弹窗内查找表格，找不到再回退页面级表格
+                                    let tbl = null;
+                                    try {
+                                        const _allDlg = document.querySelectorAll('.ant-modal-wrap, .el-dialog, [role="dialog"]');
+                                        for (const _d of _allDlg) {
+                                            if (_d.offsetParent === null) continue;
+                                            const _t = _d.querySelector('.ant-table') || _d.querySelector('.el-table') || _d.querySelector('table');
+                                            if (_t) { tbl = _t; break; }
+                                        }
+                                    } catch(e) {}
+                                    if (!tbl) {
+                                        tbl = document.querySelector('.ant-table') || document.querySelector('.el-table') || document.querySelector('table');
+                                    }
                                     if (!tbl) return { found: false, reason: 'no-table' };
 
                                     const rows = tbl.querySelectorAll('.ant-table-tbody tr, .el-table__body-wrapper tbody tr, tbody tr');
@@ -2719,6 +2851,7 @@ class TestExecutor:
                 test_case_id=case_data['id'],
                 project_id=case_data['project_id'],
                 test_suite=self.test_suite,
+                test_execution=self.execution,
                 execution_source='suite',
                 status='pending',  # 初始状态为 pending
                 engine=self.engine,
@@ -2849,9 +2982,6 @@ class TestExecutor:
                         except:
                             pass  # 即使超时也继续执行
 
-                        # 额外等待，确保动态内容加载（Vue/React等SPA应用）
-                        extra_wait = 3 if is_linux else 2
-                        time.sleep(extra_wait)
 
                         print(
                             f"✓ 成功导航到: {self.test_suite.project.base_url} (已等待页面加载完成，额外{extra_wait}秒)")
@@ -2881,7 +3011,7 @@ class TestExecutor:
                 case_execution.status = case_result['status']
                 case_execution.finished_at = timezone.now()
                 case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-                case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition')}, ensure_ascii=False)
+                case_execution.execution_logs = json.dumps({'steps': case_result['steps'], 'precondition_sql': case_result.get('precondition_sql'), 'postcondition': case_result.get('postcondition'), 'variable_snapshot': case_result.get('variable_snapshot', {})}, ensure_ascii=False)
                 if case_result['error']:
                     case_execution.error_message = case_result['error']
                 if case_result.get('screenshots'):
@@ -2924,8 +3054,6 @@ class TestExecutor:
                 # Safari：每个用例执行完都关闭浏览器
                 if not use_browser_reuse and driver:
                     try:
-                        # 关闭前等待最后操作完成
-                        time.sleep(1)
                         driver.quit()
                         print(f"✓ Safari 浏览器已关闭\n")
                     except Exception as e:
@@ -2938,7 +3066,6 @@ class TestExecutor:
                 print(f"\n{'=' * 60}")
                 print(f"正在关闭浏览器...")
                 # 关闭前等待最后的网络请求完成
-                time.sleep(1)
                 driver.quit()
                 print(f"✓ 浏览器已关闭")
                 print(f"{'=' * 60}\n")
@@ -3225,6 +3352,10 @@ class TestExecutor:
                 print(f"捕获异常截图失败: {str(screenshot_error)}")
 
         result['end_time'] = datetime.now().isoformat()
+
+        # 保存当前变量池快照（用于变量流转展示）
+        result['variable_snapshot'] = dict(self.context_variables)
+
         return result
 
     def execute_test_case_selenium(self, driver, case_data):
@@ -3274,7 +3405,7 @@ class TestExecutor:
             case_execution.status = result['status']
             case_execution.finished_at = timezone.now()
             case_execution.execution_time = (case_execution.finished_at - case_execution.started_at).total_seconds()
-            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition')}, ensure_ascii=False)
+            case_execution.execution_logs = json.dumps({'steps': result['steps'], 'precondition_sql': result.get('precondition_sql'), 'postcondition': result.get('postcondition'), 'variable_snapshot': result.get('variable_snapshot', {})}, ensure_ascii=False)
             if result['error']:
                 case_execution.error_message = result['error']
             case_execution.save()
@@ -3328,6 +3459,12 @@ class TestExecutor:
                 locator_value = element['locator_value']
                 locator_strategy = element['locator_strategy'].lower()
                 element_name = element.get('name', '未知元素')
+
+                # 定位器值支持变量解析（如 //span[contains(.,'${roleName}')]）
+                resolved_locator_value = resolve_variables(locator_value, self.context_variables)
+                if resolved_locator_value != locator_value:
+                    print(f"[变量解析] 定位器: {locator_value} -> {resolved_locator_value}")
+                    locator_value = resolved_locator_value
 
                 # 根据定位策略获取元素
                 wait = WebDriverWait(driver, step_data['wait_time'] / 1000)
@@ -3675,14 +3812,30 @@ class TestExecutor:
                         # Selenium版表格包含文本断言 - 自动查找表格容器
                         try:
                             table = None
-                            # 按优先级查找表格容器
-                            for selector in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, selector)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            # 弹窗内没找到，回退页面级查找
+                            if not table:
+                                for selector in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, selector)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             else:
@@ -3698,13 +3851,29 @@ class TestExecutor:
                         # Selenium版表格不包含文本断言 - 自动查找表格容器
                         try:
                             table = None
-                            for selector in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, selector)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            if not table:
+                                for selector in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, selector)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             else:
@@ -3720,13 +3889,29 @@ class TestExecutor:
                         # Selenium版表格为空断言 - 自动查找表格容器
                         try:
                             table = None
-                            for selector in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, selector)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            if not table:
+                                for selector in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, selector)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             else:
@@ -3783,7 +3968,6 @@ class TestExecutor:
                         full_url = base_url + uri
                     print(f"[路由跳转] 导航到: {full_url}")
                     driver.get(full_url)
-                    time.sleep(2)
                     print(f"[路由跳转] 页面加载完成，当前URL: {driver.current_url}")
                     step_result['success'] = True
 
@@ -3796,13 +3980,29 @@ class TestExecutor:
                     if step_data['assert_type'] in ('tableContains', 'tableNotContains'):
                         try:
                             table = None
-                            for sel in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, sel)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            if not table:
+                                for sel in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, sel)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             elif step_data['assert_type'] == 'tableContains':
@@ -3823,13 +4023,29 @@ class TestExecutor:
                     elif step_data['assert_type'] == 'tableEmpty':
                         try:
                             table = None
-                            for sel in ['.ant-table', '.el-table', 'table']:
+                            # 优先在可见弹窗内查找表格
+                            for dlg_sel in ['.ant-modal-wrap:not(.ant-modal-wrap-hidden)', '.el-dialog[aria-modal="true"]', '[role="dialog"]']:
                                 try:
-                                    table = driver.find_element(By.CSS_SELECTOR, sel)
+                                    dlg = driver.find_element(By.CSS_SELECTOR, dlg_sel)
+                                    for sel in ['.ant-table', '.el-table', 'table']:
+                                        try:
+                                            table = dlg.find_element(By.CSS_SELECTOR, sel)
+                                            if table:
+                                                break
+                                        except:
+                                            continue
                                     if table:
                                         break
                                 except:
                                     continue
+                            if not table:
+                                for sel in ['.ant-table', '.el-table', 'table']:
+                                    try:
+                                        table = driver.find_element(By.CSS_SELECTOR, sel)
+                                        if table:
+                                            break
+                                    except:
+                                        continue
                             if not table:
                                 step_result['error'] = "✗ 断言失败: 页面中未找到表格容器（.ant-table / .el-table / table）"
                             else:
@@ -4440,14 +4656,15 @@ class TestExecutor:
             visited_set: 已访问用例ID集合，防止循环依赖
 
         Returns:
-            (success, message, deferred_postconditions): 前置条件是否全部通过，失败原因，以及延迟执行的后置SQL列表
+            (success, message, deferred_postconditions, precondition_cases_sql):
+                前置条件是否全部通过，失败原因，延迟执行的后置SQL列表，前置条件用例的SQL信息列表
         """
         from .models import TestCasePrecondition
 
         if visited_set is None:
             visited_set = set()
         if test_case.id in visited_set:
-            return True, '', []  # 已访问过，跳过避免循环
+            return True, '', [], []  # 已访问过，跳过避免循环
         visited_set.add(test_case.id)
 
         relations = TestCasePrecondition.objects.filter(
@@ -4455,19 +4672,22 @@ class TestExecutor:
         ).select_related('precondition').order_by('order')
 
         if not relations.exists():
-            return True, '', []
+            return True, '', [], []
 
         deferred_postconditions = []
+        precondition_cases_sql = []
 
         for rel in relations:
             precondition_case = rel.precondition
 
             # 先递归执行该前置条件自身的前置条件
-            sub_ok, sub_msg, sub_deferred = self._execute_preconditions(precondition_case, visited_set)
+            sub_ok, sub_msg, sub_deferred, sub_pre_sql = self._execute_preconditions(precondition_case, visited_set)
             if not sub_ok:
-                return False, f"前置用例「{precondition_case.name}」的前置条件失败: {sub_msg}", []
+                return False, f"前置用例「{precondition_case.name}」的前置条件失败: {sub_msg}", [], []
             # 收集子前置条件的后置SQL
             deferred_postconditions.extend(sub_deferred)
+            # 收集子前置条件的SQL信息
+            precondition_cases_sql.extend(sub_pre_sql)
 
             print(f"[前置条件] 执行前置用例: {precondition_case.name} (顺序: {rel.order})")
 
@@ -4514,7 +4734,11 @@ class TestExecutor:
             if pre_result and pre_result['status'] != 'passed':
                 msg = f"前置用例「{precondition_case.name}」执行失败: {pre_result.get('error', '未知错误')}"
                 print(f"[前置条件] {msg}")
-                return False, msg, []
+                # 即使失败也收集该前置用例的SQL信息（便于排障）
+                pre_case_sql_info = {'case_name': precondition_case.name}
+                if pre_result.get('precondition_sql'):
+                    pre_case_sql_info['precondition_sql'] = pre_result['precondition_sql']
+                return False, msg, [], [pre_case_sql_info]
 
             print(f"[前置条件] 前置用例「{precondition_case.name}」执行通过")
 
@@ -4522,4 +4746,10 @@ class TestExecutor:
             if case_data.get('postcondition_sql') and case_data['postcondition_sql'].strip():
                 deferred_postconditions.append(case_data)
 
-        return True, '', deferred_postconditions
+            # 收集该前置条件用例的SQL执行信息
+            pre_case_sql_info = {'case_name': precondition_case.name}
+            if pre_result and pre_result.get('precondition_sql'):
+                pre_case_sql_info['precondition_sql'] = pre_result['precondition_sql']
+            precondition_cases_sql.append(pre_case_sql_info)
+
+        return True, '', deferred_postconditions, precondition_cases_sql

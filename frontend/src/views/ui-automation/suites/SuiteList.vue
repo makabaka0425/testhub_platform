@@ -63,7 +63,8 @@
                 </div>
               </div>
 
-              <el-table :data="filteredSuites" v-loading="loading" style="width: 100%"
+              <div class="table-area">
+              <el-table :data="filteredSuites" v-loading="loading" height="100%"
                 row-key="id" ref="suiteTableRef" @selection-change="handleSuiteSelectionChange">
                 <el-table-column v-if="!batchEditMode" type="selection" width="45" />
                 <el-table-column prop="name" label="套件名称" min-width="200">
@@ -133,6 +134,7 @@
                   </template>
                 </el-table-column>
               </el-table>
+              </div>
             </div>
 
             <div class="pagination-container">
@@ -164,7 +166,8 @@
       <!-- 套件基本信息 -->
       <div class="suite-info-bar">
         <span class="info-item"><label>执行模式：</label>{{ currentSuite.execution_mode === 'shared_session' ? '共享会话' : '用例独立' }}</span>
-        <span class="info-item"><label>登录配置：</label>{{ currentSuite.login_config_name || '未配置' }}</span>
+        <span class="info-item" v-if="currentSuite.execution_mode === 'shared_session'"><label>登录配置：</label>{{ currentSuite.login_config_name || '未配置' }}</span>
+        <span class="info-item" v-if="currentSuite.execution_mode === 'shared_session'"><label>执行后动作：</label>{{ currentSuite.default_post_action_display || '保持并刷新' }}</span>
         <span class="info-item"><label>描述：</label>{{ currentSuite.description || '无' }}</span>
       </div>
 
@@ -181,14 +184,40 @@
             </el-button>
           </div>
         </div>
-        <el-table ref="suiteCasesTableRef" :data="filteredSuiteCases" style="width: 100%" @selection-change="handleCaseSelectionChange" row-key="id">
+        <el-table ref="suiteCasesTableRef" :data="filteredSuiteCases" height="100%" @selection-change="handleCaseSelectionChange" row-key="id">
           <el-table-column type="selection" width="45" />
           <el-table-column label="#" width="50" align="center">
             <template #default="{ $index }">
               <span class="drag-handle"><el-icon style="cursor: grab"><Rank /></el-icon></span>
             </template>
           </el-table-column>
-          <el-table-column prop="test_case.name" label="用例名称" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="test_case.name" label="用例名称" min-width="200" show-overflow-tooltip />
+          <el-table-column min-width="200">
+            <template #header>
+              <span>变量流转</span>
+              <el-tooltip placement="top" :show-after="200">
+                <template #content>
+                  <div style="max-width: 320px; line-height: 1.6;">
+                    <b>变量流转</b>：展示套件内用例间的变量传递关系。<br/>
+                    <span style="color: #67c23a;">→ varName</span>：本用例输出变量（步骤中通过「输出变量」捕获）<br/>
+                    <span style="color: #409eff;">← varName</span>：本用例消费变量（输入值中引用 ${varName}）<br/>
+                    <span style="color: #f56c6c;">← varName ⚠</span>：消费了未定义变量（上游无此变量输出）
+                  </div>
+                </template>
+                <svg class="var-flow-help" viewBox="0 0 16 16" width="14" height="14" style="margin-left: 4px; vertical-align: middle; cursor: help;">
+                  <circle cx="8" cy="8" r="7" fill="none" stroke="#909399" stroke-width="1.2"/>
+                  <text x="8" y="8" text-anchor="middle" dominant-baseline="central" fill="#909399" font-size="10" font-weight="700" font-family="sans-serif">?</text>
+                </svg>
+              </el-tooltip>
+            </template>
+            <template #default="{ row }">
+              <div class="var-flow-tags" v-if="caseVarMap[row.test_case?.id]">
+                <el-tag v-for="v in (caseVarMap[row.test_case.id]?.outputs || [])" :key="'o-'+v" size="small" type="success" effect="plain" class="var-tag var-tag--output">&rarr; {{ v }}</el-tag>
+                <el-tag v-for="v in (caseVarMap[row.test_case.id]?.consumes || [])" :key="'c-'+v" size="small" :type="caseVarMap[row.test_case.id]?.undefined?.includes(v) ? 'danger' : 'info'" effect="plain" class="var-tag var-tag--input">&larr; {{ v }}<span v-if="caseVarMap[row.test_case.id]?.undefined?.includes(v)" title="上游无此变量">&nbsp;&#9888;</span></el-tag>
+              </div>
+              <span v-else style="color: var(--gray-400)">-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="优先级" width="80" align="center">
             <template #default="{ row }">
               <el-tag size="small" :type="getPriorityTag(row.test_case.priority)">{{ getPriorityText(row.test_case.priority) }}</el-tag>
@@ -209,6 +238,16 @@
             <template #default="{ row }">
               <span v-if="row.test_case.suite_last_finished">{{ formatDate(null, null, row.test_case.suite_last_finished) }}</span>
               <span v-else style="color: var(--gray-400)">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="currentSuite.execution_mode === 'shared_session'" label="执行后动作" width="150" align="center">
+            <template #default="{ row }">
+              <el-select v-model="row.post_action" size="small" placeholder="默认" clearable style="width: 120px" @change="handlePostActionChange(row)">
+                <el-option label="默认" value="" />
+                <el-option label="保持并刷新" value="refresh_page" />
+                <el-option label="关闭页面" value="close_page" />
+                <el-option label="维持当前状态" value="keep_state" />
+              </el-select>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="100">
@@ -243,6 +282,14 @@
           <el-select v-model="editForm.login_config" placeholder="请选择登录配置" clearable filterable style="width: 100%">
             <el-option v-for="cfg in loginConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.id" />
           </el-select>
+        </el-form-item>
+        <el-form-item v-if="editForm.execution_mode === 'shared_session'" label="执行后动作" prop="default_post_action">
+          <el-select v-model="editForm.default_post_action" placeholder="请选择默认执行后动作" style="width: 100%">
+            <el-option label="保持并刷新" value="refresh_page" />
+            <el-option label="关闭页面" value="close_page" />
+            <el-option label="维持当前状态" value="keep_state" />
+          </el-select>
+          <div class="mode-tip">用例执行完后的默认页面操作，用例级可单独覆盖</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -349,8 +396,8 @@
     </el-dialog>
 
     <!-- ==================== 执行记录弹窗 ==================== -->
-    <el-dialog v-model="showRecordsDialog" :title="`执行记录 - ${recordsSuiteName}`" width="800px" :close-on-click-modal="false" top="5vh">
-      <div v-loading="recordsLoading">
+    <el-dialog v-model="showRecordsDialog" :title="`执行记录 - ${recordsSuiteName}`" width="800px" :close-on-click-modal="false" class="suite-records-dialog">
+      <div v-loading="recordsLoading" class="suite-records-body">
         <el-empty v-if="!recordsLoading && executionRecords.length === 0" description="暂无执行记录" :image-size="60" />
         <el-collapse v-model="expandedRecords" v-if="executionRecords.length > 0">
           <el-collapse-item v-for="record in executionRecords" :key="record.id" :name="record.id">
@@ -444,7 +491,7 @@
                 <div class="sql-exec-list">
                   <div v-for="(sqlExec, idx) in caseDetailSqlExecs" :key="idx" class="sql-exec-item">
                     <div class="sql-exec-header">
-                      <el-tag :type="sqlExec.type === 'precondition' ? 'warning' : 'info'" size="small">{{ sqlExec.label }}</el-tag>
+                      <el-tag :type="sqlExec.type === 'precondition' ? 'warning' : sqlExec.type === 'precondition_case' ? 'success' : 'info'" size="small">{{ sqlExec.label }}</el-tag>
                       <el-tag :type="sqlExec.success ? 'success' : 'danger'" size="small">{{ sqlExec.success ? '执行成功' : '执行失败' }}</el-tag>
                       <span v-if="sqlExec.executed && sqlExec.total_affected !== undefined" class="sql-affected">影响 {{ sqlExec.total_affected }} 行</span>
                     </div>
@@ -517,6 +564,22 @@
                 </div>
               </div>
             </el-tab-pane>
+            <el-tab-pane label="变量流转" name="variables" v-if="caseDetailVarFlow.length > 0">
+              <div class="history-detail-scroll">
+                <div class="var-flow-timeline">
+                  <div v-for="(item, idx) in caseDetailVarFlow" :key="idx" class="var-flow-item" :class="`var-flow-item--${item.type}`">
+                    <div class="var-flow-dot"></div>
+                    <div class="var-flow-content">
+                      <span class="var-flow-step">步骤 {{ item.step }}</span>
+                      <span class="var-flow-action">{{ item.action }}</span>
+                      <span class="var-flow-name" :class="`var-flow-name--${item.type}`">{{ item.name }}</span>
+                      <span class="var-flow-eq">=</span>
+                      <span class="var-flow-value">{{ item.value }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
           </el-tabs>
         </div>
       </div>
@@ -525,7 +588,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, ArrowLeft, Close, Rank } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
@@ -536,7 +599,8 @@ import {
   getTestCases, getTestSuiteTestCases, addTestCasesToTestSuite,
   removeTestCaseFromTestSuite, removeTestCasesFromTestSuite,
   updateTestCaseOrder, runTestSuite, getLoginConfigs, getTestCaseGroupTree,
-  batchUpdateTestSuites, getSuiteExecutionRecords, getTestCaseExecutionDetail
+  batchUpdateTestSuites, getSuiteExecutionRecords, getTestCaseExecutionDetail,
+  updateTestCasePostAction, getSuiteVariableFlow
 } from '@/api/ui_automation'
 
 // ==================== 通用数据 ====================
@@ -610,7 +674,7 @@ const loadGroupTree = async () => {
   } catch (e) { console.error(e) }
 }
 
-const onProjectChange = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
+const onProjectChange = async () => { if (batchEditMode.value) return; localStorage.setItem('lastProjectId', projectId.value); pagination.currentPage = 1; await loadSuites() }
 const handleSearch = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
 const handleSizeChange = async () => { if (batchEditMode.value) return; pagination.currentPage = 1; await loadSuites() }
 const handleCurrentChange = async () => { if (batchEditMode.value) return; await loadSuites() }
@@ -726,13 +790,13 @@ const isEditing = ref(false)
 const editingSuiteId = ref(null)
 const saving = ref(false)
 const editFormRef = ref(null)
-const editForm = reactive({ name: '', description: '', execution_mode: 'per_case', login_config: null })
+const editForm = reactive({ name: '', description: '', execution_mode: 'per_case', login_config: null, default_post_action: 'refresh_page' })
 const editFormRules = { name: [{ required: true, message: '请输入套件名称', trigger: 'blur' }] }
 
 const handleNewSuite = async () => {
   isEditing.value = false
   editingSuiteId.value = null
-  Object.assign(editForm, { name: '', description: '', execution_mode: 'per_case', login_config: null })
+  Object.assign(editForm, { name: '', description: '', execution_mode: 'per_case', login_config: null, default_post_action: 'refresh_page' })
   await loadLoginConfigs()
   showEditDialog.value = true
 }
@@ -744,7 +808,8 @@ const editSuiteInfo = async (row) => {
     name: row.name,
     description: row.description || '',
     execution_mode: row.execution_mode || 'per_case',
-    login_config: row.login_config || null
+    login_config: row.login_config || null,
+    default_post_action: row.default_post_action || 'refresh_page'
   })
   await loadLoginConfigs()
   showEditDialog.value = true
@@ -762,7 +827,8 @@ const saveSuiteInfo = async () => {
       name: editForm.name,
       description: editForm.description,
       execution_mode: editForm.execution_mode,
-      login_config: editForm.execution_mode === 'shared_session' ? editForm.login_config : null
+      login_config: editForm.execution_mode === 'shared_session' ? editForm.login_config : null,
+      default_post_action: editForm.execution_mode === 'shared_session' ? editForm.default_post_action : 'refresh_page'
     }
     if (isEditing.value) {
       await updateTestSuite(editingSuiteId.value, data)
@@ -791,6 +857,9 @@ const selectedCaseIds = ref([])
 const suiteCasesTableRef = ref(null)
 let sortableInstance = null
 
+// 变量流转数据：{ testCaseId: { outputs: [], consumes: [], undefined: [] } }
+const caseVarMap = ref({})
+
 const filteredSuiteCases = computed(() => {
   if (!suiteCaseSearch.value) return suiteCases.value
   const kw = suiteCaseSearch.value.toLowerCase()
@@ -800,6 +869,7 @@ const filteredSuiteCases = computed(() => {
 const enterSuiteDetail = (row) => {
   currentSuite.value = row
   loadSuiteCases()
+  loadVariableFlow()
 }
 
 const exitSuiteDetail = () => {
@@ -808,7 +878,23 @@ const exitSuiteDetail = () => {
   suiteCases.value = []
   suiteCaseSearch.value = ''
   selectedCaseIds.value = []
+  caseVarMap.value = {}
   loadSuites()
+}
+
+const loadVariableFlow = async () => {
+  if (!currentSuite.value) return
+  try {
+    const res = await getSuiteVariableFlow(currentSuite.value.id)
+    const data = res.data || res
+    const map = {}
+    for (const item of data) {
+      map[item.test_case_id] = item
+    }
+    caseVarMap.value = map
+  } catch (e) {
+    caseVarMap.value = {}
+  }
 }
 
 const loadSuiteCases = async ({ silent = false } = {}) => {
@@ -854,6 +940,7 @@ const saveCaseOrder = async () => {
     }))
     await updateTestCaseOrder(currentSuite.value.id, orderData)
     ElMessage.success('顺序已保存')
+    loadVariableFlow()
   } catch (e) {
     console.error('保存排序失败:', e)
     ElMessage.error('保存排序失败')
@@ -886,6 +973,17 @@ const batchRemoveCases = async () => {
     selectedCaseIds.value = []
     await loadSuiteCases()
   } catch (e) { if (e !== 'cancel') console.error(e) }
+}
+
+// ==================== 执行后动作 ====================
+const handlePostActionChange = async (row) => {
+  try {
+    await updateTestCasePostAction(currentSuite.value.id, row.id, row.post_action || '')
+    ElMessage.success('执行后动作已更新')
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('更新失败')
+  }
 }
 
 // ==================== 关联用例弹窗 ====================
@@ -1201,22 +1299,56 @@ const getSuiteStatusText = (s) => ({ not_executed: '未执行', passed: '通过'
 // ==================== 执行记录弹窗 ====================
 const showRecordsDialog = ref(false)
 const recordsSuiteName = ref('')
+const recordsSuiteId = ref(null)
 const executionRecords = ref([])
 const recordsLoading = ref(false)
 const expandedRecords = ref([])
+let recordsPollTimer = null
+
+const refreshExecutionRecords = async () => {
+  if (!recordsSuiteId.value) return
+  try {
+    const res = await getSuiteExecutionRecords(recordsSuiteId.value)
+    executionRecords.value = res.data || []
+  } catch (e) {
+    // 静默失败，避免轮询期间弹错误提示
+  }
+}
+
+const startRecordsPoll = () => {
+  stopRecordsPoll()
+  recordsPollTimer = setInterval(async () => {
+    await refreshExecutionRecords()
+    // 检查是否还有运行中的记录，没有则停止轮询
+    const hasRunning = executionRecords.value.some(r => r.status === 'RUNNING' || r.status === 'PENDING')
+    if (!hasRunning) {
+      stopRecordsPoll()
+    }
+  }, 3000)
+}
+
+const stopRecordsPoll = () => {
+  if (recordsPollTimer) {
+    clearInterval(recordsPollTimer)
+    recordsPollTimer = null
+  }
+}
 
 const viewSuiteRecords = async (row) => {
   recordsSuiteName.value = row.name
+  recordsSuiteId.value = row.id
   showRecordsDialog.value = true
   recordsLoading.value = true
   executionRecords.value = []
   expandedRecords.value = []
+  stopRecordsPoll()
   try {
     const res = await getSuiteExecutionRecords(row.id)
     executionRecords.value = res.data || []
-    // 默认展开第一条
-    if (executionRecords.value.length > 0) {
-      expandedRecords.value = [executionRecords.value[0].id]
+    // 如果有运行中的记录，启动轮询
+    const hasRunning = executionRecords.value.some(r => r.status === 'RUNNING' || r.status === 'PENDING')
+    if (hasRunning) {
+      startRecordsPoll()
     }
   } catch (e) {
     console.error('获取执行记录失败:', e)
@@ -1270,6 +1402,44 @@ const caseDetailErrors = computed(() => {
   return errors
 })
 
+// 从执行记录步骤中提取变量流转信息
+const caseDetailVarFlow = computed(() => {
+  if (!caseDetailData.value) return []
+  const steps = Array.isArray(caseDetailData.value.parsedLogs)
+    ? caseDetailData.value.parsedLogs
+    : (caseDetailData.value.parsedLogs?.steps || [])
+  const flow = []
+  for (const step of steps) {
+    if (step.step_number === 'sql') continue
+    // 输出变量（步骤产生了新变量）
+    if (step.output_var && step.output_var_value !== undefined) {
+      flow.push({
+        type: 'output',
+        step: step.step_number,
+        action: getActionText(step.action_type || ''),
+        name: step.output_var,
+        value: typeof step.output_var_value === 'string' && step.output_var_value.length > 80
+          ? step.output_var_value.substring(0, 80) + '...'
+          : step.output_var_value
+      })
+    }
+    // 消费变量（输入值中引用了 ${varName}）
+    if (step.input_value && typeof step.input_value === 'string') {
+      const matches = step.input_value.matchAll(/\$\{(\w+)\}/g)
+      for (const match of matches) {
+        flow.push({
+          type: 'input',
+          step: step.step_number,
+          action: getActionText(step.action_type || ''),
+          name: match[1],
+          value: step.input_value
+        })
+      }
+    }
+  }
+  return flow
+})
+
 // 从执行记录中提取SQL执行信息（统一处理套件和单用例两种格式）
 const caseDetailSqlExecs = computed(() => {
   if (!caseDetailData.value || !caseDetailData.value.parsedLogs) return []
@@ -1278,6 +1448,24 @@ const caseDetailSqlExecs = computed(() => {
 
   // 格式1：套件执行 - 独立的 precondition_sql / postcondition 对象
   if (!Array.isArray(logs)) {
+    // 前置条件用例的SQL信息（独立模式下前置条件用例的SQL合并到了主用例日志中）
+    if (logs.precondition_cases_sql && Array.isArray(logs.precondition_cases_sql)) {
+      for (const preCase of logs.precondition_cases_sql) {
+        if (preCase.precondition_sql) {
+          result.push({
+            type: 'precondition_case',
+            label: `前置用例「${preCase.case_name}」- 前置数据SQL`,
+            success: preCase.precondition_sql.executed !== false && !preCase.precondition_sql.has_error,
+            executed: preCase.precondition_sql.executed !== false,
+            original_sql: preCase.precondition_sql.original_sql || '',
+            resolved_sql: preCase.precondition_sql.resolved_sql || '',
+            total_affected: preCase.precondition_sql.total_affected || 0,
+            details: preCase.precondition_sql.details || [],
+            error: preCase.precondition_sql.error || null
+          })
+        }
+      }
+    }
     if (logs.precondition_sql) {
       const pre = logs.precondition_sql
       result.push({
@@ -1339,7 +1527,12 @@ const viewCaseExecDetail = async (row) => {
     const record = res.data
     let logs = record.execution_logs
     if (typeof logs === 'string') {
-      try { logs = JSON.parse(logs) } catch { logs = null }
+      try { logs = JSON.parse(logs) } catch {
+        // 纯文本格式：转换为步骤列表
+        logs = { steps: logs.split('\n').filter(Boolean).map((line, i) => ({
+          step_number: i + 1, action_type: '', description: '', success: !line.includes('失败'), error: line.includes('失败') ? line : null, input_value: ''
+        })) }
+      }
     }
     caseDetailData.value = {
       ...record,
@@ -1357,9 +1550,20 @@ const viewCaseExecDetail = async (row) => {
 onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
-    projectId.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     await loadSuites()
   }
+})
+
+// 弹窗关闭时停止轮询
+watch(showRecordsDialog, (val) => {
+  if (!val) stopRecordsPoll()
+})
+
+onBeforeUnmount(() => {
+  stopRecordsPoll()
 })
 </script>
 
@@ -1434,8 +1638,16 @@ onMounted(async () => {
 
 .suite-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
+}
+
+.suite-table-wrapper .table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 表格样式 */
@@ -1522,11 +1734,18 @@ onMounted(async () => {
 
 /* 套件内用例区域 */
 .suite-cases-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
   .section-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
+    flex-shrink: 0;
   }
 
   .section-title {
@@ -2104,6 +2323,32 @@ onMounted(async () => {
 </style>
 
 <style>
+/* ==================== 执行记录弹窗 ==================== */
+.el-dialog.suite-records-dialog {
+  height: 680px !important;
+  max-height: 680px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  margin-top: calc((100vh - 680px) / 2) !important;
+}
+.el-dialog.suite-records-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin: 0;
+  padding-bottom: 12px;
+}
+.el-dialog.suite-records-dialog .el-dialog__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+}
+.el-dialog.suite-records-dialog .suite-records-body {
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* ==================== 执行详情弹窗 ==================== */
 .el-dialog.history-detail-dialog {
   height: 680px !important;
   max-height: 680px !important;
@@ -2142,5 +2387,120 @@ onMounted(async () => {
 }
 .el-dialog.history-detail-dialog .el-tab-pane {
   height: 100%;
+}
+
+/* ==================== 变量流转标签 ==================== */
+.var-flow-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.var-flow-tags .var-tag {
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.var-flow-tags .var-tag--output {
+  background: #f0f9eb;
+  border-color: #e1f3d8;
+  color: #67c23a;
+}
+.var-flow-tags .var-tag--input {
+  background: #ecf5ff;
+  border-color: #d9ecff;
+  color: #409eff;
+}
+.var-flow-tags .el-tag--danger.var-tag--input {
+  background: #fef0f0;
+  border-color: #fde2e2;
+  color: #f56c6c;
+}
+
+/* ==================== 变量流转时间轴 ==================== */
+.var-flow-timeline {
+  padding: 8px 0;
+}
+.var-flow-item {
+  display: flex;
+  align-items: flex-start;
+  position: relative;
+  padding-left: 24px;
+  padding-bottom: 12px;
+}
+.var-flow-item:last-child {
+  padding-bottom: 0;
+}
+.var-flow-item::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  bottom: -4px;
+  width: 1px;
+  background: #e4e7ed;
+}
+.var-flow-item:last-child::before {
+  display: none;
+}
+.var-flow-dot {
+  position: absolute;
+  left: 1px;
+  top: 6px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #409eff;
+  background: #fff;
+}
+.var-flow-item--output .var-flow-dot {
+  border-color: #67c23a;
+  background: #f0f9eb;
+}
+.var-flow-item--input .var-flow-dot {
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+.var-flow-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  flex-wrap: wrap;
+}
+.var-flow-step {
+  color: #909399;
+  font-size: 12px;
+}
+.var-flow-action {
+  color: #606266;
+  font-size: 12px;
+}
+.var-flow-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.var-flow-name--output {
+  color: #67c23a;
+}
+.var-flow-name--input {
+  color: #409eff;
+}
+.var-flow-eq {
+  color: #909399;
+}
+.var-flow-value {
+  color: #303133;
+  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  background: #f5f7fa;
+  padding: 1px 6px;
+  border-radius: 3px;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

@@ -110,15 +110,29 @@
               </div>
             </div>
           </transition>
-          <el-table :data="pagedElements" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id">
+          <div class="table-area">
+            <el-table :data="pagedElements" height="100%" highlight-current-row size="small" :row-class-name="getElementRowClass" @selection-change="handleSelectionChange" ref="elementTableRef" row-key="id" @sort-change="onElementSortChange" :default-sort="{ prop: '', order: '' }">
             <el-table-column type="selection" width="40" />
-            <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip>
+            <el-table-column label="排序" width="58" align="center">
+              <template #default="{ row }">
+                <el-input
+                  v-if="editingOrderId === row.id"
+                  v-model="editingOrderValue"
+                  size="small"
+                  class="order-edit-input"
+                  @keyup.enter="saveOrderEdit(row)"
+                  @blur="saveOrderEdit(row)"
+                />
+                <span v-else class="order-num" @click="startOrderEdit(row)">{{ row.order ?? 0 }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="name" label="元素名称" min-width="120" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
                 <el-input v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.name" size="small" placeholder="元素名称" @click.stop />
                 <span v-else>{{ row.name }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="element_type" label="类型" width="100">
+            <el-table-column prop="element_type" label="类型" width="100" sortable="custom">
               <template #default="{ row }">
                 <el-select v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.element_type" size="small" style="width: 100%">
                   <el-option label="输入框" value="INPUT" />
@@ -137,7 +151,7 @@
                 <span v-else class="element-type-tag" :class="(row.element_type || '').toLowerCase()">{{ getElementTypeLabel(row.element_type) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="定位策略" width="110">
+            <el-table-column label="定位策略" width="110" sortable="custom" prop="locator_strategy_id">
               <template #default="{ row }">
                 <el-select v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.locator_strategy_id" size="small" style="width: 100%">
                   <el-option v-for="strategy in locatorStrategies" :key="strategy.id" :label="strategy.name" :value="strategy.id" />
@@ -145,7 +159,7 @@
                 <span v-else>{{ getStrategyName(row.locator_strategy_id) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="locator_value" label="定位表达式" min-width="160" show-overflow-tooltip>
+            <el-table-column prop="locator_value" label="定位表达式" min-width="160" show-overflow-tooltip sortable="custom">
               <template #default="{ row }">
                 <el-input v-if="batchEditMode && isElementInBatchEdit(row)" v-model="row.locator_value" size="small" placeholder="定位表达式" @click.stop />
                 <span v-else>{{ row.locator_value }}</span>
@@ -178,7 +192,8 @@
               </template>
             </el-table-column>
           </el-table>
-          <div v-if="filteredElements.length === 0" class="no-data-tip">暂无元素</div>
+            <div v-if="filteredElements.length === 0" class="no-data-tip">暂无元素</div>
+          </div>
         </div>
         <div class="pagination-container">
           <el-pagination
@@ -690,7 +705,19 @@ const pageGroupTreeWithAll = computed(() => {
   return [allNode, ...buildPageTree(treeData.value)]
 })
 
+// 元素列表分页和排序状态（必须在 filteredElements computed 之前定义）
+const elementCurrentPage = ref(1)
+const elementPageSize = ref(10)
+const elementSortProp = ref('')
+const elementSortOrder = ref('')
+const onElementSortChange = ({ prop, order }) => {
+  elementSortProp.value = prop || ''
+  elementSortOrder.value = order || ''
+  elementCurrentPage.value = 1
+}
+
 // 根据选中页面和搜索关键词过滤元素
+
 const filteredElements = computed(() => {
   let result = allElements.value
   // 按页面分组筛选
@@ -732,12 +759,31 @@ const filteredElements = computed(() => {
   }
   // 按 order 字段排序（拖拽排序后 order 会更新）
   result = [...result].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  // 应用表头排序（全量排序后再分页）
+  if (elementSortProp.value) {
+    const prop = elementSortProp.value
+    const order = elementSortOrder.value
+    result = [...result].sort((a, b) => {
+      let va = a[prop]
+      let vb = b[prop]
+      // 特殊处理：locator_strategy_id 显示名称排序
+      if (prop === 'locator_strategy_id') {
+        va = getStrategyName(va) || ''
+        vb = getStrategyName(vb) || ''
+      }
+      if (va == null) va = ''
+      if (vb == null) vb = ''
+      if (typeof va === 'string') va = va.toLowerCase()
+      if (typeof vb === 'string') vb = vb.toLowerCase()
+      let cmp = 0
+      if (va < vb) cmp = -1
+      else if (va > vb) cmp = 1
+      return order === 'descending' ? -cmp : cmp
+    })
+  }
   return result
 })
 
-// 元素列表分页
-const elementCurrentPage = ref(1)
-const elementPageSize = ref(10)
 const pagedElements = computed(() => {
   const start = (elementCurrentPage.value - 1) * elementPageSize.value
   return filteredElements.value.slice(start, start + elementPageSize.value)
@@ -745,6 +791,8 @@ const pagedElements = computed(() => {
 // 筛选条件或页面切换时重置到第1页并清空选择
 watch([searchName, searchType, searchStrategy, selectedPageId], () => {
   elementCurrentPage.value = 1
+  elementSortProp.value = ''
+  elementSortOrder.value = ''
   clearSelection()
 })
 // 翻页时清空选择
@@ -2076,12 +2124,49 @@ const getElementActions = (row) => [
   { key: 'delete', icon: Delete, danger: true, onClick: (r) => deleteElementFromList(r) }
 ]
 
+// 直接修改排序号：点击数字进入编辑，回车/失焦才保存
+const editingOrderId = ref(null)
+const editingOrderValue = ref('')
+const editingOrderBackup = ref(0)
+
+const startOrderEdit = (row) => {
+  editingOrderBackup.value = row.order ?? 0
+  editingOrderValue.value = String(row.order ?? 0)
+  editingOrderId.value = row.id
+  nextTick(() => {
+    const input = document.querySelector('.order-edit-input .el-input__inner')
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  })
+}
+
+const saveOrderEdit = async (row) => {
+  if (editingOrderId.value !== row.id) return
+  const newOrder = parseInt(editingOrderValue.value)
+  editingOrderId.value = null
+
+  if (isNaN(newOrder) || newOrder === editingOrderBackup.value) return
+
+  row.order = newOrder
+  try {
+    await batchReorderElements({ orders: [{ id: row.id, order: newOrder }] })
+  } catch (error) {
+    console.error('保存元素排序失败:', error)
+    ElMessage.error('保存排序失败')
+    row.order = editingOrderBackup.value
+  }
+}
+
 onMounted(async () => {
   await loadProjects()
   await loadLocatorStrategies()
 
   if (projects.value.length > 0) {
-    selectedProject.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    selectedProject.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     await onProjectChange()
   }
 
@@ -2264,6 +2349,7 @@ const loadElementTree = async () => {
 
 // 项目切换
 const onProjectChange = async () => {
+  localStorage.setItem('lastProjectId', selectedProject.value)
   selectedElement.value = null
   suggestions.value = []
 
@@ -2585,6 +2671,31 @@ const updatePage = async () => {
 </script>
 
 <style scoped>
+/* 排序号 */
+.order-num {
+  cursor: pointer;
+  color: var(--gray-500, #64748b);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.order-num:hover {
+  color: var(--brand-500, #4f8cff);
+  background: var(--brand-50, #eff6ff);
+}
+.order-edit-input {
+  width: 44px !important;
+}
+.order-edit-input :deep(.el-input__inner) {
+  text-align: center;
+  font-size: 12px;
+  padding: 0 4px;
+}
+.order-edit-input :deep(.el-input__wrapper) {
+  padding: 1px 4px;
+}
+
 /* 页面容器 */
 .page-container {
   height: 100%;
@@ -2661,9 +2772,17 @@ const updatePage = async () => {
 
 .list-panel .panel__body {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
   padding: 0;
+}
+
+.list-panel .table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 分组面板宽度由 grid 列定义 */

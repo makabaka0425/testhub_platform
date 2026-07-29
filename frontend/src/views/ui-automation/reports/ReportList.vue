@@ -22,7 +22,7 @@
           </div>
 
           <div class="panel__body report-table-wrapper">
-            <el-table :data="reports" v-loading="loading" style="width: 100%">
+            <el-table :data="reports" v-loading="loading" height="100%">
               <el-table-column prop="id" label="ID" width="80" />
               <el-table-column prop="test_suite_name" :label="$t('uiAutomation.report.testSuite')" min-width="200" />
               <el-table-column prop="status" :label="$t('uiAutomation.common.status')" width="120">
@@ -370,6 +370,7 @@ const loadReports = async () => {
 
 // 项目切换
 const onProjectChange = async () => {
+  localStorage.setItem('lastProjectId', selectedProject.value)
   pagination.currentPage = 1
   await loadReports()
 }
@@ -522,7 +523,9 @@ const getReportActions = (row) => [
 onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
-    selectedProject.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    selectedProject.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
   }
   await loadReports()
 })
@@ -595,7 +598,7 @@ onMounted(async () => {
 
 .report-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 

@@ -38,7 +38,7 @@
           </div>
 
           <div class="panel__body login-config-table-wrapper">
-            <el-table :data="loginConfigs" v-loading="loading" style="width: 100%">
+            <el-table :data="loginConfigs" v-loading="loading" height="100%">
               <el-table-column prop="name" label="名称" min-width="150">
                 <template #default="{ row }">
                   <el-link @click="editConfig(row.id)" type="primary">
@@ -253,6 +253,7 @@ const loadLoginConfigs = async () => {
 
 // 项目切换
 const onProjectChange = async () => {
+  localStorage.setItem('lastProjectId', projectId.value)
   pagination.currentPage = 1
   await Promise.all([loadTestCases(), loadLoginConfigs()])
 }
@@ -431,7 +432,9 @@ const getStatusTag = (status) => {
 onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
-    projectId.value = projects.value[0].id
+    const savedProjectId = localStorage.getItem('lastProjectId')
+    const exists = savedProjectId && projects.value.some(p => p.id === Number(savedProjectId) || p.id === savedProjectId)
+    projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
     await Promise.all([loadTestCases(), loadLoginConfigs()])
   }
 })
@@ -508,7 +511,7 @@ onMounted(async () => {
 
 .login-config-table-wrapper {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 
