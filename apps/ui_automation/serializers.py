@@ -7,7 +7,7 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, TestCasePrecondition, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
-    UiTestPlan, UiTestPlanItem, TestCaseGroup
+    UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport
 )
 from django.contrib.auth import get_user_model
 
@@ -1221,5 +1221,26 @@ class UiTestPlanUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UiTestPlan
         fields = ('name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
+
+
+class AllureReportSerializer(serializers.ModelSerializer):
+    """Allure测试报告序列化器"""
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    plan_name = serializers.CharField(source='test_plan.name', read_only=True, default='')
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True, default='')
+
+    class Meta:
+        model = AllureReport
+        fields = '__all__'
+        read_only_fields = ('id', 'status', 'report_dir', 'error_message', 'total_cases',
+                            'passed_cases', 'failed_cases', 'skipped_cases', 'pass_rate',
+                            'avg_duration', 'browser', 'environment', 'created_at')
+
+
+class AllureReportCreateSerializer(serializers.ModelSerializer):
+    """Allure测试报告创建序列化器"""
+    class Meta:
+        model = AllureReport
+        fields = ('name', 'project', 'test_plan', 'test_execution')
 
 

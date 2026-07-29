@@ -24,7 +24,7 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
-    UiTestPlan, UiTestPlanItem, TestCaseGroup
+    UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport
 )
 from .serializers import (
     UiProjectSerializer, UiProjectCreateSerializer, UiProjectUpdateSerializer,
@@ -46,7 +46,8 @@ from .serializers import (
     LoginConfigSerializer, LoginConfigCreateSerializer, LoginConfigUpdateSerializer,
     UiTestPlanSerializer, UiTestPlanCreateSerializer, UiTestPlanUpdateSerializer,
     UiTestPlanItemSerializer,
-    TestCaseGroupSerializer, TestCaseGroupCreateSerializer
+    TestCaseGroupSerializer, TestCaseGroupCreateSerializer,
+    AllureReportSerializer, AllureReportCreateSerializer
 )
 from .operation_logger import log_operation
 
@@ -10558,3 +10559,214 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
                 total += item.test_suite.suite_test_cases.count()
         test_plan.total_cases = total
         test_plan.save(update_fields=['total_cases'])
+
+
+class AllureReportViewSet(viewsets.ModelViewSet):
+    """Allure测试报告 ViewSet"""
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['project', 'status', 'test_plan']
+    search_fields = ['name']
+    ordering_fields = ['created_at', 'name']
+    ordering = ['-created_at']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return AllureReportCreateSerializer
+        return AllureReportSerializer
+
+    def get_queryset(self):
+        return AllureReport.objects.select_related('project', 'test_plan', 'test_execution', 'created_by').all()
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        """创建报告并异步生成"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # 校验名称唯一性
+        name = serializer.validated_data.get('name', '')
+        if AllureReport.objects.filter(name=name).exists():
+            return Response(
+                {'error': f'报告名称"{name}"已存在，请使用其他名称'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        self.perform_create(serializer)
+        report = serializer.instance
+
+        # 启动异步生成
+        import threading
+        thread = threading.Thread(
+            target=_generate_allure_report_async,
+            args=(report.id,),
+            daemon=True
+        )
+        thread.start()
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            AllureReportSerializer(report).data,
+            status=status.HTTP_201_CREATED,
+            headers=headers
+        )
+
+    @action(detail=True, methods=['get'])
+    def execution_batches(self, request, pk=None):
+        """获取计划下的执行批次列表"""
+        plan_id = request.query_params.get('plan_id')
+        if not plan_id:
+            return Response([])
+
+        # 查询该计划的所有执行记录
+        executions = TestExecution.objects.filter(
+            test_plan_id=plan_id
+        ).order_by('-created_at').values(
+            'id', 'created_at', 'status',
+            'total_cases', 'passed_cases', 'failed_cases', 'skipped_cases'
+        )
+
+        batches = []
+        for exec_obj in executions:
+            batches.append({
+                'id': exec_obj['id'],
+                'label': f"批次#{exec_obj['id']} - {exec_obj['created_at'].strftime('%Y-%m-%d %H:%M') if exec_obj['created_at'] else ''} "
+                         f"({exec_obj['passed_cases']}/{exec_obj['total_cases']}通过)",
+                'status': exec_obj['status'],
+                'total_cases': exec_obj['total_cases'],
+                'has_executed': exec_obj['total_cases'] > 0,
+            })
+
+        return Response(batches)
+
+    @action(detail=True, methods=['post'])
+    def regenerate(self, request, pk=None):
+        """重新生成报告"""
+        report = self.get_object()
+        if report.status == 'generating':
+            return Response({'error': '报告正在生成中，请稍后'}, status=status.HTTP_400_BAD_REQUEST)
+
+        report.status = 'generating'
+        report.error_message = ''
+        report.save(update_fields=['status', 'error_message'])
+
+        import threading
+        thread = threading.Thread(
+            target=_generate_allure_report_async,
+            args=(report.id,),
+            daemon=True
+        )
+        thread.start()
+
+        return Response({'message': '已启动重新生成', 'status': 'generating'})
+
+    @action(detail=True, methods=['get'])
+    def view(self, request, pk=None):
+        """查看报告（返回报告首页的 index.html）"""
+        report = self.get_object()
+        if report.status != 'completed':
+            return Response({'error': '报告尚未生成完成'}, status=status.HTTP_400_BAD_REQUEST)
+
+        report_dir = report.report_dir
+        if not report_dir or not os.path.exists(report_dir):
+            return Response({'error': '报告文件不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        index_path = os.path.join(report_dir, 'index.html')
+        if not os.path.exists(index_path):
+            return Response({'error': '报告首页不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        from django.http import FileResponse
+        return FileResponse(open(index_path, 'rb'), content_type='text/html')
+
+    def destroy(self, request, *args, **kwargs):
+        """删除报告（同时清理报告文件）"""
+        report = self.get_object()
+
+        # 清理报告目录
+        if report.report_dir and os.path.exists(report.report_dir):
+            try:
+                shutil.rmtree(report.report_dir)
+            except Exception:
+                pass
+
+        # 清理 results 目录
+        results_pattern = os.path.join('allure_reports', f'results_{report.id}_*')
+        import glob
+        for results_dir in glob.glob(results_pattern):
+            try:
+                shutil.rmtree(results_dir)
+            except Exception:
+                pass
+
+        return super().destroy(request, *args, **kwargs)
+
+
+def _generate_allure_report_async(report_id):
+    """异步生成 Allure 报告"""
+    import shutil
+    from .models import AllureReport, TestCaseExecution
+    from .allure_generator import (
+        generate_allure_results, run_allure_generate,
+        calculate_report_stats
+    )
+
+    try:
+        report = AllureReport.objects.get(id=report_id)
+    except AllureReport.DoesNotExist:
+        return
+
+    try:
+        # 1. 获取执行批次下的所有用例执行记录
+        test_execution = report.test_execution
+        if not test_execution:
+            raise RuntimeError('未关联执行批次')
+
+        # 查询该批次下所有用例执行记录
+        case_executions = TestCaseExecution.objects.filter(
+            test_execution=test_execution
+        ).select_related('test_case', 'created_by')
+
+        if not case_executions.exists():
+            raise RuntimeError('该执行批次下没有用例执行记录')
+
+        # 2. 构建 Allure Results JSON
+        suite_name = ''
+        plan_name = report.test_plan.name if report.test_plan else ''
+        case_contexts = [(ce, suite_name, plan_name) for ce in case_executions]
+        results_dir = generate_allure_results(report, case_contexts)
+
+        # 3. 调用 allure generate
+        output_dir = run_allure_generate(results_dir, report.id)
+
+        # 4. 计算统计信息
+        stats = calculate_report_stats(list(case_executions))
+
+        # 5. 更新报告记录
+        report.status = 'completed'
+        report.report_dir = output_dir
+        report.total_cases = stats['total']
+        report.passed_cases = stats['passed']
+        report.failed_cases = stats['failed']
+        report.skipped_cases = stats['skipped']
+        report.pass_rate = stats['pass_rate']
+        report.avg_duration = stats['avg_duration']
+        report.browser = test_execution.browser or 'chrome'
+        report.save(update_fields=[
+            'status', 'report_dir', 'total_cases', 'passed_cases',
+            'failed_cases', 'skipped_cases', 'pass_rate', 'avg_duration',
+            'browser'
+        ])
+
+        print(f'[Allure] 报告生成完成: {report.name} (ID: {report.id})')
+
+    except Exception as e:
+        # 生成失败
+        try:
+            report.status = 'failed'
+            report.error_message = str(e)[:2000]
+            report.save(update_fields=['status', 'error_message'])
+        except Exception:
+            pass
+        print(f'[Allure] 报告生成失败: {e}')
