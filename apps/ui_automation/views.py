@@ -10613,8 +10613,8 @@ class AllureReportViewSet(viewsets.ModelViewSet):
             headers=headers
         )
 
-    @action(detail=True, methods=['get'])
-    def execution_batches(self, request, pk=None):
+    @action(detail=False, methods=['get'])
+    def execution_batches(self, request):
         """获取计划下的执行批次列表"""
         plan_id = request.query_params.get('plan_id')
         if not plan_id:
@@ -10706,6 +10706,7 @@ class AllureReportViewSet(viewsets.ModelViewSet):
 def _generate_allure_report_async(report_id):
     """异步生成 Allure 报告"""
     import shutil
+    from datetime import timedelta
     from .models import AllureReport, TestCaseExecution
     from .allure_generator import (
         generate_allure_results, run_allure_generate,
@@ -10720,20 +10721,57 @@ def _generate_allure_report_async(report_id):
     try:
         # 1. 获取执行批次下的所有用例执行记录
         test_execution = report.test_execution
-        if not test_execution:
-            raise RuntimeError('未关联执行批次')
+        test_plan = report.test_plan
 
-        # 查询该批次下所有用例执行记录
-        case_executions = TestCaseExecution.objects.filter(
-            test_execution=test_execution
-        ).select_related('test_case', 'created_by')
+        if not test_execution and not test_plan:
+            raise RuntimeError('未关联执行批次或测试计划')
+
+        case_executions = TestCaseExecution.objects.none()
+
+        if test_execution and test_plan:
+            # 优先通过 test_plan + 批次时间范围查询（比FK更完整，因为大部分记录test_execution为None）
+            if test_execution.started_at:
+                time_end = test_execution.finished_at or (test_execution.started_at + timedelta(hours=2))
+                case_executions = TestCaseExecution.objects.filter(
+                    test_plan=test_plan,
+                    started_at__gte=test_execution.started_at,
+                    started_at__lte=time_end,
+                ).select_related('test_case', 'created_by')
+            else:
+                # 没有started_at时，按 test_execution 创建时间窗口匹配
+                exec_created = test_execution.created_at
+                window_start = exec_created - timedelta(minutes=5)
+                window_end = exec_created + timedelta(hours=2)
+                case_executions = TestCaseExecution.objects.filter(
+                    test_plan=test_plan,
+                    created_at__gte=window_start,
+                    created_at__lte=window_end,
+                ).select_related('test_case', 'created_by')
+
+            # 如果时间范围也没找到，再回退到 FK 查询
+            if not case_executions.exists():
+                case_executions = TestCaseExecution.objects.filter(
+                    test_execution=test_execution
+                ).select_related('test_case', 'created_by')
+
+        elif test_execution:
+            # 没有test_plan时，直接通过FK查询
+            case_executions = TestCaseExecution.objects.filter(
+                test_execution=test_execution
+            ).select_related('test_case', 'created_by')
+
+        elif test_plan:
+            # 仅选了测试计划，取该计划下全部执行记录
+            case_executions = TestCaseExecution.objects.filter(
+                test_plan=test_plan,
+            ).select_related('test_case', 'created_by').order_by('-created_at')
 
         if not case_executions.exists():
             raise RuntimeError('该执行批次下没有用例执行记录')
 
         # 2. 构建 Allure Results JSON
         suite_name = ''
-        plan_name = report.test_plan.name if report.test_plan else ''
+        plan_name = test_plan.name if test_plan else ''
         case_contexts = [(ce, suite_name, plan_name) for ce in case_executions]
         results_dir = generate_allure_results(report, case_contexts)
 
@@ -10752,7 +10790,12 @@ def _generate_allure_report_async(report_id):
         report.skipped_cases = stats['skipped']
         report.pass_rate = stats['pass_rate']
         report.avg_duration = stats['avg_duration']
-        report.browser = test_execution.browser or 'chrome'
+        browser_val = 'chrome'
+        if test_execution and test_execution.browser:
+            browser_val = test_execution.browser
+        elif case_executions.first() and case_executions.first().browser:
+            browser_val = case_executions.first().browser
+        report.browser = browser_val
         report.save(update_fields=[
             'status', 'report_dir', 'total_cases', 'passed_cases',
             'failed_cases', 'skipped_cases', 'pass_rate', 'avg_duration',

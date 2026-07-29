@@ -22,9 +22,9 @@
               </el-table-column>
               <el-table-column label="状态" width="120" align="center">
                 <template #default="{ row }">
-                  <el-tag v-if="row.status === 'generating'" type="warning" size="small">
-                    <el-icon class="is-loading"><Loading /></el-icon> 生成中
-                  </el-tag>
+                  <span v-if="row.status === 'generating'" class="status-generating">
+                    <el-icon class="is-loading"><Loading /></el-icon>生成中
+                  </span>
                   <el-tag v-else-if="row.status === 'completed'" type="success" size="small">已完成</el-tag>
                   <el-tag v-else-if="row.status === 'failed'" type="danger" size="small">生成失败</el-tag>
                   <el-tag v-else type="info" size="small">{{ row.status }}</el-tag>
@@ -96,8 +96,8 @@
       </div>
     </div>
 
-    <!-- 新建报告抽屉 -->
-    <el-drawer v-model="showCreateDrawer" title="新建Allure报告" size="480px" :before-close="handleDrawerClose">
+    <!-- 新建报告弹窗 -->
+    <el-dialog v-model="showCreateDrawer" title="新建Allure报告" width="500px" :before-close="handleDrawerClose">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="100px">
         <el-form-item label="项目" prop="project">
           <el-select v-model="createForm.project" placeholder="选择项目" filterable style="width: 100%" @change="onFormProjectChange">
@@ -110,7 +110,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="执行批次" prop="test_execution">
-          <el-select v-model="createForm.test_execution" placeholder="选择执行批次" style="width: 100%" :loading="batchesLoading" :disabled="!createForm.test_plan">
+          <el-select v-model="createForm.test_execution" placeholder="可选，不选则取全部执行记录" style="width: 100%" :loading="batchesLoading" :disabled="!createForm.test_plan" clearable>
             <el-option v-for="batch in batches" :key="batch.id" :label="batch.label" :value="batch.id" :disabled="!batch.has_executed" />
           </el-select>
         </el-form-item>
@@ -122,7 +122,7 @@
         <el-button @click="handleDrawerClose">取消</el-button>
         <el-button type="primary" :loading="creating" @click="handleCreate">生成报告</el-button>
       </template>
-    </el-drawer>
+    </el-dialog>
 
     <!-- 失败详情弹窗 -->
     <el-dialog v-model="showErrorDialog" title="生成失败详情" width="600px">
@@ -137,7 +137,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import {
@@ -175,7 +175,7 @@ const createForm = reactive({
 const createRules = {
   project: [{ required: true, message: '请选择项目', trigger: 'change' }],
   test_plan: [{ required: true, message: '请选择测试计划', trigger: 'change' }],
-  test_execution: [{ required: true, message: '请选择执行批次', trigger: 'change' }],
+  test_execution: [],
   name: [{ required: true, message: '请输入报告名称', trigger: 'blur' }],
 }
 
@@ -323,6 +323,9 @@ const resetCreateForm = () => {
 const handleDrawerClose = () => {
   showCreateDrawer.value = false
   resetCreateForm()
+  nextTick(() => {
+    createFormRef.value?.clearValidate()
+  })
 }
 
 // 查看报告
@@ -521,6 +524,20 @@ onBeforeUnmount(() => {
   line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* 状态标签：图标和文字强制一行 */
+.status-generating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #e6a23c;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.status-generating .el-icon {
+  font-size: 14px;
 }
 
 /* 生成中旋转动画 */
