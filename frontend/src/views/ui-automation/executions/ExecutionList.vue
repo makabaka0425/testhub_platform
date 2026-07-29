@@ -59,15 +59,16 @@
           </div>
 
           <div class="panel__body execution-table-wrapper">
-            <el-table
-              :data="executions"
-              v-loading="loading"
-              height="100%"
-              row-key="id"
-              :expand-row-keys="expandedKeys"
-              :row-class-name="getRowClassName"
-              @expand-change="handleExpandChange"
-            >
+              <el-table
+                ref="tableRef"
+                :data="executions"
+                v-loading="loading"
+                height="100%"
+                row-key="id"
+                :expand-row-keys="expandedKeys"
+                :row-class-name="getRowClassName"
+                @expand-change="handleExpandChange"
+              >
               <!-- 展开列（仅计划/套件类型显示） -->
               <el-table-column type="expand" width="50">
                 <template #default="{ row }">
@@ -75,7 +76,7 @@
                     <el-icon class="is-loading"><Loading /></el-icon>
                     <span>加载中...</span>
                   </div>
-                  <div v-else-if="row.item_type === 'plan'" class="expand-content">
+                  <div v-else-if="row.item_type === 'plan'" class="expand-content" :style="{ '--grid-columns': gridColumns }">
                     <!-- 计划子项：套件+用例 -->
                     <template v-for="child in (row._children || [])" :key="child.id">
                       <!-- 套件子项 -->
@@ -93,7 +94,7 @@
                           <div class="cg-center"><span v-if="child.duration != null">{{ formatDuration(child.duration) }}</span><span v-else>-</span></div>
                           <div class="cg-center"><span v-if="child.total_cases">{{ child.passed_cases || 0 }}/{{ child.total_cases }}</span><span v-else>-</span></div>
                           <div class="cg-center">-</div>
-                          <div class="cg-center">-</div>
+                          <div class="cg-op"><el-button type="primary" link size="small" @click.stop="viewPlanSuiteDetail(child)">详情</el-button></div>
                         </div>
                         <!-- 套件内用例（三级） -->
                         <div v-if="child._expanded && child.children" class="suite-children">
@@ -101,7 +102,6 @@
                             v-for="subCase in child.children"
                             :key="subCase.id"
                             class="child-grid-row sub-case-row"
-                            @click="viewCaseDetail(subCase)"
                           >
                             <div class="cg-name" style="padding-left: 28px;">{{ subCase.name }}</div>
                             <div class="cg-center"><el-tag type="info" size="small">用例</el-tag></div>
@@ -110,12 +110,12 @@
                             <div class="cg-center"><span v-if="subCase.duration != null">{{ formatDuration(subCase.duration) }}</span><span v-else>-</span></div>
                             <div class="cg-center">-</div>
                             <div class="cg-center">-</div>
-                            <div class="cg-center">-</div>
+                            <div class="cg-op"><el-button type="primary" link size="small" @click="viewCaseDetail(subCase)">详情</el-button></div>
                           </div>
                         </div>
                       </div>
                       <!-- 独立用例子项 -->
-                      <div v-else class="child-grid-row sub-case-row" @click="viewCaseDetail(child)">
+                      <div v-else class="child-grid-row sub-case-row">
                         <div class="cg-name">{{ child.name }}</div>
                         <div class="cg-center"><el-tag type="info" size="small">用例</el-tag></div>
                         <div class="cg-center"><el-tag :type="getStatusType(child.status)" size="small">{{ getStatusText(child.status) }}</el-tag></div>
@@ -123,17 +123,16 @@
                         <div class="cg-center"><span v-if="child.duration != null">{{ formatDuration(child.duration) }}</span><span v-else>-</span></div>
                         <div class="cg-center">-</div>
                         <div class="cg-center">-</div>
-                        <div class="cg-center">-</div>
+                        <div class="cg-op"><el-button type="primary" link size="small" @click="viewCaseDetail(child)">详情</el-button></div>
                       </div>
                     </template>
                   </div>
-                  <div v-else-if="row.item_type === 'suite'" class="expand-content">
+                  <div v-else-if="row.item_type === 'suite'" class="expand-content" :style="{ '--grid-columns': gridColumns }">
                     <!-- 套件子项：用例列表 -->
                     <div
                       v-for="child in (row._children || [])"
                       :key="child.id"
                       class="child-grid-row sub-case-row"
-                      @click="viewCaseDetail(child)"
                     >
                       <div class="cg-name">{{ child.name }}</div>
                       <div class="cg-center"><el-tag type="info" size="small">用例</el-tag></div>
@@ -142,7 +141,7 @@
                       <div class="cg-center"><span v-if="child.duration != null">{{ formatDuration(child.duration) }}</span><span v-else>-</span></div>
                       <div class="cg-center">-</div>
                       <div class="cg-center">-</div>
-                      <div class="cg-center">-</div>
+                      <div class="cg-op"><el-button type="primary" link size="small" @click="viewCaseDetail(child)">详情</el-button></div>
                     </div>
                   </div>
                 </template>
@@ -197,10 +196,14 @@
               </el-table-column>
 
               <!-- 执行人列 -->
-              <el-table-column prop="executed_by" label="执行人" width="120" align="center" />
+              <el-table-column label="执行人" width="120" align="center">
+                <template #default="{ row }">
+                  <span>{{ row.executed_by || '-' }}</span>
+                </template>
+              </el-table-column>
 
               <!-- 操作列 -->
-              <el-table-column label="操作" width="160" fixed="right">
+              <el-table-column label="操作" width="160">
                 <template #default="{ row }">
                   <ActionCell :actions="getActions(row)" :row="row" :max-visible="3" />
                 </template>
@@ -228,18 +231,26 @@
       <div v-if="currentExecution" class="execution-detail">
         <!-- 基本信息 -->
         <el-descriptions :column="2" border>
-          <el-descriptions-item label="用例名称">{{ currentExecution.name }}</el-descriptions-item>
+          <el-descriptions-item :label="currentExecution.item_type === 'plan' ? '计划名称' : currentExecution.item_type === 'suite' ? '套件名称' : '用例名称'">{{ currentExecution.name }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="getStatusType(currentExecution.status)">{{ getStatusText(currentExecution.status) }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="浏览器">{{ getBrowserText(currentExecution.browser) }}</el-descriptions-item>
+          <el-descriptions-item label="浏览器" v-if="!currentExecution.item_type || currentExecution.item_type === 'case'">{{ getBrowserText(currentExecution.browser) }}</el-descriptions-item>
           <el-descriptions-item label="执行人">{{ currentExecution.executed_by }}</el-descriptions-item>
           <el-descriptions-item label="开始时间">{{ formatDateTime(currentExecution.started_at) }}</el-descriptions-item>
           <el-descriptions-item label="结束时间">{{ formatDateTime(currentExecution.finished_at) }}</el-descriptions-item>
           <el-descriptions-item label="耗时" :span="2">{{ formatDuration(currentExecution.duration) }}</el-descriptions-item>
+          <!-- 计划/套件特有：通过率 -->
+          <template v-if="currentExecution.item_type === 'plan' || currentExecution.item_type === 'suite'">
+            <el-descriptions-item label="总用例数">{{ currentExecution.total_cases || 0 }}</el-descriptions-item>
+            <el-descriptions-item label="通过/失败/跳过">
+              {{ currentExecution.passed_cases || 0 }} / {{ currentExecution.failed_cases || 0 }} / {{ currentExecution.skipped_cases || 0 }}
+            </el-descriptions-item>
+          </template>
         </el-descriptions>
 
-        <!-- 执行结果选项卡 -->
+        <!-- 仅用例类型展示日志/截图/错误页签 -->
+        <template v-if="!currentExecution.item_type || currentExecution.item_type === 'case'">
         <el-tabs v-model="activeTab" class="execution-tabs" style="margin-top: 20px;">
           <!-- 执行日志 -->
           <el-tab-pane label="执行日志" name="logs">
@@ -299,7 +310,8 @@
               <el-empty v-else description="暂无错误信息" />
             </div>
           </el-tab-pane>
-        </el-tabs>
+         </el-tabs>
+        </template>
       </div>
       <template #footer>
         <el-button @click="showDetailDialog = false">关闭</el-button>
@@ -339,7 +351,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, WarningFilled, ArrowRight, Loading } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
@@ -349,6 +361,7 @@ import {
   getUiProjects,
   getTestCaseExecutionDetail,
   deleteTestCaseExecution,
+  deleteTestExecution,
   runTestCase
 } from '@/api/ui_automation'
 
@@ -372,6 +385,56 @@ const queryParams = reactive({
 
 // 展开控制
 const expandedKeys = ref([])
+
+// 动态grid列宽（从el-table表头实时读取）
+const gridColumns = ref('minmax(200px, 1fr) 100px 100px 180px 120px 100px 120px 160px')
+const tableRef = ref(null)
+
+/** 从el-table表头读取各列实际宽度，同步到展开区域的CSS Grid */
+function syncGridColumns() {
+  const tableEl = tableRef.value?.$el
+  if (!tableEl) return
+
+  // 只取主表头（排除 fixed 列的副本）
+  const mainHeader = tableEl.querySelector('.el-table__header-wrapper:not(.is-hidden)')
+  if (!mainHeader) return
+  const headerCells = mainHeader.querySelectorAll('th')
+  // 跳过第一列（expand列 width=50），取后续8列的实际宽度
+  const widths = []
+  for (let i = 1; i < headerCells.length; i++) {
+    const rect = headerCells[i].getBoundingClientRect()
+    if (rect.width > 0) {
+      widths.push(Math.round(rect.width) + 'px')
+    }
+  }
+  // 所有列宽都从表头精确读取，保证和el-table完全一致
+  if (widths.length >= 8) {
+    gridColumns.value = widths.join(' ')
+  }
+
+  // 同步操作列内容对齐：直接遍历所有展开区域中的 .cg-op，设置 inline paddingLeft
+  const opPadLeft = getActionCellPadding(tableEl)
+  const expandContents = document.querySelectorAll('.expand-content .cg-op')
+  expandContents.forEach(el => {
+    el.style.paddingLeft = opPadLeft + 'px'
+  })
+}
+
+/** 测量 el-table 操作列 .cell 的 padding-left，即操作按钮相对于 td 左边界的偏移 */
+function getActionCellPadding(tableEl) {
+  // 优先从已有行中测量
+  const actionCell = tableEl.querySelector('.action-cell')
+  const opTd = actionCell?.closest('td')
+  if (actionCell && opTd) {
+    const tdLeft = opTd.getBoundingClientRect().left
+    const btnLeft = actionCell.getBoundingClientRect().left
+    return Math.round(btnLeft - tdLeft)
+  }
+  // 回退：Element Plus el-table .cell 默认 padding 为 12px
+  return 12
+}
+
+let resizeObserver = null
 
 // 详情对话框相关
 const showDetailDialog = ref(false)
@@ -545,6 +608,9 @@ const handleExpandChange = async (row, expandedRows) => {
     // 展开时加载子项
     expandedKeys.value = [row.id]
     await loadChildren(row)
+    // 展开后同步列宽
+    await nextTick()
+    syncGridColumns()
   } else {
     expandedKeys.value = expandedKeys.value.filter(id => id !== row.id)
   }
@@ -635,6 +701,31 @@ const handleCurrentChange = (val) => {
   loadExecutions()
 }
 
+// 查看计划/套件执行详情（展示基本信息弹窗）
+const viewPlanSuiteDetail = (row) => {
+  currentExecution.value = {
+    name: row.name,
+    item_type: row.item_type,
+    status: row.status,
+    browser: row.browser,
+    executed_by: row.executed_by,
+    started_at: row.started_at,
+    finished_at: row.finished_at,
+    duration: row.duration,
+    total_cases: row.total_cases,
+    passed_cases: row.passed_cases,
+    failed_cases: row.failed_cases,
+    skipped_cases: row.skipped_cases,
+  }
+  activeTab.value = 'logs'
+  showDetailDialog.value = true
+}
+
+// 重跑计划/套件
+const handleRerunPlanSuite = (row) => {
+  ElMessage.info(`${row.item_type === 'plan' ? '计划' : '套件'}重跑功能开发中`)
+}
+
 // 删除执行记录
 const handleDelete = (row) => {
   ElMessageBox.confirm('确认删除此执行记录？', '提示', {
@@ -643,7 +734,9 @@ const handleDelete = (row) => {
     type: 'warning'
   }).then(async () => {
     try {
-      if (row.item_type === 'case') {
+      if (row.item_type === 'plan' || row.item_type === 'suite') {
+        await deleteTestExecution(row.raw_id)
+      } else if (row.item_type === 'case') {
         await deleteTestCaseExecution(row.raw_id)
       }
       ElMessage.success('删除成功')
@@ -710,10 +803,18 @@ const handleRerun = async () => {
   }
 }
 
-// 操作列按钮
+// 操作列按钮（仅父级列表行展示，子级不展示）
 const getActions = (row) => {
   const actions = []
-  if (row.item_type === 'case') {
+  if (row.item_type === 'plan' || row.item_type === 'suite') {
+    actions.push({ key: 'detail', label: '详情', onClick: (r) => viewPlanSuiteDetail(r) })
+    actions.push({
+      key: 'rerun', label: '重跑',
+      hidden: row.status !== 'failed' && row.status !== 'error',
+      onClick: (r) => handleRerunPlanSuite(r)
+    })
+    actions.push({ key: 'delete', label: '删除', danger: true, onClick: (r) => handleDelete(r) })
+  } else if (row.item_type === 'case') {
     actions.push({ key: 'detail', label: '详情', onClick: (r) => viewCaseDetail(r) })
     actions.push({
       key: 'rerun', label: '重跑',
@@ -733,6 +834,19 @@ onMounted(async () => {
     projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
   }
   await loadExecutions()
+  // 初始同步列宽，并监听窗口resize
+  await nextTick()
+  syncGridColumns()
+  resizeObserver = new ResizeObserver(() => syncGridColumns())
+  const tableEl = tableRef.value?.$el
+  if (tableEl) resizeObserver.observe(tableEl)
+})
+
+onBeforeUnmount(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
 })
 </script>
 
@@ -847,21 +961,25 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+/* 展开行的 .cell 去掉默认 padding，避免整体右偏 */
+:deep(.el-table__expanded-row .cell) {
+  padding: 0 !important;
+}
+
 .expand-content {
   padding: 0;
   padding-left: 50px; /* 偏移展开列宽度，使子项名称与父级名称列对齐 */
+  overflow: hidden;
 }
 
 .child-grid-row {
   display: grid;
-  /* 8列与表头对齐：名称 / 类型(100) / 状态(100) / 执行时间(180) / 耗时(120) / 通过率(100) / 执行人(120) / 操作(160) */
-  grid-template-columns: minmax(200px, 1fr) 100px 100px 180px 120px 100px 120px 160px;
+  /* 8列宽度由JS动态同步自el-table表头 */
+  grid-template-columns: var(--grid-columns, minmax(200px, 1fr) 100px 100px 180px 120px 100px 120px 160px);
   align-items: center;
   padding: 6px 0;
-  font-size: 13px;
-  color: var(--gray-800);
   cursor: default;
-  min-height: 36px;
+  min-height: 38px;
   border-bottom: 1px solid var(--gray-100);
 }
 
@@ -907,12 +1025,20 @@ onMounted(async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--gray-800);
 }
 
 .cg-center {
   text-align: center;
-  font-size: 12px;
-  color: var(--gray-600);
+}
+
+.cg-op {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding-left: 12px;
+  padding-right: 8px;
 }
 
 .child-suite {
