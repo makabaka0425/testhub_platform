@@ -10578,6 +10578,17 @@ class AllureReportViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return AllureReport.objects.select_related('project', 'test_plan', 'test_execution', 'created_by').all()
 
+    @action(detail=False, methods=['get'], url_path='browser-options')
+    def browser_options(self, request):
+        """返回当前项目下去重的浏览器列表，供前端筛选下拉框使用"""
+        qs = self.get_queryset()
+        project_id = request.query_params.get('project')
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        browsers = list(qs.values_list('browser', flat=True).distinct().order_by('browser'))
+        browsers = [b for b in browsers if b]  # 过滤掉空值
+        return Response(browsers)
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 

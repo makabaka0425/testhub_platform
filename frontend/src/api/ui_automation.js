@@ -1582,6 +1582,15 @@ export function getAllureReports(params) {
   })
 }
 
+// 获取Allure报告浏览器去重选项
+export function getAllureBrowserOptions(params) {
+  return request({
+    url: '/ui-automation/allure-reports/browser-options/',
+    method: 'get',
+    params
+  })
+}
+
 // 创建Allure报告
 export function createAllureReport(data) {
   return request({

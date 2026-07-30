@@ -28,9 +28,7 @@
             </el-form-item>
             <el-form-item label="浏览器">
               <el-select v-model="filterBrowser" placeholder="全部" clearable style="width: 130px" @change="handleFilter">
-                <el-option label="chrome" value="chrome" />
-                <el-option label="firefox" value="firefox" />
-                <el-option label="webkit" value="webkit" />
+                <el-option v-for="b in browserOptions" :key="b" :label="b" :value="b" />
               </el-select>
             </el-form-item>
           </el-form>
@@ -166,6 +164,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading, Search } from '@element-plus/icons-vue'
 import {
   getAllureReports,
+  getAllureBrowserOptions,
   createAllureReport,
   deleteAllureReport,
   regenerateAllureReport,
@@ -186,6 +185,7 @@ const pagination = reactive({ currentPage: 1, pageSize: 20 })
 const searchText = ref('')
 const filterStatus = ref('')
 const filterBrowser = ref('')
+const browserOptions = ref([])
 let searchTimer = null
 
 const handleSearch = () => {
@@ -257,6 +257,18 @@ const loadProjects = async () => {
   }
 }
 
+// 加载浏览器选项
+const loadBrowserOptions = async () => {
+  try {
+    const params = {}
+    if (projectId.value) params.project = projectId.value
+    const response = await getAllureBrowserOptions(params)
+    browserOptions.value = response.data || []
+  } catch (error) {
+    console.error('获取浏览器选项失败:', error)
+  }
+}
+
 // 加载报告列表
 const loadReports = async () => {
   loading.value = true
@@ -284,6 +296,10 @@ const loadReports = async () => {
 const onProjectChange = () => {
   localStorage.setItem('lastProjectId', projectId.value)
   pagination.currentPage = 1
+  filterStatus.value = ''
+  filterBrowser.value = ''
+  searchText.value = ''
+  loadBrowserOptions()
   loadReports()
 }
 
@@ -442,6 +458,7 @@ onMounted(async () => {
     projectId.value = exists ? (typeof projects.value[0].id === 'number' ? Number(savedProjectId) : savedProjectId) : projects.value[0].id
   }
   await loadReports()
+  loadBrowserOptions()
   startPolling()
 })
 
