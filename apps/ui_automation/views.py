@@ -10771,8 +10771,9 @@ def _generate_allure_report_async(report_id):
 
         # 2. 构建 Allure Results JSON
         # 层级规则：
-        #   一级 parentSuite = 测试计划名称
-        #   二级 suite = 套件内用例取套件名，单独用例取用例所属末级分组名（无分组则"未分组"）
+        #   测试套：parentSuite=计划名, suite=套件名/分组名/未分组
+        #   功能：feature=分组名, story=用例名
+        #   包：package=分组完整路径（父.子），支持多级层级展开
         plan_name = test_plan.name if test_plan else ''
         case_contexts = []
         for ce in case_executions:
@@ -10782,7 +10783,18 @@ def _generate_allure_report_async(report_id):
                 suite_name = ce.test_case.group.name
             else:
                 suite_name = '未分组'
-            case_contexts.append((ce, suite_name, plan_name))
+
+            # 构建分组完整路径（向上遍历父分组，如 系统管理.用户管理）
+            package_path = '未分组'
+            if ce.test_case and ce.test_case.group_id:
+                path_parts = []
+                current = ce.test_case.group
+                while current:
+                    path_parts.append(current.name)
+                    current = getattr(current, 'parent_group', None)
+                package_path = '.'.join(reversed(path_parts))
+
+            case_contexts.append((ce, suite_name, plan_name, package_path))
         results_dir = generate_allure_results(report, case_contexts)
 
         # 3. 调用 allure generate

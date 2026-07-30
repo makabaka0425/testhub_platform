@@ -107,7 +107,7 @@ def generate_allure_uuid():
     return str(uuid.uuid4())
 
 
-def build_allure_result(case_data, case_execution, suite_name='', plan_name=''):
+def build_allure_result(case_data, case_execution, suite_name='', plan_name='', package_path=''):
     """
     构建单条用例的 Allure result JSON
 
@@ -210,10 +210,17 @@ def build_allure_result(case_data, case_execution, suite_name='', plan_name=''):
     stop_ms = _to_epoch_ms(str(case_execution.finished_at)) if case_execution.finished_at else None
 
     # 标签
+    # 功能菜单：feature=分组名（业务模块），story=用例名（功能点）
+    # 包菜单：package=分组完整路径（如 系统管理.用户管理），支持多级层级展示
+    group_name = ''
+    if case_execution.test_case and case_execution.test_case.group:
+        group_name = case_execution.test_case.group.name
     labels = [
         {'name': 'suite', 'value': suite_name or '默认套件'},
         {'name': 'parentSuite', 'value': plan_name or '默认计划'},
-        {'name': 'feature', 'value': 'UI自动化测试'},
+        {'name': 'feature', 'value': group_name or '未分组'},
+        {'name': 'story', 'value': case_execution.test_case.name if case_execution.test_case else f'用例#{case_execution.id}'},
+        {'name': 'package', 'value': package_path or '未分组'},
         {'name': 'framework', 'value': case_execution.engine or 'playwright'},
     ]
 
@@ -332,10 +339,10 @@ def generate_allure_results(report, case_executions_with_context):
     # 生成 executorinfo
     _write_executor_info(results_dir, report)
 
-    for case_execution, suite_name, plan_name in case_executions_with_context:
+    for case_execution, suite_name, plan_name, package_path in case_executions_with_context:
         try:
             # 构建 result JSON
-            result_json = build_allure_result(None, case_execution, suite_name, plan_name)
+            result_json = build_allure_result(None, case_execution, suite_name, plan_name, package_path)
 
             # 构建附件
             attachments = build_attachments(case_execution, results_dir)
