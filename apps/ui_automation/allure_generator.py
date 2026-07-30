@@ -383,7 +383,7 @@ def run_allure_generate(results_dir, report_id):
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
 
-    cmd = [ALLURE_BIN, 'generate', results_dir, '-o', output_dir, '--clean']
+    cmd = [ALLURE_BIN, 'generate', results_dir, '-o', output_dir, '--clean', '--lang', 'zh']
 
     try:
         result = subprocess.run(
@@ -399,6 +399,9 @@ def run_allure_generate(results_dir, report_id):
             error_msg = result.stderr or result.stdout or 'allure generate 执行失败'
             raise RuntimeError(error_msg)
 
+        # 注入自定义样式
+        _inject_custom_styles(output_dir)
+
         return output_dir
 
     except FileNotFoundError:
@@ -407,18 +410,32 @@ def run_allure_generate(results_dir, report_id):
         raise RuntimeError('Allure 报告生成超时（5分钟）')
 
 
+def _escape_unicode(text):
+    """将中文等非ASCII字符转为Java Properties兼容的Unicode转义格式"""
+    if not text:
+        return text or ''
+    result = []
+    for char in text:
+        code = ord(char)
+        if code > 127:
+            result.append(f'\\u{code:04x}')
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
 def _write_environment_file(results_dir, report):
-    """写入 environment.properties 文件"""
+    """写入 environment.properties 文件（中文值需Unicode转义，因为Java Properties默认ISO-8859-1）"""
     env_path = os.path.join(results_dir, 'environment.properties')
     with open(env_path, 'w', encoding='utf-8') as f:
         f.write(f'Browser={report.browser or "chrome"}\n')
         f.write(f'Engine=playwright\n')
-        f.write(f'Project={report.project.name if report.project else ""}\n')
+        f.write(f'Project={_escape_unicode(report.project.name if report.project else "")}\n')
         if report.test_plan:
-            f.write(f'TestPlan={report.test_plan.name}\n')
-        f.write(f'Environment={report.environment or "default"}\n')
+            f.write(f'TestPlan={_escape_unicode(report.test_plan.name)}\n')
+        f.write(f'Environment={_escape_unicode(report.environment or "default")}\n')
         f.write(f'Report.ID={report.id}\n')
-        f.write(f'Report.Name={report.name}\n')
+        f.write(f'Report.Name={_escape_unicode(report.name)}\n')
 
 
 def _write_executor_info(results_dir, report):
@@ -493,3 +510,37 @@ def calculate_report_stats(case_executions):
         'avg_duration': avg_duration,
         'failure_categories': failure_categories,
     }
+
+
+def _inject_custom_styles(output_dir):
+    """
+    在生成的 Allure 报告中注入自定义样式，
+    修复类别/测试套页面标题竖排问题，确保标题正常横排显示。
+    """
+    index_path = os.path.join(output_dir, 'index.html')
+    if not os.path.exists(index_path):
+        return
+
+    with open(index_path, 'r', encoding='utf-8') as f:
+        html = f.read()
+
+    custom_css = '''
+<style>
+/* 修复类别/测试套页面标题竖排问题 */
+.pane__title-text {
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+}
+</style>
+'''
+
+    # 在 </head> 前注入CSS
+    if '</head>' in html:
+        html = html.replace('</head>', custom_css + '\n</head>')
+    elif '</body>' in html:
+        html = html.replace('</body>', custom_css + '\n</body>')
+    else:
+        html = html + custom_css
+
+    with open(index_path, 'w', encoding='utf-8') as f:
+        f.write(html)

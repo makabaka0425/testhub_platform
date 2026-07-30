@@ -10746,33 +10746,43 @@ def _generate_allure_report_async(report_id):
                     test_plan=test_plan,
                     created_at__gte=window_start,
                     created_at__lte=window_end,
-                ).select_related('test_case', 'created_by')
+                ).select_related('test_case', 'test_case__group', 'test_suite', 'created_by')
 
             # 如果时间范围也没找到，再回退到 FK 查询
             if not case_executions.exists():
                 case_executions = TestCaseExecution.objects.filter(
                     test_execution=test_execution
-                ).select_related('test_case', 'created_by')
+                ).select_related('test_case', 'test_case__group', 'test_suite', 'created_by')
 
         elif test_execution:
             # 没有test_plan时，直接通过FK查询
             case_executions = TestCaseExecution.objects.filter(
                 test_execution=test_execution
-            ).select_related('test_case', 'created_by')
+            ).select_related('test_case', 'test_case__group', 'test_suite', 'created_by')
 
         elif test_plan:
             # 仅选了测试计划，取该计划下全部执行记录
             case_executions = TestCaseExecution.objects.filter(
                 test_plan=test_plan,
-            ).select_related('test_case', 'created_by').order_by('-created_at')
+            ).select_related('test_case', 'test_case__group', 'test_suite', 'created_by').order_by('-created_at')
 
         if not case_executions.exists():
             raise RuntimeError('该执行批次下没有用例执行记录')
 
         # 2. 构建 Allure Results JSON
-        suite_name = ''
+        # 层级规则：
+        #   一级 parentSuite = 测试计划名称
+        #   二级 suite = 套件内用例取套件名，单独用例取用例所属末级分组名（无分组则"未分组"）
         plan_name = test_plan.name if test_plan else ''
-        case_contexts = [(ce, suite_name, plan_name) for ce in case_executions]
+        case_contexts = []
+        for ce in case_executions:
+            if ce.test_suite_id:
+                suite_name = ce.test_suite.name
+            elif ce.test_case and ce.test_case.group_id:
+                suite_name = ce.test_case.group.name
+            else:
+                suite_name = '未分组'
+            case_contexts.append((ce, suite_name, plan_name))
         results_dir = generate_allure_results(report, case_contexts)
 
         # 3. 调用 allure generate

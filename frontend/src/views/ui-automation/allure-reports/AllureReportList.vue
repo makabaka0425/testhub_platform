@@ -97,7 +97,7 @@
     </div>
 
     <!-- 新建报告弹窗 -->
-    <el-dialog v-model="showCreateDrawer" title="新建Allure报告" width="500px" :before-close="handleDrawerClose">
+    <el-dialog v-model="showCreateDrawer" title="新建Allure报告" width="500px" :before-close="handleDrawerClose" @open="onDialogOpen">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="100px">
         <el-form-item label="项目" prop="project">
           <el-select v-model="createForm.project" placeholder="选择项目" filterable style="width: 100%" @change="onFormProjectChange">
@@ -323,6 +323,13 @@ const resetCreateForm = () => {
 const handleDrawerClose = () => {
   showCreateDrawer.value = false
   resetCreateForm()
+  nextTick(() => {
+    createFormRef.value?.clearValidate()
+  })
+}
+
+// 弹窗打开时清除验证状态
+const onDialogOpen = () => {
   nextTick(() => {
     createFormRef.value?.clearValidate()
   })
