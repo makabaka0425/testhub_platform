@@ -12,9 +12,33 @@
 
     <div class="workspace">
       <div class="list-column">
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item label="报告名称">
+              <el-input v-model="searchText" placeholder="搜索报告名称..." clearable @input="handleSearch" style="width: 200px">
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="状态">
+              <el-select v-model="filterStatus" placeholder="全部" clearable style="width: 130px" @change="handleFilter">
+                <el-option label="生成中" value="generating" />
+                <el-option label="已完成" value="completed" />
+                <el-option label="生成失败" value="failed" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="浏览器">
+              <el-select v-model="filterBrowser" placeholder="全部" clearable style="width: 130px" @change="handleFilter">
+                <el-option label="chrome" value="chrome" />
+                <el-option label="firefox" value="firefox" />
+                <el-option label="webkit" value="webkit" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
         <section class="panel list-panel">
           <div class="panel__body">
             <el-table :data="reports" v-loading="loading" height="100%">
+              <el-table-column type="index" label="序号" width="60" align="center" />
               <el-table-column prop="name" label="报告名称" min-width="200">
                 <template #default="{ row }">
                   <span class="name-text">{{ row.name }}</span>
@@ -139,7 +163,7 @@
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
+import { Loading, Search } from '@element-plus/icons-vue'
 import {
   getAllureReports,
   createAllureReport,
@@ -157,6 +181,25 @@ const reports = ref([])
 const loading = ref(false)
 const total = ref(0)
 const pagination = reactive({ currentPage: 1, pageSize: 20 })
+
+// 筛选
+const searchText = ref('')
+const filterStatus = ref('')
+const filterBrowser = ref('')
+let searchTimer = null
+
+const handleSearch = () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    pagination.currentPage = 1
+    loadReports()
+  }, 300)
+}
+
+const handleFilter = () => {
+  pagination.currentPage = 1
+  loadReports()
+}
 
 // 新建报告
 const showCreateDrawer = ref(false)
@@ -223,6 +266,9 @@ const loadReports = async () => {
       page_size: pagination.pageSize,
     }
     if (projectId.value) params.project = projectId.value
+    if (searchText.value) params.search = searchText.value
+    if (filterStatus.value) params.status = filterStatus.value
+    if (filterBrowser.value) params.browser = filterBrowser.value
     const response = await getAllureReports(params)
     reports.value = response.data.results || []
     total.value = response.data.count || 0
@@ -455,6 +501,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+
+  .filter-bar {
+    margin-bottom: 0;
+  }
 }
 
 .list-panel {

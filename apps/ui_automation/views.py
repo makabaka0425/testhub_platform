@@ -10565,7 +10565,7 @@ class AllureReportViewSet(viewsets.ModelViewSet):
     """Allure测试报告 ViewSet"""
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['project', 'status', 'test_plan']
+    filterset_fields = ['project', 'status', 'test_plan', 'browser']
     search_fields = ['name']
     ordering_fields = ['created_at', 'name']
     ordering = ['-created_at']

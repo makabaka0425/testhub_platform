@@ -157,10 +157,6 @@
               <el-icon><VideoPlay /></el-icon>
               <span>{{ $t('menu.executionRecords') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ui-automation/reports">
-              <el-icon><DataAnalysis /></el-icon>
-              <span>{{ $t('menu.testReport') }}</span>
-            </el-menu-item>
             <el-menu-item index="/ui-automation/allure-reports">
               <el-icon><Histogram /></el-icon>
               <span>Allure报告</span>
