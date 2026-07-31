@@ -268,6 +268,7 @@ class PlanExecutor:
             test_case=test_case,
             project=self.test_plan.project,
             test_plan=self.test_plan,
+            test_execution=self.plan_execution,
             execution_source='plan',
             status='running',
             engine=self.engine,

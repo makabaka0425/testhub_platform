@@ -1193,6 +1193,7 @@ class UiTestPlanSerializer(serializers.ModelSerializer):
     execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True, default='')
     last_execution_time = serializers.SerializerMethodField()
+    total_cases = serializers.SerializerMethodField()
 
     class Meta:
         model = UiTestPlan
@@ -1206,6 +1207,19 @@ class UiTestPlanSerializer(serializers.ModelSerializer):
         from .models import TestExecution
         last_exec = TestExecution.objects.filter(test_plan=obj).order_by('-started_at').first()
         return last_exec.started_at.isoformat() if last_exec and last_exec.started_at else None
+
+    def get_total_cases(self, obj):
+        """实时计算总用例数，不依赖数据库存储值"""
+        total = 0
+        for item in obj.plan_items.all():
+            if item.item_type == 'test_case' and item.test_case:
+                total += 1
+            elif item.item_type == 'test_suite' and item.test_suite:
+                total += item.test_suite.suite_test_cases.count()
+        # 同步更新数据库存储值
+        if obj.total_cases != total:
+            UiTestPlan.objects.filter(id=obj.id).update(total_cases=total)
+        return total
 
 
 class UiTestPlanCreateSerializer(serializers.ModelSerializer):

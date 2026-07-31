@@ -5630,6 +5630,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                 test_case_id=test_case_id,
                 order=order
             )
+            self._refresh_related_plan_counts(test_suite)
             serializer = TestSuiteTestCaseSerializer(suite_test_case)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         except Exception as e:
@@ -5661,6 +5662,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                     order=max_order
                 )
                 added.append(TestSuiteTestCaseSerializer(suite_tc).data)
+            self._refresh_related_plan_counts(test_suite)
             return Response({'added': added, 'added_count': len(added)}, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -5696,6 +5698,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                 test_case_id=test_case_id
             )
             suite_test_case.delete()
+            self._refresh_related_plan_counts(test_suite)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except TestSuiteTestCase.DoesNotExist:
             return Response({'error': '测试用例不存在于该测试套件中'}, status=status.HTTP_404_NOT_FOUND)
@@ -5712,9 +5715,27 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                 test_suite=test_suite,
                 test_case_id__in=test_case_ids
             ).delete()
+            self._refresh_related_plan_counts(test_suite)
             return Response({'removed_count': removed[0]}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def _refresh_related_plan_counts(self, test_suite):
+        """套件用例变动后，刷新所有关联该套件的计划的total_cases"""
+        from .models import UiTestPlanItem, UiTestPlan
+        plan_ids = UiTestPlanItem.objects.filter(
+            item_type='test_suite',
+            test_suite_id=test_suite.id
+        ).values_list('test_plan_id', flat=True).distinct()
+        for plan in UiTestPlan.objects.filter(id__in=plan_ids):
+            total = 0
+            for item in plan.plan_items.all():
+                if item.item_type == 'test_case' and item.test_case:
+                    total += 1
+                elif item.item_type == 'test_suite' and item.test_suite:
+                    total += item.test_suite.suite_test_cases.count()
+            plan.total_cases = total
+            plan.save(update_fields=['total_cases'])
 
     @action(detail=True, methods=['post'])
     def update_test_case_order(self, request, pk=None):
@@ -6127,27 +6148,26 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
             return Response({'error': '无权限访问'}, status=status.HTTP_403_FORBIDDEN)
 
         # 查询该执行批次下的所有用例执行记录
-        case_executions = TestCaseExecution.objects.filter(
+        # 途径1: test_execution FK 直接关联
+        case_executions = list(TestCaseExecution.objects.filter(
             test_execution=test_execution
-        ).select_related('test_case', 'test_suite').order_by('started_at')
+        ).select_related('test_case', 'test_suite').order_by('started_at'))
 
-        # 兼容旧数据：如果 test_execution FK 没有关联，用时间窗口匹配
-        if case_executions.count() == 0:
-            fallback_filter = TestCaseExecution.objects.filter(
+        # 途径2: 独立模式下旧数据，test_execution=None 但 test_plan 匹配且在时间窗口内
+        if test_execution.test_plan:
+            existing_ids = set(ce.id for ce in case_executions)
+            fallback = TestCaseExecution.objects.filter(
                 project=test_execution.project,
-                started_at__gte=test_execution.started_at,
+                test_plan=test_execution.test_plan,
+                test_execution__isnull=True,
             )
+            if test_execution.started_at:
+                fallback = fallback.filter(started_at__gte=test_execution.started_at)
             if test_execution.finished_at:
-                fallback_filter = fallback_filter.filter(
-                    started_at__lte=test_execution.finished_at
-                )
-            if test_execution.test_plan:
-                fallback_filter = fallback_filter.filter(test_plan=test_execution.test_plan)
-            elif test_execution.test_suite:
-                fallback_filter = fallback_filter.filter(test_suite=test_execution.test_suite)
-            case_executions = fallback_filter.select_related(
-                'test_case', 'test_suite'
-            ).order_by('started_at')
+                fallback = fallback.filter(started_at__lte=test_execution.finished_at)
+            for ce in fallback.select_related('test_case', 'test_suite').order_by('started_at'):
+                if ce.id not in existing_ids:
+                    case_executions.append(ce)
 
         # 状态映射
         te_status_map = {

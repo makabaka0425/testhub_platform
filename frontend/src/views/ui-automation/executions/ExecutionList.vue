@@ -97,17 +97,17 @@
                           <div class="cg-op"><el-button type="primary" link size="small" @click.stop="viewPlanSuiteDetail(child)">详情</el-button></div>
                         </div>
                         <!-- 套件内用例（三级） -->
-                        <div v-if="child._expanded && child.children" class="suite-children">
+                        <div v-if="child._expanded && (child.cases || child.children)" class="suite-children">
                           <div
-                            v-for="subCase in child.children"
+                            v-for="subCase in (child.cases || child.children)"
                             :key="subCase.id"
                             class="child-grid-row sub-case-row"
                           >
-                            <div class="cg-name" style="padding-left: 28px;">{{ subCase.name }}</div>
+                            <div class="cg-name" style="padding-left: 28px;">{{ subCase.name || subCase.test_case_name }}</div>
                             <div class="cg-center"><el-tag type="info" size="small">用例</el-tag></div>
                             <div class="cg-center"><el-tag :type="getStatusType(subCase.status)" size="small">{{ getStatusText(subCase.status) }}</el-tag></div>
                             <div class="cg-center">{{ formatDateTime(subCase.started_at) }}</div>
-                            <div class="cg-center"><span v-if="subCase.duration != null">{{ formatDuration(subCase.duration) }}</span><span v-else>-</span></div>
+                            <div class="cg-center"><span v-if="subCase.duration != null || subCase.execution_time != null">{{ formatDuration(subCase.duration || subCase.execution_time) }}</span><span v-else>-</span></div>
                             <div class="cg-center">-</div>
                             <div class="cg-center">-</div>
                             <div class="cg-op"><el-button type="primary" link size="small" @click="viewCaseDetail(subCase)">详情</el-button></div>
@@ -226,95 +226,117 @@
       </div>
     </div>
 
-    <!-- 执行详情对话框 -->
-    <el-dialog v-model="showDetailDialog" title="执行详情" width="900px">
-      <div v-if="currentExecution" class="execution-detail">
-        <!-- 基本信息 -->
+    <!-- 父级（计划/套件）详情对话框 -->
+    <el-dialog v-model="showDetailDialog" title="执行详情" width="900px" @close="currentExecution = null">
+      <div v-if="currentExecution">
         <el-descriptions :column="2" border>
-          <el-descriptions-item :label="currentExecution.item_type === 'plan' ? '计划名称' : currentExecution.item_type === 'suite' ? '套件名称' : '用例名称'">{{ currentExecution.name }}</el-descriptions-item>
+          <el-descriptions-item :label="currentExecution.item_type === 'plan' ? '计划名称' : '套件名称'">{{ currentExecution.name }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="getStatusType(currentExecution.status)">{{ getStatusText(currentExecution.status) }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="浏览器" v-if="!currentExecution.item_type || currentExecution.item_type === 'case'">{{ getBrowserText(currentExecution.browser) }}</el-descriptions-item>
           <el-descriptions-item label="执行人">{{ currentExecution.executed_by }}</el-descriptions-item>
           <el-descriptions-item label="开始时间">{{ formatDateTime(currentExecution.started_at) }}</el-descriptions-item>
           <el-descriptions-item label="结束时间">{{ formatDateTime(currentExecution.finished_at) }}</el-descriptions-item>
           <el-descriptions-item label="耗时" :span="2">{{ formatDuration(currentExecution.duration) }}</el-descriptions-item>
-          <!-- 计划/套件特有：通过率 -->
-          <template v-if="currentExecution.item_type === 'plan' || currentExecution.item_type === 'suite'">
-            <el-descriptions-item label="总用例数">{{ currentExecution.total_cases || 0 }}</el-descriptions-item>
-            <el-descriptions-item label="通过/失败/跳过">
-              {{ currentExecution.passed_cases || 0 }} / {{ currentExecution.failed_cases || 0 }} / {{ currentExecution.skipped_cases || 0 }}
-            </el-descriptions-item>
-          </template>
+          <el-descriptions-item label="总用例数">{{ currentExecution.total_cases || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="通过/失败/跳过">
+            {{ currentExecution.passed_cases || 0 }} / {{ currentExecution.failed_cases || 0 }} / {{ currentExecution.skipped_cases || 0 }}
+          </el-descriptions-item>
         </el-descriptions>
-
-        <!-- 仅用例类型展示日志/截图/错误页签 -->
-        <template v-if="!currentExecution.item_type || currentExecution.item_type === 'case'">
-        <el-tabs v-model="activeTab" class="execution-tabs" style="margin-top: 20px;">
-          <!-- 执行日志 -->
-          <el-tab-pane label="执行日志" name="logs">
-            <div class="logs-container">
-              <div v-if="currentExecution.execution_logs">
-                <div v-for="(step, index) in parseExecutionLogs(currentExecution.execution_logs)" :key="index" class="log-item">
-                  <div class="log-header">
-                    <el-tag :type="step.success ? 'success' : 'danger'" size="small">
-                      步骤 {{ step.step_number }}
-                    </el-tag>
-                    <span class="log-action">{{ getActionText(step.action_type) }}</span>
-                    <span class="log-desc">{{ step.description }}</span>
-                  </div>
-                  <div v-if="step.error" class="log-error">
-                    <el-icon><WarningFilled /></el-icon>
-                    <pre class="error-message">{{ step.error }}</pre>
-                  </div>
-                </div>
-              </div>
-              <el-empty v-else description="暂无执行日志" />
-            </div>
-          </el-tab-pane>
-
-          <!-- 失败截图 -->
-          <el-tab-pane label="失败截图" name="screenshots" v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'">
-            <div class="screenshots-container">
-              <div v-if="currentExecution.screenshots && currentExecution.screenshots.length > 0">
-                <div v-for="(screenshot, index) in currentExecution.screenshots" :key="index" class="screenshot-item">
-                  <h5>{{ screenshot.description || `截图 ${index + 1}` }}</h5>
-                  <div v-if="screenshot.url" class="screenshot-wrapper">
-                    <img
-                      :src="screenshot.url"
-                      :alt="screenshot.description"
-                      class="screenshot-img"
-                      @error="handleImageError($event, screenshot)"
-                    />
-                  </div>
-                  <div v-else class="screenshot-error">
-                    <el-icon><WarningFilled /></el-icon>
-                    <span>截图加载失败{{ screenshot.error || '未知原因' }}</span>
-                  </div>
-                  <p class="screenshot-time">{{ formatDateTime(screenshot.timestamp) }}</p>
-                </div>
-              </div>
-              <el-empty v-else description="暂无截图" />
-            </div>
-          </el-tab-pane>
-
-          <!-- 错误信息 -->
-          <el-tab-pane label="错误信息" name="error" v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'">
-            <div class="errors-container">
-              <div v-if="currentExecution.error_message" class="error-item">
-                <div class="error-content">
-                  <pre class="error-text">{{ currentExecution.error_message }}</pre>
-                </div>
-              </div>
-              <el-empty v-else description="暂无错误信息" />
-            </div>
-          </el-tab-pane>
-         </el-tabs>
-        </template>
       </div>
       <template #footer>
         <el-button @click="showDetailDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 子用例执行详情对话框 -->
+    <el-dialog v-model="showCaseDetailDialog" title="用例执行详情" width="900px" @close="onCaseDetailClose">
+      <div v-if="caseDetail" class="execution-detail">
+        <!-- 加载中 -->
+        <div v-if="caseDetailLoading" style="text-align: center; padding: 40px 0;">
+          <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+          <p style="margin-top: 8px; color: #909399;">加载中...</p>
+        </div>
+        <template v-else>
+          <!-- 基本信息 -->
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="用例名称">{{ caseDetail.test_case_name || caseDetail.name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <el-tag :type="getStatusType(caseDetail.status)">{{ getStatusText(caseDetail.status) }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="浏览器">{{ getBrowserText(caseDetail.browser) }}</el-descriptions-item>
+            <el-descriptions-item label="执行人">{{ caseDetail.created_by_name || caseDetail.executed_by || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="开始时间">{{ formatDateTime(caseDetail.started_at) }}</el-descriptions-item>
+            <el-descriptions-item label="结束时间">{{ formatDateTime(caseDetail.finished_at) }}</el-descriptions-item>
+            <el-descriptions-item label="耗时" :span="2">{{ formatDuration(caseDetail.execution_time || caseDetail.duration) }}</el-descriptions-item>
+          </el-descriptions>
+
+          <!-- 日志/截图/错误/SQL页签 -->
+          <el-tabs v-model="caseDetailTab" class="execution-tabs" style="margin-top: 20px;">
+            <!-- 执行日志 -->
+            <el-tab-pane label="执行日志" name="logs">
+              <div class="logs-container">
+                <div v-if="caseDetail.execution_logs">
+                  <div v-for="(step, index) in parseExecutionLogs(caseDetail.execution_logs)" :key="index" class="log-item">
+                    <div class="log-header">
+                      <el-tag :type="step.success ? 'success' : 'danger'" size="small">
+                        <template v-if="step.step_number === 'sql'">
+                          <span style="display: inline-flex; align-items: center; gap: 4px;">SQL</span>
+                        </template>
+                        <template v-else>
+                          步骤 {{ step.step_number }}
+                        </template>
+                      </el-tag>
+                      <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
+                      <span class="log-desc">{{ step.description }}</span>
+                      <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
+                    </div>
+                    <div v-if="step.error" class="log-error">
+                      <el-icon><WarningFilled /></el-icon>
+                      <pre class="error-message">{{ step.error }}</pre>
+                    </div>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无执行日志" />
+              </div>
+            </el-tab-pane>
+
+            <!-- 失败截图 -->
+            <el-tab-pane label="失败截图" name="screenshots" v-if="caseDetail.status === 'failed' || caseDetail.status === 'error'">
+              <div class="screenshots-container">
+                <div v-if="caseDetail.screenshots && caseDetail.screenshots.length > 0">
+                  <div v-for="(screenshot, index) in caseDetail.screenshots" :key="index" class="screenshot-item">
+                    <h5>{{ screenshot.description || `截图 ${index + 1}` }}</h5>
+                    <div v-if="screenshot.url" class="screenshot-wrapper">
+                      <img :src="screenshot.url" :alt="screenshot.description" class="screenshot-img" @error="handleImageError($event, screenshot)" />
+                    </div>
+                    <div v-else class="screenshot-error">
+                      <el-icon><WarningFilled /></el-icon>
+                      <span>截图加载失败{{ screenshot.error || '未知原因' }}</span>
+                    </div>
+                    <p class="screenshot-time">{{ formatDateTime(screenshot.timestamp) }}</p>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无截图" />
+              </div>
+            </el-tab-pane>
+
+            <!-- 错误信息 -->
+            <el-tab-pane label="错误信息" name="error" v-if="caseDetail.status === 'failed' || caseDetail.status === 'error'">
+              <div class="errors-container">
+                <div v-if="caseDetail.error_message" class="error-item">
+                  <div class="error-content">
+                    <pre class="error-text">{{ caseDetail.error_message }}</pre>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无错误信息" />
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="showCaseDetailDialog = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -438,8 +460,20 @@ let resizeObserver = null
 
 // 详情对话框相关
 const showDetailDialog = ref(false)
-const activeTab = ref('logs')
 const currentExecution = ref(null)
+
+// 子用例详情弹窗（独立）
+const showCaseDetailDialog = ref(false)
+const caseDetail = ref(null)
+const caseDetailLoading = ref(false)
+const caseDetailTab = ref('logs')
+
+// 弹窗关闭时清理状态
+const onCaseDetailClose = () => {
+  caseDetail.value = null
+  caseDetailLoading.value = false
+  caseDetailTab.value = 'logs'
+}
 
 // 重跑对话框相关
 const showRerunDialogVisible = ref(false)
@@ -542,7 +576,11 @@ const getActionText = (actionType) => {
 const parseExecutionLogs = (logs) => {
   if (!logs) return []
   try {
-    return typeof logs === 'string' ? JSON.parse(logs) : logs
+    const parsed = typeof logs === 'string' ? JSON.parse(logs) : logs
+    // 兼容两种格式: {"steps": [...]} 或直接 [...]
+    if (Array.isArray(parsed)) return parsed
+    if (parsed && Array.isArray(parsed.steps)) return parsed.steps
+    return []
   } catch (e) {
     console.error('解析执行日志失败:', e)
     return []
@@ -629,11 +667,26 @@ const loadChildren = async (row) => {
   try {
     const response = await getExecutionChildren(row.raw_id)
     const items = response.data.items || []
-    // 为子项添加内部状态
-    row._children = items.map(item => ({
-      ...item,
-      _expanded: false,
-    }))
+    // 统一字段名和item_type，兼容后端返回的不同命名
+    row._children = items.map(item => {
+      // 统一 item_type: 后端返回 test_case/test_suite → 前端用 case/suite
+      let itemType = item.item_type
+      if (itemType === 'test_case') itemType = 'case'
+      else if (itemType === 'test_suite') itemType = 'suite'
+
+      // 统一名称字段：后端返回 test_case_name/suite_name → 前端用 name
+      const name = item.name || item.test_case_name || item.suite_name || '-'
+      // 统一ID字段：后端返回 id → 前端用 raw_id（用于调详情API）
+      const rawId = item.raw_id || item.id
+
+      return {
+        ...item,
+        item_type: itemType,
+        name,
+        raw_id: rawId,
+        _expanded: false,
+      }
+    })
   } catch (error) {
     console.error('加载子项失败:', error)
     ElMessage.error('加载子项失败')
@@ -648,19 +701,26 @@ const toggleSuiteChildren = (parentRow, suiteChild) => {
   suiteChild._expanded = !suiteChild._expanded
 }
 
-// 查看用例执行详情
+// 查看子用例执行详情（使用独立的弹窗）
 const viewCaseDetail = async (child) => {
-  // 子项数据来自children API，需要加载完整详情
+  const rawId = child.raw_id || child.id
+  if (!rawId) {
+    ElMessage.error('无效的执行记录ID')
+    return
+  }
+  caseDetailLoading.value = true
+  caseDetail.value = { test_case_name: child.name || child.test_case_name || '加载中...', status: child.status }
+  caseDetailTab.value = 'logs'
+  showCaseDetailDialog.value = true
   try {
-    const rawId = child.raw_id
-    if (!rawId) return
     const response = await getTestCaseExecutionDetail(rawId)
-    currentExecution.value = response.data
-    activeTab.value = 'logs'
-    showDetailDialog.value = true
+    caseDetail.value = response.data
   } catch (error) {
     console.error('获取执行详情失败:', error)
     ElMessage.error('获取执行详情失败')
+    showCaseDetailDialog.value = false
+  } finally {
+    caseDetailLoading.value = false
   }
 }
 
@@ -717,7 +777,6 @@ const viewPlanSuiteDetail = (row) => {
     failed_cases: row.failed_cases,
     skipped_cases: row.skipped_cases,
   }
-  activeTab.value = 'logs'
   showDetailDialog.value = true
 }
 
@@ -1127,6 +1186,19 @@ onBeforeUnmount(() => {
         .log-desc {
           color: #909399;
           font-size: 14px;
+        }
+
+        .log-value {
+          color: var(--brand-600, #409eff);
+          font-size: 12px;
+          font-weight: 500;
+          background: var(--brand-50, #ecf5ff);
+          padding: 1px 6px;
+          border-radius: 3px;
+          max-width: 200px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
       }
 
