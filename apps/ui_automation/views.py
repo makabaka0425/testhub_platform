@@ -8562,7 +8562,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
     def _send_email_notification(self, task, success):
         """发送邮件通知"""
         try:
-            from django.core.mail import send_mail
+            import smtplib
+            from email.mime.text import MIMEText
             from django.conf import settings
 
             logger.info("=== 开始发送邮件通知 ===")
@@ -8579,9 +8580,39 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                 logger.warning("没有找到任何邮件收件人")
                 return
 
+            # 优先从数据库读取邮箱配置
+            email_config = None
+            try:
+                from apps.core.models import UnifiedNotificationConfig
+                email_config = UnifiedNotificationConfig.objects.filter(
+                    config_type='email', is_active=True
+                ).first()
+            except Exception as e:
+                logger.warning(f"从数据库读取邮箱配置失败: {e}")
+
+            if email_config and email_config.email_smtp_host:
+                smtp_host = email_config.email_smtp_host
+                smtp_port = email_config.email_smtp_port or 465
+                use_ssl = email_config.email_use_ssl
+                use_tls = email_config.email_use_tls
+                smtp_user = email_config.email_host_user
+                smtp_password = email_config.email_host_password
+                from_email = email_config.email_from or email_config.email_host_user
+                logger.info(f"使用数据库邮箱配置: {smtp_host}:{smtp_port}")
+            else:
+                # 回退到 settings 配置
+                smtp_host = settings.EMAIL_HOST
+                smtp_port = settings.EMAIL_PORT
+                use_ssl = settings.EMAIL_USE_SSL
+                use_tls = settings.EMAIL_USE_TLS
+                smtp_user = settings.EMAIL_HOST_USER
+                smtp_password = settings.EMAIL_HOST_PASSWORD
+                from_email = settings.DEFAULT_FROM_EMAIL
+                logger.info(f"使用settings邮箱配置: {smtp_host}:{smtp_port}")
+
             # 准备邮件内容
             status_text = '成功' if success else '失败'
-            task_type_text = '测试套件执行' if task.task_type == 'TEST_SUITE' else '测试用例执行'
+            task_type_text = '测试计划执行'
 
             subject = f"UI自动化定时任务执行{status_text}: {task.name}"
 
@@ -8607,18 +8638,31 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
 {task.error_message if task.error_message else '无错误信息'}
             """
 
-            # 发送邮件
-            from_email = settings.DEFAULT_FROM_EMAIL
+            # 使用 smtplib 直接发送，绕过 Django EmailBackend
+            msg = MIMEText(message, 'plain', 'utf-8')
+            msg['From'] = from_email
+            msg['To'] = ', '.join(recipients)
+            msg['Subject'] = subject
+
             logger.info(f"准备发送邮件，发件人: {from_email}, 收件人: {recipients}")
 
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=from_email,
-                recipient_list=recipients,
-                fail_silently=False,
-            )
-            logger.info("邮件发送成功")
+            try:
+                if use_ssl:
+                    server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+                else:
+                    server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+                    if use_tls:
+                        server.starttls()
+
+                if smtp_user and smtp_password:
+                    server.login(smtp_user, smtp_password)
+
+                server.sendmail(from_email, recipients, msg.as_string())
+                server.quit()
+                logger.info("邮件发送成功")
+            except Exception as e:
+                logger.error(f"SMTP连接发送失败: {e}")
+                raise
 
             # 记录通知日志
             UiNotificationLog.objects.create(
@@ -8645,7 +8689,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                     task_type=task.task_type,
                     notification_type='task_execution',
                     sender_name='系统邮件通知',
-                    sender_email=settings.DEFAULT_FROM_EMAIL,
+                    sender_email=from_email if 'from_email' in dir() else '',
                     recipient_info=[{'email': email} for email in recipients] if recipients else [],
                     notification_content=f"发送邮件通知失败: {str(e)}",
                     status='failed',

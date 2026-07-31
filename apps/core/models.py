@@ -8,12 +8,13 @@ User = get_user_model()
 
 
 class UnifiedNotificationConfig(models.Model):
-    """统一通知配置模型 - 用于配置飞书、企微、钉钉机器人"""
+    """统一通知配置模型 - 用于配置飞书、企微、钉钉机器人及邮箱SMTP"""
 
     CONFIG_TYPE_CHOICES = [
         ('webhook_feishu', '飞书机器人'),
         ('webhook_wechat', '企业微信机器人'),
         ('webhook_dingtalk', '钉钉机器人'),
+        ('email', '邮箱通知'),
     ]
 
     name = models.CharField(max_length=100, verbose_name='配置名称', help_text='用于标识该通知配置的名称')
@@ -21,6 +22,18 @@ class UnifiedNotificationConfig(models.Model):
                                    verbose_name='配置类型')
     webhook_bots = models.JSONField(default=dict, blank=True, null=True, verbose_name='Webhook机器人配置',
                                     help_text='飞书、企微、钉钉机器人配置')
+    # 邮箱SMTP配置
+    email_smtp_host = models.CharField(max_length=200, blank=True, default='', verbose_name='SMTP服务器',
+                                       help_text='如 smtp.qq.com')
+    email_smtp_port = models.IntegerField(default=465, verbose_name='SMTP端口')
+    email_use_ssl = models.BooleanField(default=True, verbose_name='使用SSL',
+                                        help_text='端口465选SSL，端口587选TLS')
+    email_use_tls = models.BooleanField(default=False, verbose_name='使用TLS')
+    email_host_user = models.CharField(max_length=200, blank=True, default='', verbose_name='发件邮箱账号')
+    email_host_password = models.CharField(max_length=200, blank=True, default='', verbose_name='邮箱授权码',
+                                           help_text='不是登录密码，是邮箱开启SMTP后生成的授权码')
+    email_from = models.CharField(max_length=200, blank=True, default='', verbose_name='发件人地址',
+                                  help_text='通常与发件邮箱账号相同')
     is_default = models.BooleanField(default=False, verbose_name='是否默认配置')
     is_active = models.BooleanField(default=True, verbose_name='是否启用')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
