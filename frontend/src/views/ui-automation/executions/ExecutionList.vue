@@ -250,7 +250,7 @@
     </el-dialog>
 
     <!-- 子用例执行详情对话框 -->
-    <el-dialog v-model="showCaseDetailDialog" title="用例执行详情" width="900px" @close="onCaseDetailClose">
+    <el-dialog v-model="showCaseDetailDialog" title="用例执行详情" width="900px" class="case-detail-dialog" @close="onCaseDetailClose">
       <div v-if="caseDetail" class="execution-detail">
         <!-- 加载中 -->
         <div v-if="caseDetailLoading" style="text-align: center; padding: 40px 0;">
@@ -1317,6 +1317,18 @@ onBeforeUnmount(() => {
     white-space: pre-wrap;
     word-wrap: break-word;
     overflow-x: auto;
+  }
+}
+</style>
+
+<style lang="scss">
+/* 用例详情弹窗：固定高度680px，内容区域独立滚动 */
+.case-detail-dialog {
+  .el-dialog__body {
+    height: calc(680px - 54px - 60px); /* 减去header 54px + footer 60px */
+    overflow-y: auto;
+    padding-top: 16px;
+    padding-bottom: 16px;
   }
 }
 </style>

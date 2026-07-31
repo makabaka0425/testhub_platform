@@ -133,6 +133,13 @@ def build_allure_result(case_data, case_execution, suite_name='', plan_name='', 
             pass
 
     # 构建 Allure 步骤
+    # 步骤日志中没有 start_time/end_time，
+    # 基于用例的总时间区间均匀分配，确保 Allure 能正确显示步骤状态
+    _case_start_ms = _to_epoch_ms(str(case_execution.started_at)) if case_execution.started_at else None
+    _case_stop_ms = _to_epoch_ms(str(case_execution.finished_at)) if case_execution.finished_at else None
+    _case_duration_ms = (_case_stop_ms - _case_start_ms) if (_case_start_ms and _case_stop_ms and _case_stop_ms > _case_start_ms) else 0
+    _per_step_ms = _case_duration_ms // len(steps_data) if steps_data and _case_duration_ms > 0 else 0
+
     allure_steps = []
     for idx, step_data in enumerate(steps_data, 1):
         step_uuid = generate_allure_uuid()
@@ -151,12 +158,20 @@ def build_allure_result(case_data, case_execution, suite_name='', plan_name='', 
         if input_value and action_type in ('fill', 'select', 'type'):
             step_name += f' - {input_value}'
 
+        # 步骤时间：优先使用步骤自身记录的时间，否则按均匀分配
+        step_start = _to_epoch_ms(step_data.get('start_time'))
+        step_end = _to_epoch_ms(step_data.get('end_time'))
+        if not step_start:
+            step_start = _case_start_ms + (idx - 1) * _per_step_ms if _per_step_ms > 0 else _case_start_ms
+        if not step_end:
+            step_end = _case_start_ms + idx * _per_step_ms if _per_step_ms > 0 else step_start or _case_start_ms
+
         step_result = {
             'name': step_name,
             'status': step_status,
             'stage': 'finished',
-            'start': _to_epoch_ms(step_data.get('start_time')),
-            'stop': _to_epoch_ms(step_data.get('end_time')),
+            'start': step_start,
+            'stop': step_end,
             'parameters': [],
         }
 
