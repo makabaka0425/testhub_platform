@@ -953,8 +953,6 @@ class OperationRecord(models.Model):
 class UiScheduledTask(models.Model):
     """UI自动化定时任务模型"""
     TASK_TYPE_CHOICES = [
-        ('TEST_SUITE', '测试套件执行'),
-        ('TEST_CASE', '测试用例执行'),
         ('TEST_PLAN', '测试计划执行'),
     ]
 

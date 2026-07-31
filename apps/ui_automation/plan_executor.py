@@ -106,24 +106,42 @@ class PlanExecutor:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
-            launch_args = ['--start-maximized'] if not self.headless else ['--headless=new']
+            common_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--ignore-certificate-errors',
+                '--allow-insecure-localhost',
+                '--disable-web-security',
+            ]
+            if not self.headless:
+                common_args.append('--start-maximized')
+            else:
+                common_args.append('--headless=new')
+
             browser = p.chromium.launch(
                 headless=self.headless,
-                args=launch_args
+                args=common_args
             )
-            context = browser.new_context(no_viewport=not self.headless)
+            context_kwargs = {
+                'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            }
+            if self.headless:
+                context_kwargs['viewport'] = {'width': 1920, 'height': 1080}
+            else:
+                context_kwargs['no_viewport'] = True
+            context = browser.new_context(**context_kwargs)
             page = context.new_page()
 
             try:
-                # 导航到项目基础URL
                 base_url = self.test_plan.project.base_url
-                if base_url:
-                    page.goto(base_url, timeout=30000)
 
-                # 计划级登录（如果配置了）
+                # 如果有登录配置，直接导航到登录页（避免先导航base_url再导航login_url的重复加载）
                 if self.test_plan.login_config:
                     print(f"[PlanExecutor] 执行计划级登录: {self.test_plan.login_config.name}")
                     self._perform_plan_login_playwright(page, self.test_plan.login_config)
+                elif base_url:
+                    # 无登录配置时，导航到项目基础URL
+                    page.goto(base_url, wait_until='load', timeout=30000)
+                    print(f"[PlanExecutor] 页面加载完成，当前URL: {page.url}")
 
                 # 串行执行每个计划项
                 for item in self.plan_items:
@@ -209,6 +227,9 @@ class PlanExecutor:
             test_suite=test_suite
         ).order_by('-created_at').first()
 
+        # 保存套件执行状态（后续会删除套件级记录）
+        suite_status = 'passed' if latest_execution and latest_execution.status == 'SUCCESS' else 'failed'
+
         # 将套件内用例的执行记录关联到计划级 TestExecution
         # 这样 execution_history 接口才能通过 test_execution 外键查到套件内用例
         if latest_execution and self.plan_execution:
@@ -249,12 +270,20 @@ class PlanExecutor:
                 ).update(test_execution=self.plan_execution)
                 print(f"[PlanExecutor] 已关联 {updated_count} 条套件用例到计划执行记录")
 
+            # 删除套件级 TestExecution 记录（其用例已重指向计划级记录）
+            # 避免在执行记录列表中作为独立"套件"条目出现
+            if latest_execution:
+                suite_exec_id = latest_execution.id
+                latest_execution.delete()
+                print(f"[PlanExecutor] 已删除套件级执行记录 id={suite_exec_id}")
+
+        # 在删除套件级记录前已保存状态
         return {
             'item_type': 'test_suite',
             'item_id': test_suite.id,
             'item_name': test_suite.name,
-            'status': 'passed' if latest_execution and latest_execution.status == 'SUCCESS' else 'failed',
-            'execution_id': latest_execution.id if latest_execution else None,
+            'status': suite_status,
+            'execution_id': None,  # 套件级记录已删除，用例已关联到计划级记录
         }
 
     def _execute_case_standalone(self, test_case):
@@ -603,11 +632,20 @@ class PlanExecutor:
 
         # 导航到登录页
         if login_config.login_url:
-            page.goto(login_config.login_url, timeout=30000)
+            page.goto(login_config.login_url, wait_until='load', timeout=30000)
+            print(f"[PlanExecutor] 登录页加载完成，当前URL: {page.url}")
 
         # 执行登录用例步骤
         result = self._run_case_with_page(page, login_case)
-        print(f"[PlanExecutor] 登录结果: {'成功' if result.get('success') else '失败'}")
+        if result.get('success'):
+            # 登录成功后等待页面跳转/稳定
+            try:
+                page.wait_for_load_state('domcontentloaded', timeout=10000)
+            except Exception:
+                pass
+            print(f"[PlanExecutor] 登录完成，当前页面: {page.url}")
+        else:
+            print(f"[PlanExecutor] 登录失败")
 
     def _perform_plan_login_selenium(self, driver, login_config):
         """执行计划级登录（Selenium）"""
@@ -728,15 +766,32 @@ class PlanExecutor:
             from playwright.sync_api import sync_playwright
 
             with sync_playwright() as p:
-                launch_args = ['--start-maximized'] if not self.headless else ['--headless=new']
-                browser = p.chromium.launch(headless=self.headless, args=launch_args)
-                context = browser.new_context(no_viewport=not self.headless)
+                common_args = [
+                    '--disable-blink-features=AutomationControlled',
+                    '--ignore-certificate-errors',
+                    '--allow-insecure-localhost',
+                    '--disable-web-security',
+                ]
+                if not self.headless:
+                    common_args.append('--start-maximized')
+                else:
+                    common_args.append('--headless=new')
+
+                browser = p.chromium.launch(headless=self.headless, args=common_args)
+                context_kwargs = {
+                    'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                }
+                if self.headless:
+                    context_kwargs['viewport'] = {'width': 1920, 'height': 1080}
+                else:
+                    context_kwargs['no_viewport'] = True
+                context = browser.new_context(**context_kwargs)
                 page = context.new_page()
 
                 try:
                     base_url = self.test_plan.project.base_url
                     if base_url:
-                        page.goto(base_url, timeout=30000)
+                        page.goto(base_url, wait_until='load', timeout=30000)
 
                     # 独立模式下，如果用例有前置条件且是登录类，正常执行
                     result = self._run_case_with_page(page, test_case)

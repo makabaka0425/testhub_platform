@@ -857,7 +857,7 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
     """UI定时任务序列化器"""
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     project_name = serializers.CharField(source='project.name', read_only=True)
-    test_suite_name = serializers.CharField(source='test_suite.name', read_only=True)
+    test_plan_name = serializers.CharField(source='test_plan.name', read_only=True)
     task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     trigger_type_display = serializers.CharField(source='get_trigger_type_display', read_only=True)
@@ -869,7 +869,7 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
             'id', 'name', 'description', 'task_type', 'task_type_display',
             'trigger_type', 'trigger_type_display', 'cron_expression',
             'interval_seconds', 'execute_at', 'project', 'project_name',
-            'test_suite', 'test_suite_name', 'test_cases',
+            'test_plan', 'test_plan_name',
             'engine', 'browser', 'headless',
             'notify_on_success', 'notify_on_failure', 'notification_type', 'notification_type_display', 'notify_emails',
             'status', 'status_display',
@@ -911,12 +911,8 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
 
         # 验证任务类型配置
         task_type = attrs.get('task_type')
-        if task_type == 'TEST_SUITE' and not attrs.get('test_suite'):
-            raise serializers.ValidationError("测试套件不能为空")
-        elif task_type == 'TEST_CASE':
-            test_cases = attrs.get('test_cases', [])
-            if not test_cases or len(test_cases) == 0:
-                raise serializers.ValidationError("至少选择一个测试用例")
+        if task_type == 'TEST_PLAN' and not attrs.get('test_plan'):
+            raise serializers.ValidationError("测试计划不能为空")
 
         return attrs
 

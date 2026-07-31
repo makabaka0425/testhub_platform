@@ -8007,10 +8007,25 @@ class TestCaseExecutionViewSet(viewsets.ModelViewSet):
                 item_type = 'plan'
                 name = te.test_plan.name
             elif te.test_suite:
-                # 检查是否属于计划内执行（如果有 TestCaseExecution 指向它则说明是独立套件执行）
+                # 检查是否属于计划内执行
+                # 1. 如果没有 TestCaseExecution 指向它，说明用例已被重指向计划级
                 child_count = TestCaseExecution.objects.filter(test_execution=te).count()
                 if child_count == 0:
                     continue  # 属于计划内执行，用例已被重指向计划级 TestExecution
+                # 2. 有子用例但可能重指向失败，检查同时段是否有计划级记录包含同一套件
+                #    通过时间窗口+项目+套件匹配，判断是否为计划触发的套件执行
+                time_window_start = te.started_at - timezone.timedelta(minutes=5) if te.started_at else None
+                time_window_end = te.started_at + timezone.timedelta(minutes=30) if te.started_at else None
+                is_plan_child = False
+                if time_window_start and time_window_end:
+                    is_plan_child = TestExecution.objects.filter(
+                        test_plan__isnull=False,
+                        project=te.project,
+                        started_at__gte=time_window_start,
+                        started_at__lte=time_window_end,
+                    ).exists()
+                if is_plan_child:
+                    continue  # 属于计划内执行，不在顶级列表显示
                 item_type = 'suite'
                 name = te.test_suite.name
             else:
@@ -8190,534 +8205,96 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
             task.next_run_time = task.calculate_next_run()
             task.save()
 
-            # 根据任务类型执行不同的逻辑
-            if task.task_type == 'TEST_SUITE':
-                # 执行测试套件
-                if not task.test_suite:
+            # 执行测试计划
+            if not task.test_plan:
+                return Response({
+                    'error': '该任务未配置测试计划'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            test_plan = task.test_plan
+            plan_items = test_plan.plan_items.all()
+            if plan_items.count() == 0:
+                return Response({
+                    'error': '该测试计划未包含任何用例或套件，无法执行'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # 检查 Playwright 环境
+            if task.engine == 'playwright':
+                from .playwright_engine import PlaywrightTestEngine
+                is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
+                if not is_ready:
                     return Response({
-                        'error': '该任务未配置测试套件'
+                        'error': error_msg,
+                        'message': 'Playwright 浏览器未就绪，请先安装后再执行测试计划任务'
                     }, status=status.HTTP_400_BAD_REQUEST)
 
-                test_suite = task.test_suite
-                test_case_count = test_suite.suite_test_cases.count()
+            # 更新计划执行状态
+            test_plan.execution_status = 'running'
+            test_plan.save()
 
-                if test_case_count == 0:
-                    return Response({
-                        'error': '该测试套件未包含任何测试用例，无法执行'
-                    }, status=status.HTTP_400_BAD_REQUEST)
+            # 在后台线程中执行测试计划
+            import threading
+            from .plan_executor import PlanExecutor
 
-                if task.engine == 'playwright':
-                    from .playwright_engine import PlaywrightTestEngine
-                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
-                    if not is_ready:
-                        return Response({
-                            'error': error_msg,
-                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试套件任务'
-                        }, status=status.HTTP_400_BAD_REQUEST)
+            def run_test_plan():
+                try:
+                    executor = PlanExecutor(
+                        test_plan=test_plan,
+                        engine=task.engine,
+                        browser=task.browser,
+                        headless=task.headless,
+                        executed_by=task.created_by
+                    )
+                    executor.run()
 
-                # 更新套件执行状态
-                test_suite.execution_status = 'running'
-                test_suite.save()
+                    # 刷新计划对象状态
+                    test_plan.refresh_from_db()
 
-                # 在后台线程中执行测试
-                import threading
-                from .test_executor import TestExecutor
-
-                def run_test():
-                    try:
-                        executor = TestExecutor(
-                            test_suite=test_suite,
-                            engine=task.engine,
-                            browser=task.browser,
-                            headless=task.headless,
-                            executed_by=task.created_by
-                        )
-                        executor.run()
-
-                        # 更新任务执行结果
+                    if test_plan.execution_status == 'passed':
                         task.successful_runs += 1
-                        task.last_result = {'status': 'success', 'message': '测试套件执行成功'}
+                        task.last_result = {
+                            'status': 'success',
+                            'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
+                        }
                         task.error_message = ''
                         task.save()
-
-                        # 发送成功通知
                         self._send_task_notification(task, success=True)
-
-                    except Exception as e:
+                    else:
                         task.failed_runs += 1
-                        task.last_result = {'status': 'failed', 'message': str(e)}
-                        task.error_message = str(e)
-                        test_suite.execution_status = 'failed'
-                        test_suite.save()
-                        task.save()
-
-                        # 发送失败通知
-                        self._send_task_notification(task, success=False)
-
-                # 启动后台线程执行测试
-                thread = threading.Thread(target=run_test)
-                thread.daemon = True
-                thread.start()
-
-                log_operation('run', 'scheduled_task', task.id, task.name, request.user)
-
-                return Response({
-                    'message': '测试套件开始执行',
-                    'task_id': task.id,
-                    'task_name': task.name,
-                    'test_suite': test_suite.name,
-                    'test_case_count': test_case_count,
-                    'engine': task.engine,
-                    'browser': task.browser,
-                    'headless': task.headless
-                }, status=status.HTTP_200_OK)
-
-            elif task.task_type == 'TEST_CASE':
-                # 执行测试用例
-                if not task.test_cases or len(task.test_cases) == 0:
-                    return Response({
-                        'error': '该任务未配置测试用例'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                test_case_ids = task.test_cases
-                test_cases = TestCase.objects.filter(id__in=test_case_ids)
-                test_case_count = test_cases.count()
-
-                if test_case_count == 0:
-                    return Response({
-                        'error': '找不到配置的测试用例'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                if task.engine == 'playwright':
-                    from .playwright_engine import PlaywrightTestEngine
-                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
-                    if not is_ready:
-                        return Response({
-                            'error': error_msg,
-                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试用例任务'
-                        }, status=status.HTTP_400_BAD_REQUEST)
-
-                # 在后台线程中执行测试用例
-                import threading
-
-                def run_test_cases():
-                    """在后台线程中执行测试用例"""
-                    success_count = 0
-                    failed_count = 0
-
-                    try:
-                        for test_case in test_cases:
-                            # 创建执行记录
-                            execution = TestCaseExecution.objects.create(
-                                test_case=test_case,
-                                project=task.project,
-                                execution_source='scheduled',
-                                status='running',
-                                engine=task.engine,
-                                browser=task.browser,
-                                headless=task.headless,
-                                created_by=task.created_by,
-                                started_at=timezone.now()
-                            )
-
-                            # 实际执行测试用例
-                            try:
-                                logger.info(f"开始执行定时任务的测试用例: {test_case.name} (ID: {test_case.id})")
-
-                                start_time = time.time()
-
-                                # 获取测试用例的所有步骤
-                                test_steps = list(test_case.steps.all().order_by('step_number'))
-
-                                # 预先获取所有步骤的数据
-                                steps_data = []
-                                for step in test_steps:
-                                    step_data = {
-                                        'step': step,
-                                        'action_type': step.action_type,
-                                        'description': step.description,
-                                        'input_value': step.input_value,
-                                        'wait_time': step.wait_time,
-                    'action_wait': step.action_wait or 0,
-                                        'assert_type': step.assert_type,
-                                        'assert_value': step.assert_value,
-                                        'output_var': step.output_var,
-                                    }
-
-                                    if step.element:
-                                        step_data['element_data'] = {
-                                            'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
-                                            'locator_value': step.element.locator_value,
-                                            'name': step.element.name,
-                                            'wait_timeout': step.element.wait_timeout,
-                                            'force_action': step.element.force_action
-                                        }
-                                    else:
-                                        step_data['element_data'] = None
-
-                                    steps_data.append(step_data)
-
-                                # 存储步骤执行结果和截图
-                                step_results = []
-                                screenshots = []
-                                execution_logs = []
-                                execution_result = {'status': 'passed', 'error_message': None}
-
-                                # 用例级变量表，存储步骤输出变量
-                                context_variables = {}
-
-                                # 根据引擎类型执行
-                                if task.engine == 'selenium':
-                                    from .selenium_engine import SeleniumTestEngine
-
-                                    # 检查浏览器和驱动是否可用
-                                    is_ready, error_msg = SeleniumTestEngine.check_execution_environment(task.browser)
-                                    if not is_ready:
-                                        execution.status = 'failed'
-                                        execution.error_message = error_msg
-                                        execution.execution_logs = json.dumps([{
-                                            'step_number': 0,
-                                            'action_type': '浏览器检查',
-                                            'description': '执行前浏览器与驱动环境检查',
-                                            'success': False,
-                                            'error': error_msg
-                                        }], ensure_ascii=False)
-                                        execution.finished_at = timezone.now()
-                                        execution.save()
-                                        failed_count += 1
-                                        continue
-
-                                    # 创建Selenium引擎实例并执行
-                                    engine = SeleniumTestEngine(browser_type=task.browser, headless=task.headless)
-
-                                    try:
-                                        # 启动浏览器
-                                        engine.start()
-                                        execution_logs.append("✓ 浏览器启动成功")
-
-                                        # 导航到项目基础URL
-                                        if test_case.project.base_url:
-                                            success, nav_log = engine.navigate(test_case.project.base_url)
-                                            execution_logs.append(nav_log)
-                                            if not success:
-                                                execution_result['status'] = 'failed'
-                                                execution_result['error_message'] = "导航到测试页面失败"
-                                                raise Exception("导航到测试页面失败")
-
-                                        # 执行测试步骤
-                                        for i, step_info in enumerate(steps_data, 1):
-                                            step = step_info['step']
-                                            action_type = step_info['action_type']
-                                            element_data = step_info['element_data']
-
-                                            success, step_log, screenshot_base64 = engine.execute_step(step,
-                                                                                                       element_data or {},
-                                                                                                       context_variables)
-
-                                            step_results.append({
-                                                'step_number': i,
-                                                'action_type': action_type,
-                                                'description': step_info['description'] or '',
-                                                'input_value': step_info.get('input_value', ''),
-                                                'success': success,
-                                                'error': None if success else step_log
-                                            })
-
-                                            if not success:
-                                                execution_result['status'] = 'failed'
-                                                execution_result['error_message'] = step_log
-
-                                                if not screenshot_base64:
-                                                    screenshot_base64 = engine.capture_screenshot()
-
-                                                if screenshot_base64:
-                                                    screenshots.append({
-                                                        'url': screenshot_base64,
-                                                        'description': f'步骤 {i} 失败截图',
-                                                        'step_number': i,
-                                                        'timestamp': timezone.now().isoformat()
-                                                    })
-
-                                                break
-
-                                            if action_type == 'screenshot' and screenshot_base64:
-                                                screenshots.append({
-                                                    'url': screenshot_base64,
-                                                    'description': f'步骤 {i}: {step_info["description"] or "手动截图"}',
-                                                    'step_number': i,
-                                                    'timestamp': timezone.now().isoformat()
-                                                })
-
-                                    finally:
-                                        engine.stop()
-
-                                else:  # Playwright
-                                    from asgiref.sync import sync_to_async
-                                    from .playwright_engine import PlaywrightTestEngine
-
-                                    async def run_playwright_test():
-                                        browser_map = {
-                                            'chrome': 'chromium',
-                                            'firefox': 'firefox',
-                                            'safari': 'webkit',
-                                            'edge': 'chromium'
-                                        }
-                                        browser_type = browser_map.get(task.browser, 'chromium')
-
-                                        engine = PlaywrightTestEngine(browser_type=browser_type, headless=task.headless, base_url=test_case.project.base_url)
-
-                                        try:
-                                            # 启动浏览器
-                                            await engine.start()
-                                            execution_logs.append("✓ 浏览器启动成功")
-
-                                            # 获取项目基础URL（同步操作）
-                                            base_url = await sync_to_async(lambda: test_case.project.base_url)()
-
-                                            # 导航到项目基础URL
-                                            if base_url:
-                                                success, nav_log = await engine.navigate(base_url)
-                                                execution_logs.append(nav_log)
-                                                if not success:
-                                                    execution_result['status'] = 'failed'
-                                                    execution_result['error_message'] = "导航到测试页面失败"
-                                                    return False
-
-                                            # 执行测试步骤
-                                            for i, step_info in enumerate(steps_data, 1):
-                                                step = step_info['step']
-                                                action_type = step_info['action_type']
-                                                element_data = step_info['element_data']
-
-                                                success, step_log, screenshot_base64 = await engine.execute_step(step,
-                                                                                                                 element_data or {},
-                                                                                                                 context_variables)
-
-                                                step_results.append({
-                                                    'step_number': i,
-                                                    'action_type': action_type,
-                                                    'description': step_info['description'] or '',
-                                                    'input_value': step_info.get('input_value', ''),
-                                                    'success': success,
-                                                    'error': None if success else step_log
-                                                })
-
-                                                if not success:
-                                                    execution_result['status'] = 'failed'
-                                                    execution_result['error_message'] = step_log
-
-                                                    if not screenshot_base64:
-                                                        screenshot_base64 = await engine.capture_screenshot()
-
-                                                    if screenshot_base64:
-                                                        screenshots.append({
-                                                            'url': screenshot_base64,
-                                                            'description': f'步骤 {i} 失败截图',
-                                                            'step_number': i,
-                                                            'timestamp': timezone.now().isoformat()
-                                                        })
-
-                                                    return False
-
-                                                if action_type == 'screenshot' and screenshot_base64:
-                                                    screenshots.append({
-                                                        'url': screenshot_base64,
-                                                        'description': f'步骤 {i}: {step_info["description"] or "手动截图"}',
-                                                        'step_number': i,
-                                                        'timestamp': timezone.now().isoformat()
-                                                    })
-
-                                            return True
-
-                                        finally:
-                                            await engine.stop()
-
-                                    # 在新的事件循环中运行Playwright测试
-                                    loop = asyncio.new_event_loop()
-                                    asyncio.set_event_loop(loop)
-                                    try:
-                                        loop.run_until_complete(run_playwright_test())
-                                    finally:
-                                        loop.close()
-
-                                # 计算执行时间
-                                total_time = round(time.time() - start_time, 2)
-
-                                # 保存执行结果
-                                execution.status = execution_result['status']
-                                execution.error_message = execution_result['error_message'] or ''
-                                execution.execution_logs = json.dumps(step_results, ensure_ascii=False)
-                                execution.execution_time = total_time
-                                execution.screenshots = screenshots
-                                execution.finished_at = timezone.now()
-                                execution.save()
-
-                                if execution.status == 'passed':
-                                    success_count += 1
-                                    logger.info(f"测试用例 {test_case.name} 执行成功")
-                                else:
-                                    failed_count += 1
-                                    logger.warning(f"测试用例 {test_case.name} 执行失败: {execution.error_message}")
-
-                            except Exception as e:
-                                logger.error(f"执行测试用例 {test_case.name} 时发生异常: {str(e)}")
-                                execution.status = 'failed'
-                                execution.error_message = str(e)
-                                execution.finished_at = timezone.now()
-                                execution.save()
-                                failed_count += 1
-
-                        # 更新任务执行结果
-                        if failed_count == 0:
-                            task.successful_runs += 1
-                            task.last_result = {
-                                'status': 'success',
-                                'message': f'执行完成: {success_count}个成功',
-                                'success_count': success_count,
-                                'failed_count': failed_count
-                            }
-                            task.error_message = ''
-                            task.save()
-
-                            # 发送成功通知
-                            self._send_task_notification(task, success=True)
-                        else:
-                            task.failed_runs += 1
-                            task.last_result = {
-                                'status': 'partial',
-                                'message': f'执行完成: {success_count}个成功, {failed_count}个失败',
-                                'success_count': success_count,
-                                'failed_count': failed_count
-                            }
-                            task.error_message = f'{failed_count}个测试用例执行失败'
-                            task.save()
-
-                            # 发送失败通知
-                            self._send_task_notification(task, success=False)
-
-                    except Exception as e:
-                        logger.error(f"执行定时任务测试用例时发生异常: {str(e)}")
-                        task.failed_runs += 1
-                        task.last_result = {'status': 'failed', 'message': str(e)}
-                        task.error_message = str(e)
-                        task.save()
-
-                        # 发送失败通知
-                        self._send_task_notification(task, success=False)
-
-                # 启动后台线程执行测试
-                thread = threading.Thread(target=run_test_cases)
-                thread.daemon = True
-                thread.start()
-
-                log_operation('run', 'scheduled_task', task.id, task.name, request.user)
-
-                return Response({
-                    'message': '测试用例开始执行',
-                    'task_id': task.id,
-                    'task_name': task.name,
-                    'test_case_count': test_case_count,
-                    'engine': task.engine,
-                    'browser': task.browser,
-                    'headless': task.headless
-                }, status=status.HTTP_200_OK)
-
-            elif task.task_type == 'TEST_PLAN':
-                # 执行测试计划
-                if not task.test_plan:
-                    return Response({
-                        'error': '该任务未配置测试计划'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                test_plan = task.test_plan
-                plan_items = test_plan.plan_items.all()
-                if plan_items.count() == 0:
-                    return Response({
-                        'error': '该测试计划未包含任何用例或套件，无法执行'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                # 检查 Playwright 环境
-                if task.engine == 'playwright':
-                    from .playwright_engine import PlaywrightTestEngine
-                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
-                    if not is_ready:
-                        return Response({
-                            'error': error_msg,
-                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试计划任务'
-                        }, status=status.HTTP_400_BAD_REQUEST)
-
-                # 更新计划执行状态
-                test_plan.execution_status = 'running'
-                test_plan.save()
-
-                # 在后台线程中执行测试计划
-                import threading
-                from .plan_executor import PlanExecutor
-
-                def run_test_plan():
-                    try:
-                        executor = PlanExecutor(
-                            test_plan=test_plan,
-                            engine=task.engine,
-                            browser=task.browser,
-                            headless=task.headless,
-                            executed_by=task.created_by
-                        )
-                        executor.run()
-
-                        # 刷新计划对象状态
-                        test_plan.refresh_from_db()
-
-                        if test_plan.execution_status == 'passed':
-                            task.successful_runs += 1
-                            task.last_result = {
-                                'status': 'success',
-                                'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
-                            }
-                            task.error_message = ''
-                            task.save()
-                            self._send_task_notification(task, success=True)
-                        else:
-                            task.failed_runs += 1
-                            task.last_result = {
-                                'status': 'failed',
-                                'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
-                            }
-                            task.error_message = f'{test_plan.failed_count}个用例执行失败'
-                            task.save()
-                            self._send_task_notification(task, success=False)
-
-                    except Exception as e:
-                        logger.error(f"执行测试计划任务失败: {str(e)}")
-                        task.failed_runs += 1
-                        task.last_result = {'status': 'failed', 'message': str(e)}
-                        task.error_message = str(e)
-                        test_plan.execution_status = 'failed'
-                        test_plan.save()
+                        task.last_result = {
+                            'status': 'failed',
+                            'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
+                        }
+                        task.error_message = f'{test_plan.failed_count}个用例执行失败'
                         task.save()
                         self._send_task_notification(task, success=False)
 
-                thread = threading.Thread(target=run_test_plan)
-                thread.daemon = True
-                thread.start()
+                except Exception as e:
+                    logger.error(f"执行测试计划任务失败: {str(e)}")
+                    task.failed_runs += 1
+                    task.last_result = {'status': 'failed', 'message': str(e)}
+                    task.error_message = str(e)
+                    test_plan.execution_status = 'failed'
+                    test_plan.save()
+                    task.save()
+                    self._send_task_notification(task, success=False)
 
-                log_operation('run', 'scheduled_task', task.id, task.name, request.user)
+            thread = threading.Thread(target=run_test_plan)
+            thread.daemon = True
+            thread.start()
 
-                return Response({
-                    'message': '测试计划开始执行',
-                    'task_id': task.id,
-                    'task_name': task.name,
-                    'test_plan': test_plan.name,
-                    'plan_item_count': plan_items.count(),
-                    'engine': task.engine,
-                    'browser': task.browser,
-                    'headless': task.headless
-                }, status=status.HTTP_200_OK)
+            log_operation('run', 'scheduled_task', task.id, task.name, request.user)
 
-            else:
-                return Response({
-                    'error': '不支持的任务类型'
-                }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'message': '测试计划开始执行',
+                'task_id': task.id,
+                'task_name': task.name,
+                'test_plan': test_plan.name,
+                'plan_item_count': plan_items.count(),
+                'engine': task.engine,
+                'browser': task.browser,
+                'headless': task.headless
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
             logger.error(f'执行定时任务失败: {str(e)}')

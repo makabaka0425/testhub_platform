@@ -28,8 +28,7 @@
             </el-form-item>
             <el-form-item :label="$t('uiAutomation.scheduledTask.taskType')">
               <el-select v-model="filters.task_type" :placeholder="$t('uiAutomation.common.all')" clearable style="width: 130px">
-                <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testSuite')" value="TEST_SUITE" />
-                <el-option :label="$t('uiAutomation.scheduledTask.taskTypes.testCase')" value="TEST_CASE" />
+                <el-option label="测试计划" value="TEST_PLAN" />
               </el-select>
             </el-form-item>
             <el-form-item :label="$t('uiAutomation.scheduledTask.triggerType')">
@@ -65,8 +64,8 @@
               <el-table-column prop="name" :label="$t('uiAutomation.scheduledTask.taskName')" min-width="200" />
               <el-table-column prop="task_type" :label="$t('uiAutomation.scheduledTask.taskType')" width="120">
                 <template #default="scope">
-                  <el-tag :type="scope.row.task_type === 'TEST_SUITE' ? 'success' : 'primary'">
-                    {{ scope.row.task_type === 'TEST_SUITE' ? $t('uiAutomation.scheduledTask.taskTypes.testSuiteShort') : $t('uiAutomation.scheduledTask.taskTypes.testCaseShort') }}
+                  <el-tag type="primary">
+                    测试计划
                   </el-tag>
                 </template>
               </el-table-column>
@@ -168,36 +167,17 @@
         </el-form-item>
 
         <el-form-item :label="$t('uiAutomation.scheduledTask.taskType')" required>
-          <el-radio-group v-model="taskForm.task_type" @change="onTaskTypeChange">
-            <el-radio value="TEST_SUITE">{{ $t('uiAutomation.scheduledTask.taskTypes.testSuite') }}</el-radio>
-            <el-radio value="TEST_CASE">{{ $t('uiAutomation.scheduledTask.taskTypes.testCase') }}</el-radio>
-          </el-radio-group>
+          <el-tag type="primary">测试计划</el-tag>
         </el-form-item>
 
-        <!-- 根据任务类型显示不同配置 - 移到任务类型下面 -->
-        <el-form-item v-if="taskForm.task_type === 'TEST_SUITE'" :label="$t('uiAutomation.scheduledTask.testSuite')" required>
-          <el-select v-model="taskForm.test_suite" :placeholder="$t('uiAutomation.scheduledTask.selectSuite')">
+        <!-- 选择测试计划 -->
+        <el-form-item label="测试计划" required>
+          <el-select v-model="taskForm.test_plan" :placeholder="'请选择测试计划'" filterable>
             <el-option
-              v-for="suite in testSuites"
-              :key="suite.id"
-              :label="suite.name"
-              :value="suite.id"
-            />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item v-if="taskForm.task_type === 'TEST_CASE'" :label="$t('uiAutomation.scheduledTask.testCase')" required>
-          <el-select
-            v-model="taskForm.test_cases"
-            multiple
-            filterable
-            :placeholder="$t('uiAutomation.scheduledTask.selectTestCase')"
-          >
-            <el-option
-              v-for="testCase in testCases"
-              :key="testCase.id"
-              :label="testCase.name"
-              :value="testCase.id"
+              v-for="plan in testPlans"
+              :key="plan.id"
+              :label="plan.name"
+              :value="plan.id"
             />
           </el-select>
         </el-form-item>
@@ -300,7 +280,7 @@
       <template #footer>
         <el-button @click="showCreateDialog = false">{{ $t('uiAutomation.common.cancel') }}</el-button>
         <el-button type="primary" @click="submitTaskForm" :loading="submitting">
-          {{ editingTask ? $t('uiAutomation.messages.success.update') : $t('uiAutomation.messages.success.create') }}
+          {{ editingTask ? t('uiAutomation.scheduledTask.editTask') : t('uiAutomation.scheduledTask.createTask') }}
         </el-button>
       </template>
     </el-dialog>
@@ -322,8 +302,7 @@ import {
   pauseScheduledTask,
   resumeScheduledTask,
   getUiProjects,
-  getTestSuites,
-  getTestCases,
+  getTestPlans,
   getUiUsers
 } from '@/api/ui_automation.js'
 
@@ -332,8 +311,7 @@ const { t, locale } = useI18n()
 // 数据状态
 const tasks = ref([])
 const projects = ref([])
-const testSuites = ref([])
-const testCases = ref([])
+const testPlans = ref([])
 const users = ref([])
 const loading = ref(false)
 const submitting = ref(false)
@@ -360,13 +338,12 @@ const taskForm = reactive({
   name: '',
   description: '',
   project: '',
-  task_type: 'TEST_SUITE',
+  task_type: 'TEST_PLAN',
   trigger_type: 'CRON',
   cron_expression: '0 0 * * *',
   interval_seconds: 3600,
   execute_at: '',
-  test_suite: '',
-  test_cases: [],
+  test_plan: '',
   engine: 'playwright',
   browser: 'chrome',
   headless: false,
@@ -467,28 +444,19 @@ const loadUsers = async () => {
   }
 }
 
-// 项目变化时加载对应的套件和用例
+// 项目变化时加载对应的测试计划
 const onProjectChange = async (projectId) => {
   if (!projectId) return
 
   try {
-    // 加载测试套件
-    const suitesResponse = await getTestSuites({ project: projectId })
-    testSuites.value = suitesResponse.data.results
-
-    // 加载测试用例
-    const casesResponse = await getTestCases({ project: projectId })
-    testCases.value = casesResponse.data.results
+    const plansResponse = await getTestPlans({ project: projectId })
+    testPlans.value = plansResponse.data.results || plansResponse.data
   } catch (error) {
-    console.error('Load project data failed:', error)
+    console.error('Load project plans failed:', error)
   }
 }
 
-// 任务类型变化
-const onTaskTypeChange = () => {
-  taskForm.test_suite = ''
-  taskForm.test_cases = []
-}
+
 
 // 新建按钮点击
 const handleCreateClick = () => {
@@ -503,13 +471,12 @@ const resetTaskForm = () => {
     name: '',
     description: '',
     project: '',
-    task_type: 'TEST_SUITE',
+    task_type: 'TEST_PLAN',
     trigger_type: 'CRON',
     cron_expression: '0 0 * * *',
     interval_seconds: 3600,
     execute_at: '',
-    test_suite: '',
-    test_cases: [],
+    test_plan: '',
     engine: 'playwright',
     browser: 'chrome',
     headless: false,
@@ -568,10 +535,8 @@ const submitTaskForm = async () => {
     }
 
     // 根据任务类型添加对应字段
-    if (taskForm.task_type === 'TEST_SUITE') {
-      submitData.test_suite = taskForm.test_suite
-    } else if (taskForm.task_type === 'TEST_CASE') {
-      submitData.test_cases = taskForm.test_cases
+    if (taskForm.task_type === 'TEST_PLAN') {
+      submitData.test_plan = taskForm.test_plan
     }
 
     if (editingTask.value) {
@@ -658,17 +623,23 @@ const handleTaskAction = (command, task) => {
 // 编辑任务
 const editTask = async (task) => {
   editingTask.value = task
+
+  // 先加载项目对应的计划列表
+  if (task.project) {
+    await onProjectChange(task.project)
+  }
+
+  // 计划列表加载完成后再回填表单，确保 test_plan 下拉能匹配到选项
   Object.assign(taskForm, {
     name: task.name,
     description: task.description,
     project: task.project,
-    task_type: task.task_type,
+    task_type: 'TEST_PLAN',
     trigger_type: task.trigger_type,
     cron_expression: task.cron_expression,
     interval_seconds: task.interval_seconds,
     execute_at: task.execute_at,
-    test_suite: task.test_suite || '',
-    test_cases: task.test_cases || [],
+    test_plan: task.test_plan || '',
     engine: task.engine || 'playwright',
     browser: task.browser || 'chrome',
     headless: task.headless || false,
@@ -677,11 +648,6 @@ const editTask = async (task) => {
     notification_type: task.notification_type || '',
     notify_emails: task.notify_emails || []
   })
-
-  // 加载项目相关数据
-  if (task.project) {
-    await onProjectChange(task.project)
-  }
 
   showCreateDialog.value = true
 }

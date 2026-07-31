@@ -605,8 +605,8 @@ const loadProjects = async () => {
 }
 
 // 加载执行列表
-const loadExecutions = async () => {
-  loading.value = true
+const loadExecutions = async (silent = false) => {
+  if (!silent) loading.value = true
   try {
     const params = {
       page: pagination.currentPage,
@@ -620,20 +620,75 @@ const loadExecutions = async () => {
 
     const response = await getExecutionUnifiedList(params)
     const results = response.data.results || []
-    // 为每条记录添加内部状态
-    executions.value = results.map(item => ({
-      ...item,
-      _children: null,
-      _loadingChildren: false,
-    }))
+
+    if (silent) {
+      // 轮询模式：增量更新，只修改变化字段，保留对象引用避免闪烁
+      const existingMap = new Map(executions.value.map(e => [e.id, e]))
+      const newIds = new Set(results.map(r => r.id))
+
+      // 更新已有记录的状态字段
+      for (const item of results) {
+        const existing = existingMap.get(item.id)
+        if (existing) {
+          // 只更新可能变化的字段
+          existing.status = item.status
+          existing.duration = item.duration
+          existing.execution_time = item.execution_time
+          existing.pass_rate = item.pass_rate
+          existing.passed_cases = item.passed_cases
+          existing.failed_cases = item.failed_cases
+          existing.skipped_cases = item.skipped_cases
+          existing.total_cases = item.total_cases
+          existing.passed_count = item.passed_count
+          existing.failed_count = item.failed_count
+          existing.total_count = item.total_count
+          existing.has_children = item.has_children
+          existing.child_count = item.child_count
+          existing.started_at = item.started_at
+          existing.finished_at = item.finished_at
+        }
+      }
+
+      // 处理新增/删除的记录
+      const hasAdditions = results.some(r => !existingMap.has(r.id))
+      const hasRemovals = executions.value.some(e => !newIds.has(e.id))
+      if (hasAdditions || hasRemovals) {
+        // 列表项数量变化时需要重建，但仍保留已有对象的_children等内部状态
+        const prevMap = new Map(executions.value.map(e => [e.id, e]))
+        executions.value = results.map(item => {
+          const prev = prevMap.get(item.id)
+          if (prev) return prev // 保留已有对象引用
+          return { ...item, _children: null, _loadingChildren: false }
+        })
+      }
+
+      // 刷新已展开行的子项状态
+      for (const id of expandedKeys.value) {
+        const row = executions.value.find(e => e.id === id)
+        if (row && row.has_children) {
+          refreshChildren(row)
+        }
+      }
+    } else {
+      // 非轮询模式：全量替换
+      executions.value = results.map(item => ({
+        ...item,
+        _children: null,
+        _loadingChildren: false,
+      }))
+      total.value = response.data.count || 0
+      expandedKeys.value = []
+    }
+
     total.value = response.data.count || 0
-    // 清空展开状态
-    expandedKeys.value = []
+    // 调整轮询间隔：有running则5秒，否则15秒
+    updatePollInterval()
+    startPolling()
   } catch (error) {
-    ElMessage.error('获取执行列表失败')
+    if (!silent) ElMessage.error('获取执行列表失败')
     console.error('获取执行列表失败:', error)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -693,6 +748,61 @@ const loadChildren = async (row) => {
     row._children = []
   } finally {
     row._loadingChildren = false
+  }
+}
+
+// 轮询时增量刷新子项状态（不重建数组，避免闪烁）
+const refreshChildren = async (row) => {
+  if (!row._children) return // 尚未加载过，跳过
+  try {
+    const response = await getExecutionChildren(row.raw_id)
+    const items = response.data.items || []
+    // 建立 raw_id → 新数据的映射
+    const newMap = new Map()
+    for (const item of items) {
+      const rawId = item.raw_id || item.id
+      if (rawId) newMap.set(rawId, item)
+    }
+    // 增量更新已有子项的状态字段
+    for (const child of row._children) {
+      const fresh = newMap.get(child.raw_id)
+      if (fresh) {
+        child.status = fresh.status
+        child.duration = fresh.duration
+        child.execution_time = fresh.execution_time
+        child.pass_rate = fresh.pass_rate
+        child.has_children = fresh.has_children
+        child.child_count = fresh.child_count
+        child.started_at = fresh.started_at
+        child.finished_at = fresh.finished_at
+      }
+    }
+    // 处理新增子项：API返回了本地不存在的记录
+    const existingIds = new Set(row._children.map(c => c.raw_id))
+    const newChildren = []
+    for (const item of items) {
+      const rawId = item.raw_id || item.id
+      if (rawId && !existingIds.has(rawId)) {
+        // 统一字段格式
+        let itemType = item.item_type
+        if (itemType === 'test_case') itemType = 'case'
+        else if (itemType === 'test_suite') itemType = 'suite'
+        const name = item.name || item.test_case_name || item.suite_name || '-'
+        newChildren.push({
+          ...item,
+          item_type: itemType,
+          name,
+          raw_id: rawId,
+          _expanded: false,
+        })
+      }
+    }
+    if (newChildren.length > 0) {
+      row._children = [...row._children, ...newChildren]
+    }
+  } catch (error) {
+    // 静默失败，不影响用户体验
+    console.error('刷新子项状态失败:', error)
   }
 }
 
@@ -885,6 +995,41 @@ const getActions = (row) => {
   return actions
 }
 
+// ============ 轮询：持续轻量刷新 + running时加速 ============
+let pollTimer = null
+let pollInterval = 15000 // 默认15秒刷新一次，检查新记录
+
+const startPolling = () => {
+  if (pollTimer) return
+  // 先用默认间隔启动
+  pollTimer = setInterval(async () => {
+    await loadExecutions(true)
+  }, pollInterval)
+}
+
+const updatePollInterval = () => {
+  const hasRunning = executions.value.some(e => e.status === 'running')
+  const newInterval = hasRunning ? 5000 : 15000
+  if (newInterval !== pollInterval) {
+    pollInterval = newInterval
+    // 重启定时器以应用新间隔
+    if (pollTimer) {
+      clearInterval(pollTimer)
+      pollTimer = null
+      pollTimer = setInterval(async () => {
+        await loadExecutions(true)
+      }, pollInterval)
+    }
+  }
+}
+
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
 onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
@@ -899,9 +1044,19 @@ onMounted(async () => {
   resizeObserver = new ResizeObserver(() => syncGridColumns())
   const tableEl = tableRef.value?.$el
   if (tableEl) resizeObserver.observe(tableEl)
+  // 页面重新获得焦点时刷新（从其他菜单切回来）
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    loadExecutions(true)
+  }
+}
+
 onBeforeUnmount(() => {
+  stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
