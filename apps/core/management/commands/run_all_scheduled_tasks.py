@@ -161,10 +161,11 @@ class Command(BaseCommand):
                     self.stdout.write(f"  [UI]  执行任务: {task.name}")
                     self.stdout.write(f"       类型: {task.get_task_type_display()}, 触发方式: {task.get_trigger_type_display()}")
                     try:
-                        # 更新任务执行时间和次数
+                        # 更新任务执行时间和次数，并立即计算下次运行时间
+                        # 必须在启动线程前更新next_run_time，否则下一轮轮询会重复触发
                         task.last_run_time = timezone.now()
                         task.total_runs += 1
-                        # 先保存，确保last_run_time被更新
+                        task.next_run_time = task.calculate_next_run()
                         task.save()
 
                         # 根据任务类型执行不同的逻辑
@@ -208,7 +209,7 @@ class Command(BaseCommand):
                                     # 刷新计划对象状态
                                     test_plan.refresh_from_db()
 
-                                    # 重新加载任务并更新结果和下次运行时间
+                                    # 重新加载任务并更新执行结果（next_run_time已在主线程中更新）
                                     task.refresh_from_db()
                                     if test_plan.execution_status == 'passed':
                                         task.successful_runs += 1
@@ -224,8 +225,6 @@ class Command(BaseCommand):
                                             'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
                                         }
                                         task.error_message = f'{test_plan.failed_count}个用例执行失败'
-                                    # 重新计算下次运行时间
-                                    task.next_run_time = task.calculate_next_run()
                                     task.save()
 
                                     logger.info(f"UI定时任务 {task.name} 执行完成")
@@ -259,7 +258,6 @@ class Command(BaseCommand):
                                         'status': 'failed',
                                         'error': str(e)
                                     }
-                                    task.next_run_time = task.calculate_next_run()
                                     task.save()
 
                                     # 发送失败通知

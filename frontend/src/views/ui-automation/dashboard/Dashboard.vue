@@ -1,215 +1,133 @@
 <template>
-  <div class="page-container">
-    <!-- 数据概览 -->
-    <div class="stats-section">
-      <el-row :gutter="20">
-        <el-col :span="6">
-          <el-card shadow="hover" class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon bg-blue">
-                <el-icon><Folder /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ projectCount }}</div>
-                <div class="stat-label">{{ $t('uiAutomation.dashboard.uiTestProjects') }}</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon bg-green">
-                <el-icon><Document /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ testCaseCount }}</div>
-                <div class="stat-label">{{ $t('uiAutomation.dashboard.testCases') }}</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon bg-purple">
-                <el-icon><Collection /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ suiteCount }}</div>
-                <div class="stat-label">{{ $t('uiAutomation.dashboard.testSuites') }}</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon bg-orange">
-                <el-icon><RefreshRight /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ executionCount }}</div>
-                <div class="stat-label">{{ $t('uiAutomation.dashboard.testExecutions') }}</div>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
+  <div class="dashboard">
+    <!-- 顶部数据概览卡片 -->
+    <div class="overview-cards">
+      <div class="overview-card" v-for="item in overviewItems" :key="item.key">
+        <div class="card-indicator" :style="{ background: item.color }"></div>
+        <div class="card-body">
+          <div class="card-value">{{ item.value }}</div>
+          <div class="card-label">{{ item.label }}</div>
+        </div>
+        <div class="card-icon" :style="{ color: item.color }">
+          <el-icon :size="24"><component :is="item.icon" /></el-icon>
+        </div>
+      </div>
     </div>
-    
-    <!-- 最近活动和快速操作 -->
-    <el-row :gutter="20" class="content-section">
-      <!-- 最近活动 -->
-      <el-col :span="12">
-        <el-card class="recent-activities" :title="$t('uiAutomation.dashboard.operationRecords')" shadow="hover">
-          <div v-if="loading" class="loading-container">
-            <el-empty :description="$t('uiAutomation.dashboard.loading')" />
+
+    <!-- 主体两栏 -->
+    <div class="main-grid">
+      <!-- 左侧：测试计划看板 -->
+      <div class="plan-board">
+        <div class="section-header">
+          <span class="section-title">测试计划看板</span>
+          <span class="section-badge">{{ planCount }} 个计划</span>
+        </div>
+
+        <!-- 计划状态分布 -->
+        <div class="plan-status-row">
+          <div class="plan-status-chip passed">
+            <span class="dot"></span>通过 {{ planPassed }}
           </div>
-          <div v-else-if="operationRecords.length === 0" class="empty-container">
-            <el-empty :description="$t('uiAutomation.dashboard.noRecords')" />
+          <div class="plan-status-chip failed">
+            <span class="dot"></span>失败 {{ planFailed }}
           </div>
-          <div v-else class="activities-list">
-            <div v-for="record in operationRecords" :key="record.id" class="activity-item">
-              <div class="activity-icon" :class="getOperationIconClass(record.operation_type)">
-                <el-icon><component :is="getOperationIcon(record.operation_type)" /></el-icon>
+          <div class="plan-status-chip running">
+            <span class="dot"></span>执行中 {{ planRunning }}
+          </div>
+          <div class="plan-status-chip pending">
+            <span class="dot"></span>待执行 {{ planPending }}
+          </div>
+        </div>
+
+        <!-- 最近执行的计划列表 -->
+        <div class="plan-list" v-if="recentPlans.length > 0">
+          <div class="plan-item" v-for="plan in recentPlans" :key="plan.id" @click="goToPlanDetail(plan.id)">
+            <div class="plan-item-left">
+              <div class="plan-item-name">{{ plan.name }}</div>
+              <div class="plan-item-project">{{ plan.project_name }}</div>
+            </div>
+            <div class="plan-item-right">
+              <div class="plan-item-stats">
+                <span class="stat-pass" v-if="plan.passed_count">{{ plan.passed_count }} 通过</span>
+                <span class="stat-fail" v-if="plan.failed_count">{{ plan.failed_count }} 失败</span>
               </div>
-              <div class="activity-content">
+              <div class="plan-item-status" :class="plan.execution_status">
+                {{ planStatusText(plan.execution_status) }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="plan-list-empty" v-else>
+          <el-icon :size="32" color="#c0c4cc"><Tickets /></el-icon>
+          <span>暂无执行记录</span>
+        </div>
+
+        <!-- 查看全部 -->
+        <div class="plan-footer" v-if="planCount > 0" @click="goToTestPlans">
+          查看全部计划 <el-icon><ArrowRight /></el-icon>
+        </div>
+      </div>
+
+      <!-- 右侧 -->
+      <div class="right-col">
+        <!-- 快速操作 -->
+        <div class="quick-panel">
+          <div class="section-header">
+            <span class="section-title">快速操作</span>
+          </div>
+          <div class="quick-grid">
+            <div class="quick-item" v-for="item in quickActions" :key="item.label" @click="item.action">
+              <div class="quick-icon" :style="{ background: item.bg, color: item.fg }">
+                <el-icon :size="18"><component :is="item.icon" /></el-icon>
+              </div>
+              <div class="quick-text">
+                <span class="quick-label">{{ item.label }}</span>
+                <span class="quick-desc">{{ item.desc }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 最近活动 -->
+        <div class="activity-panel">
+          <div class="section-header">
+            <span class="section-title">最近活动</span>
+          </div>
+          <div v-if="loading" class="panel-empty">
+            <span>加载中...</span>
+          </div>
+          <div v-else-if="operationRecords.length === 0" class="panel-empty">
+            <span>暂无记录</span>
+          </div>
+          <div v-else class="activity-list">
+            <div v-for="record in operationRecords" :key="record.id" class="activity-row">
+              <div class="activity-dot" :class="getDotClass(record.operation_type)"></div>
+              <div class="activity-body">
                 <div class="activity-text">
-                  <span class="operation-user">{{ record.user_name }}</span>
-                  <span class="operation-action">{{ record.operation_type_display }}</span>
-                  <span class="operation-resource">{{ record.resource_type_display }}</span>
-                  <span class="resource-name">「{{ record.resource_name }}」</span>
+                  <span class="op-user">{{ record.user_name }}</span>
+                  <span class="op-action">{{ record.operation_type_display }}</span>
+                  <span class="op-resource">{{ record.resource_type_display }}</span>
+                  <span class="op-name">{{ record.resource_name }}</span>
                 </div>
                 <div class="activity-time">{{ formatRelativeTime(record.created_at) }}</div>
               </div>
             </div>
           </div>
-        </el-card>
-      </el-col>
-      
-      <!-- 快速操作 -->
-      <el-col :span="12">
-        <el-card class="quick-actions" :title="$t('uiAutomation.dashboard.quickActions')" shadow="hover">
-          <div class="actions-grid">
-            <div class="action-item" @click="goToProjects">
-              <div class="action-icon bg-blue">
-                <el-icon><Folder /></el-icon>
-              </div>
-              <div class="action-label">{{ $t('uiAutomation.dashboard.projectManagement') }}</div>
-            </div>
-            <div class="action-item" @click="goToElements">
-              <div class="action-icon bg-green">
-                <el-icon><Monitor /></el-icon>
-              </div>
-              <div class="action-label">{{ $t('uiAutomation.dashboard.elementManagement') }}</div>
-            </div>
-            <div class="action-item" @click="goToTestCases">
-              <div class="action-icon bg-cyan">
-                <el-icon><Document /></el-icon>
-              </div>
-              <div class="action-label">{{ $t('uiAutomation.dashboard.caseManagement') }}</div>
-            </div>
-            <div class="action-item" @click="goToScripts">
-              <div class="action-icon bg-purple">
-                <el-icon><Edit /></el-icon>
-              </div>
-              <div class="action-label">{{ $t('uiAutomation.dashboard.scriptGeneration') }}</div>
-            </div>
-            <div class="action-item" @click="goToSuites">
-              <div class="action-icon bg-orange">
-                <el-icon><Collection /></el-icon>
-              </div>
-              <div class="action-label">{{ $t('uiAutomation.dashboard.runTests') }}</div>
-            </div>
-            <div class="action-item" @click="goToExecutions">
-              <div class="action-icon bg-red">
-                <el-icon><VideoPlay /></el-icon>
-              </div>
-              <div class="action-label">{{ $t('uiAutomation.dashboard.executionRecords') }}</div>
-            </div>
-            <div class="action-item" @click="goToReports">
-              <div class="action-icon bg-indigo">
-                <el-icon><DataAnalysis /></el-icon>
-              </div>
-              <div class="action-label">{{ $t('uiAutomation.dashboard.testReports') }}</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-    
-    <!-- 核心功能介绍 -->
-    <div class="features-section">
-      <h2 class="section-title">{{ $t('uiAutomation.dashboard.coreFeatures') }}</h2>
-      <el-row :gutter="20">
-        <el-col :span="6">
-          <el-card shadow="hover" class="feature-card">
-            <div class="feature-icon">
-              <el-icon><Cpu /></el-icon>
-            </div>
-            <h3 class="feature-title">{{ $t('uiAutomation.dashboard.elementLocation') }}</h3>
-            <p class="feature-description">{{ $t('uiAutomation.dashboard.elementLocationDesc') }}</p>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="feature-card">
-            <div class="feature-icon">
-              <el-icon><Monitor /></el-icon>
-            </div>
-            <h3 class="feature-title">{{ $t('uiAutomation.dashboard.dualEngine') }}</h3>
-            <p class="feature-description">{{ $t('uiAutomation.dashboard.dualEngineDesc') }}</p>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="feature-card">
-            <div class="feature-icon">
-              <el-icon><Platform /></el-icon>
-            </div>
-            <h3 class="feature-title">{{ $t('uiAutomation.dashboard.multiBrowser') }}</h3>
-            <p class="feature-description">{{ $t('uiAutomation.dashboard.multiBrowserDesc') }}</p>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="feature-card">
-            <div class="feature-icon">
-              <el-icon><Bell /></el-icon>
-            </div>
-            <h3 class="feature-title">{{ $t('uiAutomation.dashboard.fullNotification') }}</h3>
-            <p class="feature-description">{{ $t('uiAutomation.dashboard.fullNotificationDesc') }}</p>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="feature-card">
-            <div class="feature-icon">
-              <el-icon><Edit /></el-icon>
-            </div>
-            <h3 class="feature-title">{{ $t('uiAutomation.dashboard.scriptRecording') }}</h3>
-            <p class="feature-description">{{ $t('uiAutomation.dashboard.scriptRecordingDesc') }}</p>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card shadow="hover" class="feature-card">
-            <div class="feature-icon">
-              <el-icon><RefreshRight /></el-icon>
-            </div>
-            <h3 class="feature-title">{{ $t('uiAutomation.dashboard.autoExecution') }}</h3>
-            <p class="feature-description">{{ $t('uiAutomation.dashboard.autoExecutionDesc') }}</p>
-          </el-card>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
   Folder, Document, Collection, RefreshRight,
-  Bell, Cpu, Monitor, Edit, Platform,
-  Plus, Delete, CaretRight, Refresh, VideoPlay, DataAnalysis
+  Bell, Cpu, Monitor, Platform, VideoPlay, DataAnalysis,
+  Plus, Delete, CaretRight, Refresh, Tickets, ArrowRight,
+  Calendar, Setting, Aim, Connection, Timer
 } from '@element-plus/icons-vue'
 import router from '@/router'
 import {
@@ -224,64 +142,47 @@ const projectCount = ref(0)
 const testCaseCount = ref(0)
 const suiteCount = ref(0)
 const executionCount = ref(0)
+const planCount = ref(0)
+const planPassed = ref(0)
+const planFailed = ref(0)
+const planRunning = ref(0)
+const planPending = ref(0)
+const recentPlans = ref([])
 
 // 操作记录
 const operationRecords = ref([])
 const loading = ref(false)
 
-// 加载数据
-const loadDashboardData = async () => {
-  loading.value = true
-  try {
-    // 并行加载统计数据和操作记录
-    const [statsRes, recordsRes] = await Promise.all([
-      getDashboardStats(),
-      getOperationRecords({ limit: 10 })
-    ])
+// 概览卡片
+const overviewItems = computed(() => [
+  { key: 'project', label: '测试项目', value: projectCount.value, icon: Folder, color: '#6366f1' },
+  { key: 'case', label: '测试用例', value: testCaseCount.value, icon: Document, color: '#0ea5e9' },
+  { key: 'suite', label: '测试套件', value: suiteCount.value, icon: Collection, color: '#8b5cf6' },
+  { key: 'exec', label: '执行记录', value: executionCount.value, icon: RefreshRight, color: '#f59e0b' },
+])
 
-    // 更新统计数据
-    const stats = statsRes.data
-    projectCount.value = stats.project_count || 0
-    testCaseCount.value = stats.test_case_count || 0
-    suiteCount.value = stats.suite_count || 0
-    executionCount.value = stats.execution_count || 0
+// 快速操作（含功能描述）
+const quickActions = [
+  { label: '项目管理', desc: '管理测试项目与成员', icon: Folder, bg: '#eef2ff', fg: '#6366f1', action: () => router.push('/ui-automation/projects') },
+  { label: '元素管理', desc: 'AI提取+交互式定位', icon: Monitor, bg: '#ecfdf5', fg: '#10b981', action: () => router.push('/ui-automation/elements-enhanced') },
+  { label: '用例管理', desc: '可视化编排测试步骤', icon: Document, bg: '#f0f9ff', fg: '#0ea5e9', action: () => router.push('/ui-automation/test-cases') },
+  { label: '套件管理', desc: '组合用例批量执行', icon: Collection, bg: '#faf5ff', fg: '#8b5cf6', action: () => router.push('/ui-automation/suites') },
+  { label: '测试计划', desc: '计划编排+共享会话', icon: Tickets, bg: '#fff7ed', fg: '#f59e0b', action: () => router.push('/ui-automation/test-plans') },
+  { label: '执行记录', desc: '实时日志+截图回溯', icon: VideoPlay, bg: '#fef2f2', fg: '#ef4444', action: () => router.push('/ui-automation/executions') },
+  { label: '测试报告', desc: 'Allure报告+失败归因', icon: DataAnalysis, bg: '#f0fdf4', fg: '#22c55e', action: () => router.push('/ui-automation/reports') },
+  { label: '定时任务', desc: 'Cron调度+邮件通知', icon: Timer, bg: '#eff6ff', fg: '#3b82f6', action: () => router.push('/ui-automation/scheduled-tasks') },
+]
 
-    // 操作记录
-    operationRecords.value = recordsRes.data.results || recordsRes.data || []
-  } catch (error) {
-    ElMessage.error(t('uiAutomation.dashboard.messages.loadFailed'))
-    console.error('Failed to load dashboard data:', error)
-  } finally {
-    loading.value = false
-  }
+// 计划状态文本
+const planStatusText = (status) => {
+  const map = { 'passed': '通过', 'failed': '失败', 'running': '执行中', 'pending': '待执行', 'not_executed': '未执行' }
+  return map[status] || status
 }
 
-// 获取操作类型图标
-const getOperationIcon = (operationType) => {
-  const iconMap = {
-    'create': Plus,
-    'edit': Edit,
-    'delete': Delete,
-    'run': CaretRight,
-    'rerun': Refresh,
-    'save': Document,
-    'rename': Edit
-  }
-  return iconMap[operationType] || Bell
-}
-
-// 获取操作图标样式类
-const getOperationIconClass = (operationType) => {
-  const classMap = {
-    'create': 'icon-create',
-    'edit': 'icon-edit',
-    'delete': 'icon-delete',
-    'run': 'icon-run',
-    'rerun': 'icon-rerun',
-    'save': 'icon-save',
-    'rename': 'icon-rename'
-  }
-  return classMap[operationType] || ''
+// 活动圆点样式
+const getDotClass = (type) => {
+  const map = { 'create': 'dot-create', 'edit': 'dot-edit', 'delete': 'dot-delete', 'run': 'dot-run', 'rerun': 'dot-rerun', 'save': 'dot-save' }
+  return map[type] || ''
 }
 
 // 格式化相对时间
@@ -292,852 +193,423 @@ const formatRelativeTime = (dateString) => {
   const diffMins = Math.floor(diffMs / (1000 * 60))
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  if (diffMins < 1) return '刚刚'
+  if (diffMins < 60) return `${diffMins} 分钟前`
+  if (diffHours < 24) return `${diffHours} 小时前`
+  return `${diffDays} 天前`
+}
 
-  if (diffMins < 1) {
-    return t('uiAutomation.dashboard.justNow')
-  } else if (diffMins < 60) {
-    return t('uiAutomation.dashboard.minutesAgo', { n: diffMins })
-  } else if (diffHours < 24) {
-    return t('uiAutomation.dashboard.hoursAgo', { n: diffHours })
-  } else {
-    return t('uiAutomation.dashboard.daysAgo', { n: diffDays })
+// 导航
+const goToTestPlans = () => router.push('/ui-automation/test-plans')
+const goToPlanDetail = (id) => router.push(`/ui-automation/test-plans/${id}`)
+
+// 加载数据
+const loadDashboardData = async () => {
+  loading.value = true
+  try {
+    const [statsRes, recordsRes] = await Promise.all([
+      getDashboardStats(),
+      getOperationRecords({ limit: 8 })
+    ])
+    const stats = statsRes.data
+    projectCount.value = stats.project_count || 0
+    testCaseCount.value = stats.test_case_count || 0
+    suiteCount.value = stats.suite_count || 0
+    executionCount.value = stats.execution_count || 0
+    planCount.value = stats.plan_count || 0
+    planPassed.value = stats.plan_passed || 0
+    planFailed.value = stats.plan_failed || 0
+    planRunning.value = stats.plan_running || 0
+    planPending.value = stats.plan_pending || 0
+    recentPlans.value = stats.recent_plans || []
+    operationRecords.value = recordsRes.data.results || recordsRes.data || []
+  } catch (error) {
+    ElMessage.error('加载仪表盘数据失败')
+    console.error('Failed to load dashboard data:', error)
+  } finally {
+    loading.value = false
   }
 }
 
-// 导航到各功能页面
-const goToProjects = () => {
-  router.push('/ui-automation/projects')
-}
-
-const goToElements = () => {
-  router.push('/ui-automation/elements-enhanced')
-}
-
-const goToTestCases = () => {
-  router.push('/ui-automation/test-cases')
-}
-
-const goToScripts = () => {
-  router.push('/ui-automation/scripts-enhanced')
-}
-
-const goToSuites = () => {
-  router.push('/ui-automation/suites')
-}
-
-const goToExecutions = () => {
-  router.push('/ui-automation/executions')
-}
-
-const goToReports = () => {
-  router.push('/ui-automation/reports')
-}
-
-// 组件挂载时加载数据
 onMounted(() => {
   loadDashboardData()
 })
 </script>
 
 <style scoped>
-.stats-section {
-  margin-bottom: 40px;
+/* ===== 全局布局 ===== */
+.dashboard {
+  padding: 32px 36px;
+  background: #f7f8fa;
+  min-height: calc(100vh - 100px);
 }
 
-.stat-card {
-  height: 100%;
-}
-
-.stat-content {
-  display: flex;
-  align-items: center;
-  height: 100px;
-}
-
-.stat-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 20px;
-  color: white;
-  font-size: 24px;
-}
-
-.stat-icon.bg-blue {
-  background-color: #1890ff;
-}
-
-.stat-icon.bg-green {
-  background-color: #52c41a;
-}
-
-.stat-icon.bg-purple {
-  background-color: #722ed1;
-}
-
-.stat-icon.bg-orange {
-  background-color: #fa8c16;
-}
-
-.stat-icon.bg-red {
-  background-color: #f5222d;
-}
-
-.stat-icon.bg-cyan {
-  background-color: #13c2c2;
-}
-
-.stat-icon.bg-indigo {
-  background-color: #597ef7;
-}
-
-.stat-info {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: bold;
-  color: #1a1a1a;
-  margin-bottom: 5px;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: #666;
-}
-
-.content-section {
-  margin-bottom: 40px;
-}
-
-.recent-activities {
-  height: 100%;
-}
-
-.activities-list {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.activity-item {
-  display: flex;
-  padding: 15px 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.activity-item:last-child {
-  border-bottom: none;
-}
-
-.activity-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background-color: #f0f0f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 15px;
-  color: #666;
-}
-
-.activity-icon.icon-create {
-  background-color: #e6f7ff;
-  color: #1890ff;
-}
-
-.activity-icon.icon-edit {
-  background-color: #fff7e6;
-  color: #fa8c16;
-}
-
-.activity-icon.icon-delete {
-  background-color: #fff1f0;
-  color: #f5222d;
-}
-
-.activity-icon.icon-run {
-  background-color: #f6ffed;
-  color: #52c41a;
-}
-
-.activity-icon.icon-rerun {
-  background-color: #f9f0ff;
-  color: #722ed1;
-}
-
-.activity-icon.icon-save {
-  background-color: #e6fffb;
-  color: #13c2c2;
-}
-
-.activity-icon.icon-rename {
-  background-color: #fff7e6;
-  color: #fa8c16;
-}
-
-.activity-content {
-  flex: 1;
-}
-
-.activity-text {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 5px;
-}
-
-.activity-text .operation-user {
-  font-weight: 600;
-  color: #1890ff;
-}
-
-.activity-text .operation-action {
-  margin: 0 4px;
-  color: #666;
-}
-
-.activity-text .operation-resource {
-  margin-right: 4px;
-  color: #666;
-}
-
-.activity-text .resource-name {
-  font-weight: 500;
-  color: #333;
-}
-
-.activity-time {
-  font-size: 12px;
-  color: #999;
-}
-
-.quick-actions {
-  height: 100%;
-}
-
-.actions-grid {
+/* ===== 概览卡片 ===== */
+.overview-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 28px;
 }
 
-.action-item {
-  text-align: center;
-  padding: 15px 10px;
-  border-radius: 8px;
-  background-color: #f9f9f9;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.action-item:hover {
-  background-color: #f0f0f0;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.action-item .action-icon {
-  margin: 0 auto 15px;
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
+.overview-card {
+  position: relative;
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px 24px 24px 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  transition: box-shadow 0.2s, transform 0.2s;
+  overflow: hidden;
+}
+.overview-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  transform: translateY(-2px);
 }
 
-.action-icon.bg-blue {
-  background-color: #1890ff;
+.card-indicator {
+  width: 4px;
+  height: 100%;
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 12px 0 0 12px;
 }
 
-.action-icon.bg-green {
-  background-color: #52c41a;
+.card-body {
+  flex: 1;
+  padding-left: 24px;
 }
 
-.action-icon.bg-cyan {
-  background-color: #13c2c2;
+.card-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
 }
 
-.action-icon.bg-purple {
-  background-color: #722ed1;
+.card-label {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 4px;
+  font-weight: 400;
 }
 
-.action-icon.bg-orange {
-  background-color: #fa8c16;
+.card-icon {
+  padding-right: 20px;
+  opacity: 0.85;
 }
 
-.action-icon.bg-red {
-  background-color: #f5222d;
+/* ===== 主网格 ===== */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 20px;
+  margin-bottom: 28px;
 }
 
-.action-icon.bg-indigo {
-  background-color: #597ef7;
+/* ===== 测试计划看板 ===== */
+.plan-board {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  display: flex;
+  flex-direction: column;
 }
 
-.action-label {
-  font-size: 16px;
-  color: #333;
-  font-weight: 500;
-}
-
-.features-section {
-  margin-bottom: 40px;
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
 }
 
 .section-title {
-  font-size: 24px;
-  font-weight: bold;
-  margin-bottom: 20px;
-  color: #1a1a1a;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
 }
 
-.feature-card {
-  height: 100%;
-  padding: 30px;
+.section-badge {
+  font-size: 12px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-weight: 400;
+}
+
+/* 计划状态分布 */
+.plan-status-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.plan-status-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #64748b;
+  background: #f8fafc;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 400;
+}
+
+.plan-status-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.plan-status-chip.passed .dot { background: #10b981; }
+.plan-status-chip.failed .dot { background: #ef4444; }
+.plan-status-chip.running .dot { background: #3b82f6; animation: pulse-dot 1.5s infinite; }
+.plan-status-chip.pending .dot { background: #94a3b8; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* 计划列表 */
+.plan-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.plan-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border: 1px solid transparent;
+}
+.plan-item:hover {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.plan-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
+  margin-bottom: 3px;
+}
+
+.plan-item-project {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.plan-item-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.plan-item-stats {
+  font-size: 12px;
+  color: #94a3b8;
+  display: flex;
+  gap: 8px;
+}
+
+.stat-pass { color: #10b981; }
+.stat-fail { color: #ef4444; }
+
+.plan-item-status {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 500;
+  min-width: 60px;
   text-align: center;
 }
+.plan-item-status.passed { background: #ecfdf5; color: #10b981; }
+.plan-item-status.failed { background: #fef2f2; color: #ef4444; }
+.plan-item-status.running { background: #eff6ff; color: #3b82f6; }
+.plan-item-status.pending, .plan-item-status.not_executed { background: #f1f5f9; color: #94a3b8; }
 
-.feature-icon {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background-color: #f0f0f0;
+.plan-list-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #c0c4cc;
+  padding: 40px 0;
+  font-size: 14px;
+}
+
+.plan-footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 20px;
-  font-size: 36px;
-  color: #1890ff;
+  gap: 4px;
+  padding-top: 16px;
+  margin-top: 8px;
+  border-top: 1px solid #f1f5f9;
+  color: #94a3b8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.plan-footer:hover { color: #6366f1; }
+
+/* ===== 右侧栏 ===== */
+.right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.feature-title {
-  font-size: 18px;
-  font-weight: bold;
-  margin-bottom: 10px;
-  color: #1a1a1a;
+.quick-panel,
+.activity-panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
-.feature-description {
+/* 快速操作 */
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.quick-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.quick-item:hover {
+  background: #f8fafc;
+  transform: translateY(-1px);
+}
+
+.quick-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.quick-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.quick-label {
+  font-size: 13px;
+  color: #1e293b;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.quick-desc {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* 活动面板 */
+.panel-empty {
+  text-align: center;
+  color: #c0c4cc;
+  padding: 32px 0;
   font-size: 14px;
-  color: #666;
-  line-height: 1.6;
 }
 
-.loading-container,
-.empty-container {
-  padding: 40px 0;
+.activity-list {
+  max-height: 320px;
+  overflow-y: auto;
 }
 
-@media screen and (max-width: 1920px) {
-  .stats-section {
-    margin-bottom: 36px;
-  }
-  
-  .stat-content {
-    height: 90px;
-  }
-  
-  .stat-icon {
-    width: 55px;
-    height: 55px;
-    font-size: 22px;
-  }
-  
-  .stat-value {
-    font-size: 26px;
-  }
-  
-  .content-section {
-    margin-bottom: 36px;
-  }
-  
-  .features-section {
-    margin-bottom: 36px;
-  }
+.activity-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.activity-row:last-child { border-bottom: none; }
+
+.activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+  background: #cbd5e1;
+}
+.activity-dot.dot-create { background: #6366f1; }
+.activity-dot.dot-edit, .activity-dot.dot-save { background: #f59e0b; }
+.activity-dot.dot-delete { background: #ef4444; }
+.activity-dot.dot-run, .activity-dot.dot-rerun { background: #10b981; }
+
+.activity-body { flex: 1; min-width: 0; }
+
+.activity-text {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+  word-break: break-all;
 }
 
-@media screen and (max-width: 1600px) {
-  .stats-section {
-    margin-bottom: 32px;
-  }
-  
-  .stat-content {
-    height: 85px;
-  }
-  
-  .stat-icon {
-    width: 50px;
-    height: 50px;
-    font-size: 20px;
-  }
-  
-  .stat-value {
-    font-size: 24px;
-  }
-  
-  .content-section {
-    margin-bottom: 32px;
-  }
-  
-  .features-section {
-    margin-bottom: 32px;
-  }
-  
-  .section-title {
-    font-size: 22px;
-  }
+.op-user { color: #6366f1; font-weight: 500; }
+.op-action { margin: 0 2px; }
+.op-resource { margin: 0 2px; color: #94a3b8; }
+.op-name { font-weight: 500; color: #1e293b; }
+
+.activity-time {
+  font-size: 12px;
+  color: #cbd5e1;
+  margin-top: 4px;
 }
 
-@media screen and (max-width: 1440px) {
-  .stats-section {
-    margin-bottom: 28px;
-  }
-  
-  .stat-content {
-    height: 80px;
-  }
-  
-  .stat-icon {
-    width: 48px;
-    height: 48px;
-    font-size: 18px;
-  }
-  
-  .stat-value {
-    font-size: 22px;
-  }
-  
-  .content-section {
-    margin-bottom: 28px;
-  }
-  
-  .features-section {
-    margin-bottom: 28px;
-  }
-  
-  .section-title {
-    font-size: 20px;
-  }
-  
-  .actions-grid {
-    gap: 12px;
-  }
-  
-  .action-item {
-    padding: 12px 8px;
-  }
-  
-  .action-icon {
-    width: 45px;
-    height: 45px;
-    font-size: 22px;
-  }
-  
-  .action-label {
-    font-size: 15px;
-  }
+
+
+/* ===== 响应式 ===== */
+@media (max-width: 1600px) {
+  .main-grid { grid-template-columns: 1fr 340px; }
+  .overview-cards { gap: 16px; }
+  .card-value { font-size: 24px; }
 }
 
-@media screen and (max-width: 1366px) {
-  .stats-section {
-    margin-bottom: 24px;
-  }
-  
-  .stat-content {
-    height: 75px;
-  }
-  
-  .stat-icon {
-    width: 45px;
-    height: 45px;
-    font-size: 18px;
-  }
-  
-  .stat-value {
-    font-size: 20px;
-  }
-  
-  .stat-label {
-    font-size: 13px;
-  }
-  
-  .content-section {
-    margin-bottom: 24px;
-  }
-  
-  .features-section {
-    margin-bottom: 24px;
-  }
-  
-  .section-title {
-    font-size: 18px;
-  }
-  
-  .activities-list {
-    max-height: 350px;
-  }
-  
-  .actions-grid {
-    gap: 10px;
-  }
-  
-  .action-item {
-    padding: 10px 6px;
-  }
-  
-  .action-icon {
-    width: 40px;
-    height: 40px;
-    font-size: 20px;
-  }
-  
-  .action-label {
-    font-size: 14px;
-  }
-  
-  .feature-card {
-    padding: 20px;
-  }
-  
-  .feature-icon {
-    width: 70px;
-    height: 70px;
-    font-size: 32px;
-  }
-  
-  .feature-title {
-    font-size: 16px;
-  }
-  
-  .feature-description {
-    font-size: 13px;
-  }
+@media (max-width: 1280px) {
+  .dashboard { padding: 24px; }
+  .main-grid { grid-template-columns: 1fr; }
 }
 
-@media screen and (max-width: 1280px) {
-  .stats-section {
-    margin-bottom: 20px;
-  }
-  
-  .stat-content {
-    height: 70px;
-  }
-  
-  .stat-icon {
-    width: 42px;
-    height: 42px;
-    font-size: 16px;
-  }
-  
-  .stat-value {
-    font-size: 18px;
-  }
-  
-  .stat-label {
-    font-size: 12px;
-  }
-  
-  .content-section {
-    margin-bottom: 20px;
-  }
-  
-  .features-section {
-    margin-bottom: 20px;
-  }
-  
-  .section-title {
-    font-size: 18px;
-  }
-  
-  .activities-list {
-    max-height: 300px;
-  }
-  
-  .action-item {
-    padding: 8px 5px;
-  }
-  
-  .action-icon {
-    width: 38px;
-    height: 38px;
-    font-size: 18px;
-  }
-  
-  .action-label {
-    font-size: 13px;
-  }
-  
-  .feature-card {
-    padding: 15px;
-  }
-  
-  .feature-icon {
-    width: 60px;
-    height: 60px;
-    font-size: 28px;
-  }
+@media (max-width: 1024px) {
+  .overview-cards { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media screen and (max-width: 1024px) {
-  .stats-section {
-    margin-bottom: 18px;
-  }
-  
-  .stat-content {
-    height: 65px;
-  }
-  
-  .stat-icon {
-    width: 40px;
-    height: 40px;
-    font-size: 16px;
-  }
-  
-  .stat-value {
-    font-size: 16px;
-  }
-  
-  .stat-label {
-    font-size: 12px;
-  }
-  
-  .content-section {
-    margin-bottom: 18px;
-  }
-  
-  .features-section {
-    margin-bottom: 18px;
-  }
-  
-  .section-title {
-    font-size: 16px;
-  }
-  
-  .activities-list {
-    max-height: 280px;
-  }
-  
-  .actions-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
-  
-  .action-item {
-    padding: 10px 8px;
-  }
-  
-  .action-label {
-    font-size: 13px;
-  }
-  
-  .feature-card {
-    padding: 12px;
-  }
-  
-  .feature-icon {
-    width: 50px;
-    height: 50px;
-    font-size: 24px;
-  }
-  
-  .feature-title {
-    font-size: 14px;
-  }
-  
-  .feature-description {
-    font-size: 12px;
-  }
-}
-
-@media screen and (max-width: 768px) {
-  .stats-section {
-    margin-bottom: 15px;
-  }
-  
-  .stat-content {
-    height: 60px;
-  }
-  
-  .stat-icon {
-    width: 35px;
-    height: 35px;
-    font-size: 14px;
-  }
-  
-  .stat-value {
-    font-size: 14px;
-  }
-  
-  .stat-label {
-    font-size: 11px;
-  }
-  
-  .content-section {
-    margin-bottom: 15px;
-  }
-  
-  .features-section {
-    margin-bottom: 15px;
-  }
-  
-  .section-title {
-    font-size: 16px;
-    margin-bottom: 15px;
-  }
-  
-  .activities-list {
-    max-height: 250px;
-  }
-  
-  .activity-item {
-    padding: 10px 0;
-  }
-  
-  .activity-icon {
-    width: 28px;
-    height: 28px;
-  }
-  
-  .activity-text {
-    font-size: 13px;
-  }
-  
-  .actions-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-  }
-  
-  .action-item {
-    padding: 8px 5px;
-  }
-  
-  .action-icon {
-    width: 35px;
-    height: 35px;
-    font-size: 16px;
-  }
-  
-  .action-label {
-    font-size: 12px;
-  }
-  
-  .feature-card {
-    padding: 10px;
-  }
-  
-  .feature-icon {
-    width: 45px;
-    height: 45px;
-    font-size: 20px;
-  }
-  
-  .feature-title {
-    font-size: 13px;
-  }
-  
-  .feature-description {
-    font-size: 11px;
-  }
-}
-
-@media screen and (max-width: 480px) {
-  .stats-section {
-    margin-bottom: 12px;
-  }
-  
-  .stat-content {
-    height: 55px;
-  }
-  
-  .stat-icon {
-    width: 30px;
-    height: 30px;
-    font-size: 12px;
-  }
-  
-  .stat-value {
-    font-size: 13px;
-  }
-  
-  .stat-label {
-    font-size: 10px;
-  }
-  
-  .content-section {
-    margin-bottom: 12px;
-  }
-  
-  .features-section {
-    margin-bottom: 12px;
-  }
-  
-  .section-title {
-    font-size: 14px;
-    margin-bottom: 12px;
-  }
-  
-  .activities-list {
-    max-height: 200px;
-  }
-  
-  .activity-item {
-    padding: 8px 0;
-  }
-  
-  .activity-icon {
-    width: 24px;
-    height: 24px;
-  }
-  
-  .activity-text {
-    font-size: 12px;
-  }
-  
-  .activity-time {
-    font-size: 11px;
-  }
-  
-  .actions-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 6px;
-  }
-  
-  .action-item {
-    padding: 6px 3px;
-  }
-  
-  .action-icon {
-    width: 30px;
-    height: 30px;
-    font-size: 14px;
-  }
-  
-  .action-label {
-    font-size: 11px;
-  }
-  
-  .feature-card {
-    padding: 8px;
-  }
-  
-  .feature-icon {
-    width: 40px;
-    height: 40px;
-    font-size: 18px;
-  }
-  
-  .feature-title {
-    font-size: 12px;
-  }
-  
-  .feature-description {
-    font-size: 10px;
-  }
+@media (max-width: 768px) {
+  .dashboard { padding: 16px; }
+  .overview-cards { grid-template-columns: 1fr; }
+  .quick-grid { grid-template-columns: 1fr; }
 }
 </style>

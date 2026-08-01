@@ -9753,11 +9753,42 @@ class UiDashboardViewSet(viewsets.ViewSet):
         test_case_execution_count = TestCaseExecution.objects.filter(project_id__in=project_ids).count()
         total_execution_count = execution_count + test_case_execution_count
 
+        # 测试计划统计
+        from .models import UiTestPlan
+        plan_count = UiTestPlan.objects.filter(project_id__in=project_ids).count()
+        plan_passed = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='passed').count()
+        plan_failed = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='failed').count()
+        plan_running = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='running').count()
+        plan_pending = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status__in=['pending', 'not_executed']).count()
+
+        # 最近执行的测试计划（最多5条）
+        recent_plans = UiTestPlan.objects.filter(project_id__in=project_ids).exclude(
+            execution_status__in=['not_executed', 'pending']
+        ).select_related('project').order_by('-updated_at')[:5]
+        recent_plan_list = []
+        for p in recent_plans:
+            recent_plan_list.append({
+                'id': p.id,
+                'name': p.name,
+                'project_name': p.project.name if p.project else '',
+                'execution_status': p.execution_status,
+                'passed_count': p.passed_count,
+                'failed_count': p.failed_count,
+                'total_count': p.total_cases,
+                'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+            })
+
         return Response({
             'project_count': project_count,
             'test_case_count': test_case_count,
             'suite_count': suite_test_case_count,
-            'execution_count': total_execution_count
+            'execution_count': total_execution_count,
+            'plan_count': plan_count,
+            'plan_passed': plan_passed,
+            'plan_failed': plan_failed,
+            'plan_running': plan_running,
+            'plan_pending': plan_pending,
+            'recent_plans': recent_plan_list,
         })
 
 
