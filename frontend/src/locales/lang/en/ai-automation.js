@@ -91,12 +91,39 @@ export default {
       resumeFailed: 'Failed to resume task'
     }
   },
+  notification: {
+    title: 'AI Notification Logs',
+    logList: 'Notification List',
+    taskName: 'Task Name',
+    searchTaskName: 'Search task name',
+    taskType: 'Task Type',
+    notificationType: 'Notification Type',
+    notificationStatus: 'Notification Status',
+    notificationTime: 'Notification Time',
+    sentTime: 'Sent Time',
+    dateRange: 'Date Range',
+    dateRangeTo: 'To',
+    startDate: 'Start Date',
+    endDate: 'End Date',
+    statusSuccess: 'Success',
+    statusFailed: 'Failed',
+    statusPending: 'Pending',
+    content: 'Content',
+    errorMessage: 'Error Message',
+    detailTitle: 'Notification Detail',
+    viewDetail: 'View Detail',
+    webhookBot: 'Webhook Bot',
+    defaultBotName: 'Default Bot',
+    loading: 'Loading...',
+    loadFailed: 'Failed to load notification logs'
+  },
   common: {
     all: 'All',
     search: 'Search',
     reset: 'Reset',
     confirm: 'Confirm',
     cancel: 'Cancel',
-    operation: 'Actions'
+    operation: 'Actions',
+    status: 'Status'
   }
 }

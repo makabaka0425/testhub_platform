@@ -8,7 +8,7 @@ from .models import (
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
     UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport,
-    AiProject, AiScheduledTask
+    AiProject, AiScheduledTask, AiNotificationLog
 )
 from django.contrib.auth import get_user_model
 
@@ -1116,6 +1116,64 @@ class AiScheduledTaskSerializer(serializers.ModelSerializer):
         instance.next_run_time = instance.calculate_next_run()
         instance.save()
         return instance
+
+
+class AiNotificationLogSerializer(serializers.ModelSerializer):
+    """AI自动化通知日志序列化器"""
+    recipient_names = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    notification_type_display = serializers.CharField(source='get_notification_type_display', read_only=True)
+    retry_status = serializers.SerializerMethodField()
+    task_type_display = serializers.SerializerMethodField()
+    actual_notification_type_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiNotificationLog
+        fields = [
+            'id', 'task', 'task_name', 'notification_type',
+            'notification_type_display', 'actual_notification_type_display', 'task_type_display',
+            'sender_name', 'sender_email',
+            'recipient_names', 'webhook_bot_info', 'notification_content',
+            'status', 'status_display', 'error_message', 'response_info',
+            'created_at', 'sent_at', 'retry_count', 'retry_status'
+        ]
+        read_only_fields = ['created_at', 'sent_at']
+
+    def get_recipient_names(self, obj):
+        return obj.get_recipient_names()
+
+    def get_retry_status(self, obj):
+        return obj.get_retry_status()
+
+    def get_task_type_display(self, obj):
+        if obj.task_type:
+            task_type_choices = dict(AiScheduledTask.TASK_TYPE_CHOICES)
+            return task_type_choices.get(obj.task_type, obj.task_type)
+        return '未记录'
+
+    def get_actual_notification_type_display(self, obj):
+        if obj.webhook_bot_info:
+            bot_type = obj.webhook_bot_info.get('bot_type', '') or obj.webhook_bot_info.get('type', '')
+            type_map = {
+                'wechat': '企微机器人',
+                'feishu': '飞书机器人',
+                'dingtalk': '钉钉机器人'
+            }
+            return type_map.get(bot_type, 'Webhook机器人')
+        if obj.recipient_info:
+            if isinstance(obj.recipient_info, list) and len(obj.recipient_info) > 0:
+                return '邮箱通知'
+            elif isinstance(obj.recipient_info, dict) and obj.recipient_info.get('email'):
+                return '邮箱通知'
+        if obj.task:
+            notification_type = obj.task.notification_type
+            type_map = {
+                'email': '邮箱通知',
+                'webhook': 'Webhook机器人',
+                'both': '两种都发送'
+            }
+            return type_map.get(notification_type, notification_type)
+        return '-'
 
 
 class AICaseSerializer(serializers.ModelSerializer):

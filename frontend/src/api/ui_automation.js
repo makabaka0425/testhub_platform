@@ -1785,6 +1785,18 @@ export function runAiScheduledTask(id) {
   return request({ url: `/ui-automation/ai-scheduled-tasks/${id}/run-now/`, method: 'post', timeout: 30000 })
 }
 
+// ==================== AI自动化通知日志相关API ====================
+
+// 获取AI通知日志列表
+export function getAiNotificationLogs(params) {
+  return request({ url: '/ui-automation/ai-notification-logs/', method: 'get', params })
+}
+
+// 重试AI通知
+export function retryAiNotificationLog(id) {
+  return request({ url: `/ui-automation/ai-notification-logs/${id}/retry/`, method: 'post' })
+}
+
 // 获取Midscene用例列表 - 已在上方声明，此处不再重复
 
 // 获取AI模块用户列表（复用API测试模块用户接口）

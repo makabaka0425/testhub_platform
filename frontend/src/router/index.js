@@ -36,6 +36,7 @@ import UiAIExecutionRecords from '@/views/ui-automation/ai/AIExecutionRecords.vu
 import UiMidsceneExecution from '@/views/ui-automation/midscene/MidsceneExecution.vue'
 import AiProjectList from '@/views/ui-automation/ai-projects/AiProjectList.vue'
 import AiScheduledTasks from '@/views/ai-automation/AiScheduledTasks.vue'
+import AiNotificationLogs from '@/views/ai-automation/AiNotificationLogs.vue'
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 const routes = [
@@ -369,16 +370,28 @@ const routes = [
                 component: UiAIExecutionRecords
             },
             {
-                path: 'midscene',
-                name: 'MidsceneExecution',
+                path: 'midscene-web',
+                name: 'MidsceneWeb',
                 component: UiMidsceneExecution,
-                meta: { title: 'Midscene视觉自动化' }
+                meta: { title: 'Web端自动化', platform: 'web' }
+            },
+            {
+                path: 'midscene-app',
+                name: 'MidsceneApp',
+                component: UiMidsceneExecution,
+                meta: { title: 'APP端自动化', platform: 'app' }
             },
             {
                 path: 'scheduled-tasks',
                 name: 'AiScheduledTasks',
                 component: AiScheduledTasks,
                 meta: { title: 'AI定时任务' }
+            },
+            {
+                path: 'notification-logs',
+                name: 'AiNotificationLogs',
+                component: AiNotificationLogs,
+                meta: { title: 'AI通知列表' }
             }
         ]
     },

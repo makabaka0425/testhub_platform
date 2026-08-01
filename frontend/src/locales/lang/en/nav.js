@@ -63,8 +63,9 @@ export default {
     aiIntelligentTesting: 'AI Intelligent Testing',
     aiCaseManagement: 'AI Case Management',
     aiExecutionRecords: 'AI Test Reports',
-    midsceneExecution: 'Midscene Visual Automation',
+    midsceneExecution: 'AI Automation Testing',
     aiScheduledTasks: 'AI Scheduled Tasks',
+    aiNotificationList: 'AI Notification Logs',
 
     // Configuration Center
     aiCaseGenerationConfig: 'AI Test Case Config',

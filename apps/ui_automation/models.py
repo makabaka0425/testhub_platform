@@ -1586,3 +1586,80 @@ class AiScheduledTask(models.Model):
         if not self.next_run_time:
             return False
         return timezone.now() >= self.next_run_time
+
+
+class AiNotificationLog(models.Model):
+    """AI自动化通知日志模型"""
+    NOTIFICATION_TYPES = [
+        ('task_execution', '定时任务执行'),
+        ('case_execution', '用例执行'),
+        ('system_alert', '系统警告'),
+    ]
+
+    STATUS_CHOICES = [
+        ('pending', '待发送'),
+        ('sending', '发送中'),
+        ('success', '发送成功'),
+        ('failed', '发送失败'),
+    ]
+
+    task = models.ForeignKey(AiScheduledTask, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='关联任务')
+    task_name = models.CharField(max_length=200, verbose_name='任务名称')
+    task_type = models.CharField(max_length=20, blank=True, null=True, verbose_name='任务类型快照')
+    notification_type = models.CharField(max_length=50, choices=NOTIFICATION_TYPES, verbose_name='通知类型')
+    sender_name = models.CharField(max_length=100, verbose_name='发件人姓名')
+    sender_email = models.EmailField(verbose_name='发件人邮箱')
+    recipient_info = models.JSONField(verbose_name='收件人信息')
+    webhook_bot_info = models.JSONField(default=dict, blank=True, null=True, verbose_name='Webhook机器人信息')
+    notification_content = models.TextField(verbose_name='通知内容')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='发送状态')
+    error_message = models.TextField(blank=True, null=True, verbose_name='错误信息')
+    response_info = models.JSONField(default=dict, blank=True, null=True, verbose_name='响应信息')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    sent_at = models.DateTimeField(null=True, blank=True, verbose_name='发送时间')
+    retry_count = models.IntegerField(default=0, verbose_name='重试次数')
+    is_retried = models.BooleanField(default=False, verbose_name='是否已重试')
+
+    class Meta:
+        db_table = 'ai_notification_logs'
+        verbose_name = 'AI通知日志'
+        verbose_name_plural = 'AI通知日志'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['notification_type']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.task_name} - {self.get_notification_type_display()} - {self.status}"
+
+    def get_recipient_names(self):
+        """获取收件人姓名列表"""
+        if self.recipient_info:
+            if isinstance(self.recipient_info, list):
+                recipient_list = []
+                for rec in self.recipient_info:
+                    email = rec.get('email', '')
+                    name = rec.get('name', '')
+                    if name and email:
+                        recipient_list.append(f"{name}({email})")
+                    elif email:
+                        recipient_list.append(email)
+                    else:
+                        recipient_list.append('未知用户')
+                return ', '.join(recipient_list)
+            elif isinstance(self.recipient_info, dict):
+                email = self.recipient_info.get('email', '')
+                name = self.recipient_info.get('name', '')
+                if name and email:
+                    return f"{name}({email})"
+                elif email:
+                    return email
+        return "未知收件人"
+
+    def get_retry_status(self):
+        """获取重试状态"""
+        if self.is_retried:
+            return f"已重试 {self.retry_count} 次"
+        return "未重试"

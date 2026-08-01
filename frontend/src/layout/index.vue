@@ -241,13 +241,21 @@
               <el-icon><Timer /></el-icon>
               <span>{{ $t('menu.aiExecutionRecords') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/midscene">
-              <el-icon><View /></el-icon>
-              <span>{{ $t('menu.midsceneExecution') }}</span>
+            <el-menu-item index="/ai-intelligent-mode/midscene-web">
+              <el-icon><Monitor /></el-icon>
+              <span>{{ $t('menu.midsceneWeb') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/midscene-app">
+              <el-icon><Iphone /></el-icon>
+              <span>{{ $t('menu.midsceneApp') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
               <el-icon><AlarmClock /></el-icon>
               <span>{{ $t('menu.aiScheduledTasks') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/notification-logs">
+              <el-icon><Bell /></el-icon>
+              <span>{{ $t('menu.aiNotificationList') }}</span>
             </el-menu-item>
 
           </template>
@@ -482,7 +490,8 @@ const breadcrumbTitle = computed(() => {
     '/ai-intelligent-mode/testing': t('menu.aiIntelligentTesting'),
     '/ai-intelligent-mode/cases': t('menu.aiCaseManagement'),
     '/ai-intelligent-mode/execution-records': t('menu.aiExecutionRecords'),
-    '/ai-intelligent-mode/midscene': t('menu.midsceneExecution'),
+    '/ai-intelligent-mode/midscene-web': t('menu.midsceneWeb'),
+    '/ai-intelligent-mode/midscene-app': t('menu.midsceneApp'),
     '/ai-intelligent-mode/scheduled-tasks': t('menu.aiScheduledTasks'),
 
 

@@ -472,6 +472,14 @@ class Command(BaseCommand):
                             task.save()
 
                             self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name}: Midscene微服务未启动"))
+
+                            # 发送失败通知
+                            try:
+                                from apps.ui_automation.views_midscene import _send_ai_task_notification
+                                _send_ai_task_notification(task, success=False)
+                            except Exception as notify_err:
+                                logger.error(f"发送AI任务 {task.name} 失败通知失败: {notify_err}")
+
                         except Exception as e:
                             execution.status = 'failed'
                             execution.error_message = str(e)
@@ -487,6 +495,13 @@ class Command(BaseCommand):
                             task.save()
 
                             self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 提交失败: {e}"))
+
+                            # 发送失败通知
+                            try:
+                                from apps.ui_automation.views_midscene import _send_ai_task_notification
+                                _send_ai_task_notification(task, success=False)
+                            except Exception as notify_err:
+                                logger.error(f"发送AI任务 {task.name} 失败通知失败: {notify_err}")
 
                         executed_count += 1
 

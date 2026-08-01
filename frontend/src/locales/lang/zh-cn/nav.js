@@ -63,8 +63,9 @@ export default {
     aiIntelligentTesting: 'AI 智能测试',
     aiCaseManagement: 'AI 用例管理',
     aiExecutionRecords: 'AI测试报告',
-    midsceneExecution: 'Midscene视觉自动化',
+    midsceneExecution: 'AI自动化测试',
     aiScheduledTasks: 'AI定时任务',
+    aiNotificationList: 'AI通知列表',
 
     // 配置中心
     aiCaseGenerationConfig: 'AI用例生成配置',

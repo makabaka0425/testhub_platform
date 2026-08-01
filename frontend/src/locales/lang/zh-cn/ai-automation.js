@@ -91,12 +91,39 @@ export default {
       resumeFailed: '恢复失败'
     }
   },
+  notification: {
+    title: 'AI通知列表',
+    logList: '通知列表',
+    taskName: '任务名称',
+    searchTaskName: '搜索任务名称',
+    taskType: '任务类型',
+    notificationType: '通知类型',
+    notificationStatus: '通知状态',
+    notificationTime: '通知时间',
+    sentTime: '发送时间',
+    dateRange: '日期范围',
+    dateRangeTo: '至',
+    startDate: '开始日期',
+    endDate: '结束日期',
+    statusSuccess: '发送成功',
+    statusFailed: '发送失败',
+    statusPending: '待发送',
+    content: '通知内容',
+    errorMessage: '错误信息',
+    detailTitle: '通知详情',
+    viewDetail: '查看详情',
+    webhookBot: 'Webhook机器人',
+    defaultBotName: '默认机器人',
+    loading: '加载中...',
+    loadFailed: '加载通知日志失败'
+  },
   common: {
     all: '全部',
     search: '搜索',
     reset: '重置',
     confirm: '确认',
     cancel: '取消',
-    operation: '操作'
+    operation: '操作',
+    status: '状态'
   }
 }

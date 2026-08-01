@@ -15,11 +15,11 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from .models import (
     MidsceneGroup, MidsceneCase, MidsceneExecution, AiProject,
-    AiScheduledTask,
+    AiScheduledTask, AiNotificationLog,
 )
 from .serializers import (
     AiProjectSerializer, AiProjectCreateSerializer, AiProjectUpdateSerializer,
-    AiScheduledTaskSerializer,
+    AiScheduledTaskSerializer, AiNotificationLogSerializer,
 )
 from django.db import models
 from rest_framework import filters
@@ -571,6 +571,27 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         case.last_result = error_msg or (json.dumps(result_data, ensure_ascii=False)[:500] if result_data else '')
         case.save(update_fields=['last_status', 'last_result', 'updated_at'])
 
+        # 触发通知：查找关联此用例的活跃定时任务
+        try:
+            from apps.ui_automation.models import AiScheduledTask
+            success = (task_status == 'completed')
+            related_tasks = AiScheduledTask.objects.filter(
+                midscene_case=case, status='ACTIVE'
+            ).select_related('midscene_case')
+            for task in related_tasks:
+                # 更新任务统计
+                if success:
+                    task.last_result = {'status': 'success', 'message': '执行成功'}
+                    task.error_message = ''
+                else:
+                    task.failed_runs += 1
+                    task.last_result = {'status': 'failed', 'message': error_msg or '执行失败'}
+                    task.error_message = (error_msg or '')[:500]
+                task.save()
+                _send_ai_task_notification(task, success=success)
+        except Exception as notify_err:
+            logger.error(f"发送AI任务通知失败: {notify_err}")
+
         return Response({'message': '回调已处理'})
 
     # ---- 查询执行状态 ----
@@ -884,3 +905,283 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f'AI定时任务执行失败: {str(e)}', exc_info=True)
             return Response({'error': f'执行失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ──────────────────────────────────────────────
+# AI 通知日志 + 通知发送逻辑
+# ──────────────────────────────────────────────
+
+def _send_ai_task_notification(task, success):
+    """发送AI定时任务执行通知（复用 UnifiedNotificationConfig）"""
+    try:
+        logger.info(f"准备发送AI任务 {task.id} 的通知，执行结果: {'成功' if success else '失败'}")
+
+        if success and not task.notify_on_success:
+            return
+        if not success and not task.notify_on_failure:
+            return
+        if not task.notification_type:
+            return
+
+        if task.notification_type in ['webhook', 'both']:
+            _send_ai_webhook_notification(task, success)
+
+        if task.notification_type in ['email', 'both']:
+            _send_ai_email_notification(task, success)
+
+    except Exception as e:
+        logger.error(f"发送AI任务通知失败: {str(e)}", exc_info=True)
+
+
+def _send_ai_webhook_notification(task, success):
+    """发送AI任务Webhook通知"""
+    try:
+        import requests as req_lib
+        import json
+
+        from apps.core.models import UnifiedNotificationConfig
+        all_webhook_configs = UnifiedNotificationConfig.objects.filter(
+            config_type__in=['webhook_wechat', 'webhook_feishu', 'webhook_dingtalk'],
+            is_active=True
+        )
+
+        all_webhook_bots = []
+        for config in all_webhook_configs:
+            bots = config.get_webhook_bots()
+            if bots:
+                for bot in bots:
+                    if bot.get('enabled', True):
+                        all_webhook_bots.append(bot)
+
+        if not all_webhook_bots:
+            logger.warning("没有找到任何启用的webhook机器人配置")
+            return
+
+        status_text = '成功' if success else '失败'
+        local_run_time = timezone.localtime(task.last_run_time).strftime(
+            '%Y-%m-%d %H:%M:%S') if task.last_run_time else '未知'
+        case_name = task.midscene_case.name if task.midscene_case else '未知'
+
+        for bot in all_webhook_bots:
+            if not bot.get('enabled', True) or not bot.get('webhook_url'):
+                continue
+
+            bot_type = bot.get('type', 'unknown')
+            webhook_url = bot['webhook_url']
+
+            detail_content = f"""任务名称: {task.name}
+
+执行状态: {status_text}
+
+执行时间: {local_run_time}
+
+关联用例: {case_name}"""
+
+            last_result = task.last_result or {}
+            result_message = last_result.get('message', '')
+            if result_message:
+                detail_content += f"\n\n执行结果: {result_message}"
+
+            if bot_type == 'wechat':
+                message_data = {
+                    "msgtype": "markdown",
+                    "markdown": {
+                        "content": f"""**AI自动化定时任务执行{status_text}**\n\n{detail_content}"""
+                    }
+                }
+            elif bot_type == 'feishu':
+                message_data = {
+                    "msg_type": "interactive",
+                    "card": {
+                        "elements": [{
+                            "tag": "div",
+                            "text": {
+                                "content": f"**AI自动化定时任务执行{status_text}**\n\n{detail_content}",
+                                "tag": "lark_md"
+                            }
+                        }],
+                        "header": {
+                            "title": {
+                                "content": f"AI自动化定时任务执行{status_text}",
+                                "tag": "plain_text"
+                            },
+                            "template": "green" if success else "red"
+                        }
+                    }
+                }
+            elif bot_type == 'dingtalk':
+                message_data = {
+                    "msgtype": "markdown",
+                    "markdown": {
+                        "title": f"AI自动化定时任务执行{status_text}",
+                        "text": f"""**AI自动化定时任务执行{status_text}**\n\n{detail_content}"""
+                    }
+                }
+                secret = bot.get('secret')
+                if secret:
+                    import time, hmac, hashlib, base64, urllib.parse
+                    timestamp = str(round(time.time() * 1000))
+                    string_to_sign = f'{timestamp}\n{secret}'
+                    hmac_code = hmac.new(secret.encode('utf-8'), string_to_sign.encode('utf-8'), digestmod=hashlib.sha256).digest()
+                    sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+                    if '?' in webhook_url:
+                        webhook_url += f'&timestamp={timestamp}&sign={sign}'
+                    else:
+                        webhook_url += f'?timestamp={timestamp}&sign={sign}'
+            else:
+                continue
+
+            try:
+                response = req_lib.post(webhook_url, json=message_data, headers={'Content-Type': 'application/json'}, timeout=10)
+                if response.status_code == 200:
+                    AiNotificationLog.objects.create(
+                        task=task, task_name=task.name, task_type=task.task_type,
+                        notification_type='task_execution',
+                        sender_name='系统Webhook通知', sender_email='system@notification.com',
+                        recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': webhook_url}],
+                        webhook_bot_info=bot,
+                        notification_content=json.dumps(message_data, ensure_ascii=False),
+                        status='success', response_info={'status_code': response.status_code, 'response': response.text},
+                        sent_at=timezone.now()
+                    )
+                else:
+                    AiNotificationLog.objects.create(
+                        task=task, task_name=task.name, task_type=task.task_type,
+                        notification_type='task_execution',
+                        sender_name='系统Webhook通知', sender_email='system@notification.com',
+                        recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': webhook_url}],
+                        webhook_bot_info=bot,
+                        notification_content=json.dumps(message_data, ensure_ascii=False),
+                        status='failed', error_message=f'HTTP {response.status_code}: {response.text}',
+                        response_info={'status_code': response.status_code, 'response': response.text}
+                    )
+            except Exception as e:
+                AiNotificationLog.objects.create(
+                    task=task, task_name=task.name, task_type=task.task_type,
+                    notification_type='task_execution',
+                    sender_name='系统Webhook通知', sender_email='system@notification.com',
+                    recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': webhook_url}],
+                    webhook_bot_info=bot,
+                    notification_content=json.dumps(message_data, ensure_ascii=False),
+                    status='failed', error_message=str(e)
+                )
+
+    except Exception as e:
+        logger.error(f"发送AI Webhook通知失败: {str(e)}", exc_info=True)
+
+
+def _send_ai_email_notification(task, success):
+    """发送AI任务邮件通知"""
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from django.conf import settings
+
+        recipients = []
+        if task.notify_emails:
+            recipients = task.notify_emails if isinstance(task.notify_emails, list) else [task.notify_emails]
+        if not recipients:
+            return
+
+        email_config = None
+        try:
+            from apps.core.models import UnifiedNotificationConfig
+            email_config = UnifiedNotificationConfig.objects.filter(config_type='email', is_active=True).first()
+        except Exception:
+            pass
+
+        if email_config and email_config.email_smtp_host:
+            smtp_host = email_config.email_smtp_host
+            smtp_port = email_config.email_smtp_port or 465
+            use_ssl = email_config.email_use_ssl
+            use_tls = email_config.email_use_tls
+            smtp_user = email_config.email_host_user
+            smtp_password = email_config.email_host_password
+            from_email = email_config.email_from or email_config.email_host_user
+        else:
+            smtp_host = settings.EMAIL_HOST
+            smtp_port = settings.EMAIL_PORT
+            use_ssl = settings.EMAIL_USE_SSL
+            use_tls = settings.EMAIL_USE_TLS
+            smtp_user = settings.EMAIL_HOST_USER
+            smtp_password = settings.EMAIL_HOST_PASSWORD
+            from_email = settings.DEFAULT_FROM_EMAIL
+
+        status_text = '成功' if success else '失败'
+        case_name = task.midscene_case.name if task.midscene_case else '未知'
+        local_run_time = timezone.localtime(task.last_run_time).strftime('%Y-%m-%d %H:%M:%S') if task.last_run_time else '未知'
+
+        subject = f"AI自动化定时任务执行{status_text}: {task.name}"
+        message = f"""
+任务名称: {task.name}
+执行状态: {status_text}
+执行时间: {local_run_time}
+关联用例: {case_name}
+
+执行结果:
+{(task.last_result or {}).get('message', '无详细信息')}
+
+错误信息:
+{task.error_message or '无错误信息'}
+        """
+
+        try:
+            msg = MIMEText(message, 'plain', 'utf-8')
+            msg['From'] = from_email
+            msg['To'] = ', '.join(recipients)
+            msg['Subject'] = subject
+
+            if use_ssl:
+                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+            else:
+                server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+                if use_tls:
+                    server.starttls()
+            if smtp_user and smtp_password:
+                server.login(smtp_user, smtp_password)
+            server.sendmail(from_email, recipients, msg.as_string())
+            server.quit()
+
+            AiNotificationLog.objects.create(
+                task=task, task_name=task.name, task_type=task.task_type,
+                notification_type='task_execution',
+                sender_name='系统邮件通知', sender_email=from_email,
+                recipient_info=[{'email': email} for email in recipients],
+                notification_content=message,
+                status='success', sent_at=timezone.now()
+            )
+        except Exception as e:
+            AiNotificationLog.objects.create(
+                task=task, task_name=task.name, task_type=task.task_type,
+                notification_type='task_execution',
+                sender_name='系统邮件通知', sender_email=from_email,
+                recipient_info=[{'email': email} for email in recipients],
+                notification_content=f"发送邮件通知失败: {str(e)}",
+                status='failed', error_message=str(e)
+            )
+
+    except Exception as e:
+        logger.error(f"发送AI邮件通知失败: {str(e)}", exc_info=True)
+
+
+class AiNotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """AI自动化通知日志视图集（只读）"""
+    queryset = AiNotificationLog.objects.all()
+    serializer_class = AiNotificationLogSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'notification_type', 'task']
+    search_fields = ['task_name', 'notification_content']
+    ordering_fields = ['created_at', 'sent_at']
+    ordering = ['-created_at']
+
+    @action(detail=True, methods=['post'])
+    def retry(self, request, pk=None):
+        """重试发送通知"""
+        log = self.get_object()
+        if log.status == 'failed':
+            log.retry_count += 1
+            log.is_retried = True
+            log.save()
+            return Response({'message': '通知已加入重试队列'})
+        return Response({'error': '只能重试失败的通知'}, status=status.HTTP_400_BAD_REQUEST)
