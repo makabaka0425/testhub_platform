@@ -107,6 +107,7 @@
                 row-key="id"
               >
                 <el-table-column type="selection" width="40" />
+                <el-table-column type="index" label="序号" width="50" align="center" />
                 <el-table-column prop="name" label="用例名称" min-width="200" show-overflow-tooltip />
                 <el-table-column prop="platform" label="平台" width="80" align="center">
                   <template #default="{ row }">

@@ -56,6 +56,7 @@
 
           <div class="panel__body scheduled-task-table-wrapper">
             <el-table :data="tasks" v-loading="loading" height="100%">
+              <el-table-column type="index" label="序号" width="50" align="center" />
               <el-table-column prop="name" :label="$t('aiAutomation.scheduledTask.taskName')" min-width="200" />
               <el-table-column prop="midscene_case_name" :label="$t('aiAutomation.scheduledTask.midsceneCase')" width="180">
                 <template #default="scope">

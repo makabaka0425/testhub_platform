@@ -46,6 +46,7 @@
 
           <div class="panel__body project-table-wrapper">
             <el-table :data="projects" v-loading="loading" height="100%">
+              <el-table-column type="index" label="序号" width="50" align="center" />
               <el-table-column prop="name" label="项目名称" min-width="200">
                 <template #default="{ row }">
                   <el-link @click="viewProject(row)" type="primary">
