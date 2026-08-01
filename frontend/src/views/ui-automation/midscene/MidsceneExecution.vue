@@ -2,7 +2,7 @@
   <div class="page-container">
     <!-- 顶部标题栏 -->
     <div class="page-titlebar">
-      <h1 class="page-title">AI视觉自动化</h1>
+      <h1 class="page-title">{{ routePlatform === 'web' ? 'Web端自动化' : routePlatform === 'app' ? 'APP端自动化' : 'AI自动化测试' }}</h1>
       <div class="titlebar-actions">
         <el-button type="primary" size="small" @click="showImportDialog = true">
           <el-icon><Download /></el-icon>
@@ -61,7 +61,7 @@
                 <template #prefix><el-icon><Search /></el-icon></template>
               </el-input>
             </el-form-item>
-            <el-form-item label="平台">
+            <el-form-item v-if="!routePlatform" label="平台">
               <el-select v-model="filterPlatform" placeholder="全部" clearable style="width:120px" @change="loadCases">
                 <el-option label="Web端" value="web" />
                 <el-option label="APP端" value="app" />
@@ -348,7 +348,7 @@
           <el-input v-model="caseForm.name" placeholder="请输入用例名称" />
         </el-form-item>
         <el-form-item label="平台" required>
-          <el-radio-group v-model="caseForm.platform">
+          <el-radio-group v-model="caseForm.platform" :disabled="!!routePlatform">
             <el-radio value="web">Web端</el-radio>
             <el-radio value="app">APP端</el-radio>
           </el-radio-group>
@@ -552,6 +552,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
@@ -562,6 +563,9 @@ import {
   getMidsceneExecutionDetail, getMidsceneExecutionStatus,
 } from '@/api/ui_automation'
 import { getAITaskList, getAITaskCases } from '@/api/ui_automation'
+
+const route = useRoute()
+const routePlatform = computed(() => route.meta?.platform || '')
 
 // ---- 分组 ----
 const groups = ref([])
@@ -598,7 +602,11 @@ async function createGroup() {
 // ---- 用例列表 ----
 const cases = ref([])
 const searchText = ref('')
-const filterPlatform = ref('')
+const filterPlatform = computed({
+  get: () => routePlatform.value || filterPlatformLocal.value,
+  set: (v) => { filterPlatformLocal.value = v }
+})
+const filterPlatformLocal = ref('')
 const selectedIds = ref([])
 const runningIds = reactive({})
 const batchRunning = ref(false)
@@ -715,8 +723,9 @@ const caseForm = reactive({
 })
 
 function openCreateDialog() {
+  const defaultPlatform = routePlatform.value || 'web'
   Object.assign(caseForm, {
-    name: '', platform: 'web', description: '', group_id: null,
+    name: '', platform: defaultPlatform, description: '', group_id: null,
     url: '', headless: false, cache_strategy: 'normal', new_tab: false,
     user_agent: '', viewport_width: 1280, viewport_height: 768, device_scale_factor: 1.0,
     cookie_file: '', wait_for_network_idle_timeout: null, continue_on_network_idle_error: true,
@@ -1022,6 +1031,11 @@ onMounted(() => {
   loadGroups()
   loadCases()
   loadAICases()
+})
+
+// 路由切换时重新加载（同组件不重建，需手动刷新）
+watch(() => route.path, () => {
+  loadCases()
 })
 </script>
 

@@ -64,6 +64,8 @@ export default {
     aiCaseManagement: 'AI 用例管理',
     aiExecutionRecords: 'AI测试报告',
     midsceneExecution: 'AI自动化测试',
+    midsceneWeb: 'Web端自动化',
+    midsceneApp: 'APP端自动化',
     aiScheduledTasks: 'AI定时任务',
     aiNotificationList: 'AI通知列表',
 

@@ -64,6 +64,8 @@ export default {
     aiCaseManagement: 'AI Case Management',
     aiExecutionRecords: 'AI Test Reports',
     midsceneExecution: 'AI Automation Testing',
+    midsceneWeb: 'Web Automation',
+    midsceneApp: 'App Automation',
     aiScheduledTasks: 'AI Scheduled Tasks',
     aiNotificationList: 'AI Notification Logs',
 
