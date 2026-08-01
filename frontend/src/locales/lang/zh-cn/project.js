@@ -80,7 +80,7 @@ export default {
     },
 
     // Title
-    title: 'TestHub 测试平台',
+    title: '灵测 测试平台',
     subtitle: '一站式智能化测试解决方案',
 
     // Cards
@@ -106,7 +106,7 @@ export default {
     // Messages
     featureInDevelopment: '功能正在开发中......',
     mobileTipTitle: '请使用电脑端访问',
-    mobileTipDesc: '本平台需在电脑浏览器中使用，请复制链接或切换至电脑打开 TestHub。',
+    mobileTipDesc: '本平台需在电脑浏览器中使用，请复制链接或切换至电脑打开灵测。',
     mobileTipOk: '我知道了'
   },
   profile: {

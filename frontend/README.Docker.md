@@ -117,14 +117,14 @@ services:
   frontend:
     environment:
       - VITE_API_BASE_URL=http://localhost:8000
-      - VITE_APP_TITLE=TestHub
+      - VITE_APP_TITLE=灵测
 ```
 
 或创建 `.env` 文件：
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8000
-VITE_APP_TITLE=TestHub
+VITE_APP_TITLE=灵测
 ```
 
 ## 常用命令
