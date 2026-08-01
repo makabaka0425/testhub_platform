@@ -1479,6 +1479,9 @@ export default {
   max-width: 1200px;
   margin: 0 auto;
   position: relative;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .page-header {

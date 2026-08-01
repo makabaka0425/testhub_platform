@@ -16,35 +16,34 @@
         >
           <!-- AI用例生成模块菜单 -->
           <template v-if="currentModule === 'ai-generation'">
-            <el-sub-menu index="requirement">
-              <template #title>
-                <el-icon><MagicStick /></el-icon>
-                <span>{{ $t('menu.intelligentCaseGeneration') }}</span>
-              </template>
-              <el-menu-item index="/ai-generation/requirement-analysis">{{ $t('menu.aiCaseGeneration') }}</el-menu-item>
-              <el-menu-item index="/ai-generation/generated-testcases">{{ $t('menu.aiGeneratedTestcases') }}</el-menu-item>
-            </el-sub-menu>
+            <el-menu-item index="/ai-generation/requirement-analysis">
+              <el-icon><MagicStick /></el-icon>
+              <span>{{ $t('menu.aiCaseGeneration') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/generated-testcases">
+              <el-icon><Document /></el-icon>
+              <span>{{ $t('menu.aiGeneratedTestcases') }}</span>
+            </el-menu-item>
             <el-menu-item index="/ai-generation/projects">
               <el-icon><Folder /></el-icon>
               <span>{{ $t('menu.projectManagement') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-generation/testcases">
-              <el-icon><Document /></el-icon>
+              <el-icon><DocumentCopy /></el-icon>
               <span>{{ $t('menu.testCases') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-generation/versions">
               <el-icon><Flag /></el-icon>
               <span>{{ $t('menu.versionManagement') }}</span>
             </el-menu-item>
-            <el-sub-menu index="reviews">
-              <template #title>
-                <el-icon><Check /></el-icon>
-                <span>{{ $t('menu.reviewManagement') }}</span>
-              </template>
-              <el-menu-item index="/ai-generation/reviews">{{ $t('menu.reviewList') }}</el-menu-item>
-              <el-menu-item index="/ai-generation/review-templates">{{ $t('menu.reviewTemplates') }}</el-menu-item>
-            </el-sub-menu>
-
+            <el-menu-item index="/ai-generation/reviews">
+              <el-icon><Check /></el-icon>
+              <span>{{ $t('menu.reviewManagement') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/review-templates">
+              <el-icon><Edit /></el-icon>
+              <span>{{ $t('menu.reviewTemplates') }}</span>
+            </el-menu-item>
             <el-menu-item index="/ai-generation/executions">
               <el-icon><VideoPlay /></el-icon>
               <span>{{ $t('menu.testPlan') }}</span>

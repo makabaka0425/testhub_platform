@@ -250,6 +250,8 @@
         </div>
       </div>
     </div>
+
+
   </div>
 </template>
 
@@ -284,7 +286,8 @@ export default {
         steps: '',
         expected: '',
         priority: 'P2'
-      }
+      },
+
     }
   },
 
@@ -869,6 +872,8 @@ export default {
       return priorityMap[priority] || 'medium'
     },
 
+
+
     // 将英文优先级转换为本地化显示
     priorityToChinese(priority) {
       const priorityMap = {
@@ -1211,7 +1216,7 @@ export default {
 
 .table-header {
   display: grid;
-  grid-template-columns: 60px 120px 1fr 1fr 1fr 1fr 80px 150px;
+  grid-template-columns: 60px 120px 1fr 1fr 1fr 1fr 80px 200px;
   background: #f8f9fa;
   font-weight: bold;
   color: #2c3e50;
@@ -1219,7 +1224,7 @@ export default {
 
 .table-body .table-row {
   display: grid;
-  grid-template-columns: 60px 120px 1fr 1fr 1fr 1fr 80px 150px;
+  grid-template-columns: 60px 120px 1fr 1fr 1fr 1fr 80px 200px;
   border-bottom: 1px solid #eee;
   transition: background 0.2s ease;
 }

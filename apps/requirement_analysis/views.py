@@ -2661,6 +2661,164 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=True, methods=['post'], url_path='import-to-ui-automation')
+    def import_to_ui_automation(self, request, task_id=None):
+        """将AI生成的测试用例导入到UI自动化模块（描述型步骤）"""
+        try:
+            task = self.get_object()
+
+            if task.status != 'completed':
+                return Response(
+                    {'error': '只能导入已完成的任务中的测试用例'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if not task.final_test_cases:
+                return Response(
+                    {'error': '没有可导入的测试用例'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 获取目标UI项目ID和可选的分组ID
+            ui_project_id = request.data.get('ui_project_id')
+            ui_group_id = request.data.get('ui_group_id', None)
+            # 可选：只导入选中的用例
+            selected_indices = request.data.get('selected_indices', None)
+
+            if not ui_project_id:
+                return Response(
+                    {'error': '请指定目标UI项目'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            from apps.ui_automation.models import UiProject, TestCase as UiTestCase, TestCaseStep, TestCaseGroup
+            from apps.projects.models import Project
+
+            # 验证UI项目存在
+            try:
+                ui_project = UiProject.objects.get(id=ui_project_id)
+            except UiProject.DoesNotExist:
+                return Response(
+                    {'error': f'UI项目(id={ui_project_id})不存在'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 验证分组（如果指定了）
+            ui_group = None
+            if ui_group_id:
+                try:
+                    ui_group = TestCaseGroup.objects.get(id=ui_group_id, project_id=ui_project_id)
+                except TestCaseGroup.DoesNotExist:
+                    return Response(
+                        {'error': f'分组(id={ui_group_id})不存在'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # 解析AI测试用例
+            test_cases = self._parse_test_cases_content(task.final_test_cases)
+            if not test_cases:
+                return Response(
+                    {'error': '无法解析测试用例内容'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 如果指定了选中索引，只导入这些
+            if selected_indices is not None:
+                selected_indices = set(selected_indices)
+                test_cases = [tc for i, tc in enumerate(test_cases) if i in selected_indices]
+
+            if not test_cases:
+                return Response(
+                    {'error': '没有选中的测试用例可导入'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 优先级映射: P0->high, P1->high, P2->medium, P3->low
+            def map_priority(p_val):
+                p = (p_val or '').upper().strip()
+                if p in ('P0', 'P1', '高', 'HIGH', 'CRITICAL'):
+                    return 'high'
+                elif p in ('P2', '中', 'MEDIUM'):
+                    return 'medium'
+                else:
+                    return 'low'
+
+            imported_count = 0
+            imported_details = []
+
+            for idx, case_data in enumerate(test_cases):
+                scenario = case_data.get('scenario', '测试用例')
+                precondition = case_data.get('precondition', '')
+                steps_text = case_data.get('steps', '')
+                expected = case_data.get('expected', '')
+                priority = map_priority(case_data.get('priority', ''))
+
+                # 创建UI自动化用例
+                ui_case = UiTestCase.objects.create(
+                    name=scenario[:200],
+                    description=f"由AI生成用例导入\n\n前置条件: {precondition}\n\n预期结果: {expected}",
+                    project=ui_project,
+                    group=ui_group,
+                    status='normal',
+                    priority=priority,
+                    created_by=task.created_by,
+                )
+
+                # 解析步骤文本，按行拆分为描述型步骤
+                step_lines = []
+                if steps_text:
+                    import re
+                    # 支持多种步骤分隔格式：数字编号、换行、分号
+                    raw_lines = [l.strip() for l in re.split(r'[\n]', steps_text) if l.strip()]
+                    for line in raw_lines:
+                        # 去除开头的编号 (如 "1."、"1)"、"1、"、"步骤1:"等)
+                        cleaned = re.sub(r'^(\d+[\.\)、：:]|步骤\s*\d+[\.\)：:]?)\s*', '', line).strip()
+                        if cleaned:
+                            step_lines.append(cleaned)
+
+                # 如果没有解析出步骤，把整个steps_text作为一条描述
+                if not step_lines and steps_text.strip():
+                    step_lines = [steps_text.strip()]
+
+                # 如果预期结果不为空，作为最后一步的断言描述
+                if expected.strip():
+                    step_lines.append(f'断言: {expected.strip()}')
+
+                # 创建描述型步骤
+                for step_idx, step_desc in enumerate(step_lines, start=1):
+                    # 判断是否是断言步骤
+                    is_assert = step_desc.startswith('断言:')
+                    TestCaseStep.objects.create(
+                        test_case=ui_case,
+                        step_number=step_idx,
+                        action_type='assert' if is_assert else 'wait',  # 描述型步骤用wait占位，待人工编排
+                        element=None,
+                        input_value='',
+                        description=step_desc,
+                        assert_type='textContains' if is_assert else '',
+                        assert_value=step_desc.replace('断言:', '').strip() if is_assert else '',
+                    )
+
+                imported_count += 1
+                imported_details.append({
+                    'name': scenario[:80],
+                    'steps_count': len(step_lines),
+                })
+
+            return Response({
+                'message': f'成功导入 {imported_count} 条用例到UI自动化项目 "{ui_project.name}"',
+                'imported_count': imported_count,
+                'ui_project_name': ui_project.name,
+                'details': imported_details,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"导入AI用例到UI自动化失败: {e}", exc_info=True)
+            return Response(
+                {'error': f'导入失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=True, methods=['post'], url_path='batch_discard')
     def batch_discard(self, request, task_id=None):
         """批量弃用任务的所有测试用例 - 删除整个任务"""

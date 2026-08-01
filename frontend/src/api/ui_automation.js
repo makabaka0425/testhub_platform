@@ -1203,6 +1203,42 @@ export function batchRunTestCases(data) {
   })
 }
 
+// 导入测试用例 - 从AI生成任务导入
+export function importCasesFromAITask(data) {
+  return request({
+    url: '/ui-automation/test-cases/import-cases/',
+    method: 'post',
+    data
+  })
+}
+
+// 导入测试用例 - 从文件上传
+export function importCasesFromFile(formData) {
+  return request({
+    url: '/ui-automation/test-cases/import-cases/',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+// 获取AI生成任务列表（用于导入选择）
+export function getAITaskList() {
+  return request({
+    url: '/ui-automation/test-cases/ai-task-list/',
+    method: 'get'
+  })
+}
+
+// 获取AI生成任务的用例列表
+export function getAITaskCases(taskId) {
+  return request({
+    url: '/ui-automation/test-cases/ai-task-cases/',
+    method: 'get',
+    params: { task_id: taskId }
+  })
+}
+
 // 操作记录相关API
 
 // 获取操作记录列表
