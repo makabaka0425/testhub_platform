@@ -11,7 +11,7 @@ export default {
     uiAutomation: 'UI Automation Testing',
     defects: 'Bug Management',
     appAutomation: 'APP Automation',
-    aiIntelligentMode: 'AI Intelligent Mode',
+    aiIntelligentMode: 'AI Automated Testing',
     configuration: 'Configuration Center'
   },
   menu: {

@@ -96,7 +96,7 @@ export default {
     dataFactoryDesc: 'Flexible test data construction and management',
     appAutomation: 'APP Automation',
     appAutomationDesc: 'Android APP automation based on Airtest',
-    aiIntelligentMode: 'AI Intelligent Mode',
+    aiIntelligentMode: 'AI Automated Testing',
     aiIntelligentModeDesc: 'Natural language-based intelligent test execution',
     aiEvaluator: 'AI Evaluator',
     aiEvaluatorDesc: 'Professional software testing Q&A based on evaluator knowledge base',

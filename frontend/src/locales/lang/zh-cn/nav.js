@@ -11,7 +11,7 @@ export default {
     uiAutomation: 'UI自动化测试',
     defects: 'Bug缺陷管理',
     appAutomation: 'APP自动化测试',
-    aiIntelligentMode: 'AI 智能模式',
+    aiIntelligentMode: 'AI自动化测试',
     configuration: '配置中心'
   },
   menu: {

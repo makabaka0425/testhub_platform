@@ -67,7 +67,7 @@
       <p class="subtitle">{{ $t('home.subtitle') }}</p>
 
       <div class="cards-container">
-        <!-- AI用例生成 -->
+        <!-- 1. AI用例生成 -->
         <div class="nav-card" @click="handleNavigate('ai')" role="button" tabindex="0">
           <div class="card-icon ai-icon">
             <el-icon><MagicStick /></el-icon>
@@ -76,16 +76,16 @@
           <p>{{ $t('home.aiCaseGenerationDesc') }}</p>
         </div>
 
-        <!-- 接口测试 -->
-        <div class="nav-card" @click="handleNavigate('api')" role="button" tabindex="0">
-          <div class="card-icon api-icon">
-            <el-icon><Link /></el-icon>
+        <!-- 2. AI自动化测试 -->
+        <div class="nav-card" @click="handleNavigate('ai-intelligent')" role="button" tabindex="0">
+          <div class="card-icon ai-intelligent-icon">
+            <el-icon><Cpu /></el-icon>
           </div>
-          <h3>{{ $t('home.apiTesting') }}</h3>
-          <p>{{ $t('home.apiTestingDesc') }}</p>
+          <h3>{{ $t('home.aiIntelligentMode') }}</h3>
+          <p>{{ $t('home.aiIntelligentModeDesc') }}</p>
         </div>
 
-        <!-- UI自动化测试 -->
+        <!-- 3. UI自动化测试 -->
         <div class="nav-card" @click="handleNavigate('ui')" role="button" tabindex="0">
           <div class="card-icon ui-icon">
             <el-icon><Monitor /></el-icon>
@@ -94,25 +94,7 @@
           <p>{{ $t('home.uiAutomationDesc') }}</p>
         </div>
 
-        <!-- Bug缺陷管理 -->
-        <div class="nav-card" @click="handleNavigate('defects')" role="button" tabindex="0">
-          <div class="card-icon defects-icon">
-            <el-icon><Tickets /></el-icon>
-          </div>
-          <h3>{{ $t('home.defectManagement') }}</h3>
-          <p>{{ $t('home.defectManagementDesc') }}</p>
-        </div>
-
-        <!-- 数据工厂 -->
-        <div class="nav-card" @click="handleNavigate('data')" role="button" tabindex="0">
-          <div class="card-icon data-icon">
-            <el-icon><DataLine /></el-icon>
-          </div>
-          <h3>{{ $t('home.dataFactory') }}</h3>
-          <p>{{ $t('home.dataFactoryDesc') }}</p>
-        </div>
-
-        <!-- APP自动化测试 -->
+        <!-- 4. APP自动化测试 -->
         <div class="nav-card" @click="handleNavigate('app')" role="button" tabindex="0">
           <div class="card-icon app-icon">
             <el-icon><Cellphone /></el-icon>
@@ -121,15 +103,34 @@
           <p>{{ $t('home.appAutomationDesc') }}</p>
         </div>
 
-        <!-- AI 智能模式 -->
-        <div class="nav-card" @click="handleNavigate('ai-intelligent')" role="button" tabindex="0">
-          <div class="card-icon ai-intelligent-icon">
-            <el-icon><Cpu /></el-icon>
+        <!-- 5. 接口测试 -->
+        <div class="nav-card" @click="handleNavigate('api')" role="button" tabindex="0">
+          <div class="card-icon api-icon">
+            <el-icon><Link /></el-icon>
           </div>
-          <h3>{{ $t('home.aiIntelligentMode') }}</h3>
-          <p>{{ $t('home.aiIntelligentModeDesc') }}</p>
+          <h3>{{ $t('home.apiTesting') }}</h3>
+          <p>{{ $t('home.apiTestingDesc') }}</p>
         </div>
-        <!-- AI评测师 -->
+
+        <!-- 6. Bug缺陷管理 -->
+        <div class="nav-card" @click="handleNavigate('defects')" role="button" tabindex="0">
+          <div class="card-icon defects-icon">
+            <el-icon><Tickets /></el-icon>
+          </div>
+          <h3>{{ $t('home.defectManagement') }}</h3>
+          <p>{{ $t('home.defectManagementDesc') }}</p>
+        </div>
+
+        <!-- 7. 数据工厂 -->
+        <div class="nav-card" @click="handleNavigate('data')" role="button" tabindex="0">
+          <div class="card-icon data-icon">
+            <el-icon><DataLine /></el-icon>
+          </div>
+          <h3>{{ $t('home.dataFactory') }}</h3>
+          <p>{{ $t('home.dataFactoryDesc') }}</p>
+        </div>
+
+        <!-- 8. AI评测师 -->
         <div class="nav-card" @click="handleNavigate('assistant')" role="button" tabindex="0">
           <div class="card-icon assistant-icon">
             <el-icon><ChatDotRound /></el-icon>
@@ -137,7 +138,8 @@
           <h3>{{ $t('home.aiEvaluator') }}</h3>
           <p>{{ $t('home.aiEvaluatorDesc') }}</p>
         </div>
-        <!-- 配置中心 -->
+
+        <!-- 9. 配置中心 -->
         <div class="nav-card" @click="handleNavigate('config')" role="button" tabindex="0">
           <div class="card-icon config-icon">
             <el-icon><Setting /></el-icon>

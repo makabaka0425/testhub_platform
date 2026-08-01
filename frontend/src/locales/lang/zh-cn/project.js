@@ -96,7 +96,7 @@ export default {
     dataFactoryDesc: '灵活的测试数据构造与管理',
     appAutomation: 'APP自动化测试',
     appAutomationDesc: '基于Airtest的Android APP自动化测试',
-    aiIntelligentMode: 'AI 智能模式',
+    aiIntelligentMode: 'AI自动化测试',
     aiIntelligentModeDesc: '基于自然语言的智能化测试执行',
     aiEvaluator: 'AI评测师',
     aiEvaluatorDesc: '基于评测师知识库，提供专业软件测试问答',
