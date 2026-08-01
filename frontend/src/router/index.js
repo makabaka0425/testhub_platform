@@ -33,6 +33,9 @@ import UiNotificationLogs from '@/views/ui-automation/notification/NotificationL
 import UiAITesting from '@/views/ui-automation/ai/AITesting.vue'
 import UiAICaseList from '@/views/ui-automation/ai/AICaseList.vue'
 import UiAIExecutionRecords from '@/views/ui-automation/ai/AIExecutionRecords.vue'
+import UiMidsceneExecution from '@/views/ui-automation/midscene/MidsceneExecution.vue'
+import AiProjectList from '@/views/ui-automation/ai-projects/AiProjectList.vue'
+import AiScheduledTasks from '@/views/ai-automation/AiScheduledTasks.vue'
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 const routes = [
@@ -342,7 +345,13 @@ const routes = [
         children: [
             {
                 path: '',
-                redirect: 'testing'
+                redirect: 'projects'
+            },
+            {
+                path: 'projects',
+                name: 'AiProjectList',
+                component: AiProjectList,
+                meta: { title: '项目管理' }
             },
             {
                 path: 'testing',
@@ -358,6 +367,18 @@ const routes = [
                 path: 'execution-records',
                 name: 'AIExecutionRecords',
                 component: UiAIExecutionRecords
+            },
+            {
+                path: 'midscene',
+                name: 'MidsceneExecution',
+                component: UiMidsceneExecution,
+                meta: { title: 'Midscene视觉自动化' }
+            },
+            {
+                path: 'scheduled-tasks',
+                name: 'AiScheduledTasks',
+                component: AiScheduledTasks,
+                meta: { title: 'AI定时任务' }
             }
         ]
     },

@@ -113,11 +113,17 @@
       </div>
     </div>
 
-    <div class="main-content">
-      <!-- 手动输入需求描述区域 -->
-      <div class="manual-input-section" v-if="!isGenerating && !showResults">
-        <div class="manual-input-card">
-          <h2>{{ $t('requirementAnalysis.manualInputTitle') }}</h2>
+    <div class="main-content" v-if="!isGenerating && !showResults">
+      <div class="dual-mode-container">
+        <!-- 左侧：一句话需求 -->
+        <div class="mode-card manual-mode-card">
+          <div class="mode-card-header">
+            <div class="mode-icon-wrap manual-icon">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 1.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </div>
+            <h2>{{ $t('requirementAnalysis.manualInputTitle') }}</h2>
+          </div>
+          <p class="mode-card-desc">{{ $t('requirementAnalysis.realtimeStreamDesc') }}</p>
           <div class="input-form">
             <div class="form-group">
               <label>{{ $t('requirementAnalysis.requirementTitle') }} <span class="required">*</span></label>
@@ -133,7 +139,7 @@
               <textarea
                 v-model="manualInput.description"
                 class="form-textarea"
-                rows="8"
+                rows="6"
                 :placeholder="$t('requirementAnalysis.descriptionPlaceholder')"></textarea>
               <div class="char-count">{{ manualInput.description.length }}/2000</div>
             </div>
@@ -149,7 +155,7 @@
             </div>
 
             <button
-              class="generate-manual-btn"
+              class="generate-btn manual-btn"
               @click="generateFromManualInput"
               :disabled="!canGenerateManual || isGenerating">
               <span v-if="isGenerating">{{ $t('requirementAnalysis.generating') }}</span>
@@ -157,27 +163,25 @@
             </button>
           </div>
         </div>
-      </div>
 
-      <!-- 分隔线 -->
-      <div class="divider" v-if="!isGenerating && !showResults">
-        <span>{{ $t('requirementAnalysis.dividerOr') }}</span>
-      </div>
-
-      <!-- 文档上传区域 -->
-      <div class="upload-section" v-if="!isGenerating && !showResults">
-        <div class="upload-card">
-          <h2>{{ $t('requirementAnalysis.uploadTitle') }}</h2>
+        <!-- 右侧：上传需求文档 -->
+        <div class="mode-card upload-mode-card">
+          <div class="mode-card-header">
+            <div class="mode-icon-wrap upload-icon">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <h2>{{ $t('requirementAnalysis.uploadTitle') }}</h2>
+          </div>
+          <p class="mode-card-desc">{{ $t('requirementAnalysis.supportedFormats') }}</p>
           <div class="upload-area"
                @dragover.prevent
                @drop="handleDrop"
-               :class="{ 'drag-over': isDragOver }"
+               :class="{ 'drag-over': isDragOver, 'has-file': selectedFile }"
                @dragenter="isDragOver = true"
                @dragleave="isDragOver = false">
             <div v-if="!selectedFile" class="upload-placeholder">
-              <i class="upload-icon">📁</i>
+              <i class="upload-emoji">📁</i>
               <p>{{ $t('requirementAnalysis.dragDropText') }}</p>
-              <p class="upload-hint">{{ $t('requirementAnalysis.supportedFormats') }}</p>
               <input
                 type="file"
                 ref="fileInput"
@@ -196,7 +200,7 @@
                   <p class="file-name">{{ selectedFile.name }}</p>
                   <p class="file-size">{{ formatFileSize(selectedFile.size) }}</p>
                 </div>
-                <button class="remove-file" @click="removeFile">❌</button>
+                <button class="remove-file" @click="removeFile">✕</button>
               </div>
             </div>
           </div>
@@ -222,7 +226,7 @@
             </div>
 
             <button
-              class="generate-btn"
+              class="generate-btn upload-btn"
               @click="generateFromDocument"
               :disabled="!documentTitle || isGenerating">
               <span v-if="isGenerating">{{ $t('requirementAnalysis.generating') }}</span>
@@ -231,6 +235,7 @@
           </div>
         </div>
       </div>
+    </div>
 
       <!-- 生成进度和结果 -->
       <div v-if="isGenerating || showResults" class="generation-progress">
@@ -335,7 +340,6 @@
         </div>
       </div>
     </div>
-  </div>
 </template>
 
 <script>
@@ -1779,21 +1783,91 @@ export default {
 }
 
 
-.manual-input-card, .upload-card {
+/* === 并排布局容器 === */
+.dual-mode-container {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.mode-card {
+  flex: 1;
   background: white;
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  transition: all 0.3s ease;
+}
+
+.mode-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.mode-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.mode-card-header h2 {
+  font-size: 1.3rem;
+  color: #1a202c;
+  margin: 0;
+  font-weight: 600;
+}
+
+.mode-icon-wrap {
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
-  padding: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e1e8ed;
-  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.manual-input-card h2, .upload-card h2 {
-  color: #2c3e50;
-  margin-bottom: 20px;
-  font-size: 1.5rem;
+.mode-icon-wrap.manual-icon {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
 }
 
+.mode-icon-wrap.upload-icon {
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  color: white;
+}
+
+.mode-card-desc {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 0 0 20px 0;
+  line-height: 1.5;
+}
+
+.generate-btn.manual-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+}
+
+.generate-btn.manual-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5a6fd6 0%, #6a4296 100%);
+  box-shadow: 0 4px 14px rgba(102, 126, 234, 0.4);
+}
+
+.generate-btn.upload-btn {
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  color: white;
+  border: none;
+}
+
+.generate-btn.upload-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0e8a7e 0%, #2ed970 100%);
+  box-shadow: 0 4px 14px rgba(17, 153, 142, 0.4);
+}
+
+/* === 表单与上传区域 === */
 .form-group {
   margin-bottom: 20px;
 }
@@ -1903,49 +1977,30 @@ export default {
 }
 
 .generate-manual-btn, .generate-btn {
-  background: #27ae60;
   color: white;
   border: none;
   padding: 15px 30px;
   border-radius: 8px;
   cursor: pointer;
   font-size: 1.1rem;
-  transition: background 0.3s ease;
+  transition: all 0.3s ease;
   width: 100%;
   margin-top: 10px;
 }
 
-.generate-manual-btn:hover:not(:disabled), .generate-btn:hover:not(:disabled) {
-  background: #219a52;
+.generate-manual-btn:disabled, .generate-btn:disabled {
+  background: #bdc3c7 !important;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .generate-manual-btn:disabled, .generate-btn:disabled {
-  background: #bdc3c7;
+  background: #bdc3c7 !important;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
-.divider {
-  text-align: center;
-  margin: 40px 0;
-  position: relative;
-}
 
-.divider::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: #ddd;
-}
-
-.divider span {
-  background: white;
-  padding: 0 20px;
-  color: #666;
-  font-size: 1rem;
-}
 
 .upload-area {
   border: 2px dashed #ddd;
@@ -1965,17 +2020,7 @@ export default {
   color: #666;
 }
 
-.upload-icon {
-  font-size: 3rem;
-  margin-bottom: 15px;
-  display: block;
-}
 
-.upload-hint {
-  color: #999;
-  font-size: 0.9rem;
-  margin-top: 5px;
-}
 
 .select-file-btn {
   background: #3498db;
@@ -2393,6 +2438,12 @@ export default {
   font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
   font-size: 0.9rem;
   line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .dual-mode-container {
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 768px) {

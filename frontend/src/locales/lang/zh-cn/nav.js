@@ -59,9 +59,12 @@ export default {
     caseDesign: '用例编排',
 
     // AI智能模式
+    aiProjectManagement: '项目管理',
     aiIntelligentTesting: 'AI 智能测试',
     aiCaseManagement: 'AI 用例管理',
     aiExecutionRecords: 'AI测试报告',
+    midsceneExecution: 'Midscene视觉自动化',
+    aiScheduledTasks: 'AI定时任务',
 
     // 配置中心
     aiCaseGenerationConfig: 'AI用例生成配置',

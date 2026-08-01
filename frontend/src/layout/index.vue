@@ -16,6 +16,14 @@
         >
           <!-- AI用例生成模块菜单 -->
           <template v-if="currentModule === 'ai-generation'">
+            <el-menu-item index="/ai-generation/projects">
+              <el-icon><Folder /></el-icon>
+              <span>{{ $t('menu.projectManagement') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/versions">
+              <el-icon><Flag /></el-icon>
+              <span>{{ $t('menu.versionManagement') }}</span>
+            </el-menu-item>
             <el-menu-item index="/ai-generation/requirement-analysis">
               <el-icon><MagicStick /></el-icon>
               <span>{{ $t('menu.aiCaseGeneration') }}</span>
@@ -24,17 +32,9 @@
               <el-icon><Document /></el-icon>
               <span>{{ $t('menu.aiGeneratedTestcases') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/projects">
-              <el-icon><Folder /></el-icon>
-              <span>{{ $t('menu.projectManagement') }}</span>
-            </el-menu-item>
             <el-menu-item index="/ai-generation/testcases">
               <el-icon><DocumentCopy /></el-icon>
               <span>{{ $t('menu.testCases') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-generation/versions">
-              <el-icon><Flag /></el-icon>
-              <span>{{ $t('menu.versionManagement') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-generation/reviews">
               <el-icon><Check /></el-icon>
@@ -225,6 +225,10 @@
 
           <!-- AI 智能模式模块菜单 -->
           <template v-else-if="currentModule === 'ai-intelligent-mode'">
+            <el-menu-item index="/ai-intelligent-mode/projects">
+              <el-icon><Folder /></el-icon>
+              <span>{{ $t('menu.aiProjectManagement') }}</span>
+            </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/testing">
               <el-icon><VideoPlay /></el-icon>
               <span>{{ $t('menu.aiIntelligentTesting') }}</span>
@@ -236,6 +240,14 @@
             <el-menu-item index="/ai-intelligent-mode/execution-records">
               <el-icon><Timer /></el-icon>
               <span>{{ $t('menu.aiExecutionRecords') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/midscene">
+              <el-icon><View /></el-icon>
+              <span>{{ $t('menu.midsceneExecution') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
+              <el-icon><AlarmClock /></el-icon>
+              <span>{{ $t('menu.aiScheduledTasks') }}</span>
             </el-menu-item>
 
           </template>
@@ -353,7 +365,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram, View
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -466,9 +478,12 @@ const breadcrumbTitle = computed(() => {
     '/app-automation/reports': t('menu.testReport'),
 
     // AI 智能模式
+    '/ai-intelligent-mode/projects': t('menu.aiProjectManagement'),
     '/ai-intelligent-mode/testing': t('menu.aiIntelligentTesting'),
     '/ai-intelligent-mode/cases': t('menu.aiCaseManagement'),
     '/ai-intelligent-mode/execution-records': t('menu.aiExecutionRecords'),
+    '/ai-intelligent-mode/midscene': t('menu.midsceneExecution'),
+    '/ai-intelligent-mode/scheduled-tasks': t('menu.aiScheduledTasks'),
 
 
     // 配置中心

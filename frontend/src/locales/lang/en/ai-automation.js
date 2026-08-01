@@ -1,0 +1,102 @@
+export default {
+  scheduledTask: {
+    title: 'AI Scheduled Tasks',
+    newTask: 'New Task',
+    taskList: 'Task List',
+    taskName: 'Task Name',
+    taskNamePlaceholder: 'Enter task name',
+    taskDesc: 'Description',
+    taskDescPlaceholder: 'Enter task description',
+    relatedProject: 'Project',
+    selectProject: 'Select project',
+    midsceneCase: 'Midscene Case',
+    selectCase: 'Select Midscene case',
+    taskType: 'Task Type',
+    triggerType: 'Trigger Type',
+    triggerTypes: {
+      cron: 'Cron Expression',
+      interval: 'Fixed Interval',
+      once: 'One-time',
+      cronShort: 'Cron',
+      intervalShort: 'Interval',
+      onceShort: 'Once'
+    },
+    status: 'Status',
+    statusTypes: {
+      active: 'Active',
+      paused: 'Paused',
+      completed: 'Completed',
+      completedShort: 'Done',
+      failed: 'Failed'
+    },
+    cronExpression: 'Cron Expression',
+    cronPlaceholder: 'e.g. 0 0 * * *',
+    cronHelpLink: 'Cron Help',
+    cronHelp: {
+      format: 'Format: min hour day month weekday',
+      minute: '* range 0-59',
+      hour: '* range 0-23',
+      day: '* range 1-31',
+      month: '* range 1-12',
+      week: '* range 0-6 (0=Sun)',
+      examples: 'Examples:',
+      everyDay: '0 0 * * *  Daily at midnight',
+      everyHour: '0 * * * *  Every hour',
+      everyMonday: '0 9 * * 1  Every Monday 9am',
+      everyMonth: '0 0 1 * *  1st of each month'
+    },
+    intervalTime: 'Interval',
+    intervalUnit: 'seconds',
+    executeTime: 'Execute Time',
+    selectExecuteTime: 'Select execute time',
+    notificationSettings: 'Notification',
+    notifyOnSuccess: 'Notify on success',
+    notifyOnFailure: 'Notify on failure',
+    notificationType: 'Notification Type',
+    selectNotificationType: 'Select notification type',
+    notificationTypes: {
+      email: 'Email',
+      webhook: 'Webhook',
+      both: 'Both'
+    },
+    notifyEmails: 'Notify Emails',
+    selectNotifyEmails: 'Select notify emails',
+    nextRunTime: 'Next Run',
+    lastRunTime: 'Last Run',
+    totalRuns: 'Runs',
+    runNow: 'Run Now',
+    createTask: 'Create Task',
+    editTask: 'Edit Task',
+    actions: {
+      edit: 'Edit',
+      pause: 'Pause',
+      resume: 'Resume',
+      delete: 'Delete'
+    },
+    messages: {
+      loadFailed: 'Failed to load tasks',
+      createSuccess: 'Task created successfully',
+      createFailed: 'Failed to create task',
+      updateSuccess: 'Task updated successfully',
+      updateFailed: 'Failed to update task',
+      deleteSuccess: 'Task deleted successfully',
+      deleteFailed: 'Failed to delete task',
+      deleteConfirm: 'Are you sure you want to delete this task?',
+      deleteConfirmTitle: 'Delete Confirmation',
+      runSuccess: 'Task submitted for execution',
+      runFailed: 'Failed to execute task',
+      pauseSuccess: 'Task paused',
+      pauseFailed: 'Failed to pause task',
+      resumeSuccess: 'Task resumed',
+      resumeFailed: 'Failed to resume task'
+    }
+  },
+  common: {
+    all: 'All',
+    search: 'Search',
+    reset: 'Reset',
+    confirm: 'Confirm',
+    cancel: 'Cancel',
+    operation: 'Actions'
+  }
+}

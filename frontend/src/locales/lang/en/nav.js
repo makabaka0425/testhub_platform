@@ -59,9 +59,12 @@ export default {
     caseDesign: 'Case Design',
 
     // AI Intelligent Mode
+    aiProjectManagement: 'Project Management',
     aiIntelligentTesting: 'AI Intelligent Testing',
     aiCaseManagement: 'AI Case Management',
     aiExecutionRecords: 'AI Test Reports',
+    midsceneExecution: 'Midscene Visual Automation',
+    aiScheduledTasks: 'AI Scheduled Tasks',
 
     // Configuration Center
     aiCaseGenerationConfig: 'AI Test Case Config',

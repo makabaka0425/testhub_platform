@@ -7,7 +7,8 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, TestCasePrecondition, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
-    UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport
+    UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport,
+    AiProject, AiScheduledTask
 )
 from django.contrib.auth import get_user_model
 
@@ -42,6 +43,28 @@ class UiProjectUpdateSerializer(serializers.ModelSerializer):
         model = UiProject
         fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'members',
                   'target_db_type', 'target_db_host', 'target_db_port', 'target_db_name', 'target_db_user', 'target_db_password')
+
+
+class AiProjectSerializer(serializers.ModelSerializer):
+    owner = UserSerializer(read_only=True)
+    members = UserSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AiProject
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at')
+
+
+class AiProjectCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AiProject
+        fields = ('name', 'description', 'status', 'default_platform', 'start_date', 'end_date', 'owner', 'members')
+
+
+class AiProjectUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AiProject
+        fields = ('name', 'description', 'status', 'default_platform', 'start_date', 'end_date', 'members')
 
 
 class LocatorStrategySerializer(serializers.ModelSerializer):
@@ -1018,6 +1041,80 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
             from .models import UiTaskNotificationSetting
             UiTaskNotificationSetting.objects.filter(task=instance).update(is_enabled=False)
 
+        return instance
+
+
+class AiScheduledTaskSerializer(serializers.ModelSerializer):
+    """AI自动化定时任务序列化器"""
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    midscene_case_name = serializers.CharField(source='midscene_case.name', read_only=True, default='')
+    task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    trigger_type_display = serializers.CharField(source='get_trigger_type_display', read_only=True)
+    notification_type_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiScheduledTask
+        fields = [
+            'id', 'name', 'description', 'task_type', 'task_type_display',
+            'trigger_type', 'trigger_type_display', 'cron_expression',
+            'interval_seconds', 'execute_at', 'project', 'project_name',
+            'midscene_case', 'midscene_case_name',
+            'notify_on_success', 'notify_on_failure', 'notification_type', 'notification_type_display', 'notify_emails',
+            'status', 'status_display',
+            'last_run_time', 'next_run_time', 'total_runs',
+            'successful_runs', 'failed_runs', 'last_result', 'error_message',
+            'created_by', 'created_by_name', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'created_by', 'last_run_time', 'next_run_time', 'total_runs',
+            'successful_runs', 'failed_runs', 'last_result',
+            'error_message', 'created_at', 'updated_at'
+        ]
+
+    def get_notification_type_display(self, obj):
+        if obj.notification_type:
+            return obj.get_notification_type_display()
+        return "-"
+
+    def validate(self, attrs):
+        trigger_type = attrs.get('trigger_type')
+
+        if trigger_type == 'CRON':
+            if not attrs.get('cron_expression'):
+                raise serializers.ValidationError("Cron表达式不能为空")
+
+        elif trigger_type == 'INTERVAL':
+            if not attrs.get('interval_seconds'):
+                raise serializers.ValidationError("间隔秒数不能为空")
+            if attrs['interval_seconds'] < 60:
+                raise serializers.ValidationError("间隔秒数不能小于60秒")
+
+        elif trigger_type == 'ONCE':
+            if not attrs.get('execute_at'):
+                raise serializers.ValidationError("执行时间不能为空")
+            if attrs['execute_at'] <= timezone.now():
+                raise serializers.ValidationError("执行时间必须大于当前时间")
+
+        # 验证任务类型配置
+        task_type = attrs.get('task_type')
+        if task_type == 'MIDSCENE_CASE' and not attrs.get('midscene_case'):
+            raise serializers.ValidationError("Midscene用例不能为空")
+
+        return attrs
+
+    def create(self, validated_data):
+        validated_data['created_by'] = self.context['request'].user
+        instance = super().create(validated_data)
+        instance.next_run_time = instance.calculate_next_run()
+        instance.save()
+        return instance
+
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        instance.next_run_time = instance.calculate_next_run()
+        instance.save()
         return instance
 
 

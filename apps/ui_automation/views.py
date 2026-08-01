@@ -11,6 +11,7 @@ from django.db import models, transaction
 from django.utils import timezone
 import logging
 import json
+import os
 import re
 import random
 import time
@@ -9528,6 +9529,158 @@ def is_infrastructure_failure(error_message: str) -> bool:
         'service unavailable',
     ]
     return any(marker in message for marker in infra_markers)
+
+
+# ============================================================================
+# Midscene 微服务对接
+# ============================================================================
+
+MIDSCENE_SERVICE_URL = os.environ.get('MIDSCENE_SERVICE_URL', 'http://localhost:8001')
+
+
+class MidsceneExecutionViewSet(viewsets.ViewSet):
+    """Midscene AI视觉自动化执行"""
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['post'], url_path='run')
+    def run_task(self, request):
+        """提交Midscene任务到微服务执行"""
+        import httpx
+
+        task_type = request.data.get('task_type', 'aiAct')
+        instruction = request.data.get('instruction', '')
+        url = request.data.get('url', '')
+        headless = request.data.get('headless', False)
+        project_id = request.data.get('project_id')
+
+        if not instruction:
+            return Response({'error': '请提供执行指令'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 获取Midscene模型配置（优先midscene_web角色，fallback到browser_use_text角色）
+        from apps.requirement_analysis.models import AIModelConfig
+        config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
+        if not config_obj:
+            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+
+        model_config = {}
+        if config_obj:
+            model_config = {
+                'api_key': config_obj.api_key,
+                'base_url': config_obj.base_url,
+                'model_name': config_obj.model_name,
+                'model_family': config_obj.model_type,
+            }
+
+        # 构建请求
+        payload = {
+            'task_type': task_type,
+            'instruction': instruction,
+            'url': url or None,
+            'headless': headless,
+            'model_config': model_config,
+            'timeout': 60000,
+        }
+
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.post(
+                    f'{MIDSCENE_SERVICE_URL}/execute',
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+            # 记录执行记录
+            if project_id:
+                try:
+                    project = UiProject.objects.get(id=project_id)
+                    AICase.objects.create(
+                        name=f'Midscene: {instruction[:80]}',
+                        task_description=instruction,
+                        project=project,
+                        status='pending',
+                        created_by=request.user,
+                    )
+                except Exception:
+                    pass
+
+            return Response({
+                'task_id': data.get('task_id'),
+                'status': 'submitted',
+                'message': '任务已提交到Midscene微服务',
+            })
+
+        except httpx.ConnectError:
+            return Response(
+                {'error': 'Midscene微服务未启动，请检查 midscene-service 是否运行在端口 8001'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except Exception as e:
+            logger.error(f"Midscene执行提交失败: {e}", exc_info=True)
+            return Response({'error': f'提交失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='task-status')
+    def task_status(self, request):
+        """查询Midscene任务状态"""
+        import httpx
+
+        task_id = request.query_params.get('task_id')
+        if not task_id:
+            return Response({'error': '请提供task_id'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(f'{MIDSCENE_SERVICE_URL}/task/{task_id}')
+                resp.raise_for_status()
+                data = resp.json()
+
+            return Response(data)
+        except httpx.ConnectError:
+            return Response(
+                {'error': 'Midscene微服务未启动'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except Exception as e:
+            return Response({'error': f'查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='health')
+    def health_check(self, request):
+        """检查Midscene微服务健康状态"""
+        import httpx
+
+        try:
+            with httpx.Client(timeout=5) as client:
+                resp = client.get(f'{MIDSCENE_SERVICE_URL}/health')
+                resp.raise_for_status()
+                return Response(resp.json())
+        except Exception:
+            return Response({
+                'status': 'offline',
+                'service': 'midscene-service',
+                'message': 'Midscene微服务未启动',
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    @action(detail=False, methods=['get'], url_path='model-config')
+    def get_model_config(self, request):
+        """获取Midscene模型配置（优先midscene_web角色，fallback到browser_use_text角色）"""
+        from apps.requirement_analysis.models import AIModelConfig
+        config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
+        source = 'midscene_web'
+        if not config_obj:
+            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+            source = 'browser_use_text'
+        if not config_obj:
+            return Response({'configured': False, 'message': '未配置Midscene模型，请在配置中心添加AI智能模式配置'})
+
+        return Response({
+            'configured': True,
+            'is_active': config_obj.is_active,
+            'model_type': config_obj.model_type,
+            'model_name': config_obj.model_name,
+            'base_url': config_obj.base_url,
+            'name': config_obj.name,
+            'source': source,
+        })
 
 
 class AIExecutionRecordViewSet(viewsets.ModelViewSet):

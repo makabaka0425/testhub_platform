@@ -24,6 +24,9 @@
                   <span class="provider-badge" :class="config.model_type">
                     {{ getProviderLabel(config.model_type) }}
                   </span>
+                  <span v-if="config.role" class="role-badge" :class="config.role">
+                    {{ $t('configuration.aiMode.roles.' + config.role) || config.role }}
+                  </span>
                   <span class="model-name-badge">{{ config.model_name }}</span>
                   <span class="status-badge" :class="{ active: config.is_active }">
                     {{ config.is_active ? $t('configuration.common.enabled') : $t('configuration.common.disabled') }}
@@ -102,9 +105,22 @@
                 <option value="anthropic">{{ $t('configuration.aiMode.providers.anthropic') }}</option>
                 <option value="google_gemini">{{ $t('configuration.aiMode.providers.google_gemini') }}</option>
                 <option value="deepseek">{{ $t('configuration.aiMode.providers.deepseek') }}</option>
+                <option value="qwen">{{ $t('configuration.aiMode.providers.qwen') }}</option>
                 <option value="siliconflow">{{ $t('configuration.aiMode.providers.siliconflow') }}</option>
                 <option value="zhipu">{{ $t('configuration.aiMode.providers.zhipu') }}</option>
                 <option value="other">{{ $t('configuration.aiMode.providers.other') }}</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>{{ $t('configuration.aiMode.role') }} <span class="required">*</span></label>
+              <select
+                v-model="configForm.role"
+                class="form-select"
+                required>
+                <option value="">{{ $t('configuration.aiMode.selectRole') }}</option>
+                <option value="browser_use_text">{{ $t('configuration.aiMode.roles.browser_use_text') }}</option>
+                <option value="midscene_web">{{ $t('configuration.aiMode.roles.midscene_web') }}</option>
               </select>
             </div>
 
@@ -217,6 +233,7 @@ const testResult = ref({
 const configForm = ref({
   name: '',
   model_type: '',
+  role: '',
   model_name: '',
   api_key: '',
   base_url: '',
@@ -230,6 +247,7 @@ const modelBaseUrlMap = {
   anthropic: 'https://api.anthropic.com',
   google_gemini: '',
   deepseek: 'https://api.deepseek.com',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   siliconflow: 'https://api.siliconflow.cn/v1',
   zhipu: 'https://open.bigmodel.cn/api/paas/v4',
   other: ''
@@ -270,6 +288,7 @@ const resetForm = () => {
   configForm.value = {
     name: '',
     model_type: '',
+    role: '',
     model_name: '',
     api_key: '',
     base_url: '',
@@ -288,6 +307,7 @@ const editConfig = (config) => {
   configForm.value = {
     name: config.name,
     model_type: config.model_type,
+    role: config.role || '',
     model_name: config.model_name,
     api_key: maskedKey, // 显示与原API Key相同长度的掩码
     base_url: config.base_url,
@@ -690,6 +710,23 @@ onMounted(() => {
 }
 
 .model-name-badge {
+  background: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.role-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.role-badge.browser_use_text {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.role-badge.midscene_web {
   background: #f3e5f5;
   color: #7b1fa2;
 }

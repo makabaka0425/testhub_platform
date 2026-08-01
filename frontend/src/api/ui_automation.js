@@ -1787,7 +1787,7 @@ export function runAiScheduledTask(id) {
 
 // 获取Midscene用例列表 - 已在上方声明，此处不再重复
 
-// 获取AI模块用户列表（复用UI模块用户接口）
-export function getAiUsers() {
-  return request({ url: '/ui-automation/users/', method: 'get' })
+// 获取AI模块用户列表（复用API测试模块用户接口）
+export function getAiUsers(params) {
+  return request({ url: '/api-testing/users/', method: 'get', params })
 }

@@ -1,0 +1,102 @@
+export default {
+  scheduledTask: {
+    title: 'AI定时任务',
+    newTask: '新建任务',
+    taskList: '任务列表',
+    taskName: '任务名称',
+    taskNamePlaceholder: '请输入任务名称',
+    taskDesc: '任务描述',
+    taskDescPlaceholder: '请输入任务描述',
+    relatedProject: '关联项目',
+    selectProject: '请选择项目',
+    midsceneCase: 'Midscene用例',
+    selectCase: '请选择Midscene用例',
+    taskType: '任务类型',
+    triggerType: '触发方式',
+    triggerTypes: {
+      cron: 'Cron表达式',
+      interval: '固定间隔',
+      once: '单次执行',
+      cronShort: 'Cron',
+      intervalShort: '间隔',
+      onceShort: '单次'
+    },
+    status: '状态',
+    statusTypes: {
+      active: '激活',
+      paused: '暂停',
+      completed: '已完成',
+      completedShort: '完成',
+      failed: '失败'
+    },
+    cronExpression: 'Cron表达式',
+    cronPlaceholder: '例如: 0 0 * * *',
+    cronHelpLink: 'Cron表达式帮助',
+    cronHelp: {
+      format: '格式: 分 时 日 月 周',
+      minute: '* 取值 0-59',
+      hour: '* 取值 0-23',
+      day: '* 取值 1-31',
+      month: '* 取值 1-12',
+      week: '* 取值 0-6 (0=周日)',
+      examples: '示例:',
+      everyDay: '0 0 * * *  每天零点',
+      everyHour: '0 * * * *  每小时',
+      everyMonday: '0 9 * * 1  每周一9点',
+      everyMonth: '0 0 1 * *  每月1号'
+    },
+    intervalTime: '间隔时间',
+    intervalUnit: '秒',
+    executeTime: '执行时间',
+    selectExecuteTime: '请选择执行时间',
+    notificationSettings: '通知设置',
+    notifyOnSuccess: '成功时通知',
+    notifyOnFailure: '失败时通知',
+    notificationType: '通知类型',
+    selectNotificationType: '请选择通知类型',
+    notificationTypes: {
+      email: '邮箱通知',
+      webhook: 'Webhook机器人',
+      both: '两者都发送'
+    },
+    notifyEmails: '通知邮箱',
+    selectNotifyEmails: '请选择通知邮箱',
+    nextRunTime: '下次执行',
+    lastRunTime: '上次执行',
+    totalRuns: '执行次数',
+    runNow: '立即执行',
+    createTask: '创建任务',
+    editTask: '编辑任务',
+    actions: {
+      edit: '编辑',
+      pause: '暂停',
+      resume: '恢复',
+      delete: '删除'
+    },
+    messages: {
+      loadFailed: '加载任务失败',
+      createSuccess: '任务创建成功',
+      createFailed: '任务创建失败',
+      updateSuccess: '任务更新成功',
+      updateFailed: '任务更新失败',
+      deleteSuccess: '任务删除成功',
+      deleteFailed: '任务删除失败',
+      deleteConfirm: '确定要删除此任务吗？',
+      deleteConfirmTitle: '删除确认',
+      runSuccess: '任务已提交执行',
+      runFailed: '任务执行失败',
+      pauseSuccess: '任务已暂停',
+      pauseFailed: '暂停失败',
+      resumeSuccess: '任务已恢复',
+      resumeFailed: '恢复失败'
+    }
+  },
+  common: {
+    all: '全部',
+    search: '搜索',
+    reset: '重置',
+    confirm: '确认',
+    cancel: '取消',
+    operation: '操作'
+  }
+}
