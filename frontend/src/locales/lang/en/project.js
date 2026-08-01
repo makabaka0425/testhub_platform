@@ -81,6 +81,8 @@ export default {
 
     // Title
     title: 'LingCe Testing Platform',
+    brandName: 'LingCe',
+    titleSuffix: 'Testing Platform',
     subtitle: 'All-in-One Intelligent Testing Solution',
 
     // Cards

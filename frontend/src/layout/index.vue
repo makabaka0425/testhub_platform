@@ -4,7 +4,8 @@
       <!-- 侧边栏 -->
       <el-aside width="160px">
         <div class="logo" @click="router.push('/home')" style="cursor: pointer;">
-          <img :src="logoImage" alt="灵测" class="logo-img" />
+        <!-- <img :src="logoImage" alt="灵测" class="logo-img" /> -->
+          <!-- logo待替换，暂留空白 -->
         </div>
         <el-menu
           :default-active="$route.path"

@@ -81,6 +81,8 @@ export default {
 
     // Title
     title: '灵测 测试平台',
+    brandName: '灵测',
+    titleSuffix: '测试平台',
     subtitle: '一站式智能化测试解决方案',
 
     // Cards

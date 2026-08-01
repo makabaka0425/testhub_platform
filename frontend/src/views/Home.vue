@@ -63,7 +63,14 @@
         </div>
       </div>
 
-      <h1 class="main-title">{{ $t('home.title') }}</h1>
+      <h1 class="main-title">
+        <span class="brand-name">
+          <span class="brand-corner">
+            <span class="brand-text">{{ $t('home.brandName') }}</span>
+          </span>
+        </span>
+        {{ $t('home.titleSuffix') }}
+      </h1>
       <p class="subtitle">{{ $t('home.subtitle') }}</p>
 
       <div class="cards-container">
@@ -441,6 +448,51 @@ const handleNavigate = (type) => {
   letter-spacing: 2px;
 }
 
+.brand-name {
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: baseline;
+}
+
+.brand-corner {
+  display: inline-block;
+  position: relative;
+  padding: 8px 14px 8px 10px;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-color: #409eff;
+    border-style: solid;
+    border-width: 0;
+  }
+
+  // 左上角 ∟
+  &::before {
+    top: 0;
+    left: 0;
+    border-top-width: 3px;
+    border-left-width: 3px;
+    border-top-left-radius: 4px;
+  }
+
+  // 右下角 ∟
+  &::after {
+    bottom: 0;
+    right: 0;
+    border-bottom-width: 3px;
+    border-right-width: 3px;
+    border-bottom-right-radius: 4px;
+  }
+}
+
+.brand-text {
+  display: inline;
+}
+
 .subtitle {
   font-size: 1.5rem;
   color: #5e6d82;
@@ -775,6 +827,17 @@ const handleNavigate = (type) => {
     margin-bottom: 8px;
   }
 
+  .brand-corner {
+    padding: 5px 8px 5px 6px;
+
+    &::before,
+    &::after {
+      width: 14px;
+      height: 14px;
+      border-width: 2px;
+    }
+  }
+
   .subtitle {
     font-size: 0.9375rem;
     color: #7a8494;
@@ -860,6 +923,17 @@ const handleNavigate = (type) => {
 
   .main-title {
     font-size: 1.5rem;
+  }
+
+  .brand-corner {
+    padding: 4px 6px 4px 5px;
+
+    &::before,
+    &::after {
+      width: 12px;
+      height: 12px;
+      border-width: 2px;
+    }
   }
 
   .subtitle {
