@@ -97,17 +97,17 @@
                           <div class="cg-op"><el-button type="primary" link size="small" @click.stop="viewPlanSuiteDetail(child)">详情</el-button></div>
                         </div>
                         <!-- 套件内用例（三级） -->
-                        <div v-if="child._expanded && child.children" class="suite-children">
+                        <div v-if="child._expanded && (child.cases || child.children)" class="suite-children">
                           <div
-                            v-for="subCase in child.children"
+                            v-for="subCase in (child.cases || child.children)"
                             :key="subCase.id"
                             class="child-grid-row sub-case-row"
                           >
-                            <div class="cg-name" style="padding-left: 28px;">{{ subCase.name }}</div>
+                            <div class="cg-name" style="padding-left: 28px;">{{ subCase.name || subCase.test_case_name }}</div>
                             <div class="cg-center"><el-tag type="info" size="small">用例</el-tag></div>
                             <div class="cg-center"><el-tag :type="getStatusType(subCase.status)" size="small">{{ getStatusText(subCase.status) }}</el-tag></div>
                             <div class="cg-center">{{ formatDateTime(subCase.started_at) }}</div>
-                            <div class="cg-center"><span v-if="subCase.duration != null">{{ formatDuration(subCase.duration) }}</span><span v-else>-</span></div>
+                            <div class="cg-center"><span v-if="subCase.duration != null || subCase.execution_time != null">{{ formatDuration(subCase.duration || subCase.execution_time) }}</span><span v-else>-</span></div>
                             <div class="cg-center">-</div>
                             <div class="cg-center">-</div>
                             <div class="cg-op"><el-button type="primary" link size="small" @click="viewCaseDetail(subCase)">详情</el-button></div>
@@ -226,95 +226,117 @@
       </div>
     </div>
 
-    <!-- 执行详情对话框 -->
-    <el-dialog v-model="showDetailDialog" title="执行详情" width="900px">
-      <div v-if="currentExecution" class="execution-detail">
-        <!-- 基本信息 -->
+    <!-- 父级（计划/套件）详情对话框 -->
+    <el-dialog v-model="showDetailDialog" title="执行详情" width="900px" @close="currentExecution = null">
+      <div v-if="currentExecution">
         <el-descriptions :column="2" border>
-          <el-descriptions-item :label="currentExecution.item_type === 'plan' ? '计划名称' : currentExecution.item_type === 'suite' ? '套件名称' : '用例名称'">{{ currentExecution.name }}</el-descriptions-item>
+          <el-descriptions-item :label="currentExecution.item_type === 'plan' ? '计划名称' : '套件名称'">{{ currentExecution.name }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="getStatusType(currentExecution.status)">{{ getStatusText(currentExecution.status) }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="浏览器" v-if="!currentExecution.item_type || currentExecution.item_type === 'case'">{{ getBrowserText(currentExecution.browser) }}</el-descriptions-item>
           <el-descriptions-item label="执行人">{{ currentExecution.executed_by }}</el-descriptions-item>
           <el-descriptions-item label="开始时间">{{ formatDateTime(currentExecution.started_at) }}</el-descriptions-item>
           <el-descriptions-item label="结束时间">{{ formatDateTime(currentExecution.finished_at) }}</el-descriptions-item>
           <el-descriptions-item label="耗时" :span="2">{{ formatDuration(currentExecution.duration) }}</el-descriptions-item>
-          <!-- 计划/套件特有：通过率 -->
-          <template v-if="currentExecution.item_type === 'plan' || currentExecution.item_type === 'suite'">
-            <el-descriptions-item label="总用例数">{{ currentExecution.total_cases || 0 }}</el-descriptions-item>
-            <el-descriptions-item label="通过/失败/跳过">
-              {{ currentExecution.passed_cases || 0 }} / {{ currentExecution.failed_cases || 0 }} / {{ currentExecution.skipped_cases || 0 }}
-            </el-descriptions-item>
-          </template>
+          <el-descriptions-item label="总用例数">{{ currentExecution.total_cases || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="通过/失败/跳过">
+            {{ currentExecution.passed_cases || 0 }} / {{ currentExecution.failed_cases || 0 }} / {{ currentExecution.skipped_cases || 0 }}
+          </el-descriptions-item>
         </el-descriptions>
-
-        <!-- 仅用例类型展示日志/截图/错误页签 -->
-        <template v-if="!currentExecution.item_type || currentExecution.item_type === 'case'">
-        <el-tabs v-model="activeTab" class="execution-tabs" style="margin-top: 20px;">
-          <!-- 执行日志 -->
-          <el-tab-pane label="执行日志" name="logs">
-            <div class="logs-container">
-              <div v-if="currentExecution.execution_logs">
-                <div v-for="(step, index) in parseExecutionLogs(currentExecution.execution_logs)" :key="index" class="log-item">
-                  <div class="log-header">
-                    <el-tag :type="step.success ? 'success' : 'danger'" size="small">
-                      步骤 {{ step.step_number }}
-                    </el-tag>
-                    <span class="log-action">{{ getActionText(step.action_type) }}</span>
-                    <span class="log-desc">{{ step.description }}</span>
-                  </div>
-                  <div v-if="step.error" class="log-error">
-                    <el-icon><WarningFilled /></el-icon>
-                    <pre class="error-message">{{ step.error }}</pre>
-                  </div>
-                </div>
-              </div>
-              <el-empty v-else description="暂无执行日志" />
-            </div>
-          </el-tab-pane>
-
-          <!-- 失败截图 -->
-          <el-tab-pane label="失败截图" name="screenshots" v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'">
-            <div class="screenshots-container">
-              <div v-if="currentExecution.screenshots && currentExecution.screenshots.length > 0">
-                <div v-for="(screenshot, index) in currentExecution.screenshots" :key="index" class="screenshot-item">
-                  <h5>{{ screenshot.description || `截图 ${index + 1}` }}</h5>
-                  <div v-if="screenshot.url" class="screenshot-wrapper">
-                    <img
-                      :src="screenshot.url"
-                      :alt="screenshot.description"
-                      class="screenshot-img"
-                      @error="handleImageError($event, screenshot)"
-                    />
-                  </div>
-                  <div v-else class="screenshot-error">
-                    <el-icon><WarningFilled /></el-icon>
-                    <span>截图加载失败{{ screenshot.error || '未知原因' }}</span>
-                  </div>
-                  <p class="screenshot-time">{{ formatDateTime(screenshot.timestamp) }}</p>
-                </div>
-              </div>
-              <el-empty v-else description="暂无截图" />
-            </div>
-          </el-tab-pane>
-
-          <!-- 错误信息 -->
-          <el-tab-pane label="错误信息" name="error" v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'">
-            <div class="errors-container">
-              <div v-if="currentExecution.error_message" class="error-item">
-                <div class="error-content">
-                  <pre class="error-text">{{ currentExecution.error_message }}</pre>
-                </div>
-              </div>
-              <el-empty v-else description="暂无错误信息" />
-            </div>
-          </el-tab-pane>
-         </el-tabs>
-        </template>
       </div>
       <template #footer>
         <el-button @click="showDetailDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 子用例执行详情对话框 -->
+    <el-dialog v-model="showCaseDetailDialog" title="用例执行详情" width="900px" class="case-detail-dialog" @close="onCaseDetailClose">
+      <div v-if="caseDetail" class="execution-detail">
+        <!-- 加载中 -->
+        <div v-if="caseDetailLoading" style="text-align: center; padding: 40px 0;">
+          <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+          <p style="margin-top: 8px; color: #909399;">加载中...</p>
+        </div>
+        <template v-else>
+          <!-- 基本信息 -->
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="用例名称">{{ caseDetail.test_case_name || caseDetail.name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <el-tag :type="getStatusType(caseDetail.status)">{{ getStatusText(caseDetail.status) }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="浏览器">{{ getBrowserText(caseDetail.browser) }}</el-descriptions-item>
+            <el-descriptions-item label="执行人">{{ caseDetail.created_by_name || caseDetail.executed_by || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="开始时间">{{ formatDateTime(caseDetail.started_at) }}</el-descriptions-item>
+            <el-descriptions-item label="结束时间">{{ formatDateTime(caseDetail.finished_at) }}</el-descriptions-item>
+            <el-descriptions-item label="耗时" :span="2">{{ formatDuration(caseDetail.execution_time || caseDetail.duration) }}</el-descriptions-item>
+          </el-descriptions>
+
+          <!-- 日志/截图/错误/SQL页签 -->
+          <el-tabs v-model="caseDetailTab" class="execution-tabs" style="margin-top: 20px;">
+            <!-- 执行日志 -->
+            <el-tab-pane label="执行日志" name="logs">
+              <div class="logs-container">
+                <div v-if="caseDetail.execution_logs">
+                  <div v-for="(step, index) in parseExecutionLogs(caseDetail.execution_logs)" :key="index" class="log-item">
+                    <div class="log-header">
+                      <el-tag :type="step.success ? 'success' : 'danger'" size="small">
+                        <template v-if="step.step_number === 'sql'">
+                          <span style="display: inline-flex; align-items: center; gap: 4px;">SQL</span>
+                        </template>
+                        <template v-else>
+                          步骤 {{ step.step_number }}
+                        </template>
+                      </el-tag>
+                      <span class="log-action">{{ step.action_type === 'precondition_sql' ? '前置数据SQL' : step.action_type === 'postcondition_sql' ? '后置清理SQL' : getActionText(step.action_type) }}</span>
+                      <span class="log-desc">{{ step.description }}</span>
+                      <span v-if="step.input_value" class="log-value">"{{ step.input_value }}"</span>
+                    </div>
+                    <div v-if="step.error" class="log-error">
+                      <el-icon><WarningFilled /></el-icon>
+                      <pre class="error-message">{{ step.error }}</pre>
+                    </div>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无执行日志" />
+              </div>
+            </el-tab-pane>
+
+            <!-- 失败截图 -->
+            <el-tab-pane label="失败截图" name="screenshots" v-if="caseDetail.status === 'failed' || caseDetail.status === 'error'">
+              <div class="screenshots-container">
+                <div v-if="caseDetail.screenshots && caseDetail.screenshots.length > 0">
+                  <div v-for="(screenshot, index) in caseDetail.screenshots" :key="index" class="screenshot-item">
+                    <h5>{{ screenshot.description || `截图 ${index + 1}` }}</h5>
+                    <div v-if="screenshot.url" class="screenshot-wrapper">
+                      <img :src="screenshot.url" :alt="screenshot.description" class="screenshot-img" @error="handleImageError($event, screenshot)" />
+                    </div>
+                    <div v-else class="screenshot-error">
+                      <el-icon><WarningFilled /></el-icon>
+                      <span>截图加载失败{{ screenshot.error || '未知原因' }}</span>
+                    </div>
+                    <p class="screenshot-time">{{ formatDateTime(screenshot.timestamp) }}</p>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无截图" />
+              </div>
+            </el-tab-pane>
+
+            <!-- 错误信息 -->
+            <el-tab-pane label="错误信息" name="error" v-if="caseDetail.status === 'failed' || caseDetail.status === 'error'">
+              <div class="errors-container">
+                <div v-if="caseDetail.error_message" class="error-item">
+                  <div class="error-content">
+                    <pre class="error-text">{{ caseDetail.error_message }}</pre>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无错误信息" />
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="showCaseDetailDialog = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -438,8 +460,20 @@ let resizeObserver = null
 
 // 详情对话框相关
 const showDetailDialog = ref(false)
-const activeTab = ref('logs')
 const currentExecution = ref(null)
+
+// 子用例详情弹窗（独立）
+const showCaseDetailDialog = ref(false)
+const caseDetail = ref(null)
+const caseDetailLoading = ref(false)
+const caseDetailTab = ref('logs')
+
+// 弹窗关闭时清理状态
+const onCaseDetailClose = () => {
+  caseDetail.value = null
+  caseDetailLoading.value = false
+  caseDetailTab.value = 'logs'
+}
 
 // 重跑对话框相关
 const showRerunDialogVisible = ref(false)
@@ -542,7 +576,11 @@ const getActionText = (actionType) => {
 const parseExecutionLogs = (logs) => {
   if (!logs) return []
   try {
-    return typeof logs === 'string' ? JSON.parse(logs) : logs
+    const parsed = typeof logs === 'string' ? JSON.parse(logs) : logs
+    // 兼容两种格式: {"steps": [...]} 或直接 [...]
+    if (Array.isArray(parsed)) return parsed
+    if (parsed && Array.isArray(parsed.steps)) return parsed.steps
+    return []
   } catch (e) {
     console.error('解析执行日志失败:', e)
     return []
@@ -567,8 +605,8 @@ const loadProjects = async () => {
 }
 
 // 加载执行列表
-const loadExecutions = async () => {
-  loading.value = true
+const loadExecutions = async (silent = false) => {
+  if (!silent) loading.value = true
   try {
     const params = {
       page: pagination.currentPage,
@@ -582,20 +620,75 @@ const loadExecutions = async () => {
 
     const response = await getExecutionUnifiedList(params)
     const results = response.data.results || []
-    // 为每条记录添加内部状态
-    executions.value = results.map(item => ({
-      ...item,
-      _children: null,
-      _loadingChildren: false,
-    }))
+
+    if (silent) {
+      // 轮询模式：增量更新，只修改变化字段，保留对象引用避免闪烁
+      const existingMap = new Map(executions.value.map(e => [e.id, e]))
+      const newIds = new Set(results.map(r => r.id))
+
+      // 更新已有记录的状态字段
+      for (const item of results) {
+        const existing = existingMap.get(item.id)
+        if (existing) {
+          // 只更新可能变化的字段
+          existing.status = item.status
+          existing.duration = item.duration
+          existing.execution_time = item.execution_time
+          existing.pass_rate = item.pass_rate
+          existing.passed_cases = item.passed_cases
+          existing.failed_cases = item.failed_cases
+          existing.skipped_cases = item.skipped_cases
+          existing.total_cases = item.total_cases
+          existing.passed_count = item.passed_count
+          existing.failed_count = item.failed_count
+          existing.total_count = item.total_count
+          existing.has_children = item.has_children
+          existing.child_count = item.child_count
+          existing.started_at = item.started_at
+          existing.finished_at = item.finished_at
+        }
+      }
+
+      // 处理新增/删除的记录
+      const hasAdditions = results.some(r => !existingMap.has(r.id))
+      const hasRemovals = executions.value.some(e => !newIds.has(e.id))
+      if (hasAdditions || hasRemovals) {
+        // 列表项数量变化时需要重建，但仍保留已有对象的_children等内部状态
+        const prevMap = new Map(executions.value.map(e => [e.id, e]))
+        executions.value = results.map(item => {
+          const prev = prevMap.get(item.id)
+          if (prev) return prev // 保留已有对象引用
+          return { ...item, _children: null, _loadingChildren: false }
+        })
+      }
+
+      // 刷新已展开行的子项状态
+      for (const id of expandedKeys.value) {
+        const row = executions.value.find(e => e.id === id)
+        if (row && row.has_children) {
+          refreshChildren(row)
+        }
+      }
+    } else {
+      // 非轮询模式：全量替换
+      executions.value = results.map(item => ({
+        ...item,
+        _children: null,
+        _loadingChildren: false,
+      }))
+      total.value = response.data.count || 0
+      expandedKeys.value = []
+    }
+
     total.value = response.data.count || 0
-    // 清空展开状态
-    expandedKeys.value = []
+    // 调整轮询间隔：有running则5秒，否则15秒
+    updatePollInterval()
+    startPolling()
   } catch (error) {
-    ElMessage.error('获取执行列表失败')
+    if (!silent) ElMessage.error('获取执行列表失败')
     console.error('获取执行列表失败:', error)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -629,11 +722,26 @@ const loadChildren = async (row) => {
   try {
     const response = await getExecutionChildren(row.raw_id)
     const items = response.data.items || []
-    // 为子项添加内部状态
-    row._children = items.map(item => ({
-      ...item,
-      _expanded: false,
-    }))
+    // 统一字段名和item_type，兼容后端返回的不同命名
+    row._children = items.map(item => {
+      // 统一 item_type: 后端返回 test_case/test_suite → 前端用 case/suite
+      let itemType = item.item_type
+      if (itemType === 'test_case') itemType = 'case'
+      else if (itemType === 'test_suite') itemType = 'suite'
+
+      // 统一名称字段：后端返回 test_case_name/suite_name → 前端用 name
+      const name = item.name || item.test_case_name || item.suite_name || '-'
+      // 统一ID字段：后端返回 id → 前端用 raw_id（用于调详情API）
+      const rawId = item.raw_id || item.id
+
+      return {
+        ...item,
+        item_type: itemType,
+        name,
+        raw_id: rawId,
+        _expanded: false,
+      }
+    })
   } catch (error) {
     console.error('加载子项失败:', error)
     ElMessage.error('加载子项失败')
@@ -643,24 +751,86 @@ const loadChildren = async (row) => {
   }
 }
 
+// 轮询时增量刷新子项状态（不重建数组，避免闪烁）
+const refreshChildren = async (row) => {
+  if (!row._children) return // 尚未加载过，跳过
+  try {
+    const response = await getExecutionChildren(row.raw_id)
+    const items = response.data.items || []
+    // 建立 raw_id → 新数据的映射
+    const newMap = new Map()
+    for (const item of items) {
+      const rawId = item.raw_id || item.id
+      if (rawId) newMap.set(rawId, item)
+    }
+    // 增量更新已有子项的状态字段
+    for (const child of row._children) {
+      const fresh = newMap.get(child.raw_id)
+      if (fresh) {
+        child.status = fresh.status
+        child.duration = fresh.duration
+        child.execution_time = fresh.execution_time
+        child.pass_rate = fresh.pass_rate
+        child.has_children = fresh.has_children
+        child.child_count = fresh.child_count
+        child.started_at = fresh.started_at
+        child.finished_at = fresh.finished_at
+      }
+    }
+    // 处理新增子项：API返回了本地不存在的记录
+    const existingIds = new Set(row._children.map(c => c.raw_id))
+    const newChildren = []
+    for (const item of items) {
+      const rawId = item.raw_id || item.id
+      if (rawId && !existingIds.has(rawId)) {
+        // 统一字段格式
+        let itemType = item.item_type
+        if (itemType === 'test_case') itemType = 'case'
+        else if (itemType === 'test_suite') itemType = 'suite'
+        const name = item.name || item.test_case_name || item.suite_name || '-'
+        newChildren.push({
+          ...item,
+          item_type: itemType,
+          name,
+          raw_id: rawId,
+          _expanded: false,
+        })
+      }
+    }
+    if (newChildren.length > 0) {
+      row._children = [...row._children, ...newChildren]
+    }
+  } catch (error) {
+    // 静默失败，不影响用户体验
+    console.error('刷新子项状态失败:', error)
+  }
+}
+
 // 切换套件子项展开
 const toggleSuiteChildren = (parentRow, suiteChild) => {
   suiteChild._expanded = !suiteChild._expanded
 }
 
-// 查看用例执行详情
+// 查看子用例执行详情（使用独立的弹窗）
 const viewCaseDetail = async (child) => {
-  // 子项数据来自children API，需要加载完整详情
+  const rawId = child.raw_id || child.id
+  if (!rawId) {
+    ElMessage.error('无效的执行记录ID')
+    return
+  }
+  caseDetailLoading.value = true
+  caseDetail.value = { test_case_name: child.name || child.test_case_name || '加载中...', status: child.status }
+  caseDetailTab.value = 'logs'
+  showCaseDetailDialog.value = true
   try {
-    const rawId = child.raw_id
-    if (!rawId) return
     const response = await getTestCaseExecutionDetail(rawId)
-    currentExecution.value = response.data
-    activeTab.value = 'logs'
-    showDetailDialog.value = true
+    caseDetail.value = response.data
   } catch (error) {
     console.error('获取执行详情失败:', error)
     ElMessage.error('获取执行详情失败')
+    showCaseDetailDialog.value = false
+  } finally {
+    caseDetailLoading.value = false
   }
 }
 
@@ -717,7 +887,6 @@ const viewPlanSuiteDetail = (row) => {
     failed_cases: row.failed_cases,
     skipped_cases: row.skipped_cases,
   }
-  activeTab.value = 'logs'
   showDetailDialog.value = true
 }
 
@@ -826,6 +995,41 @@ const getActions = (row) => {
   return actions
 }
 
+// ============ 轮询：持续轻量刷新 + running时加速 ============
+let pollTimer = null
+let pollInterval = 15000 // 默认15秒刷新一次，检查新记录
+
+const startPolling = () => {
+  if (pollTimer) return
+  // 先用默认间隔启动
+  pollTimer = setInterval(async () => {
+    await loadExecutions(true)
+  }, pollInterval)
+}
+
+const updatePollInterval = () => {
+  const hasRunning = executions.value.some(e => e.status === 'running')
+  const newInterval = hasRunning ? 5000 : 15000
+  if (newInterval !== pollInterval) {
+    pollInterval = newInterval
+    // 重启定时器以应用新间隔
+    if (pollTimer) {
+      clearInterval(pollTimer)
+      pollTimer = null
+      pollTimer = setInterval(async () => {
+        await loadExecutions(true)
+      }, pollInterval)
+    }
+  }
+}
+
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
 onMounted(async () => {
   await loadProjects()
   if (projects.value.length > 0) {
@@ -840,9 +1044,19 @@ onMounted(async () => {
   resizeObserver = new ResizeObserver(() => syncGridColumns())
   const tableEl = tableRef.value?.$el
   if (tableEl) resizeObserver.observe(tableEl)
+  // 页面重新获得焦点时刷新（从其他菜单切回来）
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    loadExecutions(true)
+  }
+}
+
 onBeforeUnmount(() => {
+  stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
@@ -1128,6 +1342,19 @@ onBeforeUnmount(() => {
           color: #909399;
           font-size: 14px;
         }
+
+        .log-value {
+          color: var(--brand-600, #409eff);
+          font-size: 12px;
+          font-weight: 500;
+          background: var(--brand-50, #ecf5ff);
+          padding: 1px 6px;
+          border-radius: 3px;
+          max-width: 200px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
       }
 
       .log-error {
@@ -1245,6 +1472,18 @@ onBeforeUnmount(() => {
     white-space: pre-wrap;
     word-wrap: break-word;
     overflow-x: auto;
+  }
+}
+</style>
+
+<style lang="scss">
+/* 用例详情弹窗：固定高度680px，内容区域独立滚动 */
+.case-detail-dialog {
+  .el-dialog__body {
+    height: calc(680px - 54px - 60px); /* 减去header 54px + footer 60px */
+    overflow-y: auto;
+    padding-top: 16px;
+    padding-bottom: 16px;
   }
 }
 </style>

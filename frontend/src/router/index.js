@@ -319,6 +319,11 @@ const routes = [
                 component: UiReportList
             },
             {
+                path: 'allure-reports',
+                name: 'UiAllureReports',
+                component: () => import('@/views/ui-automation/allure-reports/AllureReportList.vue')
+            },
+            {
                 path: 'scheduled-tasks',
                 name: 'UiScheduledTasks',
                 component: UiScheduledTasks

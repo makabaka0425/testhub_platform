@@ -24,7 +24,7 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
-    UiTestPlan, UiTestPlanItem, TestCaseGroup
+    UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport
 )
 from .serializers import (
     UiProjectSerializer, UiProjectCreateSerializer, UiProjectUpdateSerializer,
@@ -46,7 +46,8 @@ from .serializers import (
     LoginConfigSerializer, LoginConfigCreateSerializer, LoginConfigUpdateSerializer,
     UiTestPlanSerializer, UiTestPlanCreateSerializer, UiTestPlanUpdateSerializer,
     UiTestPlanItemSerializer,
-    TestCaseGroupSerializer, TestCaseGroupCreateSerializer
+    TestCaseGroupSerializer, TestCaseGroupCreateSerializer,
+    AllureReportSerializer, AllureReportCreateSerializer
 )
 from .operation_logger import log_operation
 
@@ -5629,6 +5630,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                 test_case_id=test_case_id,
                 order=order
             )
+            self._refresh_related_plan_counts(test_suite)
             serializer = TestSuiteTestCaseSerializer(suite_test_case)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         except Exception as e:
@@ -5660,6 +5662,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                     order=max_order
                 )
                 added.append(TestSuiteTestCaseSerializer(suite_tc).data)
+            self._refresh_related_plan_counts(test_suite)
             return Response({'added': added, 'added_count': len(added)}, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -5695,6 +5698,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                 test_case_id=test_case_id
             )
             suite_test_case.delete()
+            self._refresh_related_plan_counts(test_suite)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except TestSuiteTestCase.DoesNotExist:
             return Response({'error': '测试用例不存在于该测试套件中'}, status=status.HTTP_404_NOT_FOUND)
@@ -5711,9 +5715,27 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                 test_suite=test_suite,
                 test_case_id__in=test_case_ids
             ).delete()
+            self._refresh_related_plan_counts(test_suite)
             return Response({'removed_count': removed[0]}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def _refresh_related_plan_counts(self, test_suite):
+        """套件用例变动后，刷新所有关联该套件的计划的total_cases"""
+        from .models import UiTestPlanItem, UiTestPlan
+        plan_ids = UiTestPlanItem.objects.filter(
+            item_type='test_suite',
+            test_suite_id=test_suite.id
+        ).values_list('test_plan_id', flat=True).distinct()
+        for plan in UiTestPlan.objects.filter(id__in=plan_ids):
+            total = 0
+            for item in plan.plan_items.all():
+                if item.item_type == 'test_case' and item.test_case:
+                    total += 1
+                elif item.item_type == 'test_suite' and item.test_suite:
+                    total += item.test_suite.suite_test_cases.count()
+            plan.total_cases = total
+            plan.save(update_fields=['total_cases'])
 
     @action(detail=True, methods=['post'])
     def update_test_case_order(self, request, pk=None):
@@ -6126,27 +6148,26 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
             return Response({'error': '无权限访问'}, status=status.HTTP_403_FORBIDDEN)
 
         # 查询该执行批次下的所有用例执行记录
-        case_executions = TestCaseExecution.objects.filter(
+        # 途径1: test_execution FK 直接关联
+        case_executions = list(TestCaseExecution.objects.filter(
             test_execution=test_execution
-        ).select_related('test_case', 'test_suite').order_by('started_at')
+        ).select_related('test_case', 'test_suite').order_by('started_at'))
 
-        # 兼容旧数据：如果 test_execution FK 没有关联，用时间窗口匹配
-        if case_executions.count() == 0:
-            fallback_filter = TestCaseExecution.objects.filter(
+        # 途径2: 独立模式下旧数据，test_execution=None 但 test_plan 匹配且在时间窗口内
+        if test_execution.test_plan:
+            existing_ids = set(ce.id for ce in case_executions)
+            fallback = TestCaseExecution.objects.filter(
                 project=test_execution.project,
-                started_at__gte=test_execution.started_at,
+                test_plan=test_execution.test_plan,
+                test_execution__isnull=True,
             )
+            if test_execution.started_at:
+                fallback = fallback.filter(started_at__gte=test_execution.started_at)
             if test_execution.finished_at:
-                fallback_filter = fallback_filter.filter(
-                    started_at__lte=test_execution.finished_at
-                )
-            if test_execution.test_plan:
-                fallback_filter = fallback_filter.filter(test_plan=test_execution.test_plan)
-            elif test_execution.test_suite:
-                fallback_filter = fallback_filter.filter(test_suite=test_execution.test_suite)
-            case_executions = fallback_filter.select_related(
-                'test_case', 'test_suite'
-            ).order_by('started_at')
+                fallback = fallback.filter(started_at__lte=test_execution.finished_at)
+            for ce in fallback.select_related('test_case', 'test_suite').order_by('started_at'):
+                if ce.id not in existing_ids:
+                    case_executions.append(ce)
 
         # 状态映射
         te_status_map = {
@@ -7986,10 +8007,25 @@ class TestCaseExecutionViewSet(viewsets.ModelViewSet):
                 item_type = 'plan'
                 name = te.test_plan.name
             elif te.test_suite:
-                # 检查是否属于计划内执行（如果有 TestCaseExecution 指向它则说明是独立套件执行）
+                # 检查是否属于计划内执行
+                # 1. 如果没有 TestCaseExecution 指向它，说明用例已被重指向计划级
                 child_count = TestCaseExecution.objects.filter(test_execution=te).count()
                 if child_count == 0:
                     continue  # 属于计划内执行，用例已被重指向计划级 TestExecution
+                # 2. 有子用例但可能重指向失败，检查同时段是否有计划级记录包含同一套件
+                #    通过时间窗口+项目+套件匹配，判断是否为计划触发的套件执行
+                time_window_start = te.started_at - timezone.timedelta(minutes=5) if te.started_at else None
+                time_window_end = te.started_at + timezone.timedelta(minutes=30) if te.started_at else None
+                is_plan_child = False
+                if time_window_start and time_window_end:
+                    is_plan_child = TestExecution.objects.filter(
+                        test_plan__isnull=False,
+                        project=te.project,
+                        started_at__gte=time_window_start,
+                        started_at__lte=time_window_end,
+                    ).exists()
+                if is_plan_child:
+                    continue  # 属于计划内执行，不在顶级列表显示
                 item_type = 'suite'
                 name = te.test_suite.name
             else:
@@ -8169,534 +8205,96 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
             task.next_run_time = task.calculate_next_run()
             task.save()
 
-            # 根据任务类型执行不同的逻辑
-            if task.task_type == 'TEST_SUITE':
-                # 执行测试套件
-                if not task.test_suite:
+            # 执行测试计划
+            if not task.test_plan:
+                return Response({
+                    'error': '该任务未配置测试计划'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            test_plan = task.test_plan
+            plan_items = test_plan.plan_items.all()
+            if plan_items.count() == 0:
+                return Response({
+                    'error': '该测试计划未包含任何用例或套件，无法执行'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # 检查 Playwright 环境
+            if task.engine == 'playwright':
+                from .playwright_engine import PlaywrightTestEngine
+                is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
+                if not is_ready:
                     return Response({
-                        'error': '该任务未配置测试套件'
+                        'error': error_msg,
+                        'message': 'Playwright 浏览器未就绪，请先安装后再执行测试计划任务'
                     }, status=status.HTTP_400_BAD_REQUEST)
 
-                test_suite = task.test_suite
-                test_case_count = test_suite.suite_test_cases.count()
+            # 更新计划执行状态
+            test_plan.execution_status = 'running'
+            test_plan.save()
 
-                if test_case_count == 0:
-                    return Response({
-                        'error': '该测试套件未包含任何测试用例，无法执行'
-                    }, status=status.HTTP_400_BAD_REQUEST)
+            # 在后台线程中执行测试计划
+            import threading
+            from .plan_executor import PlanExecutor
 
-                if task.engine == 'playwright':
-                    from .playwright_engine import PlaywrightTestEngine
-                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
-                    if not is_ready:
-                        return Response({
-                            'error': error_msg,
-                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试套件任务'
-                        }, status=status.HTTP_400_BAD_REQUEST)
+            def run_test_plan():
+                try:
+                    executor = PlanExecutor(
+                        test_plan=test_plan,
+                        engine=task.engine,
+                        browser=task.browser,
+                        headless=task.headless,
+                        executed_by=task.created_by
+                    )
+                    executor.run()
 
-                # 更新套件执行状态
-                test_suite.execution_status = 'running'
-                test_suite.save()
+                    # 刷新计划对象状态
+                    test_plan.refresh_from_db()
 
-                # 在后台线程中执行测试
-                import threading
-                from .test_executor import TestExecutor
-
-                def run_test():
-                    try:
-                        executor = TestExecutor(
-                            test_suite=test_suite,
-                            engine=task.engine,
-                            browser=task.browser,
-                            headless=task.headless,
-                            executed_by=task.created_by
-                        )
-                        executor.run()
-
-                        # 更新任务执行结果
+                    if test_plan.execution_status == 'passed':
                         task.successful_runs += 1
-                        task.last_result = {'status': 'success', 'message': '测试套件执行成功'}
+                        task.last_result = {
+                            'status': 'success',
+                            'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
+                        }
                         task.error_message = ''
                         task.save()
-
-                        # 发送成功通知
                         self._send_task_notification(task, success=True)
-
-                    except Exception as e:
+                    else:
                         task.failed_runs += 1
-                        task.last_result = {'status': 'failed', 'message': str(e)}
-                        task.error_message = str(e)
-                        test_suite.execution_status = 'failed'
-                        test_suite.save()
-                        task.save()
-
-                        # 发送失败通知
-                        self._send_task_notification(task, success=False)
-
-                # 启动后台线程执行测试
-                thread = threading.Thread(target=run_test)
-                thread.daemon = True
-                thread.start()
-
-                log_operation('run', 'scheduled_task', task.id, task.name, request.user)
-
-                return Response({
-                    'message': '测试套件开始执行',
-                    'task_id': task.id,
-                    'task_name': task.name,
-                    'test_suite': test_suite.name,
-                    'test_case_count': test_case_count,
-                    'engine': task.engine,
-                    'browser': task.browser,
-                    'headless': task.headless
-                }, status=status.HTTP_200_OK)
-
-            elif task.task_type == 'TEST_CASE':
-                # 执行测试用例
-                if not task.test_cases or len(task.test_cases) == 0:
-                    return Response({
-                        'error': '该任务未配置测试用例'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                test_case_ids = task.test_cases
-                test_cases = TestCase.objects.filter(id__in=test_case_ids)
-                test_case_count = test_cases.count()
-
-                if test_case_count == 0:
-                    return Response({
-                        'error': '找不到配置的测试用例'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                if task.engine == 'playwright':
-                    from .playwright_engine import PlaywrightTestEngine
-                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
-                    if not is_ready:
-                        return Response({
-                            'error': error_msg,
-                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试用例任务'
-                        }, status=status.HTTP_400_BAD_REQUEST)
-
-                # 在后台线程中执行测试用例
-                import threading
-
-                def run_test_cases():
-                    """在后台线程中执行测试用例"""
-                    success_count = 0
-                    failed_count = 0
-
-                    try:
-                        for test_case in test_cases:
-                            # 创建执行记录
-                            execution = TestCaseExecution.objects.create(
-                                test_case=test_case,
-                                project=task.project,
-                                execution_source='scheduled',
-                                status='running',
-                                engine=task.engine,
-                                browser=task.browser,
-                                headless=task.headless,
-                                created_by=task.created_by,
-                                started_at=timezone.now()
-                            )
-
-                            # 实际执行测试用例
-                            try:
-                                logger.info(f"开始执行定时任务的测试用例: {test_case.name} (ID: {test_case.id})")
-
-                                start_time = time.time()
-
-                                # 获取测试用例的所有步骤
-                                test_steps = list(test_case.steps.all().order_by('step_number'))
-
-                                # 预先获取所有步骤的数据
-                                steps_data = []
-                                for step in test_steps:
-                                    step_data = {
-                                        'step': step,
-                                        'action_type': step.action_type,
-                                        'description': step.description,
-                                        'input_value': step.input_value,
-                                        'wait_time': step.wait_time,
-                    'action_wait': step.action_wait or 0,
-                                        'assert_type': step.assert_type,
-                                        'assert_value': step.assert_value,
-                                        'output_var': step.output_var,
-                                    }
-
-                                    if step.element:
-                                        step_data['element_data'] = {
-                                            'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
-                                            'locator_value': step.element.locator_value,
-                                            'name': step.element.name,
-                                            'wait_timeout': step.element.wait_timeout,
-                                            'force_action': step.element.force_action
-                                        }
-                                    else:
-                                        step_data['element_data'] = None
-
-                                    steps_data.append(step_data)
-
-                                # 存储步骤执行结果和截图
-                                step_results = []
-                                screenshots = []
-                                execution_logs = []
-                                execution_result = {'status': 'passed', 'error_message': None}
-
-                                # 用例级变量表，存储步骤输出变量
-                                context_variables = {}
-
-                                # 根据引擎类型执行
-                                if task.engine == 'selenium':
-                                    from .selenium_engine import SeleniumTestEngine
-
-                                    # 检查浏览器和驱动是否可用
-                                    is_ready, error_msg = SeleniumTestEngine.check_execution_environment(task.browser)
-                                    if not is_ready:
-                                        execution.status = 'failed'
-                                        execution.error_message = error_msg
-                                        execution.execution_logs = json.dumps([{
-                                            'step_number': 0,
-                                            'action_type': '浏览器检查',
-                                            'description': '执行前浏览器与驱动环境检查',
-                                            'success': False,
-                                            'error': error_msg
-                                        }], ensure_ascii=False)
-                                        execution.finished_at = timezone.now()
-                                        execution.save()
-                                        failed_count += 1
-                                        continue
-
-                                    # 创建Selenium引擎实例并执行
-                                    engine = SeleniumTestEngine(browser_type=task.browser, headless=task.headless)
-
-                                    try:
-                                        # 启动浏览器
-                                        engine.start()
-                                        execution_logs.append("✓ 浏览器启动成功")
-
-                                        # 导航到项目基础URL
-                                        if test_case.project.base_url:
-                                            success, nav_log = engine.navigate(test_case.project.base_url)
-                                            execution_logs.append(nav_log)
-                                            if not success:
-                                                execution_result['status'] = 'failed'
-                                                execution_result['error_message'] = "导航到测试页面失败"
-                                                raise Exception("导航到测试页面失败")
-
-                                        # 执行测试步骤
-                                        for i, step_info in enumerate(steps_data, 1):
-                                            step = step_info['step']
-                                            action_type = step_info['action_type']
-                                            element_data = step_info['element_data']
-
-                                            success, step_log, screenshot_base64 = engine.execute_step(step,
-                                                                                                       element_data or {},
-                                                                                                       context_variables)
-
-                                            step_results.append({
-                                                'step_number': i,
-                                                'action_type': action_type,
-                                                'description': step_info['description'] or '',
-                                                'input_value': step_info.get('input_value', ''),
-                                                'success': success,
-                                                'error': None if success else step_log
-                                            })
-
-                                            if not success:
-                                                execution_result['status'] = 'failed'
-                                                execution_result['error_message'] = step_log
-
-                                                if not screenshot_base64:
-                                                    screenshot_base64 = engine.capture_screenshot()
-
-                                                if screenshot_base64:
-                                                    screenshots.append({
-                                                        'url': screenshot_base64,
-                                                        'description': f'步骤 {i} 失败截图',
-                                                        'step_number': i,
-                                                        'timestamp': timezone.now().isoformat()
-                                                    })
-
-                                                break
-
-                                            if action_type == 'screenshot' and screenshot_base64:
-                                                screenshots.append({
-                                                    'url': screenshot_base64,
-                                                    'description': f'步骤 {i}: {step_info["description"] or "手动截图"}',
-                                                    'step_number': i,
-                                                    'timestamp': timezone.now().isoformat()
-                                                })
-
-                                    finally:
-                                        engine.stop()
-
-                                else:  # Playwright
-                                    from asgiref.sync import sync_to_async
-                                    from .playwright_engine import PlaywrightTestEngine
-
-                                    async def run_playwright_test():
-                                        browser_map = {
-                                            'chrome': 'chromium',
-                                            'firefox': 'firefox',
-                                            'safari': 'webkit',
-                                            'edge': 'chromium'
-                                        }
-                                        browser_type = browser_map.get(task.browser, 'chromium')
-
-                                        engine = PlaywrightTestEngine(browser_type=browser_type, headless=task.headless, base_url=test_case.project.base_url)
-
-                                        try:
-                                            # 启动浏览器
-                                            await engine.start()
-                                            execution_logs.append("✓ 浏览器启动成功")
-
-                                            # 获取项目基础URL（同步操作）
-                                            base_url = await sync_to_async(lambda: test_case.project.base_url)()
-
-                                            # 导航到项目基础URL
-                                            if base_url:
-                                                success, nav_log = await engine.navigate(base_url)
-                                                execution_logs.append(nav_log)
-                                                if not success:
-                                                    execution_result['status'] = 'failed'
-                                                    execution_result['error_message'] = "导航到测试页面失败"
-                                                    return False
-
-                                            # 执行测试步骤
-                                            for i, step_info in enumerate(steps_data, 1):
-                                                step = step_info['step']
-                                                action_type = step_info['action_type']
-                                                element_data = step_info['element_data']
-
-                                                success, step_log, screenshot_base64 = await engine.execute_step(step,
-                                                                                                                 element_data or {},
-                                                                                                                 context_variables)
-
-                                                step_results.append({
-                                                    'step_number': i,
-                                                    'action_type': action_type,
-                                                    'description': step_info['description'] or '',
-                                                    'input_value': step_info.get('input_value', ''),
-                                                    'success': success,
-                                                    'error': None if success else step_log
-                                                })
-
-                                                if not success:
-                                                    execution_result['status'] = 'failed'
-                                                    execution_result['error_message'] = step_log
-
-                                                    if not screenshot_base64:
-                                                        screenshot_base64 = await engine.capture_screenshot()
-
-                                                    if screenshot_base64:
-                                                        screenshots.append({
-                                                            'url': screenshot_base64,
-                                                            'description': f'步骤 {i} 失败截图',
-                                                            'step_number': i,
-                                                            'timestamp': timezone.now().isoformat()
-                                                        })
-
-                                                    return False
-
-                                                if action_type == 'screenshot' and screenshot_base64:
-                                                    screenshots.append({
-                                                        'url': screenshot_base64,
-                                                        'description': f'步骤 {i}: {step_info["description"] or "手动截图"}',
-                                                        'step_number': i,
-                                                        'timestamp': timezone.now().isoformat()
-                                                    })
-
-                                            return True
-
-                                        finally:
-                                            await engine.stop()
-
-                                    # 在新的事件循环中运行Playwright测试
-                                    loop = asyncio.new_event_loop()
-                                    asyncio.set_event_loop(loop)
-                                    try:
-                                        loop.run_until_complete(run_playwright_test())
-                                    finally:
-                                        loop.close()
-
-                                # 计算执行时间
-                                total_time = round(time.time() - start_time, 2)
-
-                                # 保存执行结果
-                                execution.status = execution_result['status']
-                                execution.error_message = execution_result['error_message'] or ''
-                                execution.execution_logs = json.dumps(step_results, ensure_ascii=False)
-                                execution.execution_time = total_time
-                                execution.screenshots = screenshots
-                                execution.finished_at = timezone.now()
-                                execution.save()
-
-                                if execution.status == 'passed':
-                                    success_count += 1
-                                    logger.info(f"测试用例 {test_case.name} 执行成功")
-                                else:
-                                    failed_count += 1
-                                    logger.warning(f"测试用例 {test_case.name} 执行失败: {execution.error_message}")
-
-                            except Exception as e:
-                                logger.error(f"执行测试用例 {test_case.name} 时发生异常: {str(e)}")
-                                execution.status = 'failed'
-                                execution.error_message = str(e)
-                                execution.finished_at = timezone.now()
-                                execution.save()
-                                failed_count += 1
-
-                        # 更新任务执行结果
-                        if failed_count == 0:
-                            task.successful_runs += 1
-                            task.last_result = {
-                                'status': 'success',
-                                'message': f'执行完成: {success_count}个成功',
-                                'success_count': success_count,
-                                'failed_count': failed_count
-                            }
-                            task.error_message = ''
-                            task.save()
-
-                            # 发送成功通知
-                            self._send_task_notification(task, success=True)
-                        else:
-                            task.failed_runs += 1
-                            task.last_result = {
-                                'status': 'partial',
-                                'message': f'执行完成: {success_count}个成功, {failed_count}个失败',
-                                'success_count': success_count,
-                                'failed_count': failed_count
-                            }
-                            task.error_message = f'{failed_count}个测试用例执行失败'
-                            task.save()
-
-                            # 发送失败通知
-                            self._send_task_notification(task, success=False)
-
-                    except Exception as e:
-                        logger.error(f"执行定时任务测试用例时发生异常: {str(e)}")
-                        task.failed_runs += 1
-                        task.last_result = {'status': 'failed', 'message': str(e)}
-                        task.error_message = str(e)
-                        task.save()
-
-                        # 发送失败通知
-                        self._send_task_notification(task, success=False)
-
-                # 启动后台线程执行测试
-                thread = threading.Thread(target=run_test_cases)
-                thread.daemon = True
-                thread.start()
-
-                log_operation('run', 'scheduled_task', task.id, task.name, request.user)
-
-                return Response({
-                    'message': '测试用例开始执行',
-                    'task_id': task.id,
-                    'task_name': task.name,
-                    'test_case_count': test_case_count,
-                    'engine': task.engine,
-                    'browser': task.browser,
-                    'headless': task.headless
-                }, status=status.HTTP_200_OK)
-
-            elif task.task_type == 'TEST_PLAN':
-                # 执行测试计划
-                if not task.test_plan:
-                    return Response({
-                        'error': '该任务未配置测试计划'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                test_plan = task.test_plan
-                plan_items = test_plan.plan_items.all()
-                if plan_items.count() == 0:
-                    return Response({
-                        'error': '该测试计划未包含任何用例或套件，无法执行'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                # 检查 Playwright 环境
-                if task.engine == 'playwright':
-                    from .playwright_engine import PlaywrightTestEngine
-                    is_ready, error_msg = PlaywrightTestEngine.check_execution_environment_sync(task.browser)
-                    if not is_ready:
-                        return Response({
-                            'error': error_msg,
-                            'message': 'Playwright 浏览器未就绪，请先安装后再执行测试计划任务'
-                        }, status=status.HTTP_400_BAD_REQUEST)
-
-                # 更新计划执行状态
-                test_plan.execution_status = 'running'
-                test_plan.save()
-
-                # 在后台线程中执行测试计划
-                import threading
-                from .plan_executor import PlanExecutor
-
-                def run_test_plan():
-                    try:
-                        executor = PlanExecutor(
-                            test_plan=test_plan,
-                            engine=task.engine,
-                            browser=task.browser,
-                            headless=task.headless,
-                            executed_by=task.created_by
-                        )
-                        executor.run()
-
-                        # 刷新计划对象状态
-                        test_plan.refresh_from_db()
-
-                        if test_plan.execution_status == 'passed':
-                            task.successful_runs += 1
-                            task.last_result = {
-                                'status': 'success',
-                                'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
-                            }
-                            task.error_message = ''
-                            task.save()
-                            self._send_task_notification(task, success=True)
-                        else:
-                            task.failed_runs += 1
-                            task.last_result = {
-                                'status': 'failed',
-                                'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
-                            }
-                            task.error_message = f'{test_plan.failed_count}个用例执行失败'
-                            task.save()
-                            self._send_task_notification(task, success=False)
-
-                    except Exception as e:
-                        logger.error(f"执行测试计划任务失败: {str(e)}")
-                        task.failed_runs += 1
-                        task.last_result = {'status': 'failed', 'message': str(e)}
-                        task.error_message = str(e)
-                        test_plan.execution_status = 'failed'
-                        test_plan.save()
+                        task.last_result = {
+                            'status': 'failed',
+                            'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
+                        }
+                        task.error_message = f'{test_plan.failed_count}个用例执行失败'
                         task.save()
                         self._send_task_notification(task, success=False)
 
-                thread = threading.Thread(target=run_test_plan)
-                thread.daemon = True
-                thread.start()
+                except Exception as e:
+                    logger.error(f"执行测试计划任务失败: {str(e)}")
+                    task.failed_runs += 1
+                    task.last_result = {'status': 'failed', 'message': str(e)}
+                    task.error_message = str(e)
+                    test_plan.execution_status = 'failed'
+                    test_plan.save()
+                    task.save()
+                    self._send_task_notification(task, success=False)
 
-                log_operation('run', 'scheduled_task', task.id, task.name, request.user)
+            thread = threading.Thread(target=run_test_plan)
+            thread.daemon = True
+            thread.start()
 
-                return Response({
-                    'message': '测试计划开始执行',
-                    'task_id': task.id,
-                    'task_name': task.name,
-                    'test_plan': test_plan.name,
-                    'plan_item_count': plan_items.count(),
-                    'engine': task.engine,
-                    'browser': task.browser,
-                    'headless': task.headless
-                }, status=status.HTTP_200_OK)
+            log_operation('run', 'scheduled_task', task.id, task.name, request.user)
 
-            else:
-                return Response({
-                    'error': '不支持的任务类型'
-                }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'message': '测试计划开始执行',
+                'task_id': task.id,
+                'task_name': task.name,
+                'test_plan': test_plan.name,
+                'plan_item_count': plan_items.count(),
+                'engine': task.engine,
+                'browser': task.browser,
+                'headless': task.headless
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
             logger.error(f'执行定时任务失败: {str(e)}')
@@ -8964,7 +8562,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
     def _send_email_notification(self, task, success):
         """发送邮件通知"""
         try:
-            from django.core.mail import send_mail
+            import smtplib
+            from email.mime.text import MIMEText
             from django.conf import settings
 
             logger.info("=== 开始发送邮件通知 ===")
@@ -8981,9 +8580,39 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                 logger.warning("没有找到任何邮件收件人")
                 return
 
+            # 优先从数据库读取邮箱配置
+            email_config = None
+            try:
+                from apps.core.models import UnifiedNotificationConfig
+                email_config = UnifiedNotificationConfig.objects.filter(
+                    config_type='email', is_active=True
+                ).first()
+            except Exception as e:
+                logger.warning(f"从数据库读取邮箱配置失败: {e}")
+
+            if email_config and email_config.email_smtp_host:
+                smtp_host = email_config.email_smtp_host
+                smtp_port = email_config.email_smtp_port or 465
+                use_ssl = email_config.email_use_ssl
+                use_tls = email_config.email_use_tls
+                smtp_user = email_config.email_host_user
+                smtp_password = email_config.email_host_password
+                from_email = email_config.email_from or email_config.email_host_user
+                logger.info(f"使用数据库邮箱配置: {smtp_host}:{smtp_port}")
+            else:
+                # 回退到 settings 配置
+                smtp_host = settings.EMAIL_HOST
+                smtp_port = settings.EMAIL_PORT
+                use_ssl = settings.EMAIL_USE_SSL
+                use_tls = settings.EMAIL_USE_TLS
+                smtp_user = settings.EMAIL_HOST_USER
+                smtp_password = settings.EMAIL_HOST_PASSWORD
+                from_email = settings.DEFAULT_FROM_EMAIL
+                logger.info(f"使用settings邮箱配置: {smtp_host}:{smtp_port}")
+
             # 准备邮件内容
             status_text = '成功' if success else '失败'
-            task_type_text = '测试套件执行' if task.task_type == 'TEST_SUITE' else '测试用例执行'
+            task_type_text = '测试计划执行'
 
             subject = f"UI自动化定时任务执行{status_text}: {task.name}"
 
@@ -9009,18 +8638,31 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
 {task.error_message if task.error_message else '无错误信息'}
             """
 
-            # 发送邮件
-            from_email = settings.DEFAULT_FROM_EMAIL
+            # 使用 smtplib 直接发送，绕过 Django EmailBackend
+            msg = MIMEText(message, 'plain', 'utf-8')
+            msg['From'] = from_email
+            msg['To'] = ', '.join(recipients)
+            msg['Subject'] = subject
+
             logger.info(f"准备发送邮件，发件人: {from_email}, 收件人: {recipients}")
 
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=from_email,
-                recipient_list=recipients,
-                fail_silently=False,
-            )
-            logger.info("邮件发送成功")
+            try:
+                if use_ssl:
+                    server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+                else:
+                    server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+                    if use_tls:
+                        server.starttls()
+
+                if smtp_user and smtp_password:
+                    server.login(smtp_user, smtp_password)
+
+                server.sendmail(from_email, recipients, msg.as_string())
+                server.quit()
+                logger.info("邮件发送成功")
+            except Exception as e:
+                logger.error(f"SMTP连接发送失败: {e}")
+                raise
 
             # 记录通知日志
             UiNotificationLog.objects.create(
@@ -9047,7 +8689,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                     task_type=task.task_type,
                     notification_type='task_execution',
                     sender_name='系统邮件通知',
-                    sender_email=settings.DEFAULT_FROM_EMAIL,
+                    sender_email=from_email if 'from_email' in dir() else '',
                     recipient_info=[{'email': email} for email in recipients] if recipients else [],
                     notification_content=f"发送邮件通知失败: {str(e)}",
                     status='failed',
@@ -10111,11 +9753,42 @@ class UiDashboardViewSet(viewsets.ViewSet):
         test_case_execution_count = TestCaseExecution.objects.filter(project_id__in=project_ids).count()
         total_execution_count = execution_count + test_case_execution_count
 
+        # 测试计划统计
+        from .models import UiTestPlan
+        plan_count = UiTestPlan.objects.filter(project_id__in=project_ids).count()
+        plan_passed = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='passed').count()
+        plan_failed = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='failed').count()
+        plan_running = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='running').count()
+        plan_pending = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status__in=['pending', 'not_executed']).count()
+
+        # 最近执行的测试计划（最多5条）
+        recent_plans = UiTestPlan.objects.filter(project_id__in=project_ids).exclude(
+            execution_status__in=['not_executed', 'pending']
+        ).select_related('project').order_by('-updated_at')[:5]
+        recent_plan_list = []
+        for p in recent_plans:
+            recent_plan_list.append({
+                'id': p.id,
+                'name': p.name,
+                'project_name': p.project.name if p.project else '',
+                'execution_status': p.execution_status,
+                'passed_count': p.passed_count,
+                'failed_count': p.failed_count,
+                'total_count': p.total_cases,
+                'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+            })
+
         return Response({
             'project_count': project_count,
             'test_case_count': test_case_count,
             'suite_count': suite_test_case_count,
-            'execution_count': total_execution_count
+            'execution_count': total_execution_count,
+            'plan_count': plan_count,
+            'plan_passed': plan_passed,
+            'plan_failed': plan_failed,
+            'plan_running': plan_running,
+            'plan_pending': plan_pending,
+            'recent_plans': recent_plan_list,
         })
 
 
@@ -10558,3 +10231,290 @@ class UiTestPlanViewSet(viewsets.ModelViewSet):
                 total += item.test_suite.suite_test_cases.count()
         test_plan.total_cases = total
         test_plan.save(update_fields=['total_cases'])
+
+
+class AllureReportViewSet(viewsets.ModelViewSet):
+    """Allure测试报告 ViewSet"""
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['project', 'status', 'test_plan', 'browser']
+    search_fields = ['name']
+    ordering_fields = ['created_at', 'name']
+    ordering = ['-created_at']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return AllureReportCreateSerializer
+        return AllureReportSerializer
+
+    def get_queryset(self):
+        return AllureReport.objects.select_related('project', 'test_plan', 'test_execution', 'created_by').all()
+
+    @action(detail=False, methods=['get'], url_path='browser-options')
+    def browser_options(self, request):
+        """返回当前项目下去重的浏览器列表，供前端筛选下拉框使用"""
+        qs = self.get_queryset()
+        project_id = request.query_params.get('project')
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        browsers = list(qs.values_list('browser', flat=True).distinct().order_by('browser'))
+        browsers = [b for b in browsers if b]  # 过滤掉空值
+        return Response(browsers)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        """创建报告并异步生成"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # 校验名称唯一性
+        name = serializer.validated_data.get('name', '')
+        if AllureReport.objects.filter(name=name).exists():
+            return Response(
+                {'error': f'报告名称"{name}"已存在，请使用其他名称'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        self.perform_create(serializer)
+        report = serializer.instance
+
+        # 启动异步生成
+        import threading
+        thread = threading.Thread(
+            target=_generate_allure_report_async,
+            args=(report.id,),
+            daemon=True
+        )
+        thread.start()
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            AllureReportSerializer(report).data,
+            status=status.HTTP_201_CREATED,
+            headers=headers
+        )
+
+    @action(detail=False, methods=['get'])
+    def execution_batches(self, request):
+        """获取计划下的执行批次列表"""
+        plan_id = request.query_params.get('plan_id')
+        if not plan_id:
+            return Response([])
+
+        # 查询该计划的所有执行记录
+        executions = TestExecution.objects.filter(
+            test_plan_id=plan_id
+        ).order_by('-created_at').values(
+            'id', 'created_at', 'status',
+            'total_cases', 'passed_cases', 'failed_cases', 'skipped_cases'
+        )
+
+        batches = []
+        for exec_obj in executions:
+            batches.append({
+                'id': exec_obj['id'],
+                'label': f"批次#{exec_obj['id']} - {exec_obj['created_at'].strftime('%Y-%m-%d %H:%M') if exec_obj['created_at'] else ''} "
+                         f"({exec_obj['passed_cases']}/{exec_obj['total_cases']}通过)",
+                'status': exec_obj['status'],
+                'total_cases': exec_obj['total_cases'],
+                'has_executed': exec_obj['total_cases'] > 0,
+            })
+
+        return Response(batches)
+
+    @action(detail=True, methods=['post'])
+    def regenerate(self, request, pk=None):
+        """重新生成报告"""
+        report = self.get_object()
+        if report.status == 'generating':
+            return Response({'error': '报告正在生成中，请稍后'}, status=status.HTTP_400_BAD_REQUEST)
+
+        report.status = 'generating'
+        report.error_message = ''
+        report.save(update_fields=['status', 'error_message'])
+
+        import threading
+        thread = threading.Thread(
+            target=_generate_allure_report_async,
+            args=(report.id,),
+            daemon=True
+        )
+        thread.start()
+
+        return Response({'message': '已启动重新生成', 'status': 'generating'})
+
+    @action(detail=True, methods=['get'])
+    def view(self, request, pk=None):
+        """查看报告（返回报告首页的 index.html）"""
+        report = self.get_object()
+        if report.status != 'completed':
+            return Response({'error': '报告尚未生成完成'}, status=status.HTTP_400_BAD_REQUEST)
+
+        report_dir = report.report_dir
+        if not report_dir or not os.path.exists(report_dir):
+            return Response({'error': '报告文件不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        index_path = os.path.join(report_dir, 'index.html')
+        if not os.path.exists(index_path):
+            return Response({'error': '报告首页不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        from django.http import FileResponse
+        return FileResponse(open(index_path, 'rb'), content_type='text/html')
+
+    def destroy(self, request, *args, **kwargs):
+        """删除报告（同时清理报告文件）"""
+        report = self.get_object()
+
+        # 清理报告目录
+        if report.report_dir and os.path.exists(report.report_dir):
+            try:
+                shutil.rmtree(report.report_dir)
+            except Exception:
+                pass
+
+        # 清理 results 目录
+        results_pattern = os.path.join('allure_reports', f'results_{report.id}_*')
+        import glob
+        for results_dir in glob.glob(results_pattern):
+            try:
+                shutil.rmtree(results_dir)
+            except Exception:
+                pass
+
+        return super().destroy(request, *args, **kwargs)
+
+
+def _generate_allure_report_async(report_id):
+    """异步生成 Allure 报告"""
+    import shutil
+    from datetime import timedelta
+    from .models import AllureReport, TestCaseExecution
+    from .allure_generator import (
+        generate_allure_results, run_allure_generate,
+        calculate_report_stats
+    )
+
+    try:
+        report = AllureReport.objects.get(id=report_id)
+    except AllureReport.DoesNotExist:
+        return
+
+    try:
+        # 1. 获取执行批次下的所有用例执行记录
+        test_execution = report.test_execution
+        test_plan = report.test_plan
+
+        if not test_execution and not test_plan:
+            raise RuntimeError('未关联执行批次或测试计划')
+
+        case_executions = TestCaseExecution.objects.none()
+
+        if test_execution and test_plan:
+            # 优先通过 test_plan + 批次时间范围查询（比FK更完整，因为大部分记录test_execution为None）
+            if test_execution.started_at:
+                time_end = test_execution.finished_at or (test_execution.started_at + timedelta(hours=2))
+                case_executions = TestCaseExecution.objects.filter(
+                    test_plan=test_plan,
+                    started_at__gte=test_execution.started_at,
+                    started_at__lte=time_end,
+                ).select_related('test_case', 'created_by')
+            else:
+                # 没有started_at时，按 test_execution 创建时间窗口匹配
+                exec_created = test_execution.created_at
+                window_start = exec_created - timedelta(minutes=5)
+                window_end = exec_created + timedelta(hours=2)
+                case_executions = TestCaseExecution.objects.filter(
+                    test_plan=test_plan,
+                    created_at__gte=window_start,
+                    created_at__lte=window_end,
+                ).select_related('test_case', 'test_case__group', 'test_suite', 'created_by')
+
+            # 如果时间范围也没找到，再回退到 FK 查询
+            if not case_executions.exists():
+                case_executions = TestCaseExecution.objects.filter(
+                    test_execution=test_execution
+                ).select_related('test_case', 'test_case__group', 'test_suite', 'created_by')
+
+        elif test_execution:
+            # 没有test_plan时，直接通过FK查询
+            case_executions = TestCaseExecution.objects.filter(
+                test_execution=test_execution
+            ).select_related('test_case', 'test_case__group', 'test_suite', 'created_by')
+
+        elif test_plan:
+            # 仅选了测试计划，取该计划下全部执行记录
+            case_executions = TestCaseExecution.objects.filter(
+                test_plan=test_plan,
+            ).select_related('test_case', 'test_case__group', 'test_suite', 'created_by').order_by('-created_at')
+
+        if not case_executions.exists():
+            raise RuntimeError('该执行批次下没有用例执行记录')
+
+        # 2. 构建 Allure Results JSON
+        # 层级规则：
+        #   测试套：parentSuite=计划名, suite=套件名/分组名/未分组
+        #   功能：feature=分组名, story=用例名
+        #   包：package=分组完整路径（父.子），支持多级层级展开
+        plan_name = test_plan.name if test_plan else ''
+        case_contexts = []
+        for ce in case_executions:
+            if ce.test_suite_id:
+                suite_name = ce.test_suite.name
+            elif ce.test_case and ce.test_case.group_id:
+                suite_name = ce.test_case.group.name
+            else:
+                suite_name = '未分组'
+
+            # 构建分组完整路径（向上遍历父分组，如 系统管理.用户管理）
+            package_path = '未分组'
+            if ce.test_case and ce.test_case.group_id:
+                path_parts = []
+                current = ce.test_case.group
+                while current:
+                    path_parts.append(current.name)
+                    current = getattr(current, 'parent_group', None)
+                package_path = '.'.join(reversed(path_parts))
+
+            case_contexts.append((ce, suite_name, plan_name, package_path))
+        results_dir = generate_allure_results(report, case_contexts)
+
+        # 3. 调用 allure generate
+        output_dir = run_allure_generate(results_dir, report.id)
+
+        # 4. 计算统计信息
+        stats = calculate_report_stats(list(case_executions))
+
+        # 5. 更新报告记录
+        report.status = 'completed'
+        report.report_dir = output_dir
+        report.total_cases = stats['total']
+        report.passed_cases = stats['passed']
+        report.failed_cases = stats['failed']
+        report.skipped_cases = stats['skipped']
+        report.pass_rate = stats['pass_rate']
+        report.avg_duration = stats['avg_duration']
+        browser_val = 'chrome'
+        if test_execution and test_execution.browser:
+            browser_val = test_execution.browser
+        elif case_executions.first() and case_executions.first().browser:
+            browser_val = case_executions.first().browser
+        report.browser = browser_val
+        report.save(update_fields=[
+            'status', 'report_dir', 'total_cases', 'passed_cases',
+            'failed_cases', 'skipped_cases', 'pass_rate', 'avg_duration',
+            'browser'
+        ])
+
+        print(f'[Allure] 报告生成完成: {report.name} (ID: {report.id})')
+
+    except Exception as e:
+        # 生成失败
+        try:
+            report.status = 'failed'
+            report.error_message = str(e)[:2000]
+            report.save(update_fields=['status', 'error_message'])
+        except Exception:
+            pass
+        print(f'[Allure] 报告生成失败: {e}')

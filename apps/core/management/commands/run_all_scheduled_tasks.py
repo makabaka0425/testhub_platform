@@ -161,46 +161,44 @@ class Command(BaseCommand):
                     self.stdout.write(f"  [UI]  执行任务: {task.name}")
                     self.stdout.write(f"       类型: {task.get_task_type_display()}, 触发方式: {task.get_trigger_type_display()}")
                     try:
-                        # 更新任务执行时间和次数
+                        # 更新任务执行时间和次数，并立即计算下次运行时间
+                        # 必须在启动线程前更新next_run_time，否则下一轮轮询会重复触发
                         task.last_run_time = timezone.now()
                         task.total_runs += 1
-                        # 先保存，确保last_run_time被更新
+                        task.next_run_time = task.calculate_next_run()
                         task.save()
 
                         # 根据任务类型执行不同的逻辑
-                        if task.task_type == 'TEST_SUITE':
-                            # 执行测试套件
-                            if not task.test_suite:
-                                self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 未配置测试套件"))
-                                # 即使失败也要重新计算下次运行时间
+                        if task.task_type == 'TEST_PLAN':
+                            # 执行测试计划
+                            if not task.test_plan:
+                                self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 未配置测试计划"))
                                 task.refresh_from_db()
                                 task.next_run_time = task.calculate_next_run()
                                 task.save()
                                 continue
 
-                            test_suite = task.test_suite
-                            test_case_count = test_suite.suite_test_cases.count()
-
-                            if test_case_count == 0:
-                                self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 的测试套件没有用例"))
-                                # 即使失败也要重新计算下次运行时间
+                            test_plan = task.test_plan
+                            plan_items = test_plan.plan_items.all()
+                            if plan_items.count() == 0:
+                                self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 的测试计划没有用例或套件"))
                                 task.refresh_from_db()
                                 task.next_run_time = task.calculate_next_run()
                                 task.save()
                                 continue
 
-                            # 更新套件执行状态
-                            test_suite.execution_status = 'running'
-                            test_suite.save()
+                            # 更新计划执行状态
+                            test_plan.execution_status = 'running'
+                            test_plan.save()
 
-                            # 在后台线程中执行测试
+                            # 在后台线程中执行测试计划
                             import threading
-                            from apps.ui_automation.test_executor import TestExecutor
+                            from apps.ui_automation.plan_executor import PlanExecutor
 
-                            def run_test():
+                            def run_test_plan():
                                 try:
-                                    executor = TestExecutor(
-                                        test_suite=test_suite,
+                                    executor = PlanExecutor(
+                                        test_plan=test_plan,
                                         engine=task.engine,
                                         browser=task.browser,
                                         headless=task.headless,
@@ -208,53 +206,48 @@ class Command(BaseCommand):
                                     )
                                     executor.run()
 
-                                    # 测试完成后，重新加载任务并更新结果和下次运行时间
+                                    # 刷新计划对象状态
+                                    test_plan.refresh_from_db()
+
+                                    # 重新加载任务并更新执行结果（next_run_time已在主线程中更新）
                                     task.refresh_from_db()
-                                    task.successful_runs += 1
-                                    task.last_result = {
-                                        'status': 'success',
-                                        'test_case_count': test_case_count
-                                    }
-                                    # 重新计算下次运行时间
-                                    task.next_run_time = task.calculate_next_run()
+                                    if test_plan.execution_status == 'passed':
+                                        task.successful_runs += 1
+                                        task.last_result = {
+                                            'status': 'success',
+                                            'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
+                                        }
+                                        task.error_message = ''
+                                    else:
+                                        task.failed_runs += 1
+                                        task.last_result = {
+                                            'status': 'failed',
+                                            'message': f'测试计划执行完成: {test_plan.passed_count}通过, {test_plan.failed_count}失败'
+                                        }
+                                        task.error_message = f'{test_plan.failed_count}个用例执行失败'
                                     task.save()
 
-                                    logger.info(f"UI定时任务 {task.name} 执行成功")
+                                    logger.info(f"UI定时任务 {task.name} 执行完成")
 
-                                    # 发送成功通知
-                                    print("       === 开始检查发送成功通知 ===")
+                                    # 发送通知
+                                    success = (test_plan.execution_status == 'passed')
                                     notification_setting = None
                                     if hasattr(task, 'notification_settings'):
                                         try:
                                             notification_setting = task.notification_settings.first()
-                                            print(f"       获取到通知设置: {notification_setting}")
-                                            if notification_setting:
-                                                print(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 成功通知: {notification_setting.notify_on_success}")
-                                            else:
-                                                print("       没有找到通知设置")
-                                        except Exception as e:
-                                            print(f"       获取任务通知设置时出错: {e}", file=sys.stderr)
-                                            import traceback
-                                            traceback.print_exc()
-                                    else:
-                                        print("       任务没有notification_settings属性")
+                                        except Exception:
+                                            pass
 
                                     if notification_setting and notification_setting.is_enabled:
-                                        print("       通知设置已启用，准备发送成功通知")
-                                        if notification_setting.notify_on_success:
-                                            print("       调用 _send_task_notification 方法发送成功通知")
+                                        should_notify = (success and notification_setting.notify_on_success) or \
+                                                       (not success and notification_setting.notify_on_failure)
+                                        if should_notify:
                                             try:
                                                 from apps.ui_automation.views import UiScheduledTaskViewSet
                                                 viewset = UiScheduledTaskViewSet()
-                                                viewset._send_task_notification(task, success=True)
-                                                print("       ✓ 成功通知已发送")
-                                            except Exception as e:
-                                                print(f"       ✗ 发送UI定时任务 {task.name} 成功通知失败: {e}", file=sys.stderr)
-                                        else:
-                                            print("       通知设置中未启用成功通知")
-                                    else:
-                                        print("       通知设置未启用或不存在，跳过成功通知")
-                                    print("       === 结束检查发送成功通知 ===")
+                                                viewset._send_task_notification(task, success=success)
+                                            except Exception as notify_error:
+                                                logger.error(f"发送UI定时任务 {task.name} 通知失败: {notify_error}")
 
                                 except Exception as e:
                                     logger.error(f"UI定时任务 {task.name} 执行失败: {e}", exc_info=True)
@@ -265,223 +258,25 @@ class Command(BaseCommand):
                                         'status': 'failed',
                                         'error': str(e)
                                     }
-                                    # 即使失败也要重新计算下次运行时间
-                                    task.next_run_time = task.calculate_next_run()
                                     task.save()
 
                                     # 发送失败通知
-                                    print("       === 开始检查发送失败通知 ===")
                                     notification_setting = None
                                     if hasattr(task, 'notification_settings'):
                                         try:
                                             notification_setting = task.notification_settings.first()
-                                            print(f"       获取到通知设置（失败情况）: {notification_setting}")
-                                            if notification_setting:
-                                                print(f"       通知设置详情（失败情况） - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 失败通知: {notification_setting.notify_on_failure}")
-                                            else:
-                                                print("       没有找到通知设置（失败情况）")
-                                        except Exception as notify_error:
-                                            print(f"       获取任务通知设置时出错（失败情况）: {notify_error}", file=sys.stderr)
-                                            import traceback
-                                            traceback.print_exc()
-                                    else:
-                                        print("       任务没有notification_settings属性（失败情况）")
+                                        except Exception:
+                                            pass
 
-                                    if notification_setting and notification_setting.is_enabled:
-                                        print("       通知设置已启用，准备发送失败通知")
-                                        if notification_setting.notify_on_failure:
-                                            print("       调用 _send_task_notification 方法发送失败通知")
-                                            try:
-                                                from apps.ui_automation.views import UiScheduledTaskViewSet
-                                                viewset = UiScheduledTaskViewSet()
-                                                viewset._send_task_notification(task, success=False)
-                                                print("       ✓ 失败通知已发送")
-                                            except Exception as notify_error:
-                                                print(f"       ✗ 发送UI定时任务 {task.name} 失败通知失败: {notify_error}", file=sys.stderr)
-                                        else:
-                                            print("       通知设置中未启用失败通知")
-                                    else:
-                                        print("       通知设置未启用或不存在，跳过失败通知")
-                                    print("       === 结束检查发送失败通知 ===")
-
-                            thread = threading.Thread(target=run_test, daemon=True)
-                            thread.start()
-
-                        elif task.task_type == 'TEST_CASE':
-                            # 执行单个或多个测试用例
-                            if not task.test_cases:
-                                self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 未配置测试用例"))
-                                # 即使失败也要重新计算下次运行时间
-                                task.refresh_from_db()
-                                task.next_run_time = task.calculate_next_run()
-                                task.save()
-                                continue
-
-                            # 获取测试用例
-                            from apps.ui_automation.models import TestCase as UiTestCase
-                            test_cases_list = UiTestCase.objects.filter(id__in=task.test_cases)
-
-                            if not test_cases_list.exists():
-                                self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 的测试用例不存在"))
-                                # 即使失败也要重新计算下次运行时间
-                                task.refresh_from_db()
-                                task.next_run_time = task.calculate_next_run()
-                                task.save()
-                                continue
-
-                            test_case_count = test_cases_list.count()
-                            self.stdout.write(f"    准备执行 {test_case_count} 个测试用例")
-
-                            # 为每个测试用例创建一个临时的测试套件来执行
-                            import threading
-                            from apps.ui_automation.models import TestSuite
-                            from apps.ui_automation.test_executor import TestExecutor
-
-                            def run_test_cases():
-                                success_count = 0
-                                failed_count = 0
-                                results = []
-
-                                for test_case in test_cases_list:
-                                    temp_suite = None
-                                    try:
-                                        # 创建临时测试套件
-                                        temp_suite = TestSuite.objects.create(
-                                            project=task.project,
-                                            name=f"[临时] {test_case.name}"
-                                        )
-
-                                        # 添加测试用例到临时套件
-                                        temp_suite.test_cases.add(test_case)
-
-                                        # 更新套件执行状态
-                                        temp_suite.execution_status = 'running'
-                                        temp_suite.save()
-
-                                        # 使用 TestExecutor 执行
-                                        executor = TestExecutor(
-                                            test_suite=temp_suite,
-                                            engine=task.engine,
-                                            browser=task.browser,
-                                            headless=task.headless,
-                                            executed_by=task.created_by
-                                        )
-                                        executor.run()
-
-                                        # 检查执行结果
-                                        temp_suite.refresh_from_db()
-                                        suite_executions = temp_suite.executions.all()
-
-                                        if suite_executions.exists():
-                                            last_execution = suite_executions.first()
-
-                                            if last_execution.status == 'SUCCESS':
-                                                success_count += 1
-                                                results.append({
-                                                    'case_id': test_case.id,
-                                                    'case_name': test_case.name,
-                                                    'status': 'success'
-                                                })
-                                            else:
-                                                failed_count += 1
-                                                results.append({
-                                                    'case_id': test_case.id,
-                                                    'case_name': test_case.name,
-                                                    'status': 'failed',
-                                                    'error': last_execution.error_message
-                                                })
-
-                                    except Exception as e:
-                                        logger.error(f"执行测试用例 {test_case.name} 失败: {e}")
-                                        failed_count += 1
-                                        results.append({
-                                            'case_id': test_case.id,
-                                            'case_name': test_case.name,
-                                            'status': 'failed',
-                                            'error': str(e)
-                                        })
-                                    finally:
-                                        # 删除临时测试套件
-                                        if temp_suite:
-                                            temp_suite.delete()
-
-                                # 更新任务执行结果
-                                task.refresh_from_db()
-                                task.successful_runs += 1
-                                task.last_result = {
-                                    'status': 'success' if failed_count == 0 else 'partial_success',
-                                    'test_case_count': test_case_count,
-                                    'success_count': success_count,
-                                    'failed_count': failed_count,
-                                    'results': results
-                                }
-                                # 重新计算下次运行时间
-                                task.next_run_time = task.calculate_next_run()
-                                task.save()
-
-                                logger.info(f"UI定时任务 {task.name} 执行完成: 成功{success_count}, 失败{failed_count}")
-
-                                # 发送通知
-                                success = (failed_count == 0)
-                                if success:
-                                    print("       === 开始检查发送成功通知 ===")
-                                else:
-                                    print("       === 开始检查发送失败通知 ===")
-
-                                notification_setting = None
-                                if hasattr(task, 'notification_settings'):
-                                    try:
-                                        notification_setting = task.notification_settings.first()
-                                        print(f"       获取到通知设置: {notification_setting}")
-                                        if notification_setting:
-                                            if success:
-                                                print(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 成功通知: {notification_setting.notify_on_success}")
-                                            else:
-                                                print(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 失败通知: {notification_setting.notify_on_failure}")
-                                        else:
-                                            print("       没有找到通知设置")
-                                    except Exception as e:
-                                        print(f"       获取任务通知设置时出错: {e}", file=sys.stderr)
-                                        import traceback
-                                        traceback.print_exc()
-                                else:
-                                    print("       任务没有notification_settings属性")
-
-                                if notification_setting and notification_setting.is_enabled:
-                                    print("       通知设置已启用，准备发送通知")
-                                    if success and notification_setting.notify_on_success:
-                                        print("       调用 _send_task_notification 方法发送成功通知")
-                                        try:
-                                            from apps.ui_automation.views import UiScheduledTaskViewSet
-                                            viewset = UiScheduledTaskViewSet()
-                                            viewset._send_task_notification(task, success=True)
-                                            print(f"       ✓ 成功通知已发送 (成功:{success_count}, 失败:{failed_count})")
-                                        except Exception as e:
-                                            print(f"       ✗ 发送UI定时任务 {task.name} 成功通知失败: {e}", file=sys.stderr)
-                                    elif not success and notification_setting.notify_on_failure:
-                                        print("       调用 _send_task_notification 方法发送失败通知")
+                                    if notification_setting and notification_setting.is_enabled and notification_setting.notify_on_failure:
                                         try:
                                             from apps.ui_automation.views import UiScheduledTaskViewSet
                                             viewset = UiScheduledTaskViewSet()
                                             viewset._send_task_notification(task, success=False)
-                                            print(f"       ✓ 失败通知已发送 (成功:{success_count}, 失败:{failed_count})")
-                                        except Exception as e:
-                                            print(f"       ✗ 发送UI定时任务 {task.name} 失败通知失败: {e}", file=sys.stderr)
-                                    else:
-                                        if success:
-                                            print("       通知设置中未启用成功通知")
-                                        else:
-                                            print("       通知设置中未启用失败通知")
-                                else:
-                                    print("       通知设置未启用或不存在，跳过通知")
+                                        except Exception as notify_error:
+                                            logger.error(f"发送UI定时任务 {task.name} 失败通知失败: {notify_error}")
 
-                                if success:
-                                    print("       === 结束检查发送成功通知 ===")
-                                else:
-                                    print("       === 结束检查发送失败通知 ===")
-
-                            # 在后台线程中执行
-                            thread = threading.Thread(target=run_test_cases, daemon=True)
+                            thread = threading.Thread(target=run_test_plan, daemon=True)
                             thread.start()
 
                         executed_count += 1

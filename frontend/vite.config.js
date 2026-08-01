@@ -57,6 +57,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '^/ui-automation/allure-report-static/': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ui-automation/, '/api/ui-automation'),
+        secure: false,
+      },
       '^/ws/': {
         target: 'ws://127.0.0.1:8000',
         ws: true,

@@ -63,3 +63,12 @@ export function getActiveNotificationConfigs() {
     method: 'get'
   })
 }
+
+// 测试邮箱配置
+export function testEmailConfig(id, data) {
+  return request({
+    url: `/core/notification-configs/${id}/test_email/`,
+    method: 'post',
+    data
+  })
+}

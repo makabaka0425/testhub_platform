@@ -7,7 +7,7 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, TestCasePrecondition, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
-    UiTestPlan, UiTestPlanItem, TestCaseGroup
+    UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport
 )
 from django.contrib.auth import get_user_model
 
@@ -857,7 +857,7 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
     """UI定时任务序列化器"""
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     project_name = serializers.CharField(source='project.name', read_only=True)
-    test_suite_name = serializers.CharField(source='test_suite.name', read_only=True)
+    test_plan_name = serializers.CharField(source='test_plan.name', read_only=True)
     task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     trigger_type_display = serializers.CharField(source='get_trigger_type_display', read_only=True)
@@ -869,7 +869,7 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
             'id', 'name', 'description', 'task_type', 'task_type_display',
             'trigger_type', 'trigger_type_display', 'cron_expression',
             'interval_seconds', 'execute_at', 'project', 'project_name',
-            'test_suite', 'test_suite_name', 'test_cases',
+            'test_plan', 'test_plan_name',
             'engine', 'browser', 'headless',
             'notify_on_success', 'notify_on_failure', 'notification_type', 'notification_type_display', 'notify_emails',
             'status', 'status_display',
@@ -911,12 +911,8 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
 
         # 验证任务类型配置
         task_type = attrs.get('task_type')
-        if task_type == 'TEST_SUITE' and not attrs.get('test_suite'):
-            raise serializers.ValidationError("测试套件不能为空")
-        elif task_type == 'TEST_CASE':
-            test_cases = attrs.get('test_cases', [])
-            if not test_cases or len(test_cases) == 0:
-                raise serializers.ValidationError("至少选择一个测试用例")
+        if task_type == 'TEST_PLAN' and not attrs.get('test_plan'):
+            raise serializers.ValidationError("测试计划不能为空")
 
         return attrs
 
@@ -1193,6 +1189,7 @@ class UiTestPlanSerializer(serializers.ModelSerializer):
     execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True, default='')
     last_execution_time = serializers.SerializerMethodField()
+    total_cases = serializers.SerializerMethodField()
 
     class Meta:
         model = UiTestPlan
@@ -1206,6 +1203,19 @@ class UiTestPlanSerializer(serializers.ModelSerializer):
         from .models import TestExecution
         last_exec = TestExecution.objects.filter(test_plan=obj).order_by('-started_at').first()
         return last_exec.started_at.isoformat() if last_exec and last_exec.started_at else None
+
+    def get_total_cases(self, obj):
+        """实时计算总用例数，不依赖数据库存储值"""
+        total = 0
+        for item in obj.plan_items.all():
+            if item.item_type == 'test_case' and item.test_case:
+                total += 1
+            elif item.item_type == 'test_suite' and item.test_suite:
+                total += item.test_suite.suite_test_cases.count()
+        # 同步更新数据库存储值
+        if obj.total_cases != total:
+            UiTestPlan.objects.filter(id=obj.id).update(total_cases=total)
+        return total
 
 
 class UiTestPlanCreateSerializer(serializers.ModelSerializer):
@@ -1221,5 +1231,26 @@ class UiTestPlanUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UiTestPlan
         fields = ('name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
+
+
+class AllureReportSerializer(serializers.ModelSerializer):
+    """Allure测试报告序列化器"""
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    plan_name = serializers.CharField(source='test_plan.name', read_only=True, default='')
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True, default='')
+
+    class Meta:
+        model = AllureReport
+        fields = '__all__'
+        read_only_fields = ('id', 'status', 'report_dir', 'error_message', 'total_cases',
+                            'passed_cases', 'failed_cases', 'skipped_cases', 'pass_rate',
+                            'avg_duration', 'browser', 'environment', 'created_at')
+
+
+class AllureReportCreateSerializer(serializers.ModelSerializer):
+    """Allure测试报告创建序列化器"""
+    class Meta:
+        model = AllureReport
+        fields = ('name', 'project', 'test_plan', 'test_execution')
 
 
