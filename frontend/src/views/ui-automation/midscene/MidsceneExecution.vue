@@ -1366,7 +1366,7 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 16px 16px;
+  padding: 20px 16px 16px;
 }
 
 .detail-tabs :deep(.el-tabs__header) {
