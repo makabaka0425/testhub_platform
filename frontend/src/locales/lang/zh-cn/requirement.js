@@ -1,7 +1,7 @@
 export default {
   requirementAnalysis: {
     // Page
-    title: '智能测试用例生成',
+    title: 'AI生成 测试用例',
     subtitle: '基于需求描述或文档，AI将直接为您生成高质量的测试用例',
 
     // Output Mode

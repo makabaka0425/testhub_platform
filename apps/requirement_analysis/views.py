@@ -2461,6 +2461,174 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=True, methods=['post'], url_path='start_review')
+    def start_review(self, request, task_id=None):
+        """启动AI评审（生成完成后由前端手动触发）"""
+        try:
+            task = self.get_object()
+
+            if task.status != 'completed':
+                return Response(
+                    {'error': '只能对已完成的任务启动评审'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if not task.generated_test_cases:
+                return Response(
+                    {'error': '没有生成的测试用例可以评审'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 获取评审模型和提示词配置
+            from .models import AIModelConfig, PromptConfig
+            reviewer_model = AIModelConfig.objects.filter(
+                config_type='reviewer_model', is_enabled=True
+            ).first()
+            reviewer_prompt = PromptConfig.objects.filter(
+                config_type='reviewer_prompt', is_enabled=True
+            ).first()
+
+            if not reviewer_model or not reviewer_prompt:
+                return Response(
+                    {'error': '未配置评审模型或评审提示词，无法启动评审'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            task.reviewer_model_config = reviewer_model
+            task.reviewer_prompt_config = reviewer_prompt
+            task.status = 'reviewing'
+            task.progress = 70
+            task.review_feedback = ''
+            task.final_test_cases = ''
+            task.save()
+
+            # 在新线程中执行评审+改进
+            def run_review_and_revise():
+                import asyncio
+                import threading
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    # 评审
+                    logger.info(f"手动启动评审: 任务 {task.task_id}")
+                    review_result = loop.run_until_complete(
+                        AIModelService.review_test_cases_stream(task)
+                    )
+                    task.review_feedback = review_result
+                    task.status = 'reviewing'
+                    task.progress = 75
+                    task.save()
+
+                    # 改进
+                    logger.info(f"手动启动改进: 任务 {task.task_id}")
+                    task.status = 'revising'
+                    task.progress = 85
+                    task.save()
+
+                    final_cases = loop.run_until_complete(
+                        AIModelService.revise_test_cases_based_on_review(task)
+                    )
+
+                    if final_cases:
+                        sorted_cases = AIModelService.sort_test_cases_by_id(final_cases)
+                        task.final_test_cases = AIModelService.renumber_test_cases(sorted_cases)
+                    else:
+                        task.final_test_cases = task.generated_test_cases
+
+                    task.status = 'completed'
+                    task.progress = 100
+                    task.save()
+                    logger.info(f"评审+改进完成: 任务 {task.task_id}")
+
+                except Exception as e:
+                    logger.error(f"评审/改进失败: {e}")
+                    task.status = 'completed'
+                    task.progress = 100
+                    if not task.final_test_cases:
+                        task.final_test_cases = task.generated_test_cases
+                    task.save()
+                finally:
+                    loop.close()
+
+            thread = threading.Thread(target=run_review_and_revise)
+            thread.daemon = True
+            thread.start()
+
+            return Response({'status': 'reviewing', 'task_id': task.task_id})
+
+        except Exception as e:
+            return Response(
+                {'error': f'启动评审失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'], url_path='start_revise')
+    def start_revise(self, request, task_id=None):
+        """基于评审结果重新生成用例（由前端手动触发）"""
+        try:
+            task = self.get_object()
+
+            if task.status != 'completed':
+                return Response(
+                    {'error': '只能对已完成的任务启动改进'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if not task.review_feedback:
+                return Response(
+                    {'error': '没有评审意见，无法启动改进'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            task.status = 'revising'
+            task.progress = 85
+            task.final_test_cases = ''
+            task.save()
+
+            def run_revise():
+                import asyncio
+                import threading
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    logger.info(f"手动启动改进: 任务 {task.task_id}")
+                    final_cases = loop.run_until_complete(
+                        AIModelService.revise_test_cases_based_on_review(task)
+                    )
+
+                    if final_cases:
+                        sorted_cases = AIModelService.sort_test_cases_by_id(final_cases)
+                        task.final_test_cases = AIModelService.renumber_test_cases(sorted_cases)
+                    else:
+                        task.final_test_cases = task.generated_test_cases
+
+                    task.status = 'completed'
+                    task.progress = 100
+                    task.save()
+                    logger.info(f"改进完成: 任务 {task.task_id}")
+
+                except Exception as e:
+                    logger.error(f"改进失败: {e}")
+                    task.status = 'completed'
+                    task.progress = 100
+                    if not task.final_test_cases:
+                        task.final_test_cases = task.generated_test_cases
+                    task.save()
+                finally:
+                    loop.close()
+
+            thread = threading.Thread(target=run_revise)
+            thread.daemon = True
+            thread.start()
+
+            return Response({'status': 'revising', 'task_id': task.task_id})
+
+        except Exception as e:
+            return Response(
+                {'error': f'启动改进失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=True, methods=['post'], url_path='batch_adopt')
     def batch_adopt(self, request, task_id=None):
         """批量采纳任务的所有测试用例"""
