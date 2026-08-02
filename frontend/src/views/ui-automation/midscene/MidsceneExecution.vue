@@ -897,6 +897,8 @@ function handleRowClick(row) {
 // ---- 执行 ----
 async function runCase(row) {
   runningIds[row.id] = true
+  // 立即在列表中显示执行中
+  row.last_status = 'running'
   try {
     const res = await runMidsceneCase(row.id)
     const data = res.data || res
@@ -905,6 +907,7 @@ async function runCase(row) {
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '执行失败')
     runningIds[row.id] = false
+    row.last_status = 'failed'
   }
 }
 

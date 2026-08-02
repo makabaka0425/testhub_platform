@@ -547,10 +547,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
 
         execution_id = request.data.get('execution_id')
         task_status = request.data.get('status')
-        result_data = request.data.get('result', {})
-        error_msg = request.data.get('error', '')
-        report_url = request.data.get('report_url', '')
-        report_file = request.data.get('report_file', '')
+        result_data = request.data.get('result') or {}
+        error_msg = request.data.get('error') or ''
+        report_url = request.data.get('report_url') or ''
+        report_file = request.data.get('report_file') or ''
 
         execution = MidsceneExecution.objects.filter(id=execution_id).first()
         if execution:
@@ -558,16 +558,14 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             # 保存步骤结果
             if isinstance(result_data, dict) and 'step_results' in result_data:
                 execution.step_results = result_data['step_results']
-            execution.logs = json.dumps(result_data, ensure_ascii=False) if isinstance(result_data, dict) else str(result_data)
+            execution.logs = json.dumps(result_data, ensure_ascii=False) if isinstance(result_data, dict) else str(result_data)[:2000]
             execution.error_message = error_msg
             execution.finished_at = timezone.now()
             if execution.started_at and execution.finished_at:
                 execution.duration = (execution.finished_at - execution.started_at).total_seconds()
             # 保存回放报告信息
-            if report_url:
-                execution.report_url = report_url
-            if report_file:
-                execution.report_file = report_file
+            execution.report_url = report_url
+            execution.report_file = report_file
             execution.save()
 
         # 回写用例状态
@@ -601,27 +599,34 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
     # ---- 查询执行状态 ----
     @action(detail=False, methods=['get'], url_path='execution-status')
     def execution_status(self, request):
-        """查询Midscene执行状态（从微服务获取）"""
+        """查询Midscene执行状态（主动从微服务同步）"""
         task_id = request.query_params.get('task_id')
         execution_id = request.query_params.get('execution_id')
 
-        # 优先从本地数据库查
+        execution = None
         if execution_id:
             execution = MidsceneExecution.objects.filter(id=execution_id).first()
-            if execution:
-                return Response({
-                    'execution_id': execution.id,
-                    'case_id': execution.case_id,
-                    'case_name': execution.case.name,
-                    'status': execution.status,
-                    'duration': execution.duration,
-                    'error_message': execution.error_message,
-                    'started_at': execution.started_at,
-                    'finished_at': execution.finished_at,
-                    'step_results': execution.step_results,
-                    'report_url': execution.report_url,
-                    'logs': execution.logs[:2000] if execution.logs else '',
-                })
+
+        if execution:
+            # 如果Django侧还是running，主动去微服务查真实状态并同步
+            if execution.status == 'running':
+                synced = self._sync_from_microservice(execution)
+                if synced:
+                    execution.refresh_from_db()
+
+            return Response({
+                'execution_id': execution.id,
+                'case_id': execution.case_id,
+                'case_name': execution.case.name if execution.case else '',
+                'status': execution.status,
+                'duration': execution.duration,
+                'error_message': execution.error_message,
+                'started_at': execution.started_at,
+                'finished_at': execution.finished_at,
+                'step_results': execution.step_results,
+                'report_url': execution.report_url,
+                'logs': execution.logs[:2000] if execution.logs else '',
+            })
 
         # 从微服务查
         if task_id:
@@ -634,6 +639,79 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({'error': '请提供execution_id或task_id'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def _sync_from_microservice(self, execution):
+        """主动从微服务同步执行状态到Django"""
+        try:
+            # 用case_id构造微服务回调结果来查找最新task
+            with httpx.Client(timeout=5) as client:
+                resp = client.get(f'{MIDSCENE_SERVICE_URL}/tasks')
+                resp.raise_for_status()
+                tasks = resp.json()
+
+            # 找最近完成的、与该execution时间匹配的task
+            from datetime import datetime, timedelta
+            exec_time = execution.started_at
+            matching_task = None
+            for t in tasks:
+                if t.get('status') not in ('completed', 'failed'):
+                    continue
+                try:
+                    task_time = datetime.fromisoformat(t['created_at'].replace('Z', '+00:00'))
+                    if task_time >= exec_time - timedelta(seconds=5):
+                        matching_task = t
+                        break  # tasks按时间倒序，第一个匹配的就是最新的
+                except (ValueError, KeyError):
+                    continue
+
+            if not matching_task:
+                return False
+
+            # 获取完整task详情
+            task_id = matching_task['task_id']
+            with httpx.Client(timeout=5) as client:
+                resp = client.get(f'{MIDSCENE_SERVICE_URL}/task/{task_id}')
+                resp.raise_for_status()
+                task_data = resp.json()
+
+            if task_data.get('status') in ('completed', 'failed'):
+                # 同步状态到Django
+                execution.status = 'passed' if task_data['status'] == 'completed' else 'failed'
+                execution.error_message = task_data.get('error') or ''
+                execution.finished_at = timezone.now()
+
+                result = task_data.get('result') or {}
+                if isinstance(result, dict) and 'step_results' in result:
+                    execution.step_results = result['step_results']
+                execution.logs = json.dumps(task_data.get('logs') or [], ensure_ascii=False)
+
+                if execution.started_at and execution.finished_at:
+                    execution.duration = (execution.finished_at - execution.started_at).total_seconds()
+
+                report_url = task_data.get('report_url') or ''
+                execution.report_url = report_url
+                execution.report_file = ''
+                if report_url and '/report/' in report_url:
+                    report_filename = report_url.split('/report/')[-1]
+                    execution.report_file = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        '..', '..', 'midscene-service', 'midscene_run', 'report', report_filename
+                    )
+
+                execution.save()
+
+                # 更新用例状态
+                case = execution.case
+                if case:
+                    case.last_status = execution.status
+                    case.last_result = execution.error_message or json.dumps(result, ensure_ascii=False)[:500] if result else ''
+                    case.save(update_fields=['last_status', 'last_result', 'updated_at'])
+
+                return True
+        except Exception as e:
+            logger.error(f'同步微服务状态失败: {e}')
+
+        return False
 
 
 # ============================================================================

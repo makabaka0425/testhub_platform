@@ -277,6 +277,7 @@ async function executeTask(taskId) {
   task.status = 'running';
   task.started_at = new Date().toISOString();
   task.logs.push({ time: new Date().toISOString(), level: 'info', message: '开始执行任务' });
+  task.logs.push({ time: new Date().toISOString(), level: 'info', message: `callback_url=${task.callback_url || '空'}, execution_id=${task.execution_id || '空'}` });
 
   let browser = null;
 
@@ -391,6 +392,17 @@ async function executeTask(taskId) {
 
     // ---- 4. 逐步执行（Web和APP共用agent接口） ----
     const stepResults = [];
+    const STEP_TIMEOUT = 60000; // 单步超时60秒
+    
+    function withTimeout(promise, ms, label) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`${label} 超时（${ms/1000}秒）`)), ms)
+        )
+      ]);
+    }
+    
     for (let i = 0; i < task.steps.length; i++) {
       const step = task.steps[i];
       const stepLog = `步骤${i + 1} [${step.type}]: ${step.instruction || ''}`;
@@ -400,27 +412,27 @@ async function executeTask(taskId) {
         let stepResult;
         switch (step.type) {
           case 'aiAct':
-            await agent.aiAct(step.instruction);
+            await withTimeout(agent.aiAct(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiAct`);
             stepResult = { status: 'passed', message: '操作完成' };
             break;
 
           case 'aiTap':
-            await agent.aiTap(step.instruction);
+            await withTimeout(agent.aiTap(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiTap`);
             stepResult = { status: 'passed', message: '点击完成' };
             break;
 
           case 'aiAssert':
-            await agent.aiAssert(step.instruction);
+            await withTimeout(agent.aiAssert(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiAssert`);
             stepResult = { status: 'passed', message: '断言通过' };
             break;
 
           case 'aiQuery':
-            const queryResult = await agent.aiQuery(step.instruction);
+            const queryResult = await withTimeout(agent.aiQuery(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiQuery`);
             stepResult = { status: 'passed', message: '查询完成', data: queryResult };
             break;
 
           case 'aiWaitFor':
-            await agent.aiWaitFor(step.instruction);
+            await withTimeout(agent.aiWaitFor(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiWaitFor`);
             stepResult = { status: 'passed', message: '等待条件满足' };
             break;
 
@@ -431,7 +443,7 @@ async function executeTask(taskId) {
 
           default:
             // 默认当作 aiAct
-            await agent.aiAct(step.instruction);
+            await withTimeout(agent.aiAct(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiAct`);
             stepResult = { status: 'passed', message: '操作完成（默认aiAct）' };
         }
 
@@ -512,7 +524,18 @@ async function executeTask(taskId) {
     task.logs.push({ time: new Date().toISOString(), level: 'error', message: `执行失败: ${err.message}` });
 
     // 失败时也要尝试 destroy agent（让报告记录失败状态）
-    // 注意：如果 browser 已经 crash，这里可能报错，忽略即可
+    try {
+      if (agent) {
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: '尝试销毁Agent生成报告...' });
+        await agent.destroy();
+        if (agent.reportFile) {
+          task.report_file = agent.reportFile;
+          task.logs.push({ time: new Date().toISOString(), level: 'info', message: `失败报告已生成: ${agent.reportFile}` });
+        }
+      }
+    } catch (destroyErr) {
+      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `Agent销毁失败: ${destroyErr.message}` });
+    }
 
   } finally {
     task.completed_at = new Date().toISOString();
@@ -530,24 +553,33 @@ async function executeTask(taskId) {
           reportUrl = `http://localhost:${PORT}/report/${path.basename(task.report_file)}`;
         }
 
+        const callbackBody = JSON.stringify({
+          task_id: task.task_id,
+          execution_id: task.execution_id,
+          status: task.status,
+          result: task.result,
+          error: task.error,
+          completed_at: task.completed_at,
+          report_url: reportUrl,
+          report_file: task.report_file,
+        });
+
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `正在回调Django: ${task.callback_url}` });
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调payload: execution_id=${task.execution_id}, status=${task.status}` });
+
         const fetch = require('node-fetch');
-        await fetch(task.callback_url, {
+        const cbRes = await fetch(task.callback_url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            task_id: task.task_id,
-            execution_id: task.execution_id,
-            status: task.status,
-            result: task.result,
-            error: task.error,
-            completed_at: task.completed_at,
-            report_url: reportUrl,
-            report_file: task.report_file,
-          }),
+          body: callbackBody,
         });
+
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调响应: HTTP ${cbRes.status} ${cbRes.statusText}` });
       } catch (e) {
         task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `回调失败: ${e.message}` });
       }
+    } else {
+      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: '未配置callback_url，跳过回调' });
     }
   }
 }
