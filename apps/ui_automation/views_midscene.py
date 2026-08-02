@@ -723,7 +723,7 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return MidsceneExecution.objects.select_related('case', 'executed_by')
+        return MidsceneExecution.objects.select_related('case', 'case__project', 'executed_by')
 
     def list(self, request):
         case_id = request.query_params.get('case_id')
