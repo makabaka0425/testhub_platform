@@ -237,10 +237,6 @@
               <el-icon><Document /></el-icon>
               <span>{{ $t('menu.aiCaseManagement') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/execution-records">
-              <el-icon><Timer /></el-icon>
-              <span>{{ $t('menu.aiExecutionRecords') }}</span>
-            </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/midscene-web">
               <el-icon><Monitor /></el-icon>
               <span>{{ $t('menu.midsceneWeb') }}</span>
@@ -252,6 +248,14 @@
             <el-menu-item index="/ai-intelligent-mode/test-plans">
               <el-icon><Tickets /></el-icon>
               <span>{{ $t('menu.aiTestPlan') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/midscene-reports">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>{{ $t('menu.aiTestReport') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/execution-records">
+              <el-icon><Timer /></el-icon>
+              <span>{{ $t('menu.aiExecutionRecords') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
               <el-icon><AlarmClock /></el-icon>
@@ -494,6 +498,7 @@ const breadcrumbTitle = computed(() => {
     '/ai-intelligent-mode/testing': t('menu.aiIntelligentTesting'),
     '/ai-intelligent-mode/cases': t('menu.aiCaseManagement'),
     '/ai-intelligent-mode/execution-records': t('menu.aiExecutionRecords'),
+    '/ai-intelligent-mode/midscene-reports': t('menu.aiTestReport'),
     '/ai-intelligent-mode/midscene-web': t('menu.midsceneWeb'),
     '/ai-intelligent-mode/midscene-app': t('menu.midsceneApp'),
     '/ai-intelligent-mode/test-plans': t('menu.aiTestPlan'),

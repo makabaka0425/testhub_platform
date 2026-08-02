@@ -1739,6 +1739,9 @@ export function getMidsceneExecutions(params) {
 export function getMidsceneExecutionDetail(id) {
   return request({ url: `/ui-automation/midscene-executions/${id}/`, method: 'get' })
 }
+export function deleteMidsceneExecution(id) {
+  return request({ url: `/ui-automation/midscene-executions/${id}/`, method: 'delete' })
+}
 
 // ---- 微服务状态 ----
 export function midsceneHealthCheck() {

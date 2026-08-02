@@ -727,26 +727,50 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
 
     def list(self, request):
         case_id = request.query_params.get('case_id')
+        project_id = request.query_params.get('project_id')
+        platform = request.query_params.get('platform')
+        status_filter = request.query_params.get('status')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+        # 报告汇总模式
+        report_only = request.query_params.get('report_only') == 'true'
+
         qs = self.get_queryset()
         if case_id:
             qs = qs.filter(case_id=case_id)
+        if project_id:
+            qs = qs.filter(case__project_id=project_id)
+        if platform:
+            qs = qs.filter(case__platform=platform)
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        if report_only:
+            qs = qs.exclude(report_url='')
+
+        total = qs.count()
+        start = (page - 1) * page_size
+        end = start + page_size
 
         data = []
-        for e in qs.order_by('-started_at')[:50]:
+        for e in qs.order_by('-started_at')[start:end]:
             data.append({
                 'id': e.id,
                 'case_id': e.case_id,
                 'case_name': e.case.name if e.case else '',
+                'platform': e.case.platform if e.case else '',
+                'project_id': e.case.project_id if e.case else None,
+                'project_name': e.case.project.name if e.case and e.case.project else '',
                 'status': e.status,
                 'duration': e.duration,
                 'error_message': e.error_message,
                 'report_url': e.report_url,
+                'report_file': e.report_file,
                 'started_at': e.started_at,
                 'finished_at': e.finished_at,
                 'step_results': e.step_results,
                 'executed_by': e.executed_by.username if e.executed_by else None,
             })
-        return Response(data)
+        return Response({'results': data, 'count': total, 'page': page, 'page_size': page_size})
 
     def retrieve(self, request, pk=None):
         execution = self.get_queryset().filter(pk=pk).first()
