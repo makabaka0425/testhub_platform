@@ -16,12 +16,16 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import (
     MidsceneGroup, MidsceneCase, MidsceneExecution, AiProject,
     AiScheduledTask, AiNotificationLog,
+    AiTestPlan, AiTestPlanItem,
 )
 from .serializers import (
     AiProjectSerializer, AiProjectCreateSerializer, AiProjectUpdateSerializer,
     AiScheduledTaskSerializer, AiNotificationLogSerializer,
+    AiTestPlanSerializer, AiTestPlanCreateSerializer, AiTestPlanUpdateSerializer,
+    AiTestPlanItemSerializer,
 )
 from django.db import models
+from django.db.models import Max
 from rest_framework import filters
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -1185,3 +1189,168 @@ class AiNotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
             log.save()
             return Response({'message': '通知已加入重试队列'})
         return Response({'error': '只能重试失败的通知'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ──────────────────────────────────────────────
+# AI 测试计划 ViewSet
+# ──────────────────────────────────────────────
+
+class AiTestPlanViewSet(viewsets.ModelViewSet):
+    """AI自动化测试计划视图集"""
+    queryset = AiTestPlan.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['project', 'execution_status', 'platform']
+    search_fields = ['name', 'description']
+    ordering_fields = ['created_at', 'name']
+    ordering = ['-created_at']
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return AiTestPlanCreateSerializer
+        if self.action in ('update', 'partial_update'):
+            return AiTestPlanUpdateSerializer
+        return AiTestPlanSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['get'])
+    def plan_items(self, request, pk=None):
+        """获取计划项列表"""
+        plan = self.get_object()
+        items = plan.plan_items.all().select_related('midscene_case')
+        serializer = AiTestPlanItemSerializer(items, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def add_item(self, request, pk=None):
+        """添加单个计划项"""
+        plan = self.get_object()
+        midscene_case_id = request.data.get('midscene_case')
+
+        if not midscene_case_id:
+            return Response({'error': '请指定Midscene用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 去重检查
+        if AiTestPlanItem.objects.filter(test_plan=plan, midscene_case_id=midscene_case_id).exists():
+            return Response({'error': '该用例已在计划中'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_order = plan.plan_items.aggregate(max_order=Max('order'))['max_order'] or 0
+        item = AiTestPlanItem.objects.create(
+            test_plan=plan,
+            midscene_case_id=midscene_case_id,
+            order=max_order + 1
+        )
+        self._update_plan_counts(plan)
+        return Response(AiTestPlanItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def add_items_batch(self, request, pk=None):
+        """批量添加计划项"""
+        plan = self.get_object()
+        case_ids = request.data.get('midscene_case_ids', [])
+
+        if not case_ids:
+            return Response({'error': '请提供用例ID列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_order = plan.plan_items.aggregate(max_order=Max('order'))['max_order'] or 0
+        existing = set(AiTestPlanItem.objects.filter(
+            test_plan=plan, midscene_case_id__in=case_ids
+        ).values_list('midscene_case_id', flat=True))
+
+        created = []
+        for i, case_id in enumerate(case_ids):
+            if case_id in existing:
+                continue
+            item = AiTestPlanItem.objects.create(
+                test_plan=plan,
+                midscene_case_id=case_id,
+                order=max_order + i + 1
+            )
+            created.append(item)
+
+        self._update_plan_counts(plan)
+        return Response(AiTestPlanItemSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'], url_path='remove_item/(?P<item_id>[^/.]+)')
+    def remove_item(self, request, pk=None, item_id=None):
+        """移除计划项"""
+        plan = self.get_object()
+        item = plan.plan_items.filter(pk=item_id).first()
+        if not item:
+            return Response({'error': '计划项不存在'}, status=status.HTTP_404_NOT_FOUND)
+        item.delete()
+        self._update_plan_counts(plan)
+        return Response({'message': '已移除'})
+
+    @action(detail=True, methods=['post'])
+    def update_item_order(self, request, pk=None):
+        """更新计划项顺序"""
+        plan = self.get_object()
+        item_orders = request.data.get('item_orders', [])
+        for item_data in item_orders:
+            AiTestPlanItem.objects.filter(
+                pk=item_data.get('id'), test_plan=plan
+            ).update(order=item_data.get('order', 0))
+        return Response({'message': '顺序已更新'})
+
+    @action(detail=True, methods=['post'])
+    def run_plan(self, request, pk=None):
+        """执行AI测试计划"""
+        plan = self.get_object()
+        items = plan.plan_items.all().select_related('midscene_case')
+
+        if not items.exists():
+            return Response({'error': '计划中没有用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        plan.execution_status = 'running'
+        plan.save(update_fields=['execution_status'])
+
+        # 逐个提交用例到Midscene微服务执行
+        results = []
+        for item in items:
+            case = item.midscene_case
+            if not case:
+                continue
+
+            try:
+                execution = MidsceneExecution.objects.create(
+                    case=case,
+                    status='running',
+                    executed_by=request.user,
+                )
+                case.last_status = 'running'
+                case.save(update_fields=['last_status'])
+
+                payload = _build_midscene_payload(case, execution.id)
+
+                try:
+                    import httpx
+                    with httpx.Client(timeout=10) as client:
+                        resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute', json=payload)
+                        resp.raise_for_status()
+                    results.append({'case_id': case.id, 'case_name': case.name, 'status': 'submitted'})
+                except Exception as e:
+                    execution.status = 'failed'
+                    execution.error_message = str(e)
+                    execution.finished_at = timezone.now()
+                    execution.save()
+                    case.last_status = 'failed'
+                    case.last_result = str(e)[:500]
+                    case.save(update_fields=['last_status', 'last_result'])
+                    results.append({'case_id': case.id, 'case_name': case.name, 'status': 'failed', 'error': str(e)})
+
+            except Exception as e:
+                results.append({'case_id': case.id if case else None, 'status': 'error', 'error': str(e)})
+
+        return Response({
+            'message': '计划已提交执行',
+            'execution_status': 'running',
+            'results': results
+        })
+
+    def _update_plan_counts(self, plan):
+        """更新计划的用例计数"""
+        plan.total_cases = plan.plan_items.count()
+        plan.save(update_fields=['total_cases'])

@@ -67,6 +67,7 @@ export default {
     midsceneWeb: 'Web Automation',
     midsceneApp: 'App Automation',
     aiScheduledTasks: 'AI Scheduled Tasks',
+    aiTestPlan: 'AI Test Plan',
     aiNotificationList: 'AI Notification Logs',
 
     // Configuration Center

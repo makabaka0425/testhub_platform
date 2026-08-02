@@ -37,6 +37,8 @@ import UiMidsceneExecution from '@/views/ui-automation/midscene/MidsceneExecutio
 import AiProjectList from '@/views/ui-automation/ai-projects/AiProjectList.vue'
 import AiScheduledTasks from '@/views/ai-automation/AiScheduledTasks.vue'
 import AiNotificationLogs from '@/views/ai-automation/AiNotificationLogs.vue'
+import AiTestPlanList from '@/views/ai-automation/AiTestPlanList.vue'
+import AiTestPlanDetail from '@/views/ai-automation/AiTestPlanDetail.vue'
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 const routes = [
@@ -380,6 +382,18 @@ const routes = [
                 name: 'MidsceneApp',
                 component: UiMidsceneExecution,
                 meta: { title: 'APP端自动化', platform: 'app' }
+            },
+            {
+                path: 'test-plans',
+                name: 'AiTestPlans',
+                component: AiTestPlanList,
+                meta: { title: 'AI测试计划' }
+            },
+            {
+                path: 'test-plans/:id',
+                name: 'AiTestPlanDetail',
+                component: AiTestPlanDetail,
+                meta: { title: '计划详情' }
             },
             {
                 path: 'scheduled-tasks',

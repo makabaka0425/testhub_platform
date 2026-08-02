@@ -249,6 +249,10 @@
               <el-icon><Iphone /></el-icon>
               <span>{{ $t('menu.midsceneApp') }}</span>
             </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/test-plans">
+              <el-icon><Tickets /></el-icon>
+              <span>{{ $t('menu.aiTestPlan') }}</span>
+            </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
               <el-icon><AlarmClock /></el-icon>
               <span>{{ $t('menu.aiScheduledTasks') }}</span>
@@ -492,6 +496,7 @@ const breadcrumbTitle = computed(() => {
     '/ai-intelligent-mode/execution-records': t('menu.aiExecutionRecords'),
     '/ai-intelligent-mode/midscene-web': t('menu.midsceneWeb'),
     '/ai-intelligent-mode/midscene-app': t('menu.midsceneApp'),
+    '/ai-intelligent-mode/test-plans': t('menu.aiTestPlan'),
     '/ai-intelligent-mode/scheduled-tasks': t('menu.aiScheduledTasks'),
 
 
@@ -505,6 +510,12 @@ const breadcrumbTitle = computed(() => {
     '/configuration/dify': t('menu.difyConfig'),
     
     '/profile': t('nav.profile')
+  }
+  // 动态路由回退匹配
+  if (!routeMap[route.path]) {
+    if (/\/ai-intelligent-mode\/test-plans\/\d+/.test(route.path)) {
+      return t('menu.aiTestPlan')
+    }
   }
   return routeMap[route.path] || route.meta.title || ''
 })
@@ -663,7 +674,7 @@ const handleCommand = (command) => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 20px;
+    padding: 0 var(--layout-gap);
   }
 
   .header-left {
@@ -745,10 +756,11 @@ const handleCommand = (command) => {
 
 .el-main {
   background-color: #f5f5f5;
-  padding: 20px !important;
+  padding: var(--layout-gap) !important;
   flex: 1;
   overflow: hidden;
   box-sizing: border-box;
+  width: 100%;
 }
 
 @media screen and (max-width: 1920px) {

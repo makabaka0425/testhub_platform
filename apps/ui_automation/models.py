@@ -1663,3 +1663,73 @@ class AiNotificationLog(models.Model):
         if self.is_retried:
             return f"已重试 {self.retry_count} 次"
         return "未重试"
+
+
+class AiTestPlan(models.Model):
+    """AI自动化测试计划模型"""
+    EXECUTION_STATUS_CHOICES = [
+        ('not_run', '未执行'),
+        ('passed', '通过'),
+        ('failed', '失败'),
+        ('running', '执行中'),
+    ]
+
+    PLATFORM_CHOICES = [
+        ('web', 'Web端'),
+        ('app', 'APP端'),
+    ]
+
+    project = models.ForeignKey(
+        AiProject, on_delete=models.CASCADE,
+        related_name='ai_test_plans', verbose_name='所属项目'
+    )
+    name = models.CharField(max_length=200, verbose_name='计划名称')
+    description = models.TextField(blank=True, default='', verbose_name='计划描述')
+    platform = models.CharField(
+        max_length=10, choices=PLATFORM_CHOICES, default='web', verbose_name='平台'
+    )
+    execution_status = models.CharField(
+        max_length=20, choices=EXECUTION_STATUS_CHOICES, default='not_run', verbose_name='执行状态'
+    )
+    total_cases = models.IntegerField(default=0, verbose_name='用例总数')
+    passed_count = models.IntegerField(default=0, verbose_name='通过数')
+    failed_count = models.IntegerField(default=0, verbose_name='失败数')
+    skipped_count = models.IntegerField(default=0, verbose_name='跳过数')
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True, verbose_name='创建人'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ai_test_plans'
+        verbose_name = 'AI测试计划'
+        verbose_name_plural = 'AI测试计划'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+class AiTestPlanItem(models.Model):
+    """AI测试计划项 — 关联Midscene用例"""
+    test_plan = models.ForeignKey(
+        AiTestPlan, on_delete=models.CASCADE,
+        related_name='plan_items', verbose_name='所属计划'
+    )
+    midscene_case = models.ForeignKey(
+        MidsceneCase, on_delete=models.CASCADE,
+        null=True, blank=True, verbose_name='Midscene用例'
+    )
+    order = models.IntegerField(default=0, verbose_name='排序')
+
+    class Meta:
+        db_table = 'ai_test_plan_items'
+        verbose_name = 'AI测试计划项'
+        verbose_name_plural = 'AI测试计划项'
+        ordering = ['order']
+
+    def __str__(self):
+        case_name = self.midscene_case.name if self.midscene_case else '未知用例'
+        return f"{self.test_plan.name} - {case_name}"

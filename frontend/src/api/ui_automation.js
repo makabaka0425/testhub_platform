@@ -1803,3 +1803,60 @@ export function retryAiNotificationLog(id) {
 export function getAiUsers(params) {
   return request({ url: '/api-testing/users/', method: 'get', params })
 }
+
+// ==================== AI自动化测试计划相关API ====================
+
+// 获取AI测试计划列表
+export function getAiTestPlans(params) {
+  return request({ url: '/ui-automation/ai-test-plans/', method: 'get', params })
+}
+
+// 获取AI测试计划详情
+export function getAiTestPlan(id) {
+  return request({ url: `/ui-automation/ai-test-plans/${id}/`, method: 'get' })
+}
+
+// 创建AI测试计划
+export function createAiTestPlan(data) {
+  return request({ url: '/ui-automation/ai-test-plans/', method: 'post', data })
+}
+
+// 更新AI测试计划
+export function updateAiTestPlan(id, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${id}/`, method: 'patch', data })
+}
+
+// 删除AI测试计划
+export function deleteAiTestPlan(id) {
+  return request({ url: `/ui-automation/ai-test-plans/${id}/`, method: 'delete' })
+}
+
+// 获取AI测试计划项列表
+export function getAiPlanItems(planId) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/plan_items/`, method: 'get' })
+}
+
+// 添加AI测试计划项
+export function addAiPlanItem(planId, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/add_item/`, method: 'post', data })
+}
+
+// 批量添加AI测试计划项
+export function addAiPlanItemsBatch(planId, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/add_items_batch/`, method: 'post', data })
+}
+
+// 移除AI测试计划项
+export function removeAiPlanItem(planId, itemId) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/remove_item/`, method: 'delete', data: { item_id: itemId } })
+}
+
+// 更新AI测试计划项顺序
+export function updateAiPlanItemOrder(planId, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/update_item_order/`, method: 'post', data })
+}
+
+// 执行AI测试计划
+export function runAiTestPlan(planId, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/run_plan/`, method: 'post', data, timeout: 60000 })
+}

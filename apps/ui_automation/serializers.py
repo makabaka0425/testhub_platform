@@ -8,7 +8,8 @@ from .models import (
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
     UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport,
-    AiProject, AiScheduledTask, AiNotificationLog
+    AiProject, AiScheduledTask, AiNotificationLog,
+    AiTestPlan, AiTestPlanItem
 )
 from django.contrib.auth import get_user_model
 
@@ -1407,5 +1408,71 @@ class AllureReportCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = AllureReport
         fields = ('name', 'project', 'test_plan', 'test_execution')
+
+
+# ──────────────────────────────────────────────
+# AI 测试计划序列化器
+# ──────────────────────────────────────────────
+
+class AiTestPlanItemSerializer(serializers.ModelSerializer):
+    """AI测试计划项序列化器"""
+    midscene_case_name = serializers.CharField(source='midscene_case.name', read_only=True, default='')
+    platform_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiTestPlanItem
+        fields = [
+            'id', 'test_plan', 'midscene_case', 'order',
+            'midscene_case_name', 'platform_display'
+        ]
+        read_only_fields = ['id']
+
+    def get_platform_display(self, obj):
+        if obj.midscene_case:
+            return obj.midscene_case.get_platform_display()
+        return ''
+
+
+class AiTestPlanSerializer(serializers.ModelSerializer):
+    """AI测试计划序列化器"""
+    project_name = serializers.CharField(source='project.name', read_only=True, default='')
+    plan_items = AiTestPlanItemSerializer(many=True, read_only=True)
+    plan_item_count = serializers.SerializerMethodField()
+    platform_display = serializers.CharField(source='get_platform_display', read_only=True)
+    execution_status_display = serializers.CharField(source='get_execution_status_display', read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiTestPlan
+        fields = [
+            'id', 'project', 'project_name', 'name', 'description',
+            'platform', 'platform_display',
+            'execution_status', 'execution_status_display',
+            'total_cases', 'passed_count', 'failed_count', 'skipped_count',
+            'plan_items', 'plan_item_count',
+            'created_by', 'created_by_name',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'execution_status', 'total_cases', 'passed_count', 'failed_count', 'skipped_count']
+
+    def get_plan_item_count(self, obj):
+        return obj.plan_items.count()
+
+    def get_created_by_name(self, obj):
+        return obj.created_by.username if obj.created_by else ''
+
+
+class AiTestPlanCreateSerializer(serializers.ModelSerializer):
+    """AI测试计划创建序列化器"""
+    class Meta:
+        model = AiTestPlan
+        fields = ['id', 'project', 'name', 'description', 'platform']
+
+
+class AiTestPlanUpdateSerializer(serializers.ModelSerializer):
+    """AI测试计划更新序列化器"""
+    class Meta:
+        model = AiTestPlan
+        fields = ['name', 'description', 'platform']
 
 

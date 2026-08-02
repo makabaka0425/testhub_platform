@@ -67,6 +67,7 @@ export default {
     midsceneWeb: 'Web端自动化',
     midsceneApp: 'APP端自动化',
     aiScheduledTasks: 'AI定时任务',
+    aiTestPlan: 'AI测试计划',
     aiNotificationList: 'AI通知列表',
 
     // 配置中心
