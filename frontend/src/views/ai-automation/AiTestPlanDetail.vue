@@ -347,10 +347,8 @@ function handleCaseSelectionChange(val) {
 
 async function confirmAddCases() {
   try {
-    const items = selectedCases.value.map(c => ({
-      midscene_case_id: c.id
-    }))
-    await addAiPlanItemsBatch(planId.value, { items })
+    const midscene_case_ids = selectedCases.value.map(c => c.id)
+    await addAiPlanItemsBatch(planId.value, { midscene_case_ids })
     ElMessage.success('添加成功')
     showAddCaseDialog.value = false
     selectedCases.value = []
