@@ -204,7 +204,7 @@
           <div class="section-title">
             <span class="section-bar"></span>
             {{ rightPanelTitle }}
-            <span v-if="isGenerating" class="streaming-indicator">生成中...</span>
+            <span v-if="isGenerating" class="streaming-tag">生成中...</span>
           </div>
 
           <!-- 空态 -->
@@ -1638,12 +1638,14 @@ export default {
   display: flex;
   padding: 12px;
   gap: 0;
+  width: 100%;
 }
 
 /* === 左栏 === */
 .left-panel {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 300px;
   background: white;
   border-radius: 12px;
@@ -1875,6 +1877,7 @@ export default {
 .right-panel {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 300px;
   background: white;
   border-radius: 12px;
@@ -1898,20 +1901,39 @@ export default {
   font-size: 14px;
 }
 
-.streaming-indicator {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  background: #4f6ef7;
-  border-radius: 50%;
-  margin-left: 8px;
-  animation: pulse 1.2s infinite;
+.streaming-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 2px 10px;
+  background: #ecfdf5;
+  color: #059669;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  animation: tag-pulse 1.5s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0% { opacity: 1; }
+.streaming-tag::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: #10b981;
+  border-radius: 50%;
+  animation: dot-blink 1s ease-in-out infinite;
+}
+
+@keyframes dot-blink {
+  0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
-  100% { opacity: 1; }
+}
+
+@keyframes tag-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
 }
 
 /* 输出块 */
