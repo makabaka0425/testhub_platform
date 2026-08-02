@@ -2113,7 +2113,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                             f"SSE stream loop #{loop_count}: task_status={task.status}, progress={task.progress}%, buffer_len={len(task.stream_buffer) if task.stream_buffer else 0}")
 
                     # 检查任务是否已完成或失败
-                    if task.status in ['completed', 'failed', 'cancelled']:
+                    if task.status in ['completed', 'failed', 'cancelled', 'reviewed', 'review_failed']:
                         logger.info(f"SSE任务结束: status={task.status}")
                         # 发送最终状态
                         final_status = json.dumps({'type': 'status', 'status': task.status, 'progress': task.progress},
@@ -2178,7 +2178,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                                 has_sent_data = True
 
                     # 如果是评审阶段，发送评审内容
-                    if task.status == 'reviewing' and task.review_feedback:
+                    if task.status in ['reviewing', 'reviewed'] and task.review_feedback:
                         review_feedback = task.review_feedback
                         if review_feedback:
                             # 计算评审内容的增量
@@ -2467,9 +2467,9 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
         try:
             task = self.get_object()
 
-            if task.status != 'completed':
+            if task.status not in ('completed', 'review_failed'):
                 return Response(
-                    {'error': '只能对已完成的任务启动评审'},
+                    {'error': f'只能对已完成的任务启动评审，当前状态：{task.status}'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -2504,7 +2504,6 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
             # 在新线程中只执行评审（不自动改进）
             def run_review():
                 import asyncio
-                import threading
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
@@ -2525,6 +2524,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 finally:
                     loop.close()
 
+            import threading
             thread = threading.Thread(target=run_review)
             thread.daemon = True
             thread.start()
@@ -2562,7 +2562,6 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
 
             def run_revise():
                 import asyncio
-                import threading
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
@@ -2592,6 +2591,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 finally:
                     loop.close()
 
+            import threading
             thread = threading.Thread(target=run_revise)
             thread.daemon = True
             thread.start()

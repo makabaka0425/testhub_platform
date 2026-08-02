@@ -883,6 +883,14 @@ export default {
               this.progressText = this.$t('requirementAnalysis.statusCompleted')
               // Fetch final result
               this.fetchFinalResult()
+            } else if (data.status === 'reviewed') {
+              // 评审完成
+              this.fetchFinalResult()
+            } else if (data.status === 'review_failed') {
+              this.progressText = '评审失败'
+              this.isGenerating = false
+              this.stagePhase = 'generated'
+              ElMessage.error('AI评审执行失败，请重试')
             } else if (data.status === 'failed') {
               this.progressText = this.$t('requirementAnalysis.statusFailed')
               this.handleGenerationError()
