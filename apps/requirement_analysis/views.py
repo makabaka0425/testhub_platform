@@ -2482,10 +2482,10 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
             # 获取评审模型和提示词配置
             from .models import AIModelConfig, PromptConfig
             reviewer_model = AIModelConfig.objects.filter(
-                config_type='reviewer_model', is_enabled=True
+                role='reviewer', is_active=True
             ).first()
             reviewer_prompt = PromptConfig.objects.filter(
-                config_type='reviewer_prompt', is_enabled=True
+                prompt_type='reviewer', is_active=True
             ).first()
 
             if not reviewer_model or not reviewer_prompt:
@@ -2499,58 +2499,33 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
             task.status = 'reviewing'
             task.progress = 70
             task.review_feedback = ''
-            task.final_test_cases = ''
             task.save()
 
-            # 在新线程中执行评审+改进
-            def run_review_and_revise():
+            # 在新线程中只执行评审（不自动改进）
+            def run_review():
                 import asyncio
                 import threading
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    # 评审
                     logger.info(f"手动启动评审: 任务 {task.task_id}")
                     review_result = loop.run_until_complete(
                         AIModelService.review_test_cases_stream(task)
                     )
                     task.review_feedback = review_result
-                    task.status = 'reviewing'
-                    task.progress = 75
+                    task.status = 'reviewed'
+                    task.progress = 80
                     task.save()
-
-                    # 改进
-                    logger.info(f"手动启动改进: 任务 {task.task_id}")
-                    task.status = 'revising'
-                    task.progress = 85
-                    task.save()
-
-                    final_cases = loop.run_until_complete(
-                        AIModelService.revise_test_cases_based_on_review(task)
-                    )
-
-                    if final_cases:
-                        sorted_cases = AIModelService.sort_test_cases_by_id(final_cases)
-                        task.final_test_cases = AIModelService.renumber_test_cases(sorted_cases)
-                    else:
-                        task.final_test_cases = task.generated_test_cases
-
-                    task.status = 'completed'
-                    task.progress = 100
-                    task.save()
-                    logger.info(f"评审+改进完成: 任务 {task.task_id}")
+                    logger.info(f"评审完成: 任务 {task.task_id}")
 
                 except Exception as e:
-                    logger.error(f"评审/改进失败: {e}")
-                    task.status = 'completed'
-                    task.progress = 100
-                    if not task.final_test_cases:
-                        task.final_test_cases = task.generated_test_cases
+                    logger.error(f"评审失败: {e}")
+                    task.status = 'review_failed'
                     task.save()
                 finally:
                     loop.close()
 
-            thread = threading.Thread(target=run_review_and_revise)
+            thread = threading.Thread(target=run_review)
             thread.daemon = True
             thread.start()
 
@@ -2568,9 +2543,9 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
         try:
             task = self.get_object()
 
-            if task.status != 'completed':
+            if task.status not in ('completed', 'reviewed'):
                 return Response(
-                    {'error': '只能对已完成的任务启动改进'},
+                    {'error': '只能对已完成或已评审的任务启动改进'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 

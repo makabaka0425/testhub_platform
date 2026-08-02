@@ -198,63 +198,99 @@
         <div class="resize-line"></div>
       </div>
 
-      <!-- 右栏：输出展示 -->
+      <!-- 右栏：输出展示（页签式三阶段） -->
       <div class="right-panel" :style="{ width: rightPanelWidth + 'px' }">
-        <div class="panel-section output-section">
-          <div class="section-title">
-            <span class="section-bar"></span>
-            {{ rightPanelTitle }}
-            <span v-if="isGenerating" class="streaming-tag">生成中...</span>
+        <!-- 页签栏 -->
+        <div class="stage-tabs">
+          <div
+            class="stage-tab"
+            :class="{ active: activeTab === 'generate', completed: stagePhase === 'generated' || stagePhase === 'reviewing' || stagePhase === 'reviewed' || stagePhase === 'revising' || stagePhase === 'revised' || stagePhase === 'skip_review' }"
+            @click="switchTab('generate')"
+          >
+            <span class="tab-step">1</span>
+            <span class="tab-label">AI生成用例</span>
+            <span v-if="isGenerating && stagePhase === 'generating'" class="streaming-tag">生成中...</span>
+            <span v-else-if="stagePhase === 'generated' || stagePhase === 'reviewing' || stagePhase === 'reviewed' || stagePhase === 'revising' || stagePhase === 'revised' || stagePhase === 'skip_review'" class="tab-done">✓</span>
           </div>
+          <div
+            class="stage-tab"
+            :class="{ active: activeTab === 'review', completed: stagePhase === 'reviewed' || stagePhase === 'revising' || stagePhase === 'revised', disabled: !tabData.review.visible }"
+            @click="tabData.review.visible && switchTab('review')"
+          >
+            <span class="tab-step">2</span>
+            <span class="tab-label">AI评审意见</span>
+            <span v-if="isGenerating && stagePhase === 'reviewing'" class="streaming-tag">评审中...</span>
+            <span v-else-if="stagePhase === 'reviewed' || stagePhase === 'revising' || stagePhase === 'revised'" class="tab-done">✓</span>
+          </div>
+          <div
+            class="stage-tab"
+            :class="{ active: activeTab === 'revise', completed: stagePhase === 'revised', disabled: !tabData.revise.visible }"
+            @click="tabData.revise.visible && switchTab('revise')"
+          >
+            <span class="tab-step">3</span>
+            <span class="tab-label">改进用例</span>
+            <span v-if="isGenerating && stagePhase === 'revising'" class="streaming-tag">改进中...</span>
+            <span v-else-if="stagePhase === 'revised'" class="tab-done">✓</span>
+          </div>
+        </div>
 
+        <!-- 页签内容区 -->
+        <div class="stage-content">
           <!-- 空态 -->
-          <div v-if="!isGenerating && !showResults && !streamedContent && !streamedReviewContent && !finalTestCases" class="empty-state">
+          <div v-if="activeTab === 'generate' && !isGenerating && !streamedContent && stagePhase === 'idle'" class="empty-state">
             请在左侧输入需求描述并点击生成
           </div>
 
-          <!-- 生成内容 -->
-          <div v-if="streamedContent" class="output-block">
-            <div class="output-block-title">AI生成用例</div>
-            <div class="markdown-body" v-html="renderMarkdown(streamedContent)"></div>
+          <!-- 页签1：AI生成用例 -->
+          <div v-if="activeTab === 'generate'" class="stage-body">
+            <div v-if="streamedContent" class="output-block">
+              <div class="markdown-body" v-html="renderMarkdown(streamedContent)"></div>
+            </div>
           </div>
 
-          <!-- 评审内容 -->
-          <div v-if="streamedReviewContent" class="output-block review-block">
-            <div class="output-block-title">AI评审意见</div>
-            <div class="markdown-body" v-html="renderMarkdown(streamedReviewContent)"></div>
+          <!-- 页签2：AI评审意见 -->
+          <div v-if="activeTab === 'review'" class="stage-body">
+            <div v-if="streamedReviewContent" class="output-block review-block">
+              <div class="markdown-body" v-html="renderMarkdown(streamedReviewContent)"></div>
+            </div>
           </div>
 
-          <!-- 最终改进用例 -->
-          <div v-if="finalTestCases" class="output-block final-block">
-            <div class="output-block-title">改进后用例</div>
-            <div class="markdown-body" v-html="renderMarkdown(finalTestCases)"></div>
+          <!-- 页签3：改进后用例 -->
+          <div v-if="activeTab === 'revise'" class="stage-body">
+            <div v-if="finalTestCases" class="output-block final-block">
+              <div class="markdown-body" v-html="renderMarkdown(finalTestCases)"></div>
+            </div>
           </div>
         </div>
 
         <!-- 右栏底部操作 -->
-        <div v-if="showResults || (isGenerating && currentStep >= 2)" class="right-actions">
-          <!-- 生成完成 → 确定 -->
-          <button v-if="showResults && stagePhase === 'generated'" class="action-btn primary" @click="onGeneratedConfirm">
+        <div class="right-actions">
+          <!-- 生成完成 → 确定（进入评审） -->
+          <button v-if="activeTab === 'generate' && stagePhase === 'generated'" class="action-btn primary" @click="onGeneratedConfirm">
             确定
           </button>
-          <!-- 评审完成 → 确定 -->
-          <button v-if="showResults && stagePhase === 'reviewed'" class="action-btn primary" @click="onReviewedConfirm">
+          <!-- 跳过评审 -->
+          <button v-if="activeTab === 'generate' && stagePhase === 'generated'" class="action-btn cancel" @click="skipReview">
+            跳过评审
+          </button>
+          <!-- 评审完成 → 确定（进入改进） -->
+          <button v-if="activeTab === 'review' && stagePhase === 'reviewed'" class="action-btn primary" @click="onReviewedConfirm">
             确定
           </button>
           <!-- 改进完成 → 采纳 -->
-          <button v-if="showResults && stagePhase === 'revised'" class="action-btn success" @click="onAdopt">
+          <button v-if="activeTab === 'revise' && stagePhase === 'revised'" class="action-btn success" @click="onAdopt">
             采纳
           </button>
-          <!-- 跳过评审直接采纳 -->
-          <button v-if="showResults && stagePhase === 'skip_review'" class="action-btn success" @click="onAdopt">
+          <!-- 跳过评审后 → 采纳 -->
+          <button v-if="activeTab === 'generate' && stagePhase === 'skip_review'" class="action-btn success" @click="onAdopt">
             采纳
           </button>
-          <!-- 生成中 → 取消 -->
+          <!-- 生成中/评审中/改进中 → 取消 -->
           <button v-if="isGenerating" class="action-btn cancel" @click="cancelGeneration">
             取消
           </button>
           <!-- 下载 -->
-          <button v-if="showResults" class="action-btn download" @click="downloadTestCases">
+          <button v-if="stagePhase !== 'idle' && !isGenerating" class="action-btn download" @click="downloadTestCases">
             下载
           </button>
         </div>
@@ -380,7 +416,15 @@ export default {
 
       // 新版流程阶段
       stagePhase: 'idle',  // idle | generating | generated | reviewing | reviewed | revising | revised | skip_review
-      showReviewConfirmDialog: false
+      showReviewConfirmDialog: false,
+
+      // 页签式阶段
+      activeTab: 'generate',  // generate | review | revise
+      tabData: {
+        generate: { title: '', time: '' },
+        review: { title: '', time: '', visible: false },
+        revise: { title: '', time: '', visible: false }
+      }
     }
   },
 
@@ -733,6 +777,7 @@ export default {
       this.hasShownCompletionMessage = false  // 重置完成消息标志位
       this.showResults = false  // 隐藏上一次的结果
       this.stagePhase = 'generating'  // 新版：设置阶段
+      this.activeTab = 'generate'
 
       try {
         // 调用新的生成API
@@ -946,10 +991,15 @@ export default {
         // 根据当前阶段更新 stagePhase
         if (this.stagePhase === 'reviewing') {
           this.stagePhase = 'reviewed'
+          this.updateTabData('review', this.manualInput.title)
+          this.activeTab = 'review'
         } else if (this.stagePhase === 'revising') {
           this.stagePhase = 'revised'
+          this.updateTabData('revise', this.manualInput.title)
+          this.activeTab = 'revise'
         } else if (this.stagePhase === 'generating') {
           this.stagePhase = 'generated'
+          this.updateTabData('generate', this.manualInput.title)
         }
 
         // Only show completion message once
@@ -1235,6 +1285,20 @@ export default {
     },
 
     // === 新版流程方法 ===
+    switchTab(tab) {
+      // 已完成的页签可以切换回去查看，但活跃中的不能切
+      this.activeTab = tab
+    },
+
+    // 更新页签数据（标题+时间）
+    updateTabData(tab, title) {
+      this.tabData[tab] = {
+        title: title,
+        time: new Date().toLocaleString('zh-CN'),
+        visible: true
+      }
+    },
+
     renderMarkdown(content) {
       if (!content) return ''
       // 去除"新增"标记
@@ -1255,6 +1319,8 @@ export default {
       this.stagePhase = 'reviewing'
       this.isGenerating = true
       this.streamedReviewContent = ''
+      this.tabData.review.visible = true
+      this.activeTab = 'review'
 
       try {
         const response = await api.post(`/requirement-analysis/testcase-generation/${this.currentTaskId}/start_review/`)
@@ -1265,12 +1331,14 @@ export default {
           ElMessage.error('启动评审失败：' + (response.data.error || '未知错误'))
           this.isGenerating = false
           this.stagePhase = 'generated'
+          this.tabData.review.visible = false
         }
       } catch (error) {
         console.error('启动评审失败:', error)
         ElMessage.error('启动评审失败：' + (error.response?.data?.error || error.message))
         this.isGenerating = false
         this.stagePhase = 'generated'
+        this.tabData.review.visible = false
       }
     },
 
@@ -1285,6 +1353,8 @@ export default {
       this.stagePhase = 'revising'
       this.isGenerating = true
       this.finalTestCases = ''
+      this.tabData.revise.visible = true
+      this.activeTab = 'revise'
 
       try {
         const response = await api.post(`/requirement-analysis/testcase-generation/${this.currentTaskId}/start_revise/`)
@@ -1294,12 +1364,14 @@ export default {
           ElMessage.error('启动改进失败：' + (response.data.error || '未知错误'))
           this.isGenerating = false
           this.stagePhase = 'reviewed'
+          this.tabData.revise.visible = false
         }
       } catch (error) {
         console.error('启动改进失败:', error)
         ElMessage.error('启动改进失败：' + (error.response?.data?.error || error.message))
         this.isGenerating = false
         this.stagePhase = 'reviewed'
+        this.tabData.revise.visible = false
       }
     },
 
@@ -1883,6 +1955,93 @@ export default {
   border-radius: 12px;
   border: 1px solid #e2e8f0;
   overflow: hidden;
+}
+
+/* === 页签栏 === */
+.stage-tabs {
+  display: flex;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  padding: 0 8px;
+}
+
+.stage-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: #94a3b8;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.stage-tab:hover:not(.disabled) {
+  color: #475569;
+}
+
+.stage-tab.active {
+  color: #4f6ef7;
+  font-weight: 600;
+  border-bottom-color: #4f6ef7;
+}
+
+.stage-tab.completed {
+  color: #475569;
+}
+
+.stage-tab.disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
+}
+
+.tab-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.stage-tab.active .tab-step {
+  background: #4f6ef7;
+  color: white;
+}
+
+.stage-tab.completed .tab-step {
+  background: #10b981;
+  color: white;
+}
+
+.stage-tab.disabled .tab-step {
+  background: #f1f5f9;
+  color: #d1d5db;
+}
+
+.tab-done {
+  color: #10b981;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* === 页签内容区 === */
+.stage-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.stage-body {
+  padding: 16px;
 }
 
 .output-section {
