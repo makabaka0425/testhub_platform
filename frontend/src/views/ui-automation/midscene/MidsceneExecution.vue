@@ -4,6 +4,9 @@
     <div class="page-titlebar">
       <h1 class="page-title">{{ routePlatform === 'web' ? 'Web端自动化' : routePlatform === 'app' ? 'APP端自动化' : 'AI自动化测试' }}</h1>
       <div class="titlebar-actions">
+        <el-select v-model="projectId" placeholder="选择项目" class="titlebar-select" clearable @change="onProjectChange">
+          <el-option v-for="p in projectList" :key="p.id" :label="p.name" :value="p.id" />
+        </el-select>
         <el-button type="primary" size="small" @click="showImportDialog = true">
           <el-icon><Download /></el-icon>
           <span>从AI导入</span>
@@ -562,10 +565,29 @@ import {
   batchDeleteMidsceneCases, importAIToMidscene, runMidsceneCase,
   getMidsceneExecutionDetail, getMidsceneExecutionStatus,
 } from '@/api/ui_automation'
-import { getAITaskList, getAITaskCases } from '@/api/ui_automation'
+import { getAITaskList, getAITaskCases, getAiProjects } from '@/api/ui_automation'
 
 const route = useRoute()
 const routePlatform = computed(() => route.meta?.platform || '')
+
+// ---- 项目 ----
+const projectList = ref([])
+const projectId = ref(null)
+
+async function loadProjects() {
+  try {
+    const res = await getAiProjects()
+    projectList.value = res.data?.results || res.data || []
+    // 从 localStorage 恢复上次选择
+    const saved = localStorage.getItem('lastProjectId_ai_midscene')
+    if (saved) projectId.value = parseInt(saved)
+  } catch {}
+}
+
+function onProjectChange(val) {
+  localStorage.setItem('lastProjectId_ai_midscene', val || '')
+  loadCases()
+}
 
 // ---- 分组 ----
 const groups = ref([])
@@ -652,6 +674,7 @@ async function loadCases() {
     }
     if (searchText.value) params.search = searchText.value
     if (filterPlatform.value) params.platform = filterPlatform.value
+    if (projectId.value) params.project_id = projectId.value
 
     const res = await getMidsceneCases(params)
     const data = res.data?.results || res.data || res
@@ -1031,6 +1054,7 @@ async function doImport() {
 
 // ---- 初始化 ----
 onMounted(() => {
+  loadProjects()
   loadGroups()
   loadCases()
   loadAICases()
@@ -1075,6 +1099,10 @@ watch(() => route.path, () => {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+.titlebar-select {
+  width: 200px;
 }
 
 /* ============================================================
