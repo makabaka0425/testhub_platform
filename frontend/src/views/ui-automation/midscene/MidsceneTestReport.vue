@@ -1,96 +1,111 @@
 <template>
   <div class="page-container">
-    <!-- 顶部标题栏 -->
+    <!-- 标题栏 -->
     <div class="page-titlebar">
       <h1 class="page-title">AI测试报告</h1>
       <div class="titlebar-actions">
-        <el-button type="danger" size="small" :disabled="selectedRows.length === 0" @click="batchDelete">
-          <el-icon><Delete /></el-icon>
-          <span>批量删除</span>
-        </el-button>
+        <el-select v-model="filters.project_id" placeholder="选择项目" class="titlebar-select" clearable @change="onFilterChange">
+          <el-option v-for="p in projectList" :key="p.id" :label="p.name" :value="p.id" />
+        </el-select>
       </div>
     </div>
 
-    <!-- 筛选条件 -->
-    <div class="filter-bar">
-      <el-select v-model="filters.project_id" placeholder="所属项目" clearable size="small" style="width:180px" @change="onFilterChange">
-        <el-option v-for="p in projectList" :key="p.id" :label="p.name" :value="p.id" />
-      </el-select>
-      <el-select v-model="filters.platform" placeholder="平台" clearable size="small" style="width:120px" @change="onFilterChange">
-        <el-option label="Web端" value="web" />
-        <el-option label="APP端" value="app" />
-      </el-select>
-      <el-select v-model="filters.status" placeholder="执行状态" clearable size="small" style="width:120px" @change="onFilterChange">
-        <el-option label="通过" value="passed" />
-        <el-option label="失败" value="failed" />
-        <el-option label="执行中" value="running" />
-      </el-select>
-      <el-select v-model="filters.report_only" placeholder="有报告" clearable size="small" style="width:120px" @change="onFilterChange">
-        <el-option label="仅显示有报告" value="true" />
-      </el-select>
-    </div>
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 搜索区域 -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item label="用例名称">
+              <el-input v-model="searchText" placeholder="搜索用例名称..." clearable style="width:200px">
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="平台">
+              <el-select v-model="filters.platform" placeholder="全部" clearable style="width:130px">
+                <el-option label="Web端" value="web" />
+                <el-option label="APP端" value="app" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="执行状态">
+              <el-select v-model="filters.status" placeholder="全部" clearable style="width:130px">
+                <el-option label="通过" value="passed" />
+                <el-option label="失败" value="failed" />
+                <el-option label="执行中" value="running" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="报告">
+              <el-select v-model="filters.report_only" placeholder="全部" clearable style="width:130px">
+                <el-option label="仅显示有报告" value="true" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
 
-    <!-- 表格 -->
-    <div class="card-container">
-      <div class="table-scroll-area">
-        <el-table
-          :data="records"
-          v-loading="loading"
-          style="width:100%"
-          height="100%"
-          @selection-change="handleSelectionChange"
-        >
-          <el-table-column type="selection" width="45" />
-          <el-table-column label="#" width="60">
-            <template #default="{ $index }">{{ (pagination.currentPage - 1) * pagination.pageSize + $index + 1 }}</template>
-          </el-table-column>
-          <el-table-column prop="case_name" label="用例名称" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="project_name" label="所属项目" width="140" show-overflow-tooltip />
-          <el-table-column prop="platform" label="平台" width="80" align="center">
-            <template #default="{ row }">
-              <el-tag v-if="row.platform === 'web'" size="small" type="">Web</el-tag>
-              <el-tag v-else-if="row.platform === 'app'" size="small" type="warning">APP</el-tag>
-              <span v-else>-</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="status" label="状态" width="80" align="center">
-            <template #default="{ row }">
-              <el-tag :type="statusTagMap[row.status] || 'info'" size="small">{{ statusTextMap[row.status] || row.status }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="duration" label="耗时(秒)" width="90" align="center">
-            <template #default="{ row }">{{ row.duration ? row.duration.toFixed(2) : '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="executed_by" label="执行人" width="90" align="center" />
-          <el-table-column prop="started_at" label="执行时间" width="170">
-            <template #default="{ row }">{{ formatDate(row.started_at) }}</template>
-          </el-table-column>
-          <el-table-column label="报告" width="100" align="center">
-            <template #default="{ row }">
-              <el-button v-if="row.report_url" type="primary" link size="small" @click="openReport(row)">查看</el-button>
-              <span v-else class="text-muted">无</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="160" fixed="right">
-            <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="viewDetail(row)">详情</el-button>
-              <el-button v-if="row.report_url" type="success" link size="small" @click="openReportNewTab(row)">新窗口</el-button>
-              <el-button type="danger" link size="small" @click="deleteRecord(row)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
+        <!-- 列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__header">
+            <span class="panel__title">报告列表</span>
+          </div>
 
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="pagination.currentPage"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="total"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
-        />
+          <div class="panel__body plan-table-wrapper">
+            <!-- 批量工具栏 -->
+            <div class="batch-toolbar" v-if="selectedRows.length > 0">
+              <span class="batch-count">已选 {{ selectedRows.length }} 项</span>
+              <el-button size="small" type="danger" plain @click="batchDelete">批量删除</el-button>
+            </div>
+
+            <el-table :data="filteredRecords" v-loading="loading" height="100%" row-key="id" @selection-change="handleSelectionChange">
+              <el-table-column type="selection" width="45" />
+              <el-table-column type="index" label="序号" width="60" />
+              <el-table-column prop="case_name" label="用例名称" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="project_name" label="所属项目" width="140" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.project_name || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="平台" width="90">
+                <template #default="{ row }">
+                  <el-tag v-if="row.platform === 'web'" size="small">Web端</el-tag>
+                  <el-tag v-else-if="row.platform === 'app'" size="small" type="warning">APP端</el-tag>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="执行状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="statusTagMap[row.status] || 'info'" size="small">{{ statusTextMap[row.status] || row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="耗时" width="80">
+                <template #default="{ row }">{{ row.duration ? row.duration.toFixed(1) + 's' : '-' }}</template>
+              </el-table-column>
+              <el-table-column label="报告" width="80">
+                <template #default="{ row }">
+                  <el-tag v-if="row.report_url" size="small" type="success">有</el-tag>
+                  <el-tag v-else size="small" type="info">无</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="executed_by" label="执行人" width="90" />
+              <el-table-column label="执行时间" width="170">
+                <template #default="{ row }">{{ formatDate(row.started_at) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="160" fixed="right">
+                <template #default="{ row }">
+                  <ActionCell :actions="getRowActions(row)" :row="row" :max-visible="3" />
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="pagination.currentPage"
+              v-model:page-size="pagination.pageSize"
+              :page-sizes="[10, 20, 50]"
+              layout="total, sizes, prev, pager, next"
+              :total="total"
+              @size-change="handleSizeChange"
+              @current-change="handleCurrentChange"
+            />
+          </div>
+        </section>
       </div>
     </div>
 
@@ -165,16 +180,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
 import { getMidsceneExecutions, getMidsceneExecutionDetail, deleteMidsceneExecution, getAiProjects } from '@/api/ui_automation'
+import ActionCell from '@/components/ActionCell.vue'
 
 const records = ref([])
 const loading = ref(false)
 const total = ref(0)
 const pagination = reactive({ currentPage: 1, pageSize: 20 })
 const projectList = ref([])
+const searchText = ref('')
 
 const filters = reactive({
   project_id: null,
@@ -197,6 +214,26 @@ const statusTagMap = { running: 'warning', passed: 'success', failed: 'danger' }
 const statusTextMap = { running: '执行中', passed: '通过', failed: '失败' }
 
 let pollTimer = null
+
+// 搜索+筛选后的列表
+const filteredRecords = computed(() => {
+  if (!searchText.value) return records.value
+  const kw = searchText.value.toLowerCase()
+  return records.value.filter(r => (r.case_name || '').toLowerCase().includes(kw))
+})
+
+// ActionCell 操作按钮
+const getRowActions = (row) => {
+  const actions = [
+    { label: '详情', type: 'primary', handler: () => viewDetail(row) },
+  ]
+  if (row.report_url) {
+    actions.push({ label: '查看报告', type: 'success', handler: () => openReport(row) })
+    actions.push({ label: '新窗口', type: 'primary', handler: () => openReportNewTab(row) })
+  }
+  actions.push({ label: '删除', type: 'danger', handler: () => deleteRecord(row) })
+  return actions
+}
 
 // 加载项目列表
 const loadProjects = async () => {
@@ -367,66 +404,131 @@ onUnmounted(() => {
 })
 </script>
 
-<style lang="scss" scoped>
+<style scoped lang="scss">
 .page-container {
-  height: calc(100vh - 100px);
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 0;
 }
 
 .page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
-  padding: 0 20px;
-  flex-shrink: 0;
+  padding: 0;
 }
 
 .page-title {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 600;
-  color: #303133;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .titlebar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
 }
 
-.filter-bar {
+.titlebar-select {
+  width: 200px;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.plan-table-wrapper {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* 表格样式 */
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+/* 分页 */
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
+}
+
+/* 批量工具栏 */
+.batch-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 20px 12px;
-  flex-shrink: 0;
-}
+  padding: 8px 16px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 6px;
+  margin: 0 0 0 0;
 
-.card-container {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  padding: 0 20px;
-}
-
-.table-scroll-area {
-  flex: 1;
-  overflow: hidden;
-}
-
-.pagination-container {
-  padding: 12px 0;
-  display: flex;
-  justify-content: flex-end;
-  flex-shrink: 0;
-}
-
-.text-muted {
-  color: #c0c4cc;
-  font-size: 12px;
+  .batch-count {
+    font-size: 13px;
+    color: #409eff;
+    font-weight: 500;
+  }
 }
 
 /* 详情弹窗 */
