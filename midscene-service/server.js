@@ -349,13 +349,19 @@ async function executeTask(taskId) {
       // ===== Web端：启动浏览器（与 playwright-demo/demo.ts 一致）=====
       task.logs.push({ time: new Date().toISOString(), level: 'info', message: `Web模式: 启动浏览器 headless=${task.headless}` });
       
+      const launchArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+      ];
+      // 有头模式下最大化窗口，避免闪烁
+      if (!task.headless) {
+        launchArgs.push('--start-maximized');
+      }
+
       browser = await chromium.launch({
         headless: task.headless,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-blink-features=AutomationControlled',
-        ],
+        args: launchArgs,
       });
 
       const contextOptions = {};
@@ -368,10 +374,17 @@ async function executeTask(taskId) {
       if (task.cookie_file) {
         contextOptions.storageState = task.cookie_file;
       }
+      // 有头模式：不固定viewport，跟随最大化窗口，避免闪烁
+      if (!task.headless) {
+        contextOptions.noViewport = true;
+      }
 
       const context = await browser.newContext(contextOptions);
       page = await context.newPage();
-      await page.setViewportSize(task.viewport);
+      // 仅无头模式下设置固定viewport
+      if (task.headless) {
+        await page.setViewportSize(task.viewport);
+      }
 
       // ---- 导航到目标URL ----
       if (task.url) {

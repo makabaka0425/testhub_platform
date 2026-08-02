@@ -63,6 +63,7 @@ export default {
     aiIntelligentTesting: 'AI Intelligent Testing',
     aiCaseManagement: 'AI Case Management',
     aiExecutionRecords: 'AI Execution Records',
+    aiIntelligentDebug: 'AI Intelligent Debug',
     midsceneExecution: 'AI Automation Testing',
     midsceneWeb: 'Web Automation',
     midsceneApp: 'App Automation',

@@ -110,59 +110,53 @@
     </div>
 
     <!-- 详情弹窗 -->
-    <el-dialog v-model="showDetailDialog" title="执行详情" width="800px" destroy-on-close>
+    <el-dialog v-model="showDetailDialog" title="执行详情" width="800px" destroy-on-close class="detail-dialog-680">
       <div v-if="detailData" class="detail-body">
-        <div class="detail-row">
-          <span class="detail-label">用例名称：</span>
-          <span>{{ detailData.case_name }}</span>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">执行状态：</span>
-          <el-tag :type="statusTagMap[detailData.status] || 'info'" size="small">{{ statusTextMap[detailData.status] || detailData.status }}</el-tag>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">执行时长：</span>
-          <span>{{ detailData.duration ? detailData.duration.toFixed(2) + '秒' : '-' }}</span>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">执行人：</span>
-          <span>{{ detailData.executed_by || '-' }}</span>
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">执行时间：</span>
-          <span>{{ formatDate(detailData.started_at) }}</span>
-        </div>
+        <el-descriptions :column="3" border size="small" style="margin-bottom:16px">
+          <el-descriptions-item label="用例名称" :span="3">{{ detailData.case_name }}</el-descriptions-item>
+          <el-descriptions-item label="执行状态">
+            <el-tag :type="statusTagMap[detailData.status] || 'info'" size="small">{{ statusTextMap[detailData.status] || detailData.status }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="执行时长">{{ detailData.duration ? detailData.duration.toFixed(2) + '秒' : '-' }}</el-descriptions-item>
+          <el-descriptions-item label="执行人">{{ detailData.executed_by || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="执行时间" :span="3">{{ formatDate(detailData.started_at) }}</el-descriptions-item>
+        </el-descriptions>
 
-        <!-- 步骤结果 -->
-        <div v-if="detailData.step_results && detailData.step_results.length" class="detail-section">
-          <h4>步骤结果</h4>
-          <div class="steps-list">
-            <div v-for="(step, idx) in detailData.step_results" :key="idx" class="step-item" :class="'step-item--' + step.status">
-              <span class="step-order">{{ step.order || idx + 1 }}</span>
-              <span class="step-type">[{{ step.type || 'action' }}]</span>
-              <span class="step-instruction">{{ step.instruction || '-' }}</span>
-              <el-tag :type="step.status === 'passed' ? 'success' : 'danger'" size="small">{{ step.status }}</el-tag>
+        <!-- 三页签：步骤结果 / 错误信息 / 回放报告 -->
+        <el-tabs v-model="detailActiveTab" class="detail-tabs">
+          <el-tab-pane label="步骤结果" name="steps">
+            <div v-if="detailData.step_results && detailData.step_results.length" class="steps-list">
+              <div v-for="(step, idx) in detailData.step_results" :key="idx" class="step-item" :class="'step-item--' + step.status">
+                <span class="step-order">{{ step.order || idx + 1 }}</span>
+                <span class="step-type">[{{ step.type || 'action' }}]</span>
+                <span class="step-instruction">{{ step.instruction || '-' }}</span>
+                <el-tag :type="step.status === 'passed' ? 'success' : 'danger'" size="small">{{ step.status }}</el-tag>
+              </div>
             </div>
-          </div>
-        </div>
+            <div v-else class="tab-empty">暂无步骤结果</div>
+          </el-tab-pane>
 
-        <!-- 错误信息 -->
-        <div v-if="detailData.error_message" class="detail-section">
-          <h4>错误信息</h4>
-          <pre class="error-box">{{ detailData.error_message }}</pre>
-        </div>
-
-        <!-- 回放报告 -->
-        <div v-if="detailData.report_url" class="detail-section">
-          <h4>回放报告</h4>
-          <div class="report-container">
-            <div class="report-toolbar">
-              <span class="report-hint">Midscene AI 操作回放</span>
-              <el-button link type="primary" @click="openReportNewTab(detailData)">新窗口打开</el-button>
+          <el-tab-pane label="错误信息" name="error">
+            <div v-if="detailData.error_message">
+              <pre class="error-box">{{ detailData.error_message }}</pre>
             </div>
-            <iframe :src="getReportSrc(detailData.report_url)" class="report-iframe" frameborder="0" allowfullscreen></iframe>
-          </div>
-        </div>
+            <div v-else class="tab-empty">无错误信息</div>
+          </el-tab-pane>
+
+          <el-tab-pane label="回放报告" name="report">
+            <div v-if="detailData.report_url" class="report-container">
+              <div class="report-toolbar">
+                <span class="report-hint">Midscene AI 操作回放</span>
+                <el-button link type="primary" @click="openReportNewTab(detailData)">新窗口打开</el-button>
+              </div>
+              <iframe :src="getReportSrc(detailData.report_url)" class="report-iframe" frameborder="0" allowfullscreen></iframe>
+            </div>
+            <div v-else class="tab-empty">
+              <div>暂无回放报告</div>
+              <div class="tab-empty-sub">执行完成后Midscene会自动生成操作回放报告</div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </div>
     </el-dialog>
 
@@ -205,6 +199,7 @@ const selectedRows = ref([])
 // 详情弹窗
 const showDetailDialog = ref(false)
 const detailData = ref(null)
+const detailActiveTab = ref('steps')
 
 // 报告弹窗
 const showReportDialog = ref(false)
@@ -225,13 +220,12 @@ const filteredRecords = computed(() => {
 // ActionCell 操作按钮
 const getRowActions = (row) => {
   const actions = [
-    { label: '详情', type: 'primary', handler: () => viewDetail(row) },
+    { key: 'detail', label: '详情', type: 'primary', onClick: () => viewDetail(row) },
   ]
   if (row.report_url) {
-    actions.push({ label: '查看报告', type: 'success', handler: () => openReport(row) })
-    actions.push({ label: '新窗口', type: 'primary', handler: () => openReportNewTab(row) })
+    actions.push({ key: 'report', label: '查看报告', type: 'success', onClick: () => openReport(row) })
   }
-  actions.push({ label: '删除', type: 'danger', handler: () => deleteRecord(row) })
+  actions.push({ key: 'delete', label: '删除', type: 'danger', danger: true, onClick: () => deleteRecord(row) })
   return actions
 }
 
@@ -533,30 +527,23 @@ onUnmounted(() => {
 
 /* 详情弹窗 */
 .detail-body {
-  max-height: 600px;
   overflow-y: auto;
 }
 
-.detail-row {
-  margin-bottom: 12px;
+.detail-tabs {
+  margin-top: 16px;
 }
 
-.detail-label {
-  font-weight: 600;
-  color: #606266;
-  margin-right: 8px;
+.tab-empty {
+  text-align: center;
+  padding: 40px 0;
+  color: #909399;
 }
 
-.detail-section {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid #ebeef5;
-
-  h4 {
-    font-size: 15px;
-    color: #303133;
-    margin-bottom: 12px;
-  }
+.tab-empty-sub {
+  font-size: 12px;
+  margin-top: 4px;
+  color: #c0c4cc;
 }
 
 .steps-list {
@@ -639,5 +626,14 @@ onUnmounted(() => {
   flex: 1;
   width: 100%;
   border: none;
+}
+</style>
+
+<!-- 全局样式：弹窗高度控制 -->
+<style lang="scss">
+.detail-dialog-680 .el-dialog__body {
+  max-height: 580px;
+  overflow-y: auto;
+  padding: 16px;
 }
 </style>

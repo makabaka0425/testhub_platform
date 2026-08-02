@@ -63,6 +63,7 @@ export default {
     aiIntelligentTesting: 'AI 智能测试',
     aiCaseManagement: 'AI 用例管理',
     aiExecutionRecords: 'AI执行记录',
+    aiIntelligentDebug: 'AI智能调试',
     midsceneExecution: 'AI自动化测试',
     midsceneWeb: 'Web端自动化',
     midsceneApp: 'APP端自动化',

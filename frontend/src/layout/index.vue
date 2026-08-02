@@ -229,14 +229,6 @@
               <el-icon><Folder /></el-icon>
               <span>{{ $t('menu.aiProjectManagement') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/testing">
-              <el-icon><VideoPlay /></el-icon>
-              <span>{{ $t('menu.aiIntelligentTesting') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/cases">
-              <el-icon><Document /></el-icon>
-              <span>{{ $t('menu.aiCaseManagement') }}</span>
-            </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/midscene-web">
               <el-icon><Monitor /></el-icon>
               <span>{{ $t('menu.midsceneWeb') }}</span>
@@ -253,10 +245,6 @@
               <el-icon><DataAnalysis /></el-icon>
               <span>{{ $t('menu.aiTestReport') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/execution-records">
-              <el-icon><Timer /></el-icon>
-              <span>{{ $t('menu.aiExecutionRecords') }}</span>
-            </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
               <el-icon><AlarmClock /></el-icon>
               <span>{{ $t('menu.aiScheduledTasks') }}</span>
@@ -265,6 +253,21 @@
               <el-icon><Bell /></el-icon>
               <span>{{ $t('menu.aiNotificationList') }}</span>
             </el-menu-item>
+            <el-sub-menu index="ai-intelligent-debug" class="ai-debug-submenu">
+              <template #title>
+                <el-icon><Cpu /></el-icon>
+                <span>{{ $t('menu.aiIntelligentDebug') }}</span>
+              </template>
+              <el-menu-item index="/ai-intelligent-mode/testing">
+                <span>{{ $t('menu.aiIntelligentTesting') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/cases">
+                <span>{{ $t('menu.aiCaseManagement') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/execution-records">
+                <span>{{ $t('menu.aiExecutionRecords') }}</span>
+              </el-menu-item>
+            </el-sub-menu>
 
           </template>
 
@@ -657,6 +660,28 @@ const handleCommand = (command) => {
   :deep(.el-sub-menu__title span),
   :deep(.el-menu-item span) {
     display: none;
+  }
+}
+
+/* AI智能调试子菜单：修复展开箭头与文字重叠 */
+.ai-debug-submenu {
+  :deep(.el-sub-menu__title) {
+    .el-sub-menu__icon-arrow {
+      position: absolute;
+      right: 12px;
+    }
+    span {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+  :deep(.el-menu-item) {
+    padding-left: 44px !important;
+    height: 40px;
+    line-height: 40px;
+    font-size: 13px;
   }
 }
 

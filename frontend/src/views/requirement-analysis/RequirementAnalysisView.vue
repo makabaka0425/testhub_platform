@@ -890,7 +890,8 @@ export default {
               this.progressText = '评审失败'
               this.isGenerating = false
               this.stagePhase = 'generated'
-              ElMessage.error('AI评审执行失败，请重试')
+              // 获取任务详情以显示具体错误
+              this.fetchTaskError('review')
             } else if (data.status === 'failed') {
               this.progressText = this.$t('requirementAnalysis.statusFailed')
               this.handleGenerationError()
@@ -957,6 +958,17 @@ export default {
             }
           }, 5000)
         }
+      }
+    },
+
+    async fetchTaskError(phase) {
+      try {
+        const response = await api.get(`/requirement-analysis/testcase-generation/${this.currentTaskId}/progress/`)
+        const task = response.data
+        const errMsg = task.error_message || '执行失败，请重试'
+        ElMessage.error(errMsg)
+      } catch (e) {
+        ElMessage.error(phase === 'review' ? 'AI评审执行失败，请重试' : '执行失败，请重试')
       }
     },
 

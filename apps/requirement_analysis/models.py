@@ -922,28 +922,42 @@ class AIModelService:
             {"role": "user", "content": user_message}
         ]
 
-        # 流式调用API，确保正确关闭生成器
-        generator = AIModelService.call_openai_compatible_api_stream(
-            task.reviewer_model_config,
-            messages,
-            callback=callback
-        )
-
+        # 流式调用API，带429限流重试
+        max_retries = 4
         full_content = ""
         chunk_count = 0
-        try:
-            async for chunk in generator:
-                full_content += chunk
-                chunk_count += 1
-        except Exception as e:
-            logger.error(f"流式评审测试用例时出错: {e}")
-            return f"评审过程中出现错误: {str(e)}\n\n建议：测试用例结构完整，可以使用。"
-        finally:
-            # 确保生成器被正确关闭
+        for attempt in range(max_retries):
+            full_content = ""
+            chunk_count = 0
+            generator = AIModelService.call_openai_compatible_api_stream(
+                task.reviewer_model_config,
+                messages,
+                callback=callback
+            )
             try:
-                await generator.aclose()
-            except Exception as close_error:
-                logger.warning(f"关闭generator时出错: {close_error}")
+                async for chunk in generator:
+                    full_content += chunk
+                    chunk_count += 1
+                # 成功完成，跳出重试循环
+                break
+            except Exception as e:
+                error_str = str(e)
+                logger.error(f"流式评审测试用例时出错 (attempt={attempt+1}): {e}")
+                # 429限流等可重试错误
+                if ('429' in error_str or 'rate' in error_str.lower() or 'too many' in error_str.lower()) and attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 15  # 15s, 30s, 45s, 60s
+                    logger.warning(f"评审遇到429限流，{wait_time}秒后重试 (第{attempt+1}/{max_retries}次)")
+                    await asyncio.sleep(wait_time)
+                    continue
+                # 其他不可重试错误
+                if '429' not in error_str and 'rate' not in error_str.lower() and 'too many' not in error_str.lower():
+                    return f"评审过程中出现错误: {str(e)}\n\n建议：测试用例结构完整，可以使用。"
+                raise
+            finally:
+                try:
+                    await generator.aclose()
+                except Exception as close_error:
+                    logger.warning(f"关闭generator时出错: {close_error}")
 
         logger.info(f"流式评审完成: 总chunk数={chunk_count}, 总字符数={len(full_content)}")
         return full_content
@@ -1014,31 +1028,38 @@ class AIModelService:
             {"role": "user", "content": user_message}
         ]
 
-        # 流式调用API，确保正确关闭生成器
-        # 使用配置的max_tokens，不硬编码限制
-        generator = AIModelService.call_openai_compatible_api_stream(
-            task.writer_model_config,
-            messages,
-            callback=callback
-            # 不再硬编码max_tokens，使用配置文件中的值（如32000）
-        )
-
+        # 流式调用API，带429限流重试
+        max_retries = 4
         full_content = ""
         chunk_count = 0
-        try:
-            async for chunk in generator:
-                full_content += chunk
-                chunk_count += 1
-        except Exception as e:
-            logger.error(f"根据评审意见改进测试用例时出错: {e}")
-            # 改进失败时返回原始用例
-            return original_test_cases
-        finally:
-            # 确保生成器被正确关闭
+        for attempt in range(max_retries):
+            full_content = ""
+            chunk_count = 0
+            generator = AIModelService.call_openai_compatible_api_stream(
+                task.writer_model_config,
+                messages,
+                callback=callback
+            )
             try:
-                await generator.aclose()
-            except Exception as close_error:
-                logger.warning(f"关闭generator时出错: {close_error}")
+                async for chunk in generator:
+                    full_content += chunk
+                    chunk_count += 1
+                break
+            except Exception as e:
+                error_str = str(e)
+                logger.error(f"改进测试用例时出错 (attempt={attempt+1}): {e}")
+                if ('429' in error_str or 'rate' in error_str.lower() or 'too many' in error_str.lower()) and attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 15
+                    logger.warning(f"改进遇到429限流，{wait_time}秒后重试 (第{attempt+1}/{max_retries}次)")
+                    await asyncio.sleep(wait_time)
+                    continue
+                # 不可重试错误，返回原始用例
+                return original_test_cases
+            finally:
+                try:
+                    await generator.aclose()
+                except Exception as close_error:
+                    logger.warning(f"关闭generator时出错: {close_error}")
 
         logger.info(f"流式改进完成: 总chunk数={chunk_count}, 总字符数={len(full_content)}")
 

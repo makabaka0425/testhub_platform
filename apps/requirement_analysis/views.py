@@ -2508,18 +2508,59 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 asyncio.set_event_loop(loop)
                 try:
                     logger.info(f"手动启动评审: 任务 {task.task_id}")
+
+                    # 流式评审回调：实时写入 review_feedback，让 SSE 能增量推送
+                    review_buffer = []
+
+                    def save_review_buffer(content):
+                        """同步保存评审内容到数据库"""
+                        task.review_feedback = content
+                        task.save(update_fields=['review_feedback'])
+
+                    async_save_review = sync_to_async(save_review_buffer)
+
+                    async def review_stream_callback(chunk):
+                        """流式评审回调"""
+                        review_buffer.append(chunk)
+                        current_length = sum(len(c) for c in review_buffer)
+                        # 每100字符保存一次
+                        if current_length % 100 < 20 or len(chunk) > 50:
+                            try:
+                                content = ''.join(review_buffer)
+                                await async_save_review(content)
+                            except Exception as save_error:
+                                logger.warning(f"保存评审内容失败: {save_error}")
+
+                    # 调用评审（429重试在review_test_cases_stream内部处理）
                     review_result = loop.run_until_complete(
-                        AIModelService.review_test_cases_stream(task)
+                        AIModelService.review_test_cases_stream(
+                            task, task.generated_test_cases, callback=review_stream_callback
+                        )
                     )
-                    task.review_feedback = review_result
+
+                    if review_result is None:
+                        raise Exception("评审返回空结果")
+
+                    # 保存最终评审内容
+                    if review_buffer:
+                        task.review_feedback = ''.join(review_buffer)
+                    else:
+                        task.review_feedback = review_result
                     task.status = 'reviewed'
                     task.progress = 80
+                    task.error_message = ''
                     task.save()
                     logger.info(f"评审完成: 任务 {task.task_id}")
 
                 except Exception as e:
+                    error_str = str(e)
                     logger.error(f"评审失败: {e}")
                     task.status = 'review_failed'
+                    # 区分429额度不足和其他错误
+                    if '429' in error_str:
+                        task.error_message = 'API调用额度不足(429)，请检查模型配置的API Key余额，或更换为有额度的模型'
+                    else:
+                        task.error_message = f'评审执行失败: {error_str}'
                     task.save()
                 finally:
                     loop.close()
@@ -2566,18 +2607,42 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 asyncio.set_event_loop(loop)
                 try:
                     logger.info(f"手动启动改进: 任务 {task.task_id}")
+
+                    # 流式改进回调：实时写入 final_test_cases，让 SSE 能增量推送
+                    def save_final_buffer(content):
+                        """同步保存最终用例内容到数据库"""
+                        task.final_test_cases = content
+                        task.save(update_fields=['final_test_cases'])
+
+                    async_save_final = sync_to_async(save_final_buffer)
+
+                    async def final_stream_callback(chunk):
+                        """流式改进回调"""
+                        task.final_test_cases = (task.final_test_cases or '') + chunk
+                        current_length = len(task.final_test_cases)
+                        if current_length % 100 < 20 or len(chunk) > 50:
+                            try:
+                                await async_save_final(task.final_test_cases)
+                            except Exception as save_error:
+                                logger.warning(f"保存最终用例失败: {save_error}")
+
                     final_cases = loop.run_until_complete(
-                        AIModelService.revise_test_cases_based_on_review(task)
+                        AIModelService.revise_test_cases_based_on_review(
+                            task, task.generated_test_cases, task.review_feedback,
+                            callback=final_stream_callback
+                        )
                     )
 
                     if final_cases:
                         sorted_cases = AIModelService.sort_test_cases_by_id(final_cases)
                         task.final_test_cases = AIModelService.renumber_test_cases(sorted_cases)
                     else:
-                        task.final_test_cases = task.generated_test_cases
+                        if not task.final_test_cases:
+                            task.final_test_cases = task.generated_test_cases
 
                     task.status = 'completed'
                     task.progress = 100
+                    task.error_message = ''
                     task.save()
                     logger.info(f"改进完成: 任务 {task.task_id}")
 
@@ -2585,6 +2650,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                     logger.error(f"改进失败: {e}")
                     task.status = 'completed'
                     task.progress = 100
+                    task.error_message = f'改进执行失败: {str(e)}'
                     if not task.final_test_cases:
                         task.final_test_cases = task.generated_test_cases
                     task.save()

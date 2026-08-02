@@ -306,34 +306,45 @@
                       <el-descriptions-item label="耗时">{{ drawerResultData.duration ? drawerResultData.duration.toFixed(1) + 's' : '-' }}</el-descriptions-item>
                     </el-descriptions>
 
-                    <div v-if="drawerResultData.step_results && drawerResultData.step_results.length">
-                      <div v-for="(s, idx) in drawerResultData.step_results" :key="idx" class="step-result-row">
-                        <el-tag :type="s.status === 'passed' ? 'success' : 'danger'" size="small">{{ s.status }}</el-tag>
-                        <span style="margin-left:8px">{{ s.instruction }}</span>
-                      </div>
-                    </div>
-                    <div v-else style="color:#999;text-align:center;padding:20px">暂无步骤结果</div>
-
-                    <div v-if="drawerResultData.error_message" style="margin-top:16px">
-                      <div style="font-weight:600;margin-bottom:8px">错误信息</div>
-                      <pre class="error-box">{{ drawerResultData.error_message }}</pre>
-                    </div>
-                    <div v-if="drawerResultData.logs" style="margin-top:16px">
-                      <div style="font-weight:600;margin-bottom:8px">执行日志</div>
-                      <pre class="log-box">{{ drawerResultData.logs }}</pre>
-                    </div>
-
-                    <!-- 回放报告 -->
-                    <div v-if="drawerResultData.report_url" style="margin-top:16px">
-                      <div style="font-weight:600;margin-bottom:8px">回放报告</div>
-                      <div class="report-container">
-                        <div class="report-toolbar">
-                          <span class="report-hint">Midscene AI 操作回放</span>
-                          <el-button link type="primary" @click="openReportNewTab(drawerResultData.report_url)">新窗口打开</el-button>
+                    <!-- 三页签：步骤结果 / 错误信息 / 回放报告 -->
+                    <el-tabs v-model="drawerResultTab" class="result-tabs">
+                      <el-tab-pane label="步骤结果" name="steps">
+                        <div v-if="drawerResultData.step_results && drawerResultData.step_results.length">
+                          <div v-for="(s, idx) in drawerResultData.step_results" :key="idx" class="step-result-row">
+                            <el-tag :type="s.status === 'passed' ? 'success' : 'danger'" size="small">{{ s.status }}</el-tag>
+                            <span style="margin-left:8px">{{ s.instruction }}</span>
+                          </div>
                         </div>
-                        <iframe :src="getReportSrc(drawerResultData.report_url)" class="report-iframe" frameborder="0" allowfullscreen></iframe>
-                      </div>
-                    </div>
+                        <div v-else style="color:#999;text-align:center;padding:20px">暂无步骤结果</div>
+
+                        <div v-if="drawerResultData.logs" style="margin-top:16px">
+                          <div style="font-weight:600;margin-bottom:8px">执行日志</div>
+                          <pre class="log-box">{{ drawerResultData.logs }}</pre>
+                        </div>
+                      </el-tab-pane>
+
+                      <el-tab-pane label="错误信息" name="error">
+                        <div v-if="drawerResultData.error_message">
+                          <pre class="error-box">{{ drawerResultData.error_message }}</pre>
+                        </div>
+                        <div v-else style="color:#999;text-align:center;padding:40px">无错误信息</div>
+                      </el-tab-pane>
+
+                      <el-tab-pane label="回放报告" name="report">
+                        <div v-if="drawerResultData.report_url" class="report-container">
+                          <div class="report-toolbar">
+                            <span class="report-hint">Midscene AI 操作回放</span>
+                            <el-button link type="primary" @click="openReportNewTab(drawerResultData.report_url)">新窗口打开</el-button>
+                          </div>
+                          <iframe :src="getReportSrc(drawerResultData.report_url)" class="report-iframe" frameborder="0" allowfullscreen></iframe>
+                        </div>
+                        <div v-else style="color:#999;text-align:center;padding:40px">
+                          <el-icon style="font-size:32px;margin-bottom:8px"><VideoPlay /></el-icon>
+                          <div>暂无回放报告</div>
+                          <div style="font-size:12px;margin-top:4px">执行完成后Midscene会自动生成操作回放报告</div>
+                        </div>
+                      </el-tab-pane>
+                    </el-tabs>
                   </template>
                   <div v-else style="color:#999;text-align:center;padding:40px">暂无执行记录</div>
                 </el-tab-pane>
@@ -480,7 +491,7 @@
     </el-dialog>
 
     <!-- 执行结果弹窗（保留，用于从操作按钮直接查看） -->
-    <el-dialog v-model="resultDialogVisible" title="执行结果" width="900px" destroy-on-close class="result-dialog">
+    <el-dialog v-model="resultDialogVisible" title="执行结果" width="900px" destroy-on-close class="detail-dialog-680">
       <div v-if="resultLoading" style="text-align:center;padding:40px">
         <el-icon class="is-loading" style="font-size:24px"><Loading /></el-icon>
         <div style="margin-top:8px">加载中...</div>
@@ -504,15 +515,17 @@
             </div>
             <div v-else style="color:#999;text-align:center;padding:20px">暂无步骤结果</div>
 
-            <div v-if="resultData.error_message" style="margin-top:16px">
-              <div style="font-weight:600;margin-bottom:8px">错误信息</div>
-              <pre class="error-box">{{ resultData.error_message }}</pre>
-            </div>
-
             <div v-if="resultData.logs" style="margin-top:16px">
               <div style="font-weight:600;margin-bottom:8px">执行日志</div>
               <pre class="log-box">{{ resultData.logs }}</pre>
             </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="错误信息" name="error">
+            <div v-if="resultData.error_message">
+              <pre class="error-box">{{ resultData.error_message }}</pre>
+            </div>
+            <div v-else style="color:#999;text-align:center;padding:40px">无错误信息</div>
           </el-tab-pane>
 
           <el-tab-pane label="回放报告" name="report">
@@ -806,6 +819,7 @@ const selectedCase = ref(null)
 const detailActiveTab = ref('info')
 const drawerResultData = ref(null)
 const drawerResultLoading = ref(false)
+const drawerResultTab = ref('steps')
 
 const detailDrawerSize = computed(() => {
   if (detailCollapsed.value) return '20px'
@@ -1503,5 +1517,14 @@ watch(() => route.path, () => {
   flex: 1;
   width: 100%;
   border: none;
+}
+</style>
+
+<!-- 全局样式：弹窗高度控制 -->
+<style lang="scss">
+.detail-dialog-680 .el-dialog__body {
+  max-height: 580px;
+  overflow-y: auto;
+  padding: 16px;
 }
 </style>
