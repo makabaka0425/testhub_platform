@@ -9,8 +9,8 @@ export default {
     taskDescPlaceholder: '请输入任务描述',
     relatedProject: '关联项目',
     selectProject: '请选择项目',
-    midsceneCase: 'Midscene用例',
-    selectCase: '请选择Midscene用例',
+    testPlan: '测试计划',
+    selectPlan: '请选择测试计划',
     taskType: '任务类型',
     triggerType: '触发方式',
     triggerTypes: {

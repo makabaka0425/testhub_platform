@@ -99,6 +99,12 @@
                 </template>
               </el-table-column>
               <el-table-column prop="last_execution_time" label="执行时间" width="180" :formatter="formatDate" />
+              <el-table-column label="时长" width="80" align="center">
+                <template #default="{ row }">
+                  <span v-if="row.last_duration != null && row.last_duration > 0">{{ Math.round(row.last_duration) }}s</span>
+                  <span v-else style="color: #999">-</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="created_at" label="创建时间" width="180" :formatter="formatDate" />
               <el-table-column label="操作" width="160" fixed="right">
                 <template #default="{ row }">

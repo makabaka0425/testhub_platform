@@ -9,8 +9,8 @@ export default {
     taskDescPlaceholder: 'Enter task description',
     relatedProject: 'Project',
     selectProject: 'Select project',
-    midsceneCase: 'Midscene Case',
-    selectCase: 'Select Midscene case',
+    testPlan: 'Test Plan',
+    selectPlan: 'Select test plan',
     taskType: 'Task Type',
     triggerType: 'Trigger Type',
     triggerTypes: {

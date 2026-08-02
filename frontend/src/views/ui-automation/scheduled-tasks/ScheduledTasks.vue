@@ -69,6 +69,11 @@
                   </el-tag>
                 </template>
               </el-table-column>
+              <el-table-column prop="test_plan_name" label="关联计划" min-width="150">
+                <template #default="scope">
+                  {{ scope.row.test_plan_name || '-' }}
+                </template>
+              </el-table-column>
               <el-table-column prop="notification_type_display" :label="$t('uiAutomation.scheduledTask.notificationType')" width="130">
                 <template #default="scope">
                   <el-tag v-if="scope.row.notification_type_display && scope.row.notification_type_display !== '-'"

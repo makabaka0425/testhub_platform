@@ -58,9 +58,9 @@
             <el-table :data="tasks" v-loading="loading" height="100%">
               <el-table-column type="index" label="序号" width="50" align="center" />
               <el-table-column prop="name" :label="$t('aiAutomation.scheduledTask.taskName')" min-width="200" />
-              <el-table-column prop="midscene_case_name" :label="$t('aiAutomation.scheduledTask.midsceneCase')" width="180">
+              <el-table-column prop="test_plan_name" :label="$t('aiAutomation.scheduledTask.testPlan')" width="180">
                 <template #default="scope">
-                  {{ scope.row.midscene_case_name || '-' }}
+                  {{ scope.row.test_plan_name || '-' }}
                 </template>
               </el-table-column>
               <el-table-column prop="trigger_type" :label="$t('aiAutomation.scheduledTask.triggerType')" width="120">
@@ -137,13 +137,13 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item :label="$t('aiAutomation.scheduledTask.midsceneCase')" required>
-          <el-select v-model="taskForm.midscene_case" :placeholder="$t('aiAutomation.scheduledTask.selectCase')" filterable :disabled="!taskForm.project">
+        <el-form-item :label="$t('aiAutomation.scheduledTask.testPlan')" required>
+          <el-select v-model="taskForm.test_plan" :placeholder="$t('aiAutomation.scheduledTask.selectPlan')" filterable :disabled="!taskForm.project">
             <el-option
-              v-for="c in midsceneCases"
-              :key="c.id"
-              :label="c.name"
-              :value="c.id"
+              v-for="p in testPlans"
+              :key="p.id"
+              :label="p.name"
+              :value="p.id"
             />
           </el-select>
         </el-form-item>
@@ -248,7 +248,7 @@ import {
   pauseAiScheduledTask,
   resumeAiScheduledTask,
   getAiProjects,
-  getMidsceneCases,
+  getAiTestPlans,
   getAiUsers
 } from '@/api/ui_automation.js'
 
@@ -257,7 +257,7 @@ const { t, locale } = useI18n()
 // 数据状态
 const tasks = ref([])
 const projects = ref([])
-const midsceneCases = ref([])
+const testPlans = ref([])
 const users = ref([])
 const loading = ref(false)
 const submitting = ref(false)
@@ -283,7 +283,7 @@ const taskForm = reactive({
   name: '',
   description: '',
   project: '',
-  midscene_case: '',
+  test_plan: '',
   trigger_type: 'CRON',
   cron_expression: '0 0 * * *',
   interval_seconds: 3600,
@@ -372,19 +372,19 @@ const loadUsers = async () => {
   }
 }
 
-// 项目变化时加载对应的 Midscene 用例
+// 项目变化时加载对应的测试计划
 const onProjectChange = async (projectId) => {
-  taskForm.midscene_case = ''
+  taskForm.test_plan = ''
   if (!projectId) {
-    midsceneCases.value = []
+    testPlans.value = []
     return
   }
   try {
-    const response = await getMidsceneCases({ project: projectId, page_size: 200 })
-    midsceneCases.value = response.data.results || response.data
+    const response = await getAiTestPlans({ project: projectId, page_size: 200 })
+    testPlans.value = response.data.results || response.data
   } catch (error) {
-    console.error('Load midscene cases failed:', error)
-    midsceneCases.value = []
+    console.error('Load test plans failed:', error)
+    testPlans.value = []
   }
 }
 
@@ -401,7 +401,7 @@ const resetTaskForm = () => {
     name: '',
     description: '',
     project: '',
-    midscene_case: '',
+    test_plan: '',
     trigger_type: 'CRON',
     cron_expression: '0 0 * * *',
     interval_seconds: 3600,
@@ -431,8 +431,8 @@ const submitTaskForm = async () => {
       name: taskForm.name,
       description: taskForm.description,
       project: taskForm.project,
-      task_type: 'MIDSCENE_CASE',
-      midscene_case: taskForm.midscene_case,
+      task_type: 'TEST_PLAN',
+      test_plan: taskForm.test_plan,
       trigger_type: taskForm.trigger_type,
       notify_on_success: taskForm.notify_on_success,
       notify_on_failure: taskForm.notify_on_failure
@@ -536,7 +536,7 @@ const editTask = async (task) => {
     name: task.name,
     description: task.description,
     project: task.project,
-    midscene_case: task.midscene_case || '',
+    test_plan: task.test_plan || '',
     trigger_type: task.trigger_type,
     cron_expression: task.cron_expression,
     interval_seconds: task.interval_seconds,
