@@ -59,13 +59,15 @@ class AiProjectSerializer(serializers.ModelSerializer):
 class AiProjectCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = AiProject
-        fields = ('name', 'description', 'status', 'default_platform', 'start_date', 'end_date', 'owner', 'members')
+        fields = ('name', 'description', 'status', 'default_platform', 'start_date', 'end_date', 'owner', 'members',
+                  'target_db_type', 'target_db_host', 'target_db_port', 'target_db_name', 'target_db_user', 'target_db_password')
 
 
 class AiProjectUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = AiProject
-        fields = ('name', 'description', 'status', 'default_platform', 'start_date', 'end_date', 'members')
+        fields = ('name', 'description', 'status', 'default_platform', 'start_date', 'end_date', 'members',
+                  'target_db_type', 'target_db_host', 'target_db_port', 'target_db_name', 'target_db_user', 'target_db_password')
 
 
 class LocatorStrategySerializer(serializers.ModelSerializer):
@@ -1049,7 +1051,7 @@ class AiScheduledTaskSerializer(serializers.ModelSerializer):
     """AI自动化定时任务序列化器"""
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     project_name = serializers.CharField(source='project.name', read_only=True)
-    midscene_case_name = serializers.CharField(source='midscene_case.name', read_only=True, default='')
+    test_plan_name = serializers.CharField(source='test_plan.name', read_only=True, default='')
     task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     trigger_type_display = serializers.CharField(source='get_trigger_type_display', read_only=True)
@@ -1061,7 +1063,7 @@ class AiScheduledTaskSerializer(serializers.ModelSerializer):
             'id', 'name', 'description', 'task_type', 'task_type_display',
             'trigger_type', 'trigger_type_display', 'cron_expression',
             'interval_seconds', 'execute_at', 'project', 'project_name',
-            'midscene_case', 'midscene_case_name',
+            'test_plan', 'test_plan_name',
             'notify_on_success', 'notify_on_failure', 'notification_type', 'notification_type_display', 'notify_emails',
             'status', 'status_display',
             'last_run_time', 'next_run_time', 'total_runs',
@@ -1100,8 +1102,8 @@ class AiScheduledTaskSerializer(serializers.ModelSerializer):
 
         # 验证任务类型配置
         task_type = attrs.get('task_type')
-        if task_type == 'MIDSCENE_CASE' and not attrs.get('midscene_case'):
-            raise serializers.ValidationError("Midscene用例不能为空")
+        if task_type == 'TEST_PLAN' and not attrs.get('test_plan'):
+            raise serializers.ValidationError("测试计划不能为空")
 
         return attrs
 
@@ -1441,6 +1443,8 @@ class AiTestPlanSerializer(serializers.ModelSerializer):
     platform_display = serializers.CharField(source='get_platform_display', read_only=True)
     execution_status_display = serializers.CharField(source='get_execution_status_display', read_only=True)
     created_by_name = serializers.SerializerMethodField()
+    last_execution_time = serializers.SerializerMethodField()
+    last_duration = serializers.SerializerMethodField()
 
     class Meta:
         model = AiTestPlan
@@ -1450,6 +1454,7 @@ class AiTestPlanSerializer(serializers.ModelSerializer):
             'execution_status', 'execution_status_display',
             'total_cases', 'passed_count', 'failed_count', 'skipped_count',
             'plan_items', 'plan_item_count',
+            'last_execution_time', 'last_duration',
             'created_by', 'created_by_name',
             'created_at', 'updated_at'
         ]
@@ -1460,6 +1465,22 @@ class AiTestPlanSerializer(serializers.ModelSerializer):
 
     def get_created_by_name(self, obj):
         return obj.created_by.username if obj.created_by else ''
+
+    def get_last_execution_time(self, obj):
+        from .models import MidsceneExecution, AiTestPlanItem
+        case_ids = AiTestPlanItem.objects.filter(test_plan=obj).values_list('midscene_case_id', flat=True)
+        if not case_ids:
+            return None
+        last_exec = MidsceneExecution.objects.filter(case_id__in=case_ids).order_by('-started_at').first()
+        return last_exec.started_at.isoformat() if last_exec and last_exec.started_at else None
+
+    def get_last_duration(self, obj):
+        from .models import MidsceneExecution, AiTestPlanItem
+        case_ids = AiTestPlanItem.objects.filter(test_plan=obj).values_list('midscene_case_id', flat=True)
+        if not case_ids:
+            return None
+        last_exec = MidsceneExecution.objects.filter(case_id__in=case_ids).order_by('-started_at').first()
+        return last_exec.duration if last_exec and last_exec.duration else None
 
 
 class AiTestPlanCreateSerializer(serializers.ModelSerializer):

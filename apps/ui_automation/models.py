@@ -1331,6 +1331,15 @@ class AiProject(models.Model):
     end_date = models.DateField(null=True, blank=True, verbose_name='结束日期')
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='owned_ai_projects', verbose_name='负责人')
     members = models.ManyToManyField(User, blank=True, related_name='ai_projects', verbose_name='团队成员')
+
+    # 被测系统数据库连接配置（用于前置/后置SQL执行）
+    target_db_type = models.CharField(max_length=20, blank=True, default='', verbose_name='数据库类型',
+        help_text='支持 mysql/postgresql/sqlite/oracle')
+    target_db_host = models.CharField(max_length=200, blank=True, default='', verbose_name='数据库地址')
+    target_db_port = models.IntegerField(null=True, blank=True, verbose_name='数据库端口')
+    target_db_name = models.CharField(max_length=200, blank=True, default='', verbose_name='数据库名称')
+    target_db_user = models.CharField(max_length=200, blank=True, default='', verbose_name='数据库用户')
+    target_db_password = models.CharField(max_length=200, blank=True, default='', verbose_name='数据库密码')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
@@ -1403,8 +1412,16 @@ class MidsceneCase(models.Model):
     # 平台类型
     platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES, default='web', verbose_name='平台')
 
-    # 结构化步骤 JSON: [{"order":1, "type":"action/assert", "instruction":"..."}]
+    # 结构化步骤 JSON: [{"order":1, "type":"action/assert", "instruction":"...", "output_var":"varName"}]
     steps = models.JSONField(default=list, verbose_name='测试步骤')
+
+    # 变量与SQL
+    output_variables = models.JSONField(default=list, blank=True, verbose_name='输出变量定义',
+        help_text='用例级变量定义，如 [{"var_name":"orderId","source":"step","step_index":2}]')
+    precondition_sql = models.TextField(blank=True, default='', verbose_name='前置数据SQL',
+        help_text='用例执行前自动执行的数据准备SQL，支持${变量名}引用变量，禁止DROP语句')
+    postcondition_sql = models.TextField(blank=True, default='', verbose_name='后置清理SQL',
+        help_text='用例执行后自动执行的清理SQL，支持${变量名}引用步骤输出变量')
 
     # Web端配置
     url = models.CharField(max_length=500, blank=True, default='', verbose_name='目标URL')
@@ -1470,6 +1487,11 @@ class MidsceneExecution(models.Model):
     duration = models.FloatField(null=True, blank=True, verbose_name='执行时长(秒)')
     executed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='执行人')
 
+    # 变量快照：记录执行时的变量池
+    variable_snapshot = models.JSONField(default=dict, blank=True, verbose_name='变量快照')
+    # SQL执行结果：记录前置/后置SQL的执行情况
+    sql_results = models.JSONField(default=list, blank=True, verbose_name='SQL执行结果')
+
     class Meta:
         db_table = 'midscene_executions'
         verbose_name = 'Midscene执行记录'
@@ -1483,7 +1505,7 @@ class MidsceneExecution(models.Model):
 class AiScheduledTask(models.Model):
     """AI自动化定时任务模型"""
     TASK_TYPE_CHOICES = [
-        ('MIDSCENE_CASE', 'Midscene用例执行'),
+        ('TEST_PLAN', '测试计划执行'),
     ]
 
     STATUS_CHOICES = [
@@ -1501,7 +1523,7 @@ class AiScheduledTask(models.Model):
 
     name = models.CharField(max_length=200, verbose_name='任务名称')
     description = models.TextField(blank=True, verbose_name='任务描述')
-    task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='MIDSCENE_CASE',
+    task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='TEST_PLAN',
                                   verbose_name='任务类型')
     trigger_type = models.CharField(max_length=20, choices=TRIGGER_TYPE_CHOICES, verbose_name='触发器类型')
 
@@ -1516,8 +1538,8 @@ class AiScheduledTask(models.Model):
 
     # 关联配置
     project = models.ForeignKey('AiProject', on_delete=models.CASCADE, verbose_name='关联项目')
-    midscene_case = models.ForeignKey(MidsceneCase, on_delete=models.CASCADE, null=True, blank=True,
-                                       verbose_name='Midscene用例')
+    test_plan = models.ForeignKey('AiTestPlan', on_delete=models.CASCADE, null=True, blank=True,
+                                  verbose_name='测试计划')
 
     # 通知配置
     NOTIFICATION_TYPE_CHOICES = [

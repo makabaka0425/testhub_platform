@@ -353,10 +353,27 @@ async function executeTask(taskId) {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-blink-features=AutomationControlled',
+        '--disable-infobars',
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--no-first-run',
       ];
-      // 有头模式下最大化窗口，避免闪烁
+      // 有头模式：直接以目标尺寸启动，加防闪烁参数
       if (!task.headless) {
-        launchArgs.push('--start-maximized');
+        const winWidth = task.viewport.width || 1280;
+        const winHeight = task.viewport.height || 768;
+        launchArgs.push(`--window-size=${winWidth},${winHeight}`);
+        launchArgs.push('--window-position=0,0');
+        // 禁用GPU合成、DWM等，减少Windows有头模式下渲染管线切换导致的窗口闪烁
+        launchArgs.push('--disable-gpu');
+        launchArgs.push('--disable-software-rasterizer');
+        launchArgs.push('--disable-dev-shm-usage');
+        launchArgs.push('--disable-features=TranslateUI,WindowsDwmComposition');
+        // 减少渲染管线抖动：跳帧和绘制节奏控制
+        launchArgs.push('--disable-frame-rate-limit');
+        launchArgs.push('--run-all-compositor-stages-before-draw');
+        // 禁用平滑滚动（避免滚动时触发多余的重绘帧）
+        launchArgs.push('--disable-smooth-scrolling');
       }
 
       browser = await chromium.launch({
@@ -374,7 +391,7 @@ async function executeTask(taskId) {
       if (task.cookie_file) {
         contextOptions.storageState = task.cookie_file;
       }
-      // 有头模式：不固定viewport，跟随最大化窗口，避免闪烁
+      // 有头模式：不固定viewport，窗口大小由--window-size控制
       if (!task.headless) {
         contextOptions.noViewport = true;
       }
@@ -384,6 +401,41 @@ async function executeTask(taskId) {
       // 仅无头模式下设置固定viewport
       if (task.headless) {
         await page.setViewportSize(task.viewport);
+      }
+
+      // 有头模式：防闪烁优化（CSS禁用动画 + Chromium启动参数 + CDP截图）
+      // 核心：步骤执行期间用CDP截图替代Playwright截图防闪烁，步骤结束后立即释放CDP session
+      if (!task.headless) {
+        await page.addStyleTag({
+          content: `
+            *, *::before, *::after {
+              animation-duration: 0.01ms !important;
+              animation-iteration-count: 1 !important;
+              transition-duration: 0.01ms !important;
+              scroll-behavior: auto !important;
+            }
+          `
+        });
+
+        // 创建CDP session用于步骤执行期间的截图
+        const cdpClient = await context.newCDPSession(page);
+        const originalScreenshot = page.screenshot.bind(page);
+        page.screenshot = async function (opts = {}) {
+          try {
+            const { data } = await cdpClient.send('Page.captureScreenshot', {
+              format: opts.type || 'jpeg',
+              quality: opts.type === 'png' ? undefined : (opts.quality || 90),
+            });
+            return Buffer.from(data, 'base64');
+          } catch (e) {
+            return originalScreenshot(opts);
+          }
+        };
+
+        // 步骤结束后恢复原始截图方法（不等待cdpClient.detach，由browser.close自动清理）
+        page._releaseCdpScreenshot = () => {
+          page.screenshot = originalScreenshot;
+        };
       }
 
       // ---- 导航到目标URL ----
@@ -399,8 +451,9 @@ async function executeTask(taskId) {
       }
 
       // Web端创建 PlaywrightAgent
-      agent = new PlaywrightAgent(page);
-      task.logs.push({ time: new Date().toISOString(), level: 'info', message: 'PlaywrightAgent 已初始化 (Web模式)' });
+      // forceChromeSelectRendering: false 避免注入额外的style元素导致页面重绘
+      agent = new PlaywrightAgent(page, { forceChromeSelectRendering: false });
+      task.logs.push({ time: new Date().toISOString(), level: 'info', message: 'PlaywrightAgent 已初始化 (Web模式, forceChromeSelectRendering=false)' });
     }
 
     // ---- 4. 逐步执行（Web和APP共用agent接口） ----
@@ -464,6 +517,7 @@ async function executeTask(taskId) {
           order: i + 1,
           type: step.type,
           instruction: step.instruction,
+          output_var: step.output_var || null,
           ...stepResult,
         });
       } catch (stepErr) {
@@ -472,6 +526,7 @@ async function executeTask(taskId) {
           order: i + 1,
           type: step.type,
           instruction: step.instruction,
+          output_var: step.output_var || null,
           status: 'failed',
           message: stepErr.message,
         });
@@ -482,9 +537,21 @@ async function executeTask(taskId) {
       }
     }
 
+    // ---- 5.5 恢复原始截图方法（步骤执行完毕，后续agent.destroy和browser.close走原生路径）----
+    if (page && typeof page._releaseCdpScreenshot === 'function') {
+      page._releaseCdpScreenshot();
+    }
+
     // ---- 6. 销毁 Agent（必须！报告在这步写入磁盘）----
     task.logs.push({ time: new Date().toISOString(), level: 'info', message: '正在生成报告...' });
-    await agent.destroy();
+    try {
+      await Promise.race([
+        agent.destroy(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('agent.destroy() 超时30秒')), 30000))
+      ]);
+    } catch (destroyErr) {
+      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `Agent销毁超时或失败: ${destroyErr.message}` });
+    }
 
     // ---- 7. 获取报告路径 ----
     if (agent.reportFile) {
@@ -540,23 +607,39 @@ async function executeTask(taskId) {
     try {
       if (agent) {
         task.logs.push({ time: new Date().toISOString(), level: 'info', message: '尝试销毁Agent生成报告...' });
-        await agent.destroy();
+        await Promise.race([
+          agent.destroy(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('agent.destroy() 超时30秒')), 30000))
+        ]);
         if (agent.reportFile) {
           task.report_file = agent.reportFile;
           task.logs.push({ time: new Date().toISOString(), level: 'info', message: `失败报告已生成: ${agent.reportFile}` });
         }
       }
     } catch (destroyErr) {
-      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `Agent销毁失败: ${destroyErr.message}` });
+      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `Agent销毁超时或失败: ${destroyErr.message}` });
     }
 
   } finally {
     task.completed_at = new Date().toISOString();
 
-    // 关闭浏览器
+    // 关闭浏览器（加超时保护，避免卡住整个执行流程）
     try {
-      if (browser) await browser.close();
-    } catch (_) {}
+      if (browser) {
+        await Promise.race([
+          browser.close(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('browser.close() 超时10秒')), 10000))
+        ]);
+      }
+    } catch (closeErr) {
+      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `浏览器关闭超时，强制终止: ${closeErr.message}` });
+      // 强制杀掉chromium进程
+      try {
+        const { execSync } = require('child_process');
+        execSync('taskkill /f /im chromium.exe 2>nul', { timeout: 3000 });
+        execSync('taskkill /f /im chrome.exe 2>nul', { timeout: 3000 });
+      } catch (_) {}
+    }
 
     // 回调 Django
     if (task.callback_url) {

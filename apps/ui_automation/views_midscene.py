@@ -146,6 +146,9 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
 
     def _serialize_case(self, case):
         """序列化单条用例"""
+        # 查询最近一次执行时间
+        latest_exec = MidsceneExecution.objects.filter(case_id=case.id).order_by('-started_at').values('started_at', 'duration').first()
+
         return {
             'id': case.id,
             'name': case.name,
@@ -157,6 +160,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             'source_case_id': case.source_case_id,
             'platform': case.platform,
             'steps': case.steps or [],
+            # 变量与SQL
+            'output_variables': case.output_variables or [],
+            'precondition_sql': case.precondition_sql or '',
+            'postcondition_sql': case.postcondition_sql or '',
             # Web配置
             'url': case.url,
             'headless': case.headless,
@@ -177,6 +184,9 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             # 状态
             'last_status': case.last_status,
             'last_result': case.last_result,
+            # 执行时间
+            'last_executed_at': latest_exec['started_at'] if latest_exec else None,
+            'last_duration': latest_exec['duration'] if latest_exec else None,
             'created_by': case.created_by_id,
             'created_by_name': case.created_by.username if case.created_by else None,
             'created_at': case.created_at,
@@ -262,7 +272,8 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                       'user_agent', 'viewport_width', 'viewport_height',
                       'device_scale_factor', 'cookie_file',
                       'wait_for_network_idle_timeout', 'continue_on_network_idle_error',
-                      'device_id', 'package_name', 'app_activity']
+                      'device_id', 'package_name', 'app_activity',
+                      'output_variables', 'precondition_sql', 'postcondition_sql']
             for f in fields:
                 if f in request.data:
                     setattr(case, f, request.data[f])
@@ -376,11 +387,34 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         if not case:
             return Response({'error': '用例不存在'}, status=status.HTTP_404_NOT_FOUND)
 
+        # 初始化变量池
+        context_variables = {}
+
+        # ---- 执行前置SQL ----
+        precondition_sql = case.precondition_sql or ''
+        pre_sql_results = []
+        if precondition_sql.strip():
+            try:
+                from apps.ui_automation.models import AiProject
+                project_obj = case.project
+                if project_obj:
+                    from .variable_resolver import resolve_variables
+                    resolved_pre_sql = resolve_variables(precondition_sql, context_variables)
+                    # 前置SQL允许 SELECT/INSERT/UPDATE/DELETE，禁止 DROP/ALTER/CREATE
+                    sql_upper = resolved_pre_sql.strip().upper()
+                    for forbidden in ['DROP ', 'ALTER ', 'CREATE ']:
+                        if sql_upper.startswith(forbidden):
+                            return Response({'error': f'前置SQL包含不允许的语句: {forbidden.strip()}'}, status=status.HTTP_400_BAD_REQUEST)
+                    pre_sql_results = self._execute_midscene_sql(project_obj, resolved_pre_sql, '前置数据', context_variables)
+            except Exception as e:
+                logger.error(f'Midscene用例前置SQL执行失败 case_id={pk}: {e}')
+
         # 创建执行记录
         execution = MidsceneExecution.objects.create(
             case=case,
             status='running',
             executed_by=request.user,
+            sql_results=pre_sql_results,
         )
 
         # 更新用例状态为执行中
@@ -448,6 +482,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         for step in (case.steps or []):
             step_type = step.get('type', 'action')
             instruction = step.get('instruction', '')
+            output_var = step.get('output_var', '')
             # 将前端 action/assert 映射为 Midscene API 类型
             if step_type == 'assert':
                 midscene_type = 'aiAssert'
@@ -455,9 +490,14 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 midscene_type = 'aiAct'
             else:
                 midscene_type = step_type  # 支持 aiTap/aiWaitFor/aiQuery/sleep 等
+            # 变量替换：替换 instruction 中的 ${变量名}
+            if context_variables:
+                from .variable_resolver import resolve_variables
+                instruction = resolve_variables(instruction, context_variables)
             steps.append({
                 'type': midscene_type,
                 'instruction': instruction,
+                'output_var': output_var,
             })
 
         if not steps:
@@ -566,7 +606,56 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             # 保存回放报告信息
             execution.report_url = report_url
             execution.report_file = report_file
+
+            # ---- 提取步骤输出变量 ----
+            context_variables = {}
+            if isinstance(result_data, dict) and 'step_results' in result_data:
+                for step_result in result_data['step_results']:
+                    if isinstance(step_result, dict) and step_result.get('output_var'):
+                        var_name = step_result['output_var']
+                        # 优先取 data 字段（aiQuery结果），否则取 message
+                        var_value = step_result.get('data') or step_result.get('message', '')
+                        context_variables[var_name] = var_value
+
+            # ---- 用例级 output_variables 二次提取 ----
+            output_variables = case.output_variables or []
+            if output_variables and context_variables:
+                for var_def in output_variables:
+                    if isinstance(var_def, dict):
+                        var_name = var_def.get('var_name', '')
+                        source = var_def.get('source', 'step')
+                        if source == 'step' and var_name not in context_variables:
+                            # 从指定步骤索引取值
+                            step_index = var_def.get('step_index', 0) - 1
+                            if isinstance(result_data, dict) and 'step_results' in result_data:
+                                step_results_list = result_data['step_results']
+                                if 0 <= step_index < len(step_results_list):
+                                    src_result = step_results_list[step_index]
+                                    context_variables[var_name] = src_result.get('data') or src_result.get('message', '')
+
+            # 保存变量快照到执行记录
+            execution.variable_snapshot = context_variables
             execution.save()
+
+            # ---- 执行后置SQL ----
+            postcondition_sql = case.postcondition_sql or ''
+            post_sql_results = []
+            if postcondition_sql.strip() and context_variables:
+                try:
+                    project_obj = case.project
+                    if project_obj:
+                        post_sql_results = MidsceneCaseViewSet._execute_midscene_sql(
+                            project_obj, postcondition_sql, '后置清理',
+                            context_variables, execution
+                        )
+                except Exception as e:
+                    logger.error(f'Midscene用例后置SQL执行失败 case_id={pk}: {e}')
+
+            # 合并前置和后置SQL结果
+            all_sql_results = list(execution.sql_results or []) + post_sql_results
+            if all_sql_results:
+                execution.sql_results = all_sql_results
+                execution.save()
 
         # 回写用例状态
         case.last_status = 'passed' if task_status == 'completed' else 'failed'
@@ -578,8 +667,8 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             from apps.ui_automation.models import AiScheduledTask
             success = (task_status == 'completed')
             related_tasks = AiScheduledTask.objects.filter(
-                midscene_case=case, status='ACTIVE'
-            ).select_related('midscene_case')
+                test_plan__plan_items__midscene_case=case, status='ACTIVE'
+            ).select_related('test_plan').distinct()
             for task in related_tasks:
                 # 更新任务统计
                 if success:
@@ -666,6 +755,99 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
 
             if not matching_task:
                 return False
+
+            # 获取完整task详情
+            task_id = matching_task['task_id']
+        except Exception as e:
+            logger.error(f'同步微服务状态失败: {e}')
+
+        return False
+
+    @staticmethod
+    def _execute_midscene_sql(project_obj, sql_source, sql_label, context_variables=None, execution=None):
+        """执行SQL（前置数据/后置清理），复用UI自动化的SQL执行逻辑
+
+        Args:
+            project_obj: AiProject 对象（需有 target_db_* 配置）
+            sql_source: SQL文本
+            sql_label: 标签（如"前置数据"、"后置清理"）
+            context_variables: 变量池 dict
+            execution: MidsceneExecution 对象，用于追加执行记录
+
+        Returns:
+            list: SQL执行结果列表 [{"type":"pre/post", "sql":"...", "success":bool, "rows_affected":int, "error":""}]
+        """
+        if not sql_source or not sql_source.strip():
+            return []
+
+        sql_type = 'pre' if sql_label == '前置数据' else 'post'
+        results = []
+
+        from .variable_resolver import resolve_variables
+        resolved_sql = resolve_variables(sql_source, context_variables)
+
+        # 后置SQL只允许 DELETE/UPDATE/TRUNCATE
+        if sql_label == '后置清理':
+            sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip()]
+            for sql_stmt in sql_statements:
+                sql_upper = sql_stmt.strip().upper()
+                if not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
+                    logger.warning(f'Midscene后置SQL跳过不安全语句: {sql_stmt[:50]}')
+
+        try:
+            # 尝试获取项目的数据库连接配置（AiProject 需要有 target_db_* 字段）
+            db_type = getattr(project_obj, 'target_db_type', None)
+            if not db_type:
+                logger.warning(f'Midscene SQL执行跳过: 项目未配置数据库连接')
+                return results
+
+            import sqlalchemy
+            from urllib.parse import quote_plus
+
+            db_url = None
+            if db_type == 'mysql':
+                db_user = getattr(project_obj, 'target_db_user', '')
+                db_pass = getattr(project_obj, 'target_db_password', '')
+                db_host = getattr(project_obj, 'target_db_host', '')
+                db_port = getattr(project_obj, 'target_db_port', 3306)
+                db_name = getattr(project_obj, 'target_db_name', '')
+                db_url = f"mysql+pymysql://{quote_plus(db_user)}:{quote_plus(db_pass)}@{db_host}:{db_port}/{db_name}"
+            elif db_type == 'postgresql':
+                db_user = getattr(project_obj, 'target_db_user', '')
+                db_pass = getattr(project_obj, 'target_db_password', '')
+                db_host = getattr(project_obj, 'target_db_host', '')
+                db_port = getattr(project_obj, 'target_db_port', 5432)
+                db_name = getattr(project_obj, 'target_db_name', '')
+                db_url = f"postgresql+psycopg2://{quote_plus(db_user)}:{quote_plus(db_pass)}@{db_host}:{db_port}/{db_name}"
+            elif db_type == 'sqlite':
+                db_name = getattr(project_obj, 'target_db_name', '')
+                db_url = f"sqlite:///{db_name}"
+
+            if db_url:
+                engine = sqlalchemy.create_engine(db_url)
+                with engine.connect() as conn:
+                    sql_statements = [s.strip() for s in resolved_sql.split(';') if s.strip()]
+                    for sql_stmt in sql_statements:
+                        sql_upper = sql_stmt.strip().upper()
+                        # 后置清理只允许 DELETE/UPDATE/TRUNCATE
+                        if sql_label == '后置清理' and not any(sql_upper.startswith(kw) for kw in ['DELETE', 'UPDATE', 'TRUNCATE']):
+                            continue
+                        # 前置数据禁止 DROP/ALTER/CREATE
+                        if sql_label == '前置数据' and any(sql_upper.startswith(kw) for kw in ['DROP', 'ALTER', 'CREATE']):
+                            logger.warning(f'Midscene前置SQL跳过危险语句: {sql_stmt[:50]}')
+                            continue
+                        result = conn.execute(sqlalchemy.text(sql_stmt))
+                        conn.commit()
+                        logger.info(f'Midscene {sql_label}SQL执行成功: {sql_stmt[:80]}... (影响 {result.rowcount} 行)')
+                        results.append({'type': sql_type, 'sql': sql_stmt, 'success': True, 'rows_affected': result.rowcount, 'error': ''})
+                engine.dispose()
+                logger.info(f'Midscene {sql_label}SQL执行完成')
+            else:
+                logger.warning(f'Midscene SQL执行跳过: 不支持的数据库类型 {db_type}')
+        except Exception as e:
+            logger.error(f'Midscene {sql_label}SQL执行失败: {e}')
+            results.append({'type': sql_type, 'sql': resolved_sql[:200], 'success': False, 'rows_affected': 0, 'error': str(e)})
+            raise
 
             # 获取完整task详情
             task_id = matching_task['task_id']
@@ -791,6 +973,8 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
             'started_at': execution.started_at,
             'finished_at': execution.finished_at,
             'executed_by': execution.executed_by.username if execution.executed_by else None,
+            'variable_snapshot': execution.variable_snapshot or {},
+            'sql_results': execution.sql_results or [],
         })
 
 
@@ -952,19 +1136,14 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
 
         try:
-            if not task.midscene_case:
-                return Response({'error': '该任务未配置Midscene用例'}, status=status.HTTP_400_BAD_REQUEST)
+            if not task.test_plan:
+                return Response({'error': '该任务未配置测试计划'}, status=status.HTTP_400_BAD_REQUEST)
 
-            case = task.midscene_case
-
-            # 创建执行记录
-            execution = MidsceneExecution.objects.create(
-                case=case,
-                status='running',
-                executed_by=task.created_by,
-            )
-            case.last_status = 'running'
-            case.save(update_fields=['last_status'])
+            plan = task.test_plan
+            # 获取计划下所有用例
+            items = plan.plan_items.all().select_related('midscene_case')
+            if not items.exists():
+                return Response({'error': '测试计划没有关联用例'}, status=status.HTTP_400_BAD_REQUEST)
 
             # 更新任务统计
             task.last_run_time = timezone.now()
@@ -972,41 +1151,53 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
             task.next_run_time = task.calculate_next_run()
             task.save()
 
-            # 构建并发送 Midscene 执行请求
-            payload = _build_midscene_payload(case, execution.id)
+            # 逐个执行计划中的用例
+            execution_ids = []
+            first_execution = None
+            for item in items:
+                case = item.midscene_case
+                execution = MidsceneExecution.objects.create(
+                    case=case,
+                    status='running',
+                    executed_by=task.created_by,
+                )
+                case.last_status = 'running'
+                case.save(update_fields=['last_status'])
+                if not first_execution:
+                    first_execution = execution
+                execution_ids.append(execution.id)
 
-            try:
-                with httpx.Client(timeout=10) as client:
-                    resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute', json=payload)
-                    resp.raise_for_status()
-                    data = resp.json()
+                payload = _build_midscene_payload(case, execution.id)
+                try:
+                    with httpx.Client(timeout=10) as client:
+                        resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute', json=payload)
+                        resp.raise_for_status()
+                except httpx.ConnectError:
+                    execution.status = 'failed'
+                    execution.error_message = 'Midscene微服务未启动'
+                    execution.finished_at = timezone.now()
+                    execution.save()
+                    case.last_status = 'failed'
+                    case.last_result = 'Midscene微服务未启动'
+                    case.save(update_fields=['last_status', 'last_result'])
 
-                return Response({
-                    'message': '任务已提交到Midscene微服务',
-                    'task_id': task.id,
-                    'task_name': task.name,
-                    'execution_id': execution.id,
-                    'midscene_task_id': data.get('task_id'),
-                    'status': 'submitted',
-                }, status=status.HTTP_200_OK)
+                    task.failed_runs += 1
+                    task.last_result = {'status': 'failed', 'message': 'Midscene微服务未启动'}
+                    task.error_message = 'Midscene微服务未启动'
+                    task.save()
 
-            except httpx.ConnectError:
-                execution.status = 'failed'
-                execution.error_message = 'Midscene微服务未启动'
-                execution.finished_at = timezone.now()
-                execution.save()
-                case.last_status = 'failed'
-                case.last_result = 'Midscene微服务未启动'
-                case.save(update_fields=['last_status', 'last_result'])
+                    return Response({
+                        'error': 'Midscene微服务未启动，请检查 midscene-service 是否运行',
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
-                task.failed_runs += 1
-                task.last_result = {'status': 'failed', 'message': 'Midscene微服务未启动'}
-                task.error_message = 'Midscene微服务未启动'
-                task.save()
-
-                return Response({
-                    'error': 'Midscene微服务未启动，请检查 midscene-service 是否运行',
-                }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'message': '测试计划已提交到Midscene微服务',
+                'task_id': task.id,
+                'task_name': task.name,
+                'execution_ids': execution_ids,
+                'plan_name': plan.name,
+                'status': 'submitted',
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
             logger.error(f'AI定时任务执行失败: {str(e)}', exc_info=True)
@@ -1066,7 +1257,7 @@ def _send_ai_webhook_notification(task, success):
         status_text = '成功' if success else '失败'
         local_run_time = timezone.localtime(task.last_run_time).strftime(
             '%Y-%m-%d %H:%M:%S') if task.last_run_time else '未知'
-        case_name = task.midscene_case.name if task.midscene_case else '未知'
+        case_name = task.test_plan.name if task.test_plan else '未知'
 
         for bot in all_webhook_bots:
             if not bot.get('enabled', True) or not bot.get('webhook_url'):
@@ -1081,7 +1272,7 @@ def _send_ai_webhook_notification(task, success):
 
 执行时间: {local_run_time}
 
-关联用例: {case_name}"""
+关联计划: {plan_name}"""
 
             last_result = task.last_result or {}
             result_message = last_result.get('message', '')
@@ -1214,7 +1405,7 @@ def _send_ai_email_notification(task, success):
             from_email = settings.DEFAULT_FROM_EMAIL
 
         status_text = '成功' if success else '失败'
-        case_name = task.midscene_case.name if task.midscene_case else '未知'
+        plan_name = task.test_plan.name if task.test_plan else '未知'
         local_run_time = timezone.localtime(task.last_run_time).strftime('%Y-%m-%d %H:%M:%S') if task.last_run_time else '未知'
 
         subject = f"AI自动化定时任务执行{status_text}: {task.name}"
@@ -1222,7 +1413,7 @@ def _send_ai_email_notification(task, success):
 任务名称: {task.name}
 执行状态: {status_text}
 执行时间: {local_run_time}
-关联用例: {case_name}
+关联计划: {plan_name}
 
 执行结果:
 {(task.last_result or {}).get('message', '无详细信息')}

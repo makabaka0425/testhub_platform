@@ -121,6 +121,30 @@
         <el-form-item label="结束日期" prop="end_date">
           <el-date-picker v-model="createForm.end_date" type="date" placeholder="选择结束日期" />
         </el-form-item>
+        <el-divider content-position="left">数据库配置</el-divider>
+        <el-form-item label="数据库类型" prop="target_db_type">
+          <el-select v-model="createForm.target_db_type" placeholder="请选择数据库类型" clearable style="width:100%">
+            <el-option label="MySQL" value="mysql" />
+            <el-option label="PostgreSQL" value="postgresql" />
+            <el-option label="SQLite" value="sqlite" />
+            <el-option label="Oracle" value="oracle" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="数据库地址" prop="target_db_host">
+          <el-input v-model="createForm.target_db_host" placeholder="如 192.168.1.100" />
+        </el-form-item>
+        <el-form-item label="端口" prop="target_db_port">
+          <el-input v-model="createForm.target_db_port" placeholder="如 3306" />
+        </el-form-item>
+        <el-form-item label="数据库名" prop="target_db_name">
+          <el-input v-model="createForm.target_db_name" placeholder="请输入数据库名" />
+        </el-form-item>
+        <el-form-item label="数据库用户" prop="target_db_user">
+          <el-input v-model="createForm.target_db_user" placeholder="请输入用户名" />
+        </el-form-item>
+        <el-form-item label="数据库密码" prop="target_db_password">
+          <el-input v-model="createForm.target_db_password" type="password" placeholder="请输入密码" show-password />
+        </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
@@ -157,6 +181,30 @@
         </el-form-item>
         <el-form-item label="结束日期" prop="end_date">
           <el-date-picker v-model="editForm.end_date" type="date" placeholder="选择结束日期" />
+        </el-form-item>
+        <el-divider content-position="left">数据库配置</el-divider>
+        <el-form-item label="数据库类型" prop="target_db_type">
+          <el-select v-model="editForm.target_db_type" placeholder="请选择数据库类型" clearable style="width:100%">
+            <el-option label="MySQL" value="mysql" />
+            <el-option label="PostgreSQL" value="postgresql" />
+            <el-option label="SQLite" value="sqlite" />
+            <el-option label="Oracle" value="oracle" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="数据库地址" prop="target_db_host">
+          <el-input v-model="editForm.target_db_host" placeholder="如 192.168.1.100" />
+        </el-form-item>
+        <el-form-item label="端口" prop="target_db_port">
+          <el-input v-model="editForm.target_db_port" placeholder="如 3306" />
+        </el-form-item>
+        <el-form-item label="数据库名" prop="target_db_name">
+          <el-input v-model="editForm.target_db_name" placeholder="请输入数据库名" />
+        </el-form-item>
+        <el-form-item label="数据库用户" prop="target_db_user">
+          <el-input v-model="editForm.target_db_user" placeholder="请输入用户名" />
+        </el-form-item>
+        <el-form-item label="数据库密码" prop="target_db_password">
+          <el-input v-model="editForm.target_db_password" type="password" placeholder="请输入密码" show-password />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -233,7 +281,13 @@ const createForm = reactive({
   status: 'IN_PROGRESS',
   default_platform: 'web',
   start_date: null,
-  end_date: null
+  end_date: null,
+  target_db_type: '',
+  target_db_host: '',
+  target_db_port: '',
+  target_db_name: '',
+  target_db_user: '',
+  target_db_password: ''
 })
 
 const editForm = reactive({
@@ -242,7 +296,13 @@ const editForm = reactive({
   status: 'IN_PROGRESS',
   default_platform: 'web',
   start_date: null,
-  end_date: null
+  end_date: null,
+  target_db_type: '',
+  target_db_host: '',
+  target_db_port: '',
+  target_db_name: '',
+  target_db_user: '',
+  target_db_password: ''
 })
 
 // 表单验证规则
@@ -349,7 +409,13 @@ const editProject = (project) => {
     status: project.status,
     default_platform: project.default_platform || 'web',
     start_date: project.start_date ? new Date(project.start_date) : null,
-    end_date: project.end_date ? new Date(project.end_date) : null
+    end_date: project.end_date ? new Date(project.end_date) : null,
+    target_db_type: project.target_db_type || '',
+    target_db_host: project.target_db_host || '',
+    target_db_port: project.target_db_port || '',
+    target_db_name: project.target_db_name || '',
+    target_db_user: project.target_db_user || '',
+    target_db_password: project.target_db_password || ''
   })
   showEditDialog.value = true
 }
@@ -410,7 +476,13 @@ const handleCreate = async () => {
       status: 'IN_PROGRESS',
       default_platform: 'web',
       start_date: null,
-      end_date: null
+      end_date: null,
+      target_db_type: '',
+      target_db_host: '',
+      target_db_port: '',
+      target_db_name: '',
+      target_db_user: '',
+      target_db_password: ''
     })
 
     loadProjects()

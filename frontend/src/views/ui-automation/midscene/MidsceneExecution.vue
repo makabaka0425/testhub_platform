@@ -136,6 +136,18 @@
                     <el-tag :type="statusTagType(row.last_status)" size="small">{{ statusLabel(row.last_status) }}</el-tag>
                   </template>
                 </el-table-column>
+                <el-table-column prop="last_executed_at" label="执行时间" width="160" align="center">
+                  <template #default="{ row }">
+                    <span v-if="row.last_executed_at">{{ formatDateTime(row.last_executed_at) }}</span>
+                    <span v-else class="text-muted">-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="last_duration" label="时长" width="80" align="center">
+                  <template #default="{ row }">
+                    <span v-if="row.last_duration != null && row.last_duration > 0">{{ Math.round(row.last_duration) }}s</span>
+                    <span v-else class="text-muted">-</span>
+                  </template>
+                </el-table-column>
                 <el-table-column label="操作" width="180" fixed="right">
                   <template #default="{ row }">
                     <ActionCell :actions="getCaseActions(row)" :row="row" :max-visible="3" />
@@ -285,11 +297,36 @@
                         <el-option label="断言" value="assert" />
                       </el-select>
                       <el-input v-model="step.instruction" placeholder="输入步骤描述" style="flex:1" size="small" />
+                      <el-input v-model="step.output_var" placeholder="输出变量" style="width:100px" size="small" />
                       <el-button link type="danger" size="small" @click="drawerForm.steps.splice(idx, 1)">
                         <el-icon><Delete /></el-icon>
                       </el-button>
                     </div>
                     <el-button link type="primary" @click="addStepToDrawer" style="margin-top:4px">+ 添加步骤</el-button>
+                  </div>
+                </el-tab-pane>
+
+                <el-tab-pane label="变量与SQL" name="variables">
+                  <div style="margin-bottom:12px">
+                    <div style="font-weight:600;margin-bottom:8px">前置数据SQL</div>
+                    <el-input v-model="drawerForm.precondition_sql" type="textarea" :rows="3" placeholder="用例执行前的数据准备SQL，支持${变量名}引用，禁止DROP语句" />
+                  </div>
+                  <div style="margin-bottom:12px">
+                    <div style="font-weight:600;margin-bottom:8px">后置清理SQL</div>
+                    <el-input v-model="drawerForm.postcondition_sql" type="textarea" :rows="3" placeholder="用例执行后的数据清理SQL，只允许DELETE/UPDATE/TRUNCATE，支持${变量名}引用" />
+                  </div>
+                  <div>
+                    <div style="font-weight:600;margin-bottom:8px">输出变量</div>
+                    <div v-for="(v, idx) in drawerForm.output_variables" :key="idx" style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
+                      <el-input v-model="v.var_name" placeholder="变量名" style="width:120px" size="small" />
+                      <el-select v-model="v.source" style="width:120px" size="small">
+                        <el-option label="步骤输出" value="step" />
+                        <el-option label="表达式" value="expression" />
+                      </el-select>
+                      <el-input-number v-model="v.step_index" placeholder="步骤序号" :min="1" size="small" style="width:100px" v-if="v.source === 'step'" />
+                      <el-button link type="danger" size="small" @click="drawerForm.output_variables.splice(idx, 1)"><el-icon><Delete /></el-icon></el-button>
+                    </div>
+                    <el-button link type="primary" size="small" @click="drawerForm.output_variables.push({var_name:'',source:'step',step_index:1})">+ 添加变量</el-button>
                   </div>
                 </el-tab-pane>
 
@@ -312,10 +349,32 @@
                         <div v-if="drawerResultData.step_results && drawerResultData.step_results.length">
                           <div v-for="(s, idx) in drawerResultData.step_results" :key="idx" class="step-result-row">
                             <el-tag :type="s.status === 'passed' ? 'success' : 'danger'" size="small">{{ s.status }}</el-tag>
-                            <span style="margin-left:8px">{{ s.instruction }}</span>
+                            <span style="margin-left:8px;flex:1">{{ s.instruction }}</span>
+                            <el-tag v-if="s.output_var" type="warning" size="small" style="margin-left:6px">→ {{ s.output_var }}</el-tag>
                           </div>
                         </div>
                         <div v-else style="color:#999;text-align:center;padding:20px">暂无步骤结果</div>
+
+                        <!-- 变量流转 -->
+                        <div v-if="drawerResultData.variable_snapshot && Object.keys(drawerResultData.variable_snapshot).length" style="margin-top:16px">
+                          <div style="font-weight:600;margin-bottom:8px">变量流转</div>
+                          <el-table :data="Object.entries(drawerResultData.variable_snapshot).map(([k,v]) => ({var_name:k, value: typeof v === 'object' ? JSON.stringify(v) : v}))" border size="small" style="width:100%">
+                            <el-table-column prop="var_name" label="变量名" width="160" />
+                            <el-table-column prop="value" label="实际值" show-overflow-tooltip />
+                          </el-table>
+                        </div>
+
+                        <!-- SQL执行结果 -->
+                        <div v-if="drawerResultData.sql_results && drawerResultData.sql_results.length" style="margin-top:16px">
+                          <div style="font-weight:600;margin-bottom:8px">SQL执行</div>
+                          <div v-for="(sql, idx) in drawerResultData.sql_results" :key="idx" style="margin-bottom:8px;padding:8px;background:#f5f7fa;border-radius:4px;font-size:12px">
+                            <div style="font-weight:500;color:#606266">{{ sql.type === 'pre' ? '前置SQL' : '后置SQL' }}</div>
+                            <pre style="margin:4px 0;color:#303133;white-space:pre-wrap">{{ sql.sql }}</pre>
+                            <el-tag :type="sql.success ? 'success' : 'danger'" size="small">{{ sql.success ? '成功' : '失败' }}</el-tag>
+                            <span v-if="sql.rows_affected" style="margin-left:8px;color:#909399;font-size:12px">影响行数: {{ sql.rows_affected }}</span>
+                            <div v-if="sql.error" style="color:#f56c6c;margin-top:4px">{{ sql.error }}</div>
+                          </div>
+                        </div>
 
                         <div v-if="drawerResultData.logs" style="margin-top:16px">
                           <div style="font-weight:600;margin-bottom:8px">执行日志</div>
@@ -449,12 +508,21 @@
                 <el-option label="断言" value="assert" />
               </el-select>
               <el-input v-model="step.instruction" placeholder="输入步骤描述" style="flex:1" />
+              <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
               <el-button link type="danger" @click="caseForm.steps.splice(idx, 1)">
                 <el-icon><Delete /></el-icon>
               </el-button>
             </div>
             <el-button link type="primary" @click="addStep">+ 添加步骤</el-button>
           </div>
+        </el-form-item>
+
+        <!-- 前置/后置SQL -->
+        <el-form-item label="前置数据SQL">
+          <el-input v-model="caseForm.precondition_sql" type="textarea" :rows="3" placeholder="用例执行前的数据准备SQL，支持${变量名}引用，禁止DROP语句" />
+        </el-form-item>
+        <el-form-item label="后置清理SQL">
+          <el-input v-model="caseForm.postcondition_sql" type="textarea" :rows="3" placeholder="用例执行后的数据清理SQL，只允许DELETE/UPDATE/TRUNCATE，支持${变量名}引用" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -510,10 +578,32 @@
             <div v-if="resultData.step_results && resultData.step_results.length">
               <div v-for="(s, idx) in resultData.step_results" :key="idx" class="step-result-row">
                 <el-tag :type="s.status === 'passed' ? 'success' : 'danger'" size="small">{{ s.status }}</el-tag>
-                <span style="margin-left:8px">{{ s.instruction }}</span>
+                <span style="margin-left:8px;flex:1">{{ s.instruction }}</span>
+                <el-tag v-if="s.output_var" type="warning" size="small" style="margin-left:6px">→ {{ s.output_var }}</el-tag>
               </div>
             </div>
             <div v-else style="color:#999;text-align:center;padding:20px">暂无步骤结果</div>
+
+            <!-- 变量流转 -->
+            <div v-if="resultData.variable_snapshot && Object.keys(resultData.variable_snapshot).length" style="margin-top:16px">
+              <div style="font-weight:600;margin-bottom:8px">变量流转</div>
+              <el-table :data="Object.entries(resultData.variable_snapshot).map(([k,v]) => ({var_name:k, value: typeof v === 'object' ? JSON.stringify(v) : v}))" border size="small" style="width:100%">
+                <el-table-column prop="var_name" label="变量名" width="160" />
+                <el-table-column prop="value" label="实际值" show-overflow-tooltip />
+              </el-table>
+            </div>
+
+            <!-- SQL执行结果 -->
+            <div v-if="resultData.sql_results && resultData.sql_results.length" style="margin-top:16px">
+              <div style="font-weight:600;margin-bottom:8px">SQL执行</div>
+              <div v-for="(sql, idx) in resultData.sql_results" :key="idx" style="margin-bottom:8px;padding:8px;background:#f5f7fa;border-radius:4px;font-size:12px">
+                <div style="font-weight:500;color:#606266">{{ sql.type === 'pre' ? '前置SQL' : '后置SQL' }}</div>
+                <pre style="margin:4px 0;color:#303133;white-space:pre-wrap">{{ sql.sql }}</pre>
+                <el-tag :type="sql.success ? 'success' : 'danger'" size="small">{{ sql.success ? '成功' : '失败' }}</el-tag>
+                <span v-if="sql.rows_affected" style="margin-left:8px;color:#909399;font-size:12px">影响行数: {{ sql.rows_affected }}</span>
+                <div v-if="sql.error" style="color:#f56c6c;margin-top:4px">{{ sql.error }}</div>
+              </div>
+            </div>
 
             <div v-if="resultData.logs" style="margin-top:16px">
               <div style="font-weight:600;margin-bottom:8px">执行日志</div>
@@ -711,6 +801,13 @@ function statusLabel(s) {
   return { pending: '待执行', running: '执行中', passed: '通过', failed: '失败' }[s] || s || '-'
 }
 
+function formatDateTime(dt) {
+  if (!dt) return '-'
+  const d = new Date(dt)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 // ---- 操作按钮（ActionCell） ----
 function getCaseActions(row) {
   return [
@@ -718,7 +815,6 @@ function getCaseActions(row) {
       key: 'run',
       label: '执行',
       type: 'primary',
-      icon: VideoPlay,
       loading: !!runningIds[row.id],
       onClick: (r) => runCase(r),
     },
@@ -726,21 +822,18 @@ function getCaseActions(row) {
       key: 'edit',
       label: '编辑',
       type: 'primary',
-      icon: Edit,
       onClick: (r) => openDetailDrawer(r),
     },
     {
       key: 'result',
       label: '结果',
       type: 'primary',
-      icon: CaretRight,
       onClick: (r) => showResult(r),
     },
     {
       key: 'delete',
       label: '删除',
       danger: true,
-      icon: Delete,
       onClick: (r) => deleteCase(r),
     },
   ]
@@ -756,6 +849,9 @@ const caseForm = reactive({
   cookie_file: '', wait_for_network_idle_timeout: null, continue_on_network_idle_error: true,
   device_id: '', package_name: '', app_activity: '',
   steps: [],
+  output_variables: [],
+  precondition_sql: '',
+  postcondition_sql: '',
 })
 
 function openCreateDialog() {
@@ -767,12 +863,15 @@ function openCreateDialog() {
     cookie_file: '', wait_for_network_idle_timeout: null, continue_on_network_idle_error: true,
     device_id: '', package_name: '', app_activity: '',
     steps: [],
+    output_variables: [],
+    precondition_sql: '',
+    postcondition_sql: '',
   })
   caseDialogVisible.value = true
 }
 
 function addStep() {
-  caseForm.steps.push({ order: caseForm.steps.length + 1, type: 'action', instruction: '' })
+  caseForm.steps.push({ order: caseForm.steps.length + 1, type: 'action', instruction: '', output_var: '' })
 }
 
 async function saveCase() {
@@ -833,6 +932,9 @@ const drawerForm = reactive({
   cookie_file: '', wait_for_network_idle_timeout: null, continue_on_network_idle_error: true,
   device_id: '', package_name: '', app_activity: '',
   steps: [],
+  output_variables: [],
+  precondition_sql: '',
+  postcondition_sql: '',
 })
 
 function openDetailDrawer(caseData) {
@@ -849,7 +951,10 @@ function openDetailDrawer(caseData) {
     continue_on_network_idle_error: caseData.continue_on_network_idle_error ?? true,
     device_id: caseData.device_id || '', package_name: caseData.package_name || '',
     app_activity: caseData.app_activity || '',
-    steps: (caseData.steps || []).map(s => ({ ...s })),
+    steps: (caseData.steps || []).map(s => ({ ...s, output_var: s.output_var || '' })),
+    output_variables: caseData.output_variables || [],
+    precondition_sql: caseData.precondition_sql || '',
+    postcondition_sql: caseData.postcondition_sql || '',
   })
   detailActiveTab.value = 'info'
   drawerResultData.value = null
@@ -887,7 +992,7 @@ function startResize(e) {
 }
 
 function addStepToDrawer() {
-  drawerForm.steps.push({ order: drawerForm.steps.length + 1, type: 'action', instruction: '' })
+  drawerForm.steps.push({ order: drawerForm.steps.length + 1, type: 'action', instruction: '', output_var: '' })
 }
 
 async function saveCaseFromDrawer() {
@@ -1262,6 +1367,9 @@ watch(() => route.path, () => {
 .step-count {
   font-weight: 600;
   color: var(--brand-600);
+}
+.text-muted {
+  color: #999;
 }
 
 /* 批量操作工具栏 */
