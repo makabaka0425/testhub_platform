@@ -471,34 +471,46 @@ async function executeTask(taskId) {
     
     for (let i = 0; i < task.steps.length; i++) {
       const step = task.steps[i];
-      const stepLog = `步骤${i + 1} [${step.type}]: ${step.instruction || ''}`;
+      // 如果有 input_value，将其追加到 instruction 中（Midscene是AI驱动，参数通过自然语言传递）
+      let instruction = step.instruction || '';
+      const input_value = step.input_value || '';
+      if (input_value) {
+        instruction = instruction
+          ? `${instruction}，输入值为: ${input_value}`
+          : `输入: ${input_value}`;
+      }
+      const stepLog = `步骤${i + 1} [${step.type}]: ${instruction}`;
       task.logs.push({ time: new Date().toISOString(), level: 'info', message: stepLog });
 
       try {
         let stepResult;
         switch (step.type) {
           case 'aiAct':
-            await withTimeout(agent.aiAct(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiAct`);
+            await withTimeout(agent.aiAct(instruction), STEP_TIMEOUT, `步骤${i+1} aiAct`);
             stepResult = { status: 'passed', message: '操作完成' };
+            if (input_value) stepResult.input_value = input_value;
             break;
 
           case 'aiTap':
-            await withTimeout(agent.aiTap(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiTap`);
+            await withTimeout(agent.aiTap(instruction), STEP_TIMEOUT, `步骤${i+1} aiTap`);
             stepResult = { status: 'passed', message: '点击完成' };
+            if (input_value) stepResult.input_value = input_value;
             break;
 
           case 'aiAssert':
-            await withTimeout(agent.aiAssert(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiAssert`);
+            await withTimeout(agent.aiAssert(instruction), STEP_TIMEOUT, `步骤${i+1} aiAssert`);
             stepResult = { status: 'passed', message: '断言通过' };
+            if (input_value) stepResult.input_value = input_value;
             break;
 
           case 'aiQuery':
-            const queryResult = await withTimeout(agent.aiQuery(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiQuery`);
+            const queryResult = await withTimeout(agent.aiQuery(instruction), STEP_TIMEOUT, `步骤${i+1} aiQuery`);
             stepResult = { status: 'passed', message: '查询完成', data: queryResult };
+            if (input_value) stepResult.input_value = input_value;
             break;
 
           case 'aiWaitFor':
-            await withTimeout(agent.aiWaitFor(step.instruction), STEP_TIMEOUT, `步骤${i+1} aiWaitFor`);
+            await withTimeout(agent.aiWaitFor(instruction), STEP_TIMEOUT, `步骤${i+1} aiWaitFor`);
             stepResult = { status: 'passed', message: '等待条件满足' };
             break;
 

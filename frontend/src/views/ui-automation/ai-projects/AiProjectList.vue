@@ -130,19 +130,19 @@
             <el-option label="Oracle" value="oracle" />
           </el-select>
         </el-form-item>
-        <el-form-item label="数据库地址" prop="target_db_host">
+        <el-form-item v-if="createForm.target_db_type && createForm.target_db_type !== 'sqlite'" label="数据库地址" prop="target_db_host">
           <el-input v-model="createForm.target_db_host" placeholder="如 192.168.1.100" />
         </el-form-item>
-        <el-form-item label="端口" prop="target_db_port">
+        <el-form-item v-if="createForm.target_db_type && createForm.target_db_type !== 'sqlite'" label="端口" prop="target_db_port">
           <el-input v-model="createForm.target_db_port" placeholder="如 3306" />
         </el-form-item>
         <el-form-item label="数据库名" prop="target_db_name">
-          <el-input v-model="createForm.target_db_name" placeholder="请输入数据库名" />
+          <el-input v-model="createForm.target_db_name" :placeholder="createForm.target_db_type === 'sqlite' ? 'SQLite文件路径' : '请输入数据库名'" />
         </el-form-item>
-        <el-form-item label="数据库用户" prop="target_db_user">
+        <el-form-item v-if="createForm.target_db_type && createForm.target_db_type !== 'sqlite'" label="数据库用户" prop="target_db_user">
           <el-input v-model="createForm.target_db_user" placeholder="请输入用户名" />
         </el-form-item>
-        <el-form-item label="数据库密码" prop="target_db_password">
+        <el-form-item v-if="createForm.target_db_type && createForm.target_db_type !== 'sqlite'" label="数据库密码" prop="target_db_password">
           <el-input v-model="createForm.target_db_password" type="password" placeholder="请输入密码" show-password />
         </el-form-item>
       </el-form>
@@ -191,20 +191,29 @@
             <el-option label="Oracle" value="oracle" />
           </el-select>
         </el-form-item>
-        <el-form-item label="数据库地址" prop="target_db_host">
+        <el-form-item v-if="editForm.target_db_type && editForm.target_db_type !== 'sqlite'" label="数据库地址" prop="target_db_host">
           <el-input v-model="editForm.target_db_host" placeholder="如 192.168.1.100" />
         </el-form-item>
-        <el-form-item label="端口" prop="target_db_port">
+        <el-form-item v-if="editForm.target_db_type && editForm.target_db_type !== 'sqlite'" label="端口" prop="target_db_port">
           <el-input v-model="editForm.target_db_port" placeholder="如 3306" />
         </el-form-item>
         <el-form-item label="数据库名" prop="target_db_name">
-          <el-input v-model="editForm.target_db_name" placeholder="请输入数据库名" />
+          <el-input v-model="editForm.target_db_name" :placeholder="editForm.target_db_type === 'sqlite' ? 'SQLite文件路径' : '请输入数据库名'" />
         </el-form-item>
-        <el-form-item label="数据库用户" prop="target_db_user">
+        <el-form-item v-if="editForm.target_db_type && editForm.target_db_type !== 'sqlite'" label="数据库用户" prop="target_db_user">
           <el-input v-model="editForm.target_db_user" placeholder="请输入用户名" />
         </el-form-item>
-        <el-form-item label="数据库密码" prop="target_db_password">
+        <el-form-item v-if="editForm.target_db_type && editForm.target_db_type !== 'sqlite'" label="数据库密码" prop="target_db_password">
           <el-input v-model="editForm.target_db_password" type="password" placeholder="请输入密码" show-password />
+        </el-form-item>
+        <el-form-item v-if="editForm.target_db_type" label="">
+          <el-button type="success" size="small" :loading="testDbLoading" :disabled="!currentEditId" @click="handleTestDbConnection">测试连接</el-button>
+          <span v-if="testDbResult" :style="{ color: testDbResult.success ? '#67c23a' : '#f56c6c', marginLeft: '8px' }">
+            {{ testDbResult.success ? `连接成功 (${testDbResult.elapsed_ms}ms)` : `连接失败: ${testDbResult.error}` }}
+          </span>
+          <span v-if="testDbResult && testDbResult.success && testDbResult.db_version" style="margin-left: 8px; color: #909399">
+            {{ testDbResult.db_version }}
+          </span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -234,6 +243,9 @@
           <el-descriptions-item label="结束日期">{{ currentProject.end_date || '未设置' }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ formatDate(null, null, currentProject.created_at) }}</el-descriptions-item>
           <el-descriptions-item label="更新时间">{{ formatDate(null, null, currentProject.updated_at) }}</el-descriptions-item>
+          <el-descriptions-item label="数据库类型">{{ currentProject.target_db_type ? getDbTypeLabel(currentProject.target_db_type) : '未配置' }}</el-descriptions-item>
+          <el-descriptions-item v-if="currentProject.target_db_type && currentProject.target_db_type !== 'sqlite'" label="数据库地址">{{ currentProject.target_db_host || '-' }}:{{ currentProject.target_db_port || '-' }}</el-descriptions-item>
+          <el-descriptions-item v-if="currentProject.target_db_type" label="数据库名">{{ currentProject.target_db_name || '-' }}</el-descriptions-item>
         </el-descriptions>
       </div>
       <template #footer>
@@ -249,7 +261,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
-import { getAiProjects, createAiProject, updateAiProject, deleteAiProject } from '@/api/ui_automation'
+import { getAiProjects, createAiProject, updateAiProject, deleteAiProject, aiTestDbConnection } from '@/api/ui_automation'
 import ActionCell from '@/components/ActionCell.vue'
 
 // 项目数据
@@ -273,6 +285,15 @@ const createFormRef = ref(null)
 const editFormRef = ref(null)
 const currentEditId = ref(null)
 const currentProject = ref(null)
+
+// 测试数据库连接相关
+const testDbLoading = ref(false)
+const testDbResult = ref(null)
+
+const getDbTypeLabel = (type) => {
+  const map = { mysql: 'MySQL', postgresql: 'PostgreSQL', sqlite: 'SQLite', oracle: 'Oracle' }
+  return map[type] || type
+}
 
 // 表单数据
 const createForm = reactive({
@@ -417,6 +438,7 @@ const editProject = (project) => {
     target_db_user: project.target_db_user || '',
     target_db_password: project.target_db_password || ''
   })
+  testDbResult.value = null
   showEditDialog.value = true
 }
 
@@ -513,6 +535,42 @@ const handleEdit = async () => {
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '项目更新失败')
     console.error('更新项目失败:', error)
+  }
+}
+
+// 测试数据库连接
+const handleTestDbConnection = async () => {
+  if (!currentEditId.value) {
+    ElMessage.warning('请先保存项目后再测试连接')
+    return
+  }
+  if (!editForm.target_db_type) {
+    ElMessage.warning('请先选择数据库类型')
+    return
+  }
+  testDbLoading.value = true
+  testDbResult.value = null
+  try {
+    const data = {
+      target_db_type: editForm.target_db_type,
+      target_db_host: editForm.target_db_host,
+      target_db_port: editForm.target_db_port ? Number(editForm.target_db_port) : null,
+      target_db_name: editForm.target_db_name,
+      target_db_user: editForm.target_db_user,
+      target_db_password: editForm.target_db_password
+    }
+    const res = await aiTestDbConnection(currentEditId.value, data)
+    testDbResult.value = res.data
+    if (res.data.success) {
+      ElMessage.success(`数据库连接成功 (${res.data.elapsed_ms}ms)`)
+    } else {
+      ElMessage.error(res.data.error || '连接失败')
+    }
+  } catch (error) {
+    testDbResult.value = { success: false, error: error.response?.data?.error || '连接测试失败' }
+    ElMessage.error(testDbResult.value.error)
+  } finally {
+    testDbLoading.value = false
   }
 }
 

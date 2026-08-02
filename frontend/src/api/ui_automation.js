@@ -1687,6 +1687,16 @@ export function deleteAiProject(id) {
   return request({ url: `/ui-automation/ai-projects/${id}/`, method: 'delete' })
 }
 
+// 测试AI项目数据库连接
+export function aiTestDbConnection(id, data) {
+  return request({
+    url: `/ui-automation/ai-projects/${id}/test-db-connection/`,
+    method: 'post',
+    data,
+    timeout: 15000
+  })
+}
+
 // ===================== Midscene AI视觉自动化 =====================
 
 // ---- 分组 ----

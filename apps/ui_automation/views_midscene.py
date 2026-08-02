@@ -67,6 +67,114 @@ class AiProjectViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         instance.delete()
 
+    @action(detail=True, methods=['post'], url_path='test-db-connection')
+    def test_db_connection(self, request, pk=None):
+        """测试被测系统数据库连接"""
+        import time
+
+        project = self.get_object()
+
+        # 支持两种场景：
+        # 1. 已保存的项目：使用项目上的数据库配置
+        # 2. 请求体中传入配置：优先使用请求体中的值（编辑时即时测试）
+        db_type = request.data.get('target_db_type') or project.target_db_type
+        db_host = request.data.get('target_db_host') or project.target_db_host
+        db_port = request.data.get('target_db_port') or project.target_db_port
+        db_name = request.data.get('target_db_name') or project.target_db_name
+        db_user = request.data.get('target_db_user') or project.target_db_user
+        db_password = request.data.get('target_db_password', None)
+        if db_password is None:
+            db_password = project.target_db_password or ''
+
+        if not db_type:
+            return Response({'success': False, 'error': '请先选择数据库类型'}, status=status.HTTP_400_BAD_REQUEST)
+        if not db_name:
+            return Response({'success': False, 'error': '请先填写数据库名'}, status=status.HTTP_400_BAD_REQUEST)
+
+        db_type = db_type.lower()
+        conn = None
+        start = time.time()
+
+        try:
+            if db_type == 'mysql':
+                import pymysql
+                conn = pymysql.connect(
+                    host=db_host or 'localhost',
+                    port=int(db_port) if db_port else 3306,
+                    user=db_user or '',
+                    password=db_password,
+                    database=db_name,
+                    charset='utf8mb4',
+                    connect_timeout=10
+                )
+            elif db_type in ('postgresql', 'postgres'):
+                import psycopg2
+                conn = psycopg2.connect(
+                    host=db_host or 'localhost',
+                    port=int(db_port) if db_port else 5432,
+                    user=db_user or '',
+                    password=db_password,
+                    dbname=db_name,
+                    connect_timeout=10
+                )
+            elif db_type == 'sqlite':
+                import sqlite3
+                conn = sqlite3.connect(db_name)
+            elif db_type == 'oracle':
+                import cx_Oracle
+                dsn = cx_Oracle.makedsn(
+                    db_host or 'localhost',
+                    int(db_port) if db_port else 1521,
+                    service_name=db_name
+                )
+                conn = cx_Oracle.connect(user=db_user or '', password=db_password, dsn=dsn)
+            else:
+                return Response({'success': False, 'error': f'不支持的数据库类型: {db_type}'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 测试查询
+            with conn.cursor() as cursor:
+                cursor.execute('SELECT 1')
+
+            elapsed = round((time.time() - start) * 1000)
+            db_version = ''
+            try:
+                with conn.cursor() as cursor:
+                    if db_type == 'mysql':
+                        cursor.execute('SELECT VERSION()')
+                    elif db_type in ('postgresql', 'postgres'):
+                        cursor.execute('SELECT version()')
+                    elif db_type == 'sqlite':
+                        cursor.execute('SELECT sqlite_version()')
+                    elif db_type == 'oracle':
+                        cursor.execute('SELECT * FROM v$version WHERE rownum = 1')
+                    row = cursor.fetchone()
+                    if row:
+                        db_version = str(row[0])
+            except Exception:
+                pass
+
+            return Response({
+                'success': True,
+                'message': '数据库连接成功',
+                'db_type': db_type,
+                'db_version': db_version,
+                'elapsed_ms': elapsed
+            })
+
+        except Exception as e:
+            elapsed = round((time.time() - start) * 1000)
+            return Response({
+                'success': False,
+                'error': str(e),
+                'elapsed_ms': elapsed
+            })
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
 
 # ============================================================================
 # 分组管理
@@ -483,6 +591,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             step_type = step.get('type', 'action')
             instruction = step.get('instruction', '')
             output_var = step.get('output_var', '')
+            input_value = step.get('input_value', '')
             # 将前端 action/assert 映射为 Midscene API 类型
             if step_type == 'assert':
                 midscene_type = 'aiAssert'
@@ -490,13 +599,16 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 midscene_type = 'aiAct'
             else:
                 midscene_type = step_type  # 支持 aiTap/aiWaitFor/aiQuery/sleep 等
-            # 变量替换：替换 instruction 中的 ${变量名}
-            if context_variables:
+            # 变量替换：替换 instruction 和 input_value 中的 ${变量名} 和数据工厂函数
+            if context_variables or True:  # 始终执行，以支持数据工厂函数（如${random_phone()}）
                 from .variable_resolver import resolve_variables
                 instruction = resolve_variables(instruction, context_variables)
+                if input_value:
+                    input_value = resolve_variables(input_value, context_variables)
             steps.append({
                 'type': midscene_type,
                 'instruction': instruction,
+                'input_value': input_value,
                 'output_var': output_var,
             })
 
@@ -613,8 +725,21 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 for step_result in result_data['step_results']:
                     if isinstance(step_result, dict) and step_result.get('output_var'):
                         var_name = step_result['output_var']
-                        # 优先取 data 字段（aiQuery结果），否则取 message
-                        var_value = step_result.get('data') or step_result.get('message', '')
+                        step_type = step_result.get('type', '')
+                        # 根据步骤类型选择提取字段
+                        # aiQuery → data（查询结果数据）
+                        # aiAssert → instruction中断言的值（message）
+                        # aiAct/aiTap → message（操作完成信息）或 input_value（有输入值时取输入值）
+                        # 通用优先级: data > input_value > message
+                        var_value = None
+                        if step_result.get('data') is not None:
+                            var_value = step_result['data']
+                        elif step_result.get('input_value'):
+                            var_value = step_result['input_value']
+                        elif step_result.get('message'):
+                            var_value = step_result['message']
+                        else:
+                            var_value = ''
                         context_variables[var_name] = var_value
 
             # ---- 用例级 output_variables 二次提取 ----

@@ -290,17 +290,28 @@
 
                 <el-tab-pane label="测试步骤" name="steps">
                   <div class="steps-editor-drawer">
-                    <div v-for="(step, idx) in drawerForm.steps" :key="idx" class="step-row">
-                      <span class="step-order">{{ idx + 1 }}.</span>
-                      <el-select v-model="step.type" style="width:100px" size="small">
-                        <el-option label="操作" value="action" />
-                        <el-option label="断言" value="assert" />
-                      </el-select>
-                      <el-input v-model="step.instruction" placeholder="输入步骤描述" style="flex:1" size="small" />
-                      <el-input v-model="step.output_var" placeholder="输出变量" style="width:100px" size="small" />
-                      <el-button link type="danger" size="small" @click="drawerForm.steps.splice(idx, 1)">
-                        <el-icon><Delete /></el-icon>
-                      </el-button>
+                    <div v-for="(step, idx) in drawerForm.steps" :key="idx" class="step-row-block">
+                      <div class="step-row-main">
+                        <span class="step-order">{{ idx + 1 }}.</span>
+                        <el-select v-model="step.type" style="width:90px" size="small">
+                          <el-option label="操作" value="action" />
+                          <el-option label="断言" value="assert" />
+                        </el-select>
+                        <el-input v-model="step.instruction" placeholder="步骤描述（支持${变量名}引用）" style="flex:1" size="small" />
+                        <el-button link type="danger" size="small" @click="drawerForm.steps.splice(idx, 1)">
+                          <el-icon><Delete /></el-icon>
+                        </el-button>
+                      </div>
+                      <div class="step-row-params">
+                        <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1" size="small">
+                          <template #append>
+                            <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
+                              <el-icon><MagicStick /></el-icon>
+                            </el-button>
+                          </template>
+                        </el-input>
+                        <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
+                      </div>
                     </div>
                     <el-button link type="primary" @click="addStepToDrawer" style="margin-top:4px">+ 添加步骤</el-button>
                   </div>
@@ -501,17 +512,28 @@
         <!-- 步骤编辑 -->
         <el-form-item label="测试步骤">
           <div class="steps-editor">
-            <div v-for="(step, idx) in caseForm.steps" :key="idx" class="step-row">
-              <span class="step-order">{{ idx + 1 }}.</span>
-              <el-select v-model="step.type" style="width:100px">
-                <el-option label="操作" value="action" />
-                <el-option label="断言" value="assert" />
-              </el-select>
-              <el-input v-model="step.instruction" placeholder="输入步骤描述" style="flex:1" />
-              <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
-              <el-button link type="danger" @click="caseForm.steps.splice(idx, 1)">
-                <el-icon><Delete /></el-icon>
-              </el-button>
+            <div v-for="(step, idx) in caseForm.steps" :key="idx" class="step-row-block">
+              <div class="step-row-main">
+                <span class="step-order">{{ idx + 1 }}.</span>
+                <el-select v-model="step.type" style="width:90px">
+                  <el-option label="操作" value="action" />
+                  <el-option label="断言" value="assert" />
+                </el-select>
+                <el-input v-model="step.instruction" placeholder="步骤描述（支持${变量名}引用）" style="flex:1" />
+                <el-button link type="danger" @click="caseForm.steps.splice(idx, 1)">
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </div>
+              <div class="step-row-params">
+                <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1">
+                  <template #append>
+                    <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
+                      <el-icon><MagicStick /></el-icon>
+                    </el-button>
+                  </template>
+                </el-input>
+                <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
+              </div>
             </div>
             <el-button link type="primary" @click="addStep">+ 添加步骤</el-button>
           </div>
@@ -642,6 +664,23 @@
     </el-dialog>
 
     <!-- 新建分组弹窗 -->
+    <!-- 变量助手弹窗 -->
+    <el-dialog v-model="showVariableHelper" title="变量助手" width="900px" destroy-on-close>
+      <div style="margin-bottom:12px;color:#606263;font-size:13px">
+        点击行插入变量表达式到当前编辑的输入值字段。支持 <code>${变量名}</code> 引用上下文变量，<code>${函数()}</code> 调用数据工厂。
+      </div>
+      <el-tabs v-model="varHelperTab" tab-position="left" style="height:420px">
+        <el-tab-pane v-for="cat in variableCategories" :key="cat.label" :label="cat.label" :name="cat.label">
+          <el-table :data="cat.variables" size="small" @row-click="insertVariable" style="cursor:pointer">
+            <el-table-column prop="name" label="函数名" width="180" />
+            <el-table-column prop="desc" label="描述" />
+            <el-table-column prop="syntax" label="语法" width="220" />
+            <el-table-column prop="example" label="示例" width="200" />
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+    </el-dialog>
+
     <el-dialog v-model="showGroupDialog" title="新建分组" width="400px" destroy-on-close>
       <el-form :model="groupForm" label-width="80px">
         <el-form-item label="分组名称" required>
@@ -660,7 +699,7 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit } from '@element-plus/icons-vue'
+import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
 import {
   getMidsceneGroups, createMidsceneGroup,
@@ -669,6 +708,7 @@ import {
   getMidsceneExecutionDetail, getMidsceneExecutionStatus,
 } from '@/api/ui_automation'
 import { getAITaskList, getAITaskCases, getAiProjects } from '@/api/ui_automation'
+import { getVariableFunctions } from '@/api/data-factory'
 
 const route = useRoute()
 const routePlatform = computed(() => route.meta?.platform || '')
@@ -722,6 +762,50 @@ async function createGroup() {
   } catch (e) {
     ElMessage.error('创建失败')
   }
+}
+
+// ---- 变量助手 ----
+const showVariableHelper = ref(false)
+const varHelperTab = ref('')
+const variableCategories = ref([])
+const currentEditingStep = ref(null)
+const currentEditingField = ref('')
+
+async function loadVariableFunctions() {
+  try {
+    const res = await getVariableFunctions()
+    const functions = res.data || res
+    // 按分类组织
+    const catMap = {}
+    const catOrder = ['随机工具', '测试数据', '字符工具', '编码工具', '加密工具', '时间日期', 'Crontab']
+    for (const fn of functions) {
+      const cat = fn.category || '其他'
+      if (!catMap[cat]) catMap[cat] = { label: cat, variables: [] }
+      catMap[cat].variables.push(fn)
+    }
+    variableCategories.value = catOrder
+      .filter(c => catMap[c])
+      .map(c => catMap[c])
+      .concat(Object.values(catMap).filter(c => !catOrder.includes(c.label)))
+    if (variableCategories.value.length) {
+      varHelperTab.value = variableCategories.value[0].label
+    }
+  } catch {}
+}
+
+function openVariableHelper(step, field) {
+  currentEditingStep.value = step
+  currentEditingField.value = field
+  if (!variableCategories.value.length) loadVariableFunctions()
+  showVariableHelper.value = true
+}
+
+function insertVariable(variable) {
+  if (!currentEditingStep.value || !currentEditingField.value) return
+  const example = variable.example || `\${${variable.name}}`
+  const current = currentEditingStep.value[currentEditingField.value] || ''
+  currentEditingStep.value[currentEditingField.value] = current ? current + example : example
+  showVariableHelper.value = false
 }
 
 // ---- 用例列表 ----
@@ -871,7 +955,7 @@ function openCreateDialog() {
 }
 
 function addStep() {
-  caseForm.steps.push({ order: caseForm.steps.length + 1, type: 'action', instruction: '', output_var: '' })
+  caseForm.steps.push({ order: caseForm.steps.length + 1, type: 'action', instruction: '', input_value: '', output_var: '' })
 }
 
 async function saveCase() {
@@ -951,7 +1035,7 @@ function openDetailDrawer(caseData) {
     continue_on_network_idle_error: caseData.continue_on_network_idle_error ?? true,
     device_id: caseData.device_id || '', package_name: caseData.package_name || '',
     app_activity: caseData.app_activity || '',
-    steps: (caseData.steps || []).map(s => ({ ...s, output_var: s.output_var || '' })),
+    steps: (caseData.steps || []).map(s => ({ ...s, input_value: s.input_value || '', output_var: s.output_var || '' })),
     output_variables: caseData.output_variables || [],
     precondition_sql: caseData.precondition_sql || '',
     postcondition_sql: caseData.postcondition_sql || '',
@@ -992,7 +1076,7 @@ function startResize(e) {
 }
 
 function addStepToDrawer() {
-  drawerForm.steps.push({ order: drawerForm.steps.length + 1, type: 'action', instruction: '', output_var: '' })
+  drawerForm.steps.push({ order: drawerForm.steps.length + 1, type: 'action', instruction: '', input_value: '', output_var: '' })
 }
 
 async function saveCaseFromDrawer() {
@@ -1556,6 +1640,28 @@ watch(() => route.path, () => {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+.step-row-block {
+  margin-bottom: 8px;
+  padding: 8px;
+  background: #f9fafb;
+  border-radius: 6px;
+  border: 1px solid #ebeef5;
+}
+
+.step-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-row-params {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding-left: 32px;
 }
 
 .step-order {
