@@ -19,8 +19,17 @@ const fs = require('fs');
 const { chromium } = require('playwright');
 const { PlaywrightAgent } = require('@midscene/web/playwright');
 const { randomUUID } = require('crypto');
-const pixelmatch = require('pixelmatch');
 const { PNG } = require('pngjs');
+
+// pixelmatch 是 ESM 模块，需要动态导入
+let pixelmatch = null;
+async function loadPixelmatch() {
+  if (!pixelmatch) {
+    const mod = await import('pixelmatch');
+    pixelmatch = mod.default || mod;
+  }
+  return pixelmatch;
+}
 
 // @midscene/android 按需加载（APP端执行时才require）
 let androidModules = null;
@@ -76,9 +85,11 @@ const cancelledTasks = new Set();
 const MIDSCENE_RUN_DIR = path.join(__dirname, 'midscene_run');
 const REPORT_DIR = path.join(MIDSCENE_RUN_DIR, 'report');
 const SCREENSHOT_DIR = path.join(MIDSCENE_RUN_DIR, 'screenshots');
+// 旧 runner 截图目录（midscene-runner.js 保存到 midscene-service/screenshots）
+const LEGACY_SCREENSHOT_DIR = path.join(__dirname, 'screenshots');
 
 // 确保目录存在
-for (const dir of [REPORT_DIR, SCREENSHOT_DIR]) {
+for (const dir of [REPORT_DIR, SCREENSHOT_DIR, LEGACY_SCREENSHOT_DIR]) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -88,7 +99,9 @@ for (const dir of [REPORT_DIR, SCREENSHOT_DIR]) {
 app.use('/report', express.static(REPORT_DIR));
 // 任务独立报告目录：通过 /report/<taskId>/report/<filename> 访问
 app.use('/report', express.static(MIDSCENE_RUN_DIR));
+// 截图静态服务：优先从 midscene_run/screenshots 查找，再从旧 screenshots 目录查找
 app.use('/screenshots', express.static(SCREENSHOT_DIR));
+app.use('/screenshots', express.static(LEGACY_SCREENSHOT_DIR));
 
 // 任务存储
 const tasks = new Map();
@@ -387,7 +400,7 @@ app.post('/visual-compare', async (req, res) => {
     const height = Math.max(imgA.height, imgB.height);
 
     const diff = new PNG({ width, height });
-    const numDiffPixels = pixelmatch(imgA.data, imgB.data, diff.data, width, height, { threshold });
+    const numDiffPixels = (await loadPixelmatch())(imgA.data, imgB.data, diff.data, width, height, { threshold });
     const totalPixels = width * height;
     const diffPercent = parseFloat((numDiffPixels / totalPixels * 100).toFixed(2));
 
@@ -497,6 +510,7 @@ async function executeTask(taskId) {
   task.logs.push({ time: new Date().toISOString(), level: 'info', message: `callback_url=${task.callback_url || '空'}, execution_id=${task.execution_id || '空'}` });
 
   let browser = null;
+  let browserPid = null;
 
   try {
     // ---- 1. 构造 modelConfig（注入 Agent 构造函数，不再依赖环境变量）----
@@ -625,6 +639,11 @@ async function executeTask(taskId) {
       if (webCfg.browserPath) launchOpts.executablePath = webCfg.browserPath;
 
       browser = await chromium.launch(launchOpts);
+      // 启动后立刻记录浏览器主进程PID，有头模式下 browser.process() 后续可能返回null
+      browserPid = browser.process()?.pid || null;
+      if (browserPid) {
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `浏览器已启动，PID=${browserPid}` });
+      }
 
       const contextOptions = {};
       if (task.user_agent) contextOptions.userAgent = task.user_agent;
@@ -934,59 +953,57 @@ async function executeTask(taskId) {
 
   } finally {
     task.completed_at = new Date().toISOString();
+    const finallyStart = Date.now();
 
-    // ---- 全同步流程：agent.destroy生成报告 → 关浏览器 → 回调Django（带报告路径）----
+    // ---- 彻底解耦流程：立即关浏览器 → 回调Django → 异步生成报告 ----
 
-    // 1. agent.destroy（生成回放报告，5秒超时）
-    try {
-      if (agent) {
-        await Promise.race([
-          agent.destroy(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-        ]);
-        if (agent.reportFile) task.report_file = agent.reportFile;
+    // 1. 恢复原始截图方法（确保后续不走CDP）
+    if (page && typeof page._releaseCdpScreenshot === 'function') {
+      page._releaseCdpScreenshot();
+    }
+
+    // 2. 立即关闭浏览器（步骤执行完第一时间关，不等任何报告生成）
+    //    策略：先尝试优雅关闭（3秒），超时则直接taskkill强杀
+    const killBrowser = async () => {
+      const { execSync } = require('child_process');
+      // 优先用启动时记录的PID（最可靠），其次用 browser.process()
+      const pid = browserPid || browser?.process?.()?.pid;
+      if (pid) {
+        try {
+          execSync(`taskkill /f /pid ${pid} /t 2>nul`, { timeout: 3000 });
+          task.logs.push({ time: new Date().toISOString(), level: 'info', message: `taskkill /f /pid ${pid} /t 强杀浏览器进程` });
+          return;
+        } catch (e) {
+          task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `taskkill pid=${pid} 失败: ${e.message}` });
+        }
       }
-    } catch (_) {
-      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: 'agent.destroy() 超时，扫描报告目录' });
-    }
-
-    // 如果 agent.destroy 没返回 reportFile，扫描任务独立报告目录找最新文件
-    if (!task.report_file) {
+      // 最后兜底：按名称杀chrome/chromium进程（仅限测试场景，不影响用户日常浏览器）
       try {
-        const taskReportDir = path.join(taskRunDir, 'report');
-        if (fs.existsSync(taskReportDir)) {
-          const reportFiles = fs.readdirSync(taskReportDir).filter(f => f.endsWith('.html')).sort().reverse();
-          if (reportFiles.length > 0) {
-            const startedAt = task.started_at ? new Date(task.started_at) : new Date(Date.now() - 300000);
-            for (const fname of reportFiles) {
-              const fpath = path.join(taskReportDir, fname);
-              const stat = fs.statSync(fpath);
-              if (stat.mtime >= startedAt) {
-                task.report_file = fpath;
-                task.logs.push({ time: new Date().toISOString(), level: 'info', message: `从目录扫描到报告: ${fname}` });
-                break;
-              }
-            }
-          }
-        }
-        // 降级：扫描全局报告目录
-        if (!task.report_file) {
-          const globalReportFiles = fs.readdirSync(REPORT_DIR).filter(f => f.endsWith('.html')).sort().reverse();
-          const startedAt = task.started_at ? new Date(task.started_at) : new Date(Date.now() - 300000);
-          for (const fname of globalReportFiles) {
-            const fpath = path.join(REPORT_DIR, fname);
-            const stat = fs.statSync(fpath);
-            if (stat.mtime >= startedAt) {
-              task.report_file = fpath;
-              task.logs.push({ time: new Date().toISOString(), level: 'info', message: `从全局目录扫描到报告: ${fname}` });
-              break;
-            }
-          }
-        }
+        execSync(`wmic process where "CommandLine like '%--test-type%' and Name='chrome.exe'" call terminate 2>nul`, { timeout: 3000 });
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: 'wmic 兜底终止测试chrome进程' });
       } catch (_) {}
-    }
+    };
 
-    // 2. Android设备断开连接（3秒超时）
+    if (browser) {
+      console.time('browser-close');
+      task.logs.push({ time: new Date().toISOString(), level: 'info', message: '步骤执行完毕，立即关闭浏览器...' });
+      try {
+        await Promise.race([
+          browser.close(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        console.timeEnd('browser-close');
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `browser.close() 正常完成（耗时 ${Date.now() - finallyStart}ms）` });
+      } catch (e) {
+        console.timeEnd('browser-close');
+        task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `browser.close() 超时(${e.message})，强杀进程` });
+        await killBrowser();
+      }
+    }
+    task.browser_closed = true;
+    task.logs.push({ time: new Date().toISOString(), level: 'info', message: `浏览器已关闭（finally耗时 ${Date.now() - finallyStart}ms）` });
+
+    // 3. Android设备断开（3秒超时）
     try {
       if (task.androidDevice && typeof task.androidDevice.destroy === 'function') {
         await Promise.race([
@@ -999,30 +1016,8 @@ async function executeTask(taskId) {
       task.logs.push({ time: new Date().toISOString(), level: 'warn', message: 'Android设备释放超时' });
     }
 
-    // 3. 关闭浏览器（2秒超时）
-    try {
-      if (browser) await Promise.race([
-        browser.close(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
-      ]);
-    } catch (_) {}
-    // 按PID精准杀残留进程
-    try {
-      if (browser && browser.process) {
-        const proc = browser.process();
-        if (proc) {
-          const { execSync } = require('child_process');
-          execSync(`taskkill /f /pid ${proc.pid} /t 2>nul`, { timeout: 2000 });
-        }
-      }
-    } catch (_) {}
-    task.browser_closed = true;
-    task.logs.push({ time: new Date().toISOString(), level: 'info', message: '浏览器已关闭' });
-
-    // 3. 回调Django（此时报告已生成，路径可带上）
-    const reportUrl = task.report_file
-      ? `http://localhost:${PORT}/report/${path.basename(task.report_file)}`
-      : null;
+    // 4. 立即回调Django（不等报告生成，步骤结果已确定）
+    //    报告路径先置null，后续异步生成完成后可通过单独接口获取
     if (task.callback_url) {
       try {
         const callbackBody = JSON.stringify({
@@ -1032,11 +1027,11 @@ async function executeTask(taskId) {
           result: task.result,
           error: task.error,
           completed_at: task.completed_at,
-          report_url: reportUrl,
-          report_file: task.report_file || null,
+          report_url: null,      // 报告异步生成，先回null
+          report_file: null,
         });
 
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调Django: ${task.callback_url}` });
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调Django（报告异步生成中）: ${task.callback_url}` });
 
         const fetch = require('node-fetch');
         const cbRes = await fetch(task.callback_url, {
@@ -1045,16 +1040,72 @@ async function executeTask(taskId) {
           body: callbackBody,
         });
 
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调响应: HTTP ${cbRes.status}` });
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调响应: HTTP ${cbRes.status}（finally耗时 ${Date.now() - finallyStart}ms）` });
       } catch (e) {
         task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `回调失败: ${e.message}` });
       }
     }
 
+    // 5. 异步生成报告（不阻塞主流程，浏览器已关闭，用户无需等待）
+    setImmediate(async () => {
+      const reportStart = Date.now();
+      try {
+        if (agent) {
+          await Promise.race([
+            agent.destroy(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000))
+          ]);
+          if (agent.reportFile) task.report_file = agent.reportFile;
+        }
+      } catch (_) {
+        task.logs.push({ time: new Date().toISOString(), level: 'warn', message: 'agent.destroy() 异步超时，扫描报告目录' });
+      }
+
+      // 扫描报告文件
+      if (!task.report_file) {
+        try {
+          const taskReportDir = path.join(taskRunDir, 'report');
+          if (fs.existsSync(taskReportDir)) {
+            const reportFiles = fs.readdirSync(taskReportDir).filter(f => f.endsWith('.html')).sort().reverse();
+            if (reportFiles.length > 0) {
+              const startedAt = task.started_at ? new Date(task.started_at) : new Date(Date.now() - 300000);
+              for (const fname of reportFiles) {
+                const fpath = path.join(taskReportDir, fname);
+                const stat = fs.statSync(fpath);
+                if (stat.mtime >= startedAt) {
+                  task.report_file = fpath;
+                  break;
+                }
+              }
+            }
+          }
+          if (!task.report_file) {
+            const globalReportFiles = fs.readdirSync(REPORT_DIR).filter(f => f.endsWith('.html')).sort().reverse();
+            const startedAt = task.started_at ? new Date(task.started_at) : new Date(Date.now() - 300000);
+            for (const fname of globalReportFiles) {
+              const fpath = path.join(REPORT_DIR, fname);
+              const stat = fs.statSync(fpath);
+              if (stat.mtime >= startedAt) {
+                task.report_file = fpath;
+                break;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (task.report_file) {
+        console.log(`[异步] 报告生成完成: ${task.report_file}（耗时 ${Date.now() - reportStart}ms）`);
+      } else {
+        console.log(`[异步] 未找到报告文件（耗时 ${Date.now() - reportStart}ms）`);
+      }
+    });
+
     // 清理取消标记
     cancelledTasks.delete(taskId);
     // 释放并发槽位
     releaseSlot();
+    task.logs.push({ time: new Date().toISOString(), level: 'info', message: `executeTask finally 完成（总耗时 ${Date.now() - finallyStart}ms）` });
   }
 }
 
@@ -1279,6 +1330,7 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
   let page = null;
   let agent = null;
   let androidDevice = null;
+  let browserPid = null;
   const sharedVariables = {}; // 共享变量池
 
   try {
@@ -1369,6 +1421,7 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
       if (webCfg.browserPath) launchOpts.executablePath = webCfg.browserPath;
 
       browser = await chromium.launch(launchOpts);
+      browserPid = browser.process()?.pid || null;
 
       const contextOpts = {};
       if (firstPayload.user_agent) contextOpts.userAgent = firstPayload.user_agent;
@@ -1666,24 +1719,44 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
     if (page && typeof page._releaseCdpScreenshot === 'function') {
       page._releaseCdpScreenshot();
     }
-    // agent.destroy
-    try {
-      if (agent) await Promise.race([agent.destroy(), new Promise((_, r) => setTimeout(() => r(), 5000))]);
-    } catch (_) {}
+
+    // 立即关闭浏览器：3秒优雅关闭 → 超时则taskkill强杀
+    console.log(`[SharedSession] 所有用例执行完毕，立即关闭浏览器...`);
+    if (browser) {
+      console.time('[SharedSession] browser-close');
+      try {
+        await Promise.race([browser.close(), new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))]);
+        console.timeEnd('[SharedSession] browser-close');
+      } catch (e) {
+        console.timeEnd('[SharedSession] browser-close');
+        console.warn(`[SharedSession] browser.close() 超时，强杀进程`);
+        // 用启动时记录的PID强杀
+        const pid = browserPid || browser?.process?.()?.pid;
+        if (pid) {
+          try {
+            const { execSync } = require('child_process');
+            execSync(`taskkill /f /pid ${pid} /t 2>nul`, { timeout: 3000 });
+            console.log(`[SharedSession] taskkill /f /pid ${pid} /t`);
+          } catch (_) {}
+        }
+      }
+    }
+    console.log(`[SharedSession] 浏览器已关闭`);
+
+    // agent.destroy 异步执行（报告生成不阻塞）
+    if (agent) {
+      setImmediate(async () => {
+        try {
+          await Promise.race([agent.destroy(), new Promise((_, r) => setTimeout(() => r(), 15000))]);
+          console.log(`[SharedSession] agent.destroy() 异步完成`);
+        } catch (_) {}
+      });
+    }
+
     // Android设备释放
     try {
       if (androidDevice && typeof androidDevice.destroy === 'function') {
-        await Promise.race([androidDevice.destroy(), new Promise((_, r) => setTimeout(() => r(), 3000))]);
-      }
-    } catch (_) {}
-    // 关闭浏览器
-    try {
-      if (browser) await Promise.race([browser.close(), new Promise((_, r) => setTimeout(() => r(), 2000))]);
-    } catch (_) {}
-    try {
-      if (browser && browser.process) {
-        const { execSync } = require('child_process');
-        execSync(`taskkill /f /pid ${browser.process().pid} /t 2>nul`, { timeout: 2000 });
+        await Promise.race([androidDevice.destroy(), new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))]);
       }
     } catch (_) {}
   }
