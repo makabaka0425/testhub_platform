@@ -1230,11 +1230,15 @@ const groupTreeSelectData = computed(() => {
   return groups.value
 })
 
+let _groupReqSeq = 0
 async function loadGroups() {
+  const seq = ++_groupReqSeq
   try {
     const params = {}
     if (projectId.value) params.project_id = projectId.value
+    if (routePlatform.value) params.platform = routePlatform.value
     const res = await getMidsceneGroupTree(params)
+    if (seq !== _groupReqSeq) return // 过期响应丢弃
     groups.value = res.data || []
   } catch {}
 }
@@ -1353,6 +1357,7 @@ async function saveGroupForm() {
       await updateMidsceneGroup(groupId, {
         name: groupForm.name,
         parent_id: groupForm.parent_id,
+        platform: routePlatform.value || editingGroup.value?.platform || 'web',
       })
       ElMessage.success('分组已更新')
     } else {
@@ -1360,6 +1365,7 @@ async function saveGroupForm() {
         name: groupForm.name,
         parent_id: groupForm.parent_id || null,
         project_id: projectId.value || null,
+        platform: routePlatform.value || 'web',
       })
       ElMessage.success('分组已创建')
     }
@@ -1487,7 +1493,9 @@ function onFilterChange() {
   currentPage.value = 1
 }
 
+let _caseReqSeq = 0
 async function loadCases() {
+  const seq = ++_caseReqSeq
   try {
     const params = {}
     if (currentGroupId.value && currentGroupId.value !== 'ungrouped') {
@@ -1500,6 +1508,7 @@ async function loadCases() {
     if (projectId.value) params.project_id = projectId.value
 
     const res = await getMidsceneCases(params)
+    if (seq !== _caseReqSeq) return // 过期响应丢弃
     const data = res.data
     // 后端返回 { count, results }，直接取 results
     cases.value = Array.isArray(data) ? data : (data.results || [])
@@ -2070,7 +2079,13 @@ onMounted(async () => {
 
 // 路由切换时重新加载（同组件不重建，需手动刷新）
 watch(() => route.path, () => {
-  loadCases()
+  // 重置分组选中状态
+  currentGroupId.value = null
+  closeDetailDrawer()
+  nextTick(() => {
+    loadGroups()
+    loadCases()
+  })
 })
 </script>
 

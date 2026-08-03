@@ -213,15 +213,19 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
 
     def list(self, request):
         project_id = request.query_params.get('project_id')
+        platform = request.query_params.get('platform')
         qs = self.get_queryset()
         if project_id:
             qs = qs.filter(models.Q(project_id=project_id) | models.Q(project_id__isnull=True))
+        if platform:
+            qs = qs.filter(models.Q(platform=platform) | models.Q(platform__isnull=True) | models.Q(platform=''))
 
         data = []
         for g in qs.order_by('order', '-created_at'):
             data.append({
                 'id': g.id,
                 'name': g.name,
+                'platform': g.platform,
                 'project_id': g.project_id,
                 'parent_id': g.parent_id,
                 'order': g.order,
@@ -237,11 +241,12 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
 
         group = MidsceneGroup.objects.create(
             name=name,
+            platform=request.data.get('platform', 'web'),
             project_id=request.data.get('project_id') or None,
             parent_id=request.data.get('parent_id') or None,
             order=request.data.get('order', 0),
         )
-        return Response({'id': group.id, 'name': group.name}, status=status.HTTP_201_CREATED)
+        return Response({'id': group.id, 'name': group.name, 'platform': group.platform}, status=status.HTTP_201_CREATED)
 
     def update(self, request, pk=None, **kwargs):
         # 防御非法pk（如前端传入'undefined'）
@@ -280,12 +285,16 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
     def tree(self, request):
         """获取分组树形结构"""
         project_id = request.query_params.get('project_id')
+        platform = request.query_params.get('platform')
         qs = self.get_queryset()
         # 过滤指定项目 + 无项目归属的分组（兼容旧数据）
         if project_id:
             qs = qs.filter(models.Q(project_id=project_id) | models.Q(project_id__isnull=True))
+        # 过滤指定平台 + 无平台归属的分组（兼容旧数据）
+        if platform:
+            qs = qs.filter(models.Q(platform=platform) | models.Q(platform__isnull=True) | models.Q(platform=''))
         roots = qs.filter(parent__isnull=True).order_by('order', '-created_at')
-        data = self._build_tree(roots)
+        data = self._build_tree(roots, platform)
         return Response(data)
 
     @action(detail=False, methods=['post'])
@@ -308,21 +317,25 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
             return Response({'error': f'排序保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({'status': 'ok'})
 
-    def _build_tree(self, groups):
+    def _build_tree(self, groups, platform=None):
         """递归构建树形结构"""
         result = []
         for g in groups:
             node = {
                 'id': g.id,
                 'name': g.name,
+                'platform': g.platform,
                 'parent_id': g.parent_id,
                 'order': g.order,
                 'case_count': g.cases.count(),
                 'created_at': g.created_at,
             }
-            children = MidsceneGroup.objects.filter(parent=g).order_by('order', '-created_at')
+            children_qs = MidsceneGroup.objects.filter(parent=g)
+            if platform:
+                children_qs = children_qs.filter(models.Q(platform=platform) | models.Q(platform__isnull=True) | models.Q(platform=''))
+            children = children_qs.order_by('order', '-created_at')
             if children.exists():
-                node['children'] = self._build_tree(children)
+                node['children'] = self._build_tree(children, platform)
             else:
                 node['children'] = []
             result.append(node)

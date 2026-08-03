@@ -1359,7 +1359,9 @@ class AiProject(models.Model):
 
 class MidsceneGroup(models.Model):
     """Midscene用例分组"""
+    PLATFORM_CHOICES = [('web', 'Web端'), ('app', 'APP端')]
     name = models.CharField(max_length=200, verbose_name='分组名称')
+    platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES, default='web', verbose_name='平台')
     project = models.ForeignKey('AiProject', on_delete=models.CASCADE, null=True, blank=True,
                                 related_name='midscene_groups', verbose_name='所属项目')
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True,
