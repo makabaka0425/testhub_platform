@@ -1407,6 +1407,59 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
         })
 
 
+    @action(detail=False, methods=['post'], url_path='visual-compare')
+    def visual_compare(self, request):
+        """中转：截图对比（调用Midscene微服务 /visual-compare）"""
+        import httpx
+        try:
+            with httpx.Client(timeout=30) as client:
+                resp = client.post(
+                    f'{MIDSCENE_SERVICE_URL}/visual-compare',
+                    json=request.data,
+                )
+                resp.raise_for_status()
+                return Response(resp.json())
+        except httpx.ConnectError:
+            return Response({'error': 'Midscene微服务未启动'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            return Response({'error': f'截图对比失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='baseline/save')
+    def save_baseline(self, request):
+        """中转：保存基线截图（调用Midscene微服务 /baseline/save）"""
+        import httpx
+        try:
+            with httpx.Client(timeout=15) as client:
+                resp = client.post(
+                    f'{MIDSCENE_SERVICE_URL}/baseline/save',
+                    json=request.data,
+                )
+                resp.raise_for_status()
+                return Response(resp.json())
+        except httpx.ConnectError:
+            return Response({'error': 'Midscene微服务未启动'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            return Response({'error': f'基线保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='baseline/list')
+    def list_baselines(self, request):
+        """中转：查询用例基线列表（调用Midscene微服务 /baseline/list）"""
+        import httpx
+        try:
+            case_id = request.query_params.get('case_id')
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(
+                    f'{MIDSCENE_SERVICE_URL}/baseline/list',
+                    params={'case_id': case_id},
+                )
+                resp.raise_for_status()
+                return Response(resp.json())
+        except httpx.ConnectError:
+            return Response({'error': 'Midscene微服务未启动'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            return Response({'error': f'基线查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 # ──────────────────────────────────────────────
 # AI 自动化定时任务
 # ──────────────────────────────────────────────

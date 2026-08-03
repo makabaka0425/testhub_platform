@@ -103,6 +103,11 @@
           </div>
         </div>
 
+        <!-- 30天执行趋势图 -->
+        <div v-if="statsData && statsData.trend && statsData.trend.length" class="trend-chart-wrapper">
+          <div ref="trendChartRef" class="trend-chart"></div>
+        </div>
+
         <!-- 用例列表面板 -->
         <section class="panel list-panel">
           <div class="panel__header">
@@ -504,6 +509,10 @@
                             <el-tag v-if="s.output_var" type="warning" size="small" style="margin-left:6px">→ {{ s.output_var }}</el-tag>
                             <div v-if="s.screenshot && s.status === 'failed'" style="width:100%;margin-top:6px;margin-left:0">
                               <el-image :src="s.screenshot" fit="contain" style="max-width:360px;max-height:200px;border:1px solid #ebeef5;border-radius:4px" :preview-src-list="[s.screenshot]" preview-teleported />
+                              <div style="margin-top:4px;display:flex;gap:6px">
+                                <el-button size="small" text type="primary" @click="saveAsBaseline(s.screenshot)">设为基线</el-button>
+                                <el-button size="small" text type="primary" @click="openVisualCompare(s.screenshot)">视觉对比</el-button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -886,6 +895,10 @@
                 <el-tag v-if="s.output_var" type="warning" size="small" style="margin-left:6px">→ {{ s.output_var }}</el-tag>
                 <div v-if="s.screenshot && s.status === 'failed'" style="width:100%;margin-top:6px;margin-left:0">
                   <el-image :src="s.screenshot" fit="contain" style="max-width:360px;max-height:200px;border:1px solid #ebeef5;border-radius:4px" :preview-src-list="[s.screenshot]" preview-teleported />
+                  <div style="margin-top:4px;display:flex;gap:6px">
+                    <el-button size="small" text type="primary" @click="saveAsBaseline(s.screenshot)">设为基线</el-button>
+                    <el-button size="small" text type="primary" @click="openVisualCompare(s.screenshot)">视觉对比</el-button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -966,6 +979,60 @@
       </el-tabs>
     </el-dialog>
 
+    <!-- 视觉对比弹窗 -->
+    <el-dialog v-model="visualCompareVisible" title="视觉回归对比" width="860px" destroy-on-close>
+      <div class="visual-compare-body">
+        <!-- 基线选择 -->
+        <div class="vc-section">
+          <div class="vc-section__title">基线截图</div>
+          <div v-if="baselineList.length === 0" style="color:#909399;font-size:13px;padding:8px 0">
+            暂无基线，请先将某次失败截图设为基线
+          </div>
+          <el-radio-group v-else v-model="selectedBaselineUrl" style="display:flex;flex-direction:column;gap:8px">
+            <el-radio v-for="b in baselineList" :key="b.url" :value="b.url" style="display:flex;align-items:center;gap:8px">
+              <el-image :src="b.url" fit="contain" class="vc-thumb" />
+              <span style="font-size:12px;color:#606266">{{ formatBaselineTime(b.saved_at) }}</span>
+            </el-radio>
+          </el-radio-group>
+        </div>
+        <!-- 当前截图 -->
+        <div class="vc-section">
+          <div class="vc-section__title">当前截图</div>
+          <el-image v-if="visualCompareCurrentUrl" :src="visualCompareCurrentUrl" fit="contain" class="vc-current-img" />
+        </div>
+      </div>
+      <!-- 对比结果 -->
+      <div v-if="compareResult" class="vc-result">
+        <div class="vc-result__header">
+          <el-tag :type="compareResult.match ? 'success' : 'danger'" size="small">
+            {{ compareResult.match ? '完全匹配' : '存在差异' }}
+          </el-tag>
+          <span style="margin-left:8px;font-size:13px;color:#606266">
+            差异像素: {{ compareResult.diff_pixels }} / {{ compareResult.total_pixels }} ({{ compareResult.diff_percent }}%)
+          </span>
+        </div>
+        <div class="vc-result__images">
+          <div class="vc-result__img-box">
+            <div class="vc-result__img-label">基线</div>
+            <el-image :src="compareResult.baseline_url" fit="contain" class="vc-result__img" :preview-src-list="[compareResult.baseline_url]" preview-teleported />
+          </div>
+          <div class="vc-result__img-box">
+            <div class="vc-result__img-label">差异</div>
+            <el-image v-if="!compareResult.match" :src="compareResult.diff_url" fit="contain" class="vc-result__img" :preview-src-list="[compareResult.diff_url]" preview-teleported />
+            <div v-else style="display:flex;align-items:center;justify-content:center;height:100%;color:#67c23a;font-size:14px">无差异</div>
+          </div>
+          <div class="vc-result__img-box">
+            <div class="vc-result__img-label">当前</div>
+            <el-image :src="compareResult.current_url" fit="contain" class="vc-result__img" :preview-src-list="[compareResult.current_url]" preview-teleported />
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="visualCompareVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="compareLoading" :disabled="!selectedBaselineUrl" @click="doVisualCompare">执行对比</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 分组右键菜单 -->
     <div v-if="showGroupContextMenu" class="group-context-menu"
       :style="{ left: groupContextMenuX + 'px', top: groupContextMenuY + 'px' }">
@@ -1003,16 +1070,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick, ArrowRight, ArrowDown, CopyDocument } from '@element-plus/icons-vue'
+import * as echarts from 'echarts'
+import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick, ArrowRight, ArrowDown, CopyDocument, PictureFilled } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
 import {
   getMidsceneGroups, getMidsceneGroupTree, createMidsceneGroup, updateMidsceneGroup, deleteMidsceneGroup, batchReorderMidsceneGroups,
   getMidsceneCases, createMidsceneCase, updateMidsceneCase, deleteMidsceneCase,
   batchDeleteMidsceneCases, importAIToMidscene, runMidsceneCase, copyMidsceneCase,
   getMidsceneExecutionDetail, getMidsceneExecutionStatus, getMidsceneStatistics,
+  midsceneVisualCompare, midsceneSaveBaseline, midsceneListBaselines,
 } from '@/api/ui_automation'
 import { getAITaskList, getAITaskCases, getAiProjects } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
@@ -1050,8 +1119,151 @@ async function loadStatistics() {
     if (projectId.value) params.project_id = projectId.value
     const res = await getMidsceneStatistics(params)
     statsData.value = res.data || null
+    // 趋势图在数据加载后渲染
+    await nextTick()
+    renderTrendChart()
   } catch {
     statsData.value = null
+  }
+}
+
+// ---- 30天趋势图 ----
+const trendChartRef = ref(null)
+let trendChartInstance = null
+
+function renderTrendChart() {
+  if (!trendChartRef.value || !statsData.value?.trend?.length) return
+  // 销毁旧实例
+  if (trendChartInstance) {
+    trendChartInstance.dispose()
+    trendChartInstance = null
+  }
+  trendChartInstance = echarts.init(trendChartRef.value)
+  const trend = statsData.value.trend
+  const dates = trend.map(d => d.date.slice(5)) // MM-DD
+  const option = {
+    grid: { top: 30, right: 20, bottom: 30, left: 40 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+    },
+    legend: {
+      data: ['通过', '失败'],
+      top: 4,
+      right: 10,
+      textStyle: { fontSize: 12 },
+    },
+    xAxis: {
+      type: 'category',
+      data: dates,
+      axisLabel: { fontSize: 11, color: '#909399' },
+      axisLine: { lineStyle: { color: '#dcdfe6' } },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLabel: { fontSize: 11, color: '#909399' },
+      splitLine: { lineStyle: { color: '#f0f0f0' } },
+    },
+    series: [
+      {
+        name: '通过',
+        type: 'bar',
+        stack: 'total',
+        data: trend.map(d => d.passed),
+        itemStyle: { color: '#67c23a', borderRadius: [0, 0, 0, 0] },
+        barMaxWidth: 18,
+      },
+      {
+        name: '失败',
+        type: 'bar',
+        stack: 'total',
+        data: trend.map(d => d.failed),
+        itemStyle: { color: '#f56c6c', borderRadius: [2, 2, 0, 0] },
+        barMaxWidth: 18,
+      },
+    ],
+  }
+  trendChartInstance.setOption(option)
+}
+
+// 响应窗口大小变化
+function handleResize() {
+  trendChartInstance?.resize()
+}
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  if (trendChartInstance) {
+    trendChartInstance.dispose()
+    trendChartInstance = null
+  }
+})
+
+// ---- 视觉回归 ----
+const visualCompareVisible = ref(false)
+const visualCompareCurrentUrl = ref('')
+const baselineList = ref([])
+const selectedBaselineUrl = ref('')
+const compareResult = ref(null)
+const compareLoading = ref(false)
+
+function formatBaselineTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+async function saveAsBaseline(screenshotUrl) {
+  // 用当前选中的用例或最近执行的用例获取case_id
+  const caseId = selectedCase.value?.id || drawerResultData.value?.case_id || resultData.value?.case_id
+  if (!caseId) {
+    ElMessage.warning('无法确定用例ID，请先选中一个用例')
+    return
+  }
+  try {
+    const res = await midsceneSaveBaseline({ case_id: caseId, screenshot_url: screenshotUrl })
+    ElMessage.success('基线已保存')
+  } catch (e) {
+    ElMessage.error('基线保存失败：' + (e.response?.data?.error || e.message))
+  }
+}
+
+async function openVisualCompare(screenshotUrl) {
+  visualCompareCurrentUrl.value = screenshotUrl
+  compareResult.value = null
+  selectedBaselineUrl.value = ''
+  visualCompareVisible.value = true
+
+  // 加载基线列表
+  const caseId = selectedCase.value?.id || drawerResultData.value?.case_id || resultData.value?.case_id
+  if (!caseId) {
+    baselineList.value = []
+    return
+  }
+  try {
+    const res = await midsceneListBaselines({ case_id: caseId })
+    baselineList.value = res.data?.baselines || []
+  } catch {
+    baselineList.value = []
+  }
+}
+
+async function doVisualCompare() {
+  if (!selectedBaselineUrl.value || !visualCompareCurrentUrl.value) return
+  compareLoading.value = true
+  compareResult.value = null
+  try {
+    const res = await midsceneVisualCompare({
+      baseline: selectedBaselineUrl.value,
+      current: visualCompareCurrentUrl.value,
+    })
+    compareResult.value = res.data || null
+  } catch (e) {
+    ElMessage.error('对比失败：' + (e.response?.data?.error || e.message))
+  } finally {
+    compareLoading.value = false
   }
 }
 
@@ -1902,6 +2114,7 @@ onMounted(() => {
   loadAICases()
   loadStatistics()
   document.addEventListener('click', closeGroupContextMenu)
+  window.addEventListener('resize', handleResize)
 })
 
 // 路由切换时重新加载（同组件不重建，需手动刷新）
@@ -2489,6 +2702,94 @@ watch(() => route.path, () => {
   flex: 1;
   width: 100%;
   border: none;
+}
+
+/* ============================================================
+   视觉回归对比
+   ============================================================ */
+.visual-compare-body {
+  display: flex;
+  gap: 20px;
+  min-height: 200px;
+}
+
+.vc-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.vc-section__title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 8px;
+}
+
+.vc-thumb {
+  width: 80px;
+  height: 50px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.vc-current-img {
+  max-width: 100%;
+  max-height: 180px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+}
+
+.vc-result {
+  margin-top: 16px;
+  border-top: 1px solid #ebeef5;
+  padding-top: 12px;
+}
+
+.vc-result__header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.vc-result__images {
+  display: flex;
+  gap: 12px;
+}
+
+.vc-result__img-box {
+  flex: 1;
+  min-width: 0;
+}
+
+.vc-result__img-label {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+.vc-result__img {
+  width: 100%;
+  max-height: 240px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+}
+
+/* ============================================================
+   趋势图
+   ============================================================ */
+.trend-chart-wrapper {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 12px 16px 8px;
+  margin-bottom: 20px;
+}
+
+.trend-chart {
+  width: 100%;
+  height: 200px;
 }
 </style>
 

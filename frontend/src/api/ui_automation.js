@@ -1765,6 +1765,19 @@ export function getMidsceneStatistics(params) {
   return request({ url: '/ui-automation/midscene-executions/statistics/', method: 'get', params })
 }
 
+// ---- 视觉回归 ----
+export function midsceneVisualCompare(data) {
+  return request({ url: '/ui-automation/midscene/visual-compare/', method: 'post', data })
+}
+
+export function midsceneSaveBaseline(data) {
+  return request({ url: '/ui-automation/midscene/baseline/save/', method: 'post', data })
+}
+
+export function midsceneListBaselines(params) {
+  return request({ url: '/ui-automation/midscene/baseline/list/', method: 'get', params })
+}
+
 // ---- 微服务状态 ----
 export function midsceneHealthCheck() {
   return request({ url: '/ui-automation/midscene/health/', method: 'get', timeout: 5000 })
