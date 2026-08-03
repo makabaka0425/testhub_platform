@@ -170,6 +170,7 @@
           </div>
         </section>
       </div>
+    </div>
 
       <!-- 右侧：用例详情抽屉 -->
       <el-drawer
@@ -225,6 +226,24 @@
                     </el-form-item>
                     <el-form-item label="描述">
                       <el-input v-model="drawerForm.description" type="textarea" :rows="2" />
+                    </el-form-item>
+
+                    <!-- Midscene 三级配置覆盖 -->
+                    <el-divider content-position="left">Midscene 配置覆盖</el-divider>
+                    <p style="font-size:12px;color:#909399;margin:0 0 12px 0">以下配置留空则继承全局Midscene配置，填写则覆盖全局</p>
+                    <el-form-item label="设备类型">
+                      <el-select v-model="drawerForm.device_type" placeholder="继承全局" clearable style="width:100%">
+                        <el-option label="继承全局" value="" />
+                        <el-option label="Web端" value="web" />
+                        <el-option label="Android" value="android" />
+                        <el-option label="iOS" value="ios" />
+                        <el-option label="HarmonyOS" value="harmony" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="AI模型覆盖">
+                      <el-button size="small" @click="openAiModelOverride">
+                        {{ Object.keys(drawerForm.ai_model_config_override).length ? '已配置，点击编辑' : '点击配置' }}
+                      </el-button>
                     </el-form-item>
 
                     <!-- Web端配置 -->
@@ -293,34 +312,101 @@
                 <el-tab-pane label="测试步骤" name="steps">
                   <div class="steps-editor-drawer">
                     <div v-for="(step, idx) in drawerForm.steps" :key="idx" class="step-row-block">
+                      <!-- 主行：序号 + 模式标签 + 类型 + 描述 + 删除 -->
                       <div class="step-row-main" @click.self="toggleDrawerStep(idx)">
                         <el-icon class="step-toggle-icon" :class="{ 'is-expanded': drawerExpandedSteps.has(idx) }" @click.stop="toggleDrawerStep(idx)"><ArrowRight /></el-icon>
                         <span class="step-order">{{ idx + 1 }}.</span>
+                        <el-tag
+                          :type="step.mode === 'traditional' ? 'warning' : 'success'"
+                          size="small"
+                          class="step-mode-tag"
+                          @click.stop="toggleStepMode(step)"
+                          style="cursor:pointer;margin-right:4px"
+                          :title="step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式'"
+                        >{{ step.mode === 'traditional' ? '传统' : 'AI' }}</el-tag>
                         <el-select v-model="step.type" style="width:90px" size="small" @click.stop>
                           <el-option label="操作" value="action" />
                           <el-option label="断言" value="assert" />
                         </el-select>
-                        <el-input v-model="step.instruction" placeholder="步骤描述（支持${变量名}引用）" style="flex:1" size="small" @click.stop />
+                        <el-input
+                          v-if="step.mode !== 'traditional'"
+                          v-model="step.instruction"
+                          placeholder="步骤描述（支持${变量名}引用）"
+                          style="flex:1" size="small" @click.stop
+                        />
+                        <el-input
+                          v-else
+                          v-model="step.instruction"
+                          placeholder="步骤描述"
+                          style="flex:1" size="small" @click.stop
+                        />
                         <el-button link type="danger" size="small" @click.stop="drawerForm.steps.splice(idx, 1)">
                           <el-icon><Delete /></el-icon>
                         </el-button>
                       </div>
+                      <!-- 展开区 -->
                       <div v-if="drawerExpandedSteps.has(idx)" class="step-row-params">
                         <span class="step-params-indent-toggle"></span>
                         <span class="step-params-indent-order"></span>
                         <span class="step-params-indent-select"></span>
-                        <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1" size="small">
-                          <template #append>
-                            <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
-                              <el-icon><MagicStick /></el-icon>
-                            </el-button>
-                          </template>
-                        </el-input>
-                        <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
+
+                        <!-- AI模式展开 -->
+                        <template v-if="step.mode !== 'traditional'">
+                          <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1" size="small">
+                            <template #append>
+                              <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
+                                <el-icon><MagicStick /></el-icon>
+                              </el-button>
+                            </template>
+                          </el-input>
+                          <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
+                        </template>
+
+                        <!-- 传统模式展开 -->
+                        <template v-else>
+                          <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+                            <div style="display:flex;gap:6px;align-items:center">
+                              <el-select v-model="step.action_type" placeholder="操作类型" style="width:100px" size="small">
+                                <el-option label="点击" value="click" />
+                                <el-option label="输入" value="input" />
+                                <el-option label="选择" value="select" />
+                                <el-option label="悬停" value="hover" />
+                                <el-option label="等待" value="wait" />
+                                <el-option label="滚动" value="scroll" />
+                              </el-select>
+                              <el-input v-model="step.locator_value" placeholder="定位表达式（如 #btn-submit 或 //button[text()='登录']）" style="flex:1" size="small" />
+                            </div>
+                            <div style="display:flex;gap:6px;align-items:center">
+                              <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1" size="small">
+                                <template #append>
+                                  <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
+                                    <el-icon><MagicStick /></el-icon>
+                                  </el-button>
+                                </template>
+                              </el-input>
+                              <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
+                            </div>
+                            <template v-if="step.type === 'assert'">
+                              <div style="display:flex;gap:6px;align-items:center">
+                                <el-select v-model="step.assert_type" placeholder="断言类型" style="width:100px" size="small">
+                                  <el-option label="等于" value="equals" />
+                                  <el-option label="包含" value="contains" />
+                                  <el-option label="不等于" value="not_equals" />
+                                  <el-option label="存在" value="exists" />
+                                </el-select>
+                                <el-input v-model="step.assert_value" placeholder="期望值" style="flex:1" size="small" />
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+
                         <span class="step-params-indent-delete"></span>
                       </div>
                     </div>
-                    <el-button link type="primary" @click="addStepToDrawer" style="margin-top:4px">+ 添加步骤</el-button>
+                    <div style="display:flex;gap:8px;margin-top:4px">
+                      <el-button link type="primary" @click="addStepToDrawer('ai')">+ AI步骤</el-button>
+                      <el-button link type="warning" @click="addStepToDrawer('traditional')">+ 传统步骤</el-button>
+                    </div>
                   </div>
                 </el-tab-pane>
 
@@ -367,7 +453,17 @@
                         <div v-if="drawerResultData.step_results && drawerResultData.step_results.length">
                           <div v-for="(s, idx) in drawerResultData.step_results" :key="idx" class="step-result-row">
                             <el-tag :type="s.status === 'passed' ? 'success' : 'danger'" size="small">{{ s.status }}</el-tag>
-                            <span style="margin-left:8px;flex:1">{{ s.instruction }}</span>
+                            <el-tag v-if="s.mode === 'traditional'" type="info" size="small" style="margin-left:6px">传统</el-tag>
+                            <el-tag v-else type="" size="small" style="margin-left:6px">AI</el-tag>
+                            <span style="margin-left:8px;flex:1">
+                              <template v-if="s.mode === 'traditional'">
+                                {{ s.action_type || 'click' }} <span style="color:#909399">{{ s.locator_value ? '(' + s.locator_value.substring(0, 60) + (s.locator_value.length > 60 ? '...' : '') + ')' : '' }}</span>
+                              </template>
+                              <template v-else>
+                                {{ s.instruction }}
+                              </template>
+                            </span>
+                            <el-tag v-if="s.type" size="small" style="margin-left:6px">{{ s.type }}</el-tag>
                             <el-tag v-if="s.output_var" type="warning" size="small" style="margin-left:6px">→ {{ s.output_var }}</el-tag>
                           </div>
                         </div>
@@ -430,7 +526,59 @@
           </div>
         </div>
       </el-drawer>
-    </div>
+
+      <!-- AI模型覆盖配置弹窗 -->
+      <el-dialog v-model="showAiModelOverrideDrawer" title="AI模型覆盖配置" width="600px" :close-on-click-modal="false" destroy-on-close>
+        <p style="font-size:12px;color:#909399;margin:0 0 16px 0">三级意图模型覆盖：留空则继承全局配置，填写则覆盖。Default 为必填基础模型。</p>
+        <el-form label-width="120px" label-position="left">
+          <el-divider content-position="left">Default（默认模型）</el-divider>
+          <el-form-item label="模型提供商">
+            <el-input v-model="aiOverrideEdit.default.modelProvider" placeholder="如 openai" />
+          </el-form-item>
+          <el-form-item label="模型名称">
+            <el-input v-model="aiOverrideEdit.default.modelName" placeholder="如 gpt-4o" />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="aiOverrideEdit.default.apiKey" type="password" show-password placeholder="模型 API Key" />
+          </el-form-item>
+          <el-form-item label="Base URL">
+            <el-input v-model="aiOverrideEdit.default.baseURL" placeholder="如 https://api.openai.com/v1" />
+          </el-form-item>
+
+          <el-divider content-position="left">Insight（定位模型，可选）</el-divider>
+          <el-form-item label="模型提供商">
+            <el-input v-model="aiOverrideEdit.insight.modelProvider" placeholder="留空继承 Default" />
+          </el-form-item>
+          <el-form-item label="模型名称">
+            <el-input v-model="aiOverrideEdit.insight.modelName" placeholder="留空继承 Default" />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="aiOverrideEdit.insight.apiKey" type="password" show-password placeholder="留空继承 Default" />
+          </el-form-item>
+          <el-form-item label="Base URL">
+            <el-input v-model="aiOverrideEdit.insight.baseURL" placeholder="留空继承 Default" />
+          </el-form-item>
+
+          <el-divider content-position="left">Planning（规划模型，可选）</el-divider>
+          <el-form-item label="模型提供商">
+            <el-input v-model="aiOverrideEdit.planning.modelProvider" placeholder="留空继承 Default" />
+          </el-form-item>
+          <el-form-item label="模型名称">
+            <el-input v-model="aiOverrideEdit.planning.modelName" placeholder="留空继承 Default" />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="aiOverrideEdit.planning.apiKey" type="password" show-password placeholder="留空继承 Default" />
+          </el-form-item>
+          <el-form-item label="Base URL">
+            <el-input v-model="aiOverrideEdit.planning.baseURL" placeholder="留空继承 Default" />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="showAiModelOverrideDrawer = false">取消</el-button>
+          <el-button type="danger" plain @click="drawerForm.ai_model_config_override = {}; showAiModelOverrideDrawer = false">清除覆盖</el-button>
+          <el-button type="primary" @click="saveAiModelOverride">保存</el-button>
+        </template>
+      </el-dialog>
 
     <!-- 新建用例弹窗（仅新建用） -->
     <el-dialog v-model="caseDialogVisible" title="新建用例" width="700px" :close-on-click-modal="false" destroy-on-close>
@@ -523,11 +671,18 @@
               <div class="step-row-main" @click.self="toggleCaseStep(idx)">
                 <el-icon class="step-toggle-icon" :class="{ 'is-expanded': caseExpandedSteps.has(idx) }" @click.stop="toggleCaseStep(idx)"><ArrowRight /></el-icon>
                 <span class="step-order">{{ idx + 1 }}.</span>
+                <el-tag
+                  :type="step.mode === 'traditional' ? 'warning' : 'success'"
+                  size="small" class="step-mode-tag"
+                  @click.stop="toggleStepMode(step)"
+                  style="cursor:pointer;margin-right:4px"
+                  :title="step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式'"
+                >{{ step.mode === 'traditional' ? '传统' : 'AI' }}</el-tag>
                 <el-select v-model="step.type" style="width:90px" @click.stop>
                   <el-option label="操作" value="action" />
                   <el-option label="断言" value="assert" />
                 </el-select>
-                <el-input v-model="step.instruction" placeholder="步骤描述（支持${变量名}引用）" style="flex:1" @click.stop />
+                <el-input v-model="step.instruction" placeholder="步骤描述" style="flex:1" @click.stop />
                 <el-button link type="danger" @click.stop="caseForm.steps.splice(idx, 1)">
                   <el-icon><Delete /></el-icon>
                 </el-button>
@@ -536,18 +691,61 @@
                 <span class="step-params-indent-toggle"></span>
                 <span class="step-params-indent-order"></span>
                 <span class="step-params-indent-select"></span>
-                <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1">
-                  <template #append>
-                    <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
-                      <el-icon><MagicStick /></el-icon>
-                    </el-button>
-                  </template>
-                </el-input>
-                <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
+                <!-- AI模式 -->
+                <template v-if="step.mode !== 'traditional'">
+                  <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1">
+                    <template #append>
+                      <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
+                        <el-icon><MagicStick /></el-icon>
+                      </el-button>
+                    </template>
+                  </el-input>
+                  <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
+                </template>
+                <!-- 传统模式 -->
+                <template v-else>
+                  <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <el-select v-model="step.action_type" placeholder="操作类型" style="width:100px" size="small">
+                        <el-option label="点击" value="click" />
+                        <el-option label="输入" value="input" />
+                        <el-option label="选择" value="select" />
+                        <el-option label="悬停" value="hover" />
+                        <el-option label="等待" value="wait" />
+                        <el-option label="滚动" value="scroll" />
+                      </el-select>
+                      <el-input v-model="step.locator_value" placeholder="定位表达式" style="flex:1" size="small" />
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <el-input v-model="step.input_value" placeholder="输入值" style="flex:1" size="small">
+                        <template #append>
+                          <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
+                            <el-icon><MagicStick /></el-icon>
+                          </el-button>
+                        </template>
+                      </el-input>
+                      <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
+                    </div>
+                    <template v-if="step.type === 'assert'">
+                      <div style="display:flex;gap:6px;align-items:center">
+                        <el-select v-model="step.assert_type" placeholder="断言类型" style="width:100px" size="small">
+                          <el-option label="等于" value="equals" />
+                          <el-option label="包含" value="contains" />
+                          <el-option label="不等于" value="not_equals" />
+                          <el-option label="存在" value="exists" />
+                        </el-select>
+                        <el-input v-model="step.assert_value" placeholder="期望值" style="flex:1" size="small" />
+                      </div>
+                    </template>
+                  </div>
+                </template>
                 <span class="step-params-indent-delete"></span>
               </div>
             </div>
-            <el-button link type="primary" @click="addStep">+ 添加步骤</el-button>
+            <div style="display:flex;gap:8px">
+              <el-button link type="primary" @click="addStep('ai')">+ AI步骤</el-button>
+              <el-button link type="warning" @click="addStep('traditional')">+ 传统步骤</el-button>
+            </div>
           </div>
         </el-form-item>
 
@@ -612,7 +810,17 @@
             <div v-if="resultData.step_results && resultData.step_results.length">
               <div v-for="(s, idx) in resultData.step_results" :key="idx" class="step-result-row">
                 <el-tag :type="s.status === 'passed' ? 'success' : 'danger'" size="small">{{ s.status }}</el-tag>
-                <span style="margin-left:8px;flex:1">{{ s.instruction }}</span>
+                <el-tag v-if="s.mode === 'traditional'" type="info" size="small" style="margin-left:6px">传统</el-tag>
+                <el-tag v-else type="" size="small" style="margin-left:6px">AI</el-tag>
+                <span style="margin-left:8px;flex:1">
+                  <template v-if="s.mode === 'traditional'">
+                    {{ s.action_type || 'click' }} <span style="color:#909399">{{ s.locator_value ? '(' + s.locator_value.substring(0, 60) + (s.locator_value.length > 60 ? '...' : '') + ')' : '' }}</span>
+                  </template>
+                  <template v-else>
+                    {{ s.instruction }}
+                  </template>
+                </span>
+                <el-tag v-if="s.type" size="small" style="margin-left:6px">{{ s.type }}</el-tag>
                 <el-tag v-if="s.output_var" type="warning" size="small" style="margin-left:6px">→ {{ s.output_var }}</el-tag>
               </div>
             </div>
@@ -1150,6 +1358,41 @@ const caseExpandedSteps = ref(new Set())
 
 // ---- 抽屉步骤折叠 ----
 const drawerExpandedSteps = ref(new Set())
+// ---- AI模型覆盖弹窗 ----
+const showAiModelOverrideDrawer = ref(false)
+const aiOverrideEdit = reactive({
+  default: { modelProvider: '', modelName: '', apiKey: '', baseURL: '' },
+  insight: { modelProvider: '', modelName: '', apiKey: '', baseURL: '' },
+  planning: { modelProvider: '', modelName: '', apiKey: '', baseURL: '' }
+})
+
+function openAiModelOverride() {
+  const src = drawerForm.ai_model_config_override || {}
+  aiOverrideEdit.default = { ...aiOverrideEdit.default, ...(src.default || {}) }
+  aiOverrideEdit.insight = { ...aiOverrideEdit.insight, ...(src.insight || {}) }
+  aiOverrideEdit.planning = { ...aiOverrideEdit.planning, ...(src.planning || {}) }
+  showAiModelOverrideDrawer.value = true
+}
+
+function saveAiModelOverride() {
+  const result = {}
+  const build = (entry) => {
+    const r = {}
+    if (entry.modelProvider) r.modelProvider = entry.modelProvider
+    if (entry.modelName) r.modelName = entry.modelName
+    if (entry.apiKey && !entry.apiKey.includes('*')) r.apiKey = entry.apiKey
+    if (entry.baseURL) r.baseURL = entry.baseURL
+    return r
+  }
+  const d = build(aiOverrideEdit.default)
+  const i = build(aiOverrideEdit.insight)
+  const p = build(aiOverrideEdit.planning)
+  if (Object.keys(d).length) result.default = d
+  if (Object.keys(i).length) result.insight = i
+  if (Object.keys(p).length) result.planning = p
+  drawerForm.ai_model_config_override = result
+  showAiModelOverrideDrawer.value = false
+}
 
 function toggleCaseStep(idx) {
   if (caseExpandedSteps.value.has(idx)) {
@@ -1195,9 +1438,13 @@ function openCreateDialog() {
   caseDialogVisible.value = true
 }
 
-function addStep() {
+function addStep(mode = 'ai') {
   const idx = caseForm.steps.length
-  caseForm.steps.push({ order: idx + 1, type: 'action', instruction: '', input_value: '', output_var: '' })
+  caseForm.steps.push({
+    order: idx + 1, type: 'action', mode,
+    instruction: '', input_value: '', output_var: '',
+    locator_value: '', action_type: '', assert_type: '', assert_value: ''
+  })
 }
 
 async function saveCase() {
@@ -1257,6 +1504,10 @@ const drawerForm = reactive({
   user_agent: '', viewport_width: 1280, viewport_height: 768, device_scale_factor: 1.0,
   cookie_file: '', wait_for_network_idle_timeout: null, continue_on_network_idle_error: true,
   device_id: '', package_name: '', app_activity: '',
+  device_type: '', // Midscene设备类型覆盖（web/android/ios/harmony）
+  ai_model_config_override: {}, // AI模型覆盖（三级意图）
+  device_config_override: {}, // 设备配置覆盖
+  app_name_mapping: {}, // App名称映射覆盖
   steps: [],
   output_variables: [],
   precondition_sql: '',
@@ -1277,7 +1528,11 @@ function openDetailDrawer(caseData) {
     continue_on_network_idle_error: caseData.continue_on_network_idle_error ?? true,
     device_id: caseData.device_id || '', package_name: caseData.package_name || '',
     app_activity: caseData.app_activity || '',
-    steps: (caseData.steps || []).map(s => ({ ...s, input_value: s.input_value || '', output_var: s.output_var || '' })),
+    device_type: caseData.device_type || '',
+    ai_model_config_override: caseData.ai_model_config_override || {},
+    device_config_override: caseData.device_config_override || {},
+    app_name_mapping: caseData.app_name_mapping || {},
+    steps: (caseData.steps || []).map(s => ({ ...s, mode: s.mode || 'ai', input_value: s.input_value || '', output_var: s.output_var || '', locator_value: s.locator_value || '', action_type: s.action_type || '', assert_type: s.assert_type || '', assert_value: s.assert_value || '' })),
     output_variables: caseData.output_variables || [],
     precondition_sql: caseData.precondition_sql || '',
     postcondition_sql: caseData.postcondition_sql || '',
@@ -1318,9 +1573,27 @@ function startResize(e) {
   document.addEventListener('mouseup', onUp)
 }
 
-function addStepToDrawer() {
+function addStepToDrawer(mode = 'ai') {
   const idx = drawerForm.steps.length
-  drawerForm.steps.push({ order: idx + 1, type: 'action', instruction: '', input_value: '', output_var: '' })
+  drawerForm.steps.push({
+    order: idx + 1, type: 'action', mode,
+    instruction: '', input_value: '', output_var: '',
+    // 传统模式字段（AI模式不使用）
+    locator_value: '', action_type: '', assert_type: '', assert_value: ''
+  })
+}
+
+function toggleStepMode(step) {
+  if (step.mode === 'traditional') {
+    step.mode = 'ai'
+  } else {
+    step.mode = 'traditional'
+    // 切到传统时，如果缺少字段则补默认值
+    if (!step.locator_value) step.locator_value = ''
+    if (!step.action_type) step.action_type = 'click'
+    if (!step.assert_type) step.assert_type = ''
+    if (!step.assert_value) step.assert_value = ''
+  }
 }
 
 async function saveCaseFromDrawer() {
@@ -1948,6 +2221,11 @@ watch(() => route.path, () => {
 
 .step-row-main:hover {
   background-color: #f0f2f5;
+}
+
+.step-mode-tag {
+  flex-shrink: 0;
+  user-select: none;
 }
 
 .step-toggle-icon {

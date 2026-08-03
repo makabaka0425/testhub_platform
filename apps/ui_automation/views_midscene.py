@@ -19,6 +19,7 @@ from .models import (
     MidsceneGroup, MidsceneCase, MidsceneExecution, AiProject,
     AiScheduledTask, AiNotificationLog,
     AiTestPlan, AiTestPlanItem,
+    MidsceneConfig,
 )
 from .serializers import (
     AiProjectSerializer, AiProjectCreateSerializer, AiProjectUpdateSerializer,
@@ -354,6 +355,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             'source': case.source,
             'source_case_id': case.source_case_id,
             'platform': case.platform,
+            'device_type': case.device_type or case.platform,
+            'ai_model_config_override': case.ai_model_config_override or {},
+            'device_config_override': case.device_config_override or {},
+            'app_name_mapping': case.app_name_mapping or {},
             'steps': case.steps or [],
             # 变量与SQL
             'output_variables': case.output_variables or [],
@@ -431,6 +436,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 project_id=request.data.get('project_id') or None,
                 source='manual',
                 platform=request.data.get('platform', 'web'),
+                device_type=request.data.get('device_type', 'web'),
                 steps=steps,
                 # Web配置
                 url=request.data.get('url', ''),
@@ -449,6 +455,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 device_id=request.data.get('device_id', ''),
                 package_name=request.data.get('package_name', ''),
                 app_activity=request.data.get('app_activity', ''),
+                # 配置覆盖
+                ai_model_config_override=request.data.get('ai_model_config_override', {}),
+                device_config_override=request.data.get('device_config_override', {}),
+                app_name_mapping=request.data.get('app_name_mapping', {}),
                 created_by=request.user,
             )
             return Response(self._serialize_case(case), status=status.HTTP_201_CREATED)
@@ -462,13 +472,14 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             return Response({'error': '用例不存在'}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            fields = ['name', 'description', 'platform', 'steps',
+            fields = ['name', 'description', 'platform', 'device_type', 'steps',
                       'url', 'headless', 'cache_strategy', 'new_tab',
                       'user_agent', 'viewport_width', 'viewport_height',
                       'device_scale_factor', 'cookie_file',
                       'wait_for_network_idle_timeout', 'continue_on_network_idle_error',
                       'device_id', 'package_name', 'app_activity',
-                      'output_variables', 'precondition_sql', 'postcondition_sql']
+                      'output_variables', 'precondition_sql', 'postcondition_sql',
+                      'ai_model_config_override', 'device_config_override', 'app_name_mapping']
             for f in fields:
                 if f in request.data:
                     setattr(case, f, request.data[f])
@@ -616,69 +627,23 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         case.last_status = 'running'
         case.save(update_fields=['last_status'])
 
-        # 获取模型配置
-        from apps.requirement_analysis.models import AIModelConfig
-        config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
-        if not config_obj:
-            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+        # ---- 获取合并配置（全局→用例级覆盖）----
+        merged_config = self._get_merged_config(case)
 
-        model_config = {}
-        if config_obj:
-            # 根据 model_name 推断 Midscene 认可的 model_family
-            # Midscene v1.10.8 支持的 family: qwen3-vl, qwen2.5-vl, qwen3, qwen3.5, qwen3.6,
-            # doubao-vision, doubao-seed, gemini, glm-v, auto-glm, gpt-5, kimi, kimi3, xiaomi-mimo 等
-            model_name = (config_obj.model_name or '').lower()
-            if 'qwen3.6' in model_name:
-                model_family = 'qwen3.6'
-            elif 'qwen3.5' in model_name:
-                model_family = 'qwen3.5'
-            elif 'qwen3' in model_name and 'vl' in model_name:
-                model_family = 'qwen3-vl'
-            elif 'qwen3' in model_name:
-                model_family = 'qwen3'
-            elif 'qwen2.5' in model_name and 'vl' in model_name:
-                model_family = 'qwen2.5-vl'
-            elif 'qwen' in model_name and 'vl' in model_name:
-                model_family = 'qwen2.5-vl'  # fallback
-            elif 'qwen' in model_name:
-                model_family = 'qwen3'
-            elif 'doubao-seed' in model_name or 'seed' in model_name:
-                model_family = 'doubao-seed'
-            elif 'doubao' in model_name and 'vision' in model_name:
-                model_family = 'doubao-vision'
-            elif 'doubao' in model_name:
-                model_family = 'doubao-vision'
-            elif 'gemini' in model_name:
-                model_family = 'gemini'
-            elif 'glm' in model_name and 'auto-glm' in model_name:
-                model_family = 'auto-glm'
-            elif 'glm' in model_name:
-                model_family = 'glm-v'
-            elif 'gpt' in model_name:
-                model_family = 'gpt-5'
-            elif 'kimi3' in model_name:
-                model_family = 'kimi3'
-            elif 'kimi' in model_name:
-                model_family = 'kimi'
-            elif 'mimo' in model_name or 'xiaomi' in model_name:
-                model_family = 'xiaomi-mimo'
-            else:
-                model_family = 'qwen3-vl'  # 默认fallback
+        # ---- 构建AI模型配置（用例级覆盖 > 全局配置 > 旧AIModelConfig）----
+        model_config = merged_config.get('ai_model_config', {})
+        if not model_config:
+            # 向后兼容：从旧的 AIModelConfig 获取
+            model_config = self._get_legacy_model_config()
 
-            model_config = {
-                'api_key': config_obj.api_key,
-                'base_url': config_obj.base_url,
-                'model_name': config_obj.model_name,
-                'model_family': model_family,
-            }
-
-        # 构建微服务请求：对齐 v2 /execute 接口（steps 数组格式）
+        # ---- 构建微服务请求 ----
         steps = []
         for step in (case.steps or []):
             step_type = step.get('type', 'action')
             instruction = step.get('instruction', '')
             output_var = step.get('output_var', '')
             input_value = step.get('input_value', '')
+            mode = step.get('mode', 'ai')
             # 将前端 action/assert 映射为 Midscene API 类型
             if step_type == 'assert':
                 midscene_type = 'aiAssert'
@@ -692,12 +657,20 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 instruction = resolve_variables(instruction, context_variables)
                 if input_value:
                     input_value = resolve_variables(input_value, context_variables)
-            steps.append({
+            step_payload = {
                 'type': midscene_type,
                 'instruction': instruction,
                 'input_value': input_value,
                 'output_var': output_var,
-            })
+                'mode': mode,
+            }
+            # 传统模式步骤补全字段
+            if mode == 'traditional':
+                step_payload['action_type'] = step.get('action_type', 'click')
+                step_payload['locator_value'] = step.get('locator_value', '')
+                step_payload['assert_type'] = step.get('assert_type', '')
+                step_payload['assert_value'] = step.get('assert_value', '')
+            steps.append(step_payload)
 
         if not steps:
             execution.status = 'failed'
@@ -709,8 +682,12 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             case.save(update_fields=['last_status', 'last_result'])
             return Response({'error': '用例没有测试步骤'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # 设备类型（合并配置优先）
+        resolved_device_type = merged_config.get('device_type') or case.device_type or case.platform or 'web'
+
         payload = {
             'platform': case.platform or 'web',  # 传递平台类型
+            'device_type': resolved_device_type,
             'url': case.url or None,
             'steps': steps,
             'headless': case.headless,
@@ -734,7 +711,15 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 'device_id': case.device_id or '',
                 'package_name': case.package_name or '',
                 'app_activity': case.app_activity or '',
-            } if case.platform == 'app' else None,
+            } if resolved_device_type != 'web' else None,
+            # 三级配置合并后的参数
+            'execution_config': merged_config.get('execution_config', {}),
+            'report_config': merged_config.get('report_config', {}),
+            'web_config': merged_config.get('web_config', {}),
+            'android_config': merged_config.get('android_config', {}),
+            'ios_config': merged_config.get('ios_config', {}),
+            'harmony_config': merged_config.get('harmony_config', {}),
+            'app_name_mapping': merged_config.get('app_name_mapping', {}),
         }
 
         try:
@@ -775,6 +760,117 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 'execution_id': execution.id,
                 'status': 'failed',
             })
+
+    # ---- 获取合并配置（全局→用例级覆盖） ----
+    def _get_merged_config(self, case):
+        """获取三级合并配置：全局MidsceneConfig + 用例级覆盖"""
+        import copy
+        device_type = case.device_type or case.platform or 'web'
+
+        # 获取全局配置
+        global_config = MidsceneConfig.objects.filter(
+            is_active=True, device_type=device_type
+        ).first()
+        # 如果指定设备类型没找到，尝试项目维度
+        if not global_config and case.project_id:
+            global_config = MidsceneConfig.objects.filter(
+                is_active=True, project_id=case.project_id, device_type=device_type
+            ).first()
+        # 还没找到，取任意活跃配置
+        if not global_config:
+            global_config = MidsceneConfig.objects.filter(is_active=True).first()
+
+        merged = {
+            'device_type': device_type,
+            'ai_model_config': {},
+            'execution_config': {},
+            'report_config': {},
+            'web_config': {},
+            'android_config': {},
+            'ios_config': {},
+            'harmony_config': {},
+            'app_name_mapping': {},
+        }
+
+        # 合并全局配置
+        if global_config:
+            merged['device_type'] = device_type or global_config.device_type
+            for key in ['ai_model_config', 'execution_config', 'report_config',
+                        'web_config', 'android_config', 'ios_config', 'harmony_config',
+                        'app_name_mapping']:
+                val = getattr(global_config, key, None)
+                if val:
+                    merged[key] = copy.deepcopy(val)
+
+        # 合并用例级覆盖
+        if case.device_type:
+            merged['device_type'] = case.device_type
+        if case.ai_model_config_override:
+            _deep_merge(merged['ai_model_config'], case.ai_model_config_override)
+        if case.device_config_override:
+            device_key = _get_device_config_key(merged['device_type'])
+            if device_key:
+                _deep_merge(merged[device_key], case.device_config_override)
+        if case.app_name_mapping:
+            merged['app_name_mapping'].update(case.app_name_mapping)
+
+        return merged
+
+    @staticmethod
+    def _get_legacy_model_config():
+        """向后兼容：从旧的 AIModelConfig 获取模型配置"""
+        from apps.requirement_analysis.models import AIModelConfig
+        config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
+        if not config_obj:
+            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+
+        model_config = {}
+        if config_obj:
+            model_name = (config_obj.model_name or '').lower()
+            if 'qwen3.6' in model_name:
+                model_family = 'qwen3.6'
+            elif 'qwen3.5' in model_name:
+                model_family = 'qwen3.5'
+            elif 'qwen3' in model_name and 'vl' in model_name:
+                model_family = 'qwen3-vl'
+            elif 'qwen3' in model_name:
+                model_family = 'qwen3'
+            elif 'qwen2.5' in model_name and 'vl' in model_name:
+                model_family = 'qwen2.5-vl'
+            elif 'qwen' in model_name and 'vl' in model_name:
+                model_family = 'qwen2.5-vl'
+            elif 'qwen' in model_name:
+                model_family = 'qwen3'
+            elif 'doubao-seed' in model_name or 'seed' in model_name:
+                model_family = 'doubao-seed'
+            elif 'doubao' in model_name and 'vision' in model_name:
+                model_family = 'doubao-vision'
+            elif 'doubao' in model_name:
+                model_family = 'doubao-vision'
+            elif 'gemini' in model_name:
+                model_family = 'gemini'
+            elif 'glm' in model_name and 'auto-glm' in model_name:
+                model_family = 'auto-glm'
+            elif 'glm' in model_name:
+                model_family = 'glm-v'
+            elif 'gpt' in model_name:
+                model_family = 'gpt-5'
+            elif 'kimi3' in model_name:
+                model_family = 'kimi3'
+            elif 'kimi' in model_name:
+                model_family = 'kimi'
+            elif 'mimo' in model_name or 'xiaomi' in model_name:
+                model_family = 'xiaomi-mimo'
+            else:
+                model_family = 'qwen3-vl'
+
+            model_config = {
+                'api_key': config_obj.api_key,
+                'base_url': config_obj.base_url,
+                'model_name': config_obj.model_name,
+                'model_family': model_family,
+            }
+        return model_config
 
     # ---- 执行结果回调（微服务调用，免认证） ----
     @action(detail=True, methods=['post'], url_path='callback', permission_classes=[AllowAny])
@@ -1106,51 +1202,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             results.append({'type': sql_type, 'sql': resolved_sql[:200], 'success': False, 'rows_affected': 0, 'error': str(e)})
             raise
 
-            # 获取完整task详情
-            task_id = matching_task['task_id']
-            with httpx.Client(timeout=5) as client:
-                resp = client.get(f'{MIDSCENE_SERVICE_URL}/task/{task_id}')
-                resp.raise_for_status()
-                task_data = resp.json()
-
-            if task_data.get('status') in ('completed', 'failed'):
-                # 同步状态到Django
-                execution.status = 'passed' if task_data['status'] == 'completed' else 'failed'
-                execution.error_message = task_data.get('error') or ''
-                execution.finished_at = timezone.now()
-
-                result = task_data.get('result') or {}
-                if isinstance(result, dict) and 'step_results' in result:
-                    execution.step_results = result['step_results']
-                execution.logs = json.dumps(task_data.get('logs') or [], ensure_ascii=False)
-
-                if execution.started_at and execution.finished_at:
-                    execution.duration = (execution.finished_at - execution.started_at).total_seconds()
-
-                report_url = task_data.get('report_url') or ''
-                execution.report_url = report_url
-                execution.report_file = ''
-                if report_url and '/report/' in report_url:
-                    report_filename = report_url.split('/report/')[-1]
-                    execution.report_file = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)),
-                        '..', '..', 'midscene-service', 'midscene_run', 'report', report_filename
-                    )
-
-                execution.save()
-
-                # 更新用例状态
-                case = execution.case
-                if case:
-                    case.last_status = execution.status
-                    case.last_result = execution.error_message or json.dumps(result, ensure_ascii=False)[:500] if result else ''
-                    case.save(update_fields=['last_status', 'last_result', 'updated_at'])
-
-                return True
-        except Exception as e:
-            logger.error(f'同步微服务状态失败: {e}')
-
-        return False
+        return results
 
 
 # ============================================================================
@@ -1242,77 +1294,46 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
 def _build_midscene_payload(case, execution_id):
     """
     构建 Midscene 微服务执行 payload（复用 run_case 的逻辑）
+    使用三级配置合并：全局MidsceneConfig → 用例级覆盖 → 旧AIModelConfig兜底
     """
-    # 获取模型配置
-    from apps.requirement_analysis.models import AIModelConfig
-    config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
-    if not config_obj:
-        config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+    # ---- 获取合并配置 ----
+    merged_config = MidsceneCaseViewSet._get_merged_config(case)
 
-    model_config = {}
-    if config_obj:
-        model_name = (config_obj.model_name or '').lower()
-        if 'qwen3.6' in model_name:
-            model_family = 'qwen3.6'
-        elif 'qwen3.5' in model_name:
-            model_family = 'qwen3.5'
-        elif 'qwen3' in model_name and 'vl' in model_name:
-            model_family = 'qwen3-vl'
-        elif 'qwen3' in model_name:
-            model_family = 'qwen3'
-        elif 'qwen2.5' in model_name and 'vl' in model_name:
-            model_family = 'qwen2.5-vl'
-        elif 'qwen' in model_name and 'vl' in model_name:
-            model_family = 'qwen2.5-vl'
-        elif 'qwen' in model_name:
-            model_family = 'qwen3'
-        elif 'doubao-seed' in model_name or 'seed' in model_name:
-            model_family = 'doubao-seed'
-        elif 'doubao' in model_name and 'vision' in model_name:
-            model_family = 'doubao-vision'
-        elif 'doubao' in model_name:
-            model_family = 'doubao-vision'
-        elif 'gemini' in model_name:
-            model_family = 'gemini'
-        elif 'glm' in model_name and 'auto-glm' in model_name:
-            model_family = 'auto-glm'
-        elif 'glm' in model_name:
-            model_family = 'glm-v'
-        elif 'gpt' in model_name:
-            model_family = 'gpt-5'
-        elif 'kimi3' in model_name:
-            model_family = 'kimi3'
-        elif 'kimi' in model_name:
-            model_family = 'kimi'
-        elif 'mimo' in model_name or 'xiaomi' in model_name:
-            model_family = 'xiaomi-mimo'
-        else:
-            model_family = 'qwen3-vl'
+    # ---- AI模型配置 ----
+    model_config = merged_config.get('ai_model_config', {})
+    if not model_config:
+        model_config = MidsceneCaseViewSet._get_legacy_model_config()
 
-        model_config = {
-            'api_key': config_obj.api_key,
-            'base_url': config_obj.base_url,
-            'model_name': config_obj.model_name,
-            'model_family': model_family,
-        }
+    # ---- 设备类型 ----
+    resolved_device_type = merged_config.get('device_type') or case.device_type or case.platform or 'web'
 
+    # ---- 步骤构建 ----
     steps = []
     for step in (case.steps or []):
         step_type = step.get('type', 'action')
         instruction = step.get('instruction', '')
+        mode = step.get('mode', 'ai')
         if step_type == 'assert':
             midscene_type = 'aiAssert'
         elif step_type == 'action':
             midscene_type = 'aiAct'
         else:
             midscene_type = step_type
-        steps.append({
+        step_payload = {
             'type': midscene_type,
             'instruction': instruction,
-        })
+            'mode': mode,
+        }
+        if mode == 'traditional':
+            step_payload['action_type'] = step.get('action_type', 'click')
+            step_payload['locator_value'] = step.get('locator_value', '')
+            step_payload['assert_type'] = step.get('assert_type', '')
+            step_payload['assert_value'] = step.get('assert_value', '')
+        steps.append(step_payload)
 
     payload = {
         'platform': case.platform or 'web',
+        'device_type': resolved_device_type,
         'url': case.url or None,
         'steps': steps,
         'headless': case.headless,
@@ -1334,7 +1355,15 @@ def _build_midscene_payload(case, execution_id):
             'device_id': case.device_id or '',
             'package_name': case.package_name or '',
             'app_activity': case.app_activity or '',
-        } if case.platform == 'app' else None,
+        } if resolved_device_type != 'web' else None,
+        # 三级配置合并后的参数
+        'execution_config': merged_config.get('execution_config', {}),
+        'report_config': merged_config.get('report_config', {}),
+        'web_config': merged_config.get('web_config', {}),
+        'android_config': merged_config.get('android_config', {}),
+        'ios_config': merged_config.get('ios_config', {}),
+        'harmony_config': merged_config.get('harmony_config', {}),
+        'app_name_mapping': merged_config.get('app_name_mapping', {}),
     }
     return payload
 
@@ -1861,6 +1890,10 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
         import uuid
         batch_id = str(uuid.uuid4())
 
+        # 执行模式
+        execution_mode = plan.execution_mode or 'per_case'
+        login_config = plan.login_config or {}
+
         # 为每个用例创建execution记录和payload
         cases_payload = []
         for item in items:
@@ -1897,12 +1930,18 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
         # 一次提交所有用例到微服务 /execute-batch
         try:
             import httpx
+            batch_body = {
+                'cases': cases_payload,
+                'plan_id': plan.id,
+                'callback_base': f'http://localhost:8000/api/ui-automation',
+                'execution_mode': execution_mode,
+            }
+            # 共享会话模式：传递 login_config
+            if execution_mode == 'shared_session' and login_config:
+                batch_body['login_config'] = login_config
+
             with httpx.Client(timeout=15) as client:
-                resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute-batch', json={
-                    'cases': cases_payload,
-                    'plan_id': plan.id,
-                    'callback_base': f'http://localhost:8000/api/ui-automation',
-                }, timeout=15)
+                resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute-batch', json=batch_body, timeout=15)
                 resp.raise_for_status()
         except Exception as e:
             # 提交失败，把所有execution标记为failed
@@ -1917,6 +1956,7 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
         return Response({
             'message': '计划已提交执行',
             'execution_status': 'running',
+            'execution_mode': execution_mode,
             'total_cases': plan.total_cases,
             'batch_id': batch_id,
         })
@@ -1925,3 +1965,192 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
         """更新计划的用例计数"""
         plan.total_cases = plan.plan_items.count()
         plan.save(update_fields=['total_cases'])
+
+
+# ============================================================================
+# Midscene配置中心
+# ============================================================================
+
+class MidsceneConfigViewSet(viewsets.ModelViewSet):
+    """Midscene全局配置管理 - 三级配置体系的顶层"""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return MidsceneConfig.objects.select_related('project', 'created_by')
+
+    def _serialize_config(self, config):
+        """序列化单条配置"""
+        return {
+            'id': config.id,
+            'name': config.name,
+            'project_id': config.project_id,
+            'device_type': config.device_type,
+            'is_active': config.is_active,
+            'ai_model_config': config.ai_model_config or {},
+            'execution_config': config.execution_config or {},
+            'report_config': config.report_config or {},
+            'web_config': config.web_config or {},
+            'android_config': config.android_config or {},
+            'ios_config': config.ios_config or {},
+            'harmony_config': config.harmony_config or {},
+            'app_name_mapping': config.app_name_mapping or {},
+            'created_by': config.created_by_id,
+            'created_by_name': config.created_by.username if config.created_by else None,
+            'created_at': config.created_at,
+            'updated_at': config.updated_at,
+        }
+
+    def list(self, request):
+        qs = self.get_queryset()
+        project_id = request.query_params.get('project_id')
+        device_type = request.query_params.get('device_type')
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        if device_type:
+            qs = qs.filter(device_type=device_type)
+        configs = qs.order_by('-created_at')
+        return Response([self._serialize_config(c) for c in configs])
+
+    def retrieve(self, request, pk=None):
+        config = self.get_queryset().filter(pk=pk).first()
+        if not config:
+            return Response({'error': '配置不存在'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self._serialize_config(config))
+
+    def create(self, request):
+        try:
+            config = MidsceneConfig.objects.create(
+                name=request.data.get('name', ''),
+                project_id=request.data.get('project_id') or None,
+                device_type=request.data.get('device_type', 'web'),
+                is_active=request.data.get('is_active', True),
+                ai_model_config=request.data.get('ai_model_config', {}),
+                execution_config=request.data.get('execution_config', {}),
+                report_config=request.data.get('report_config', {}),
+                web_config=request.data.get('web_config', {}),
+                android_config=request.data.get('android_config', {}),
+                ios_config=request.data.get('ios_config', {}),
+                harmony_config=request.data.get('harmony_config', {}),
+                app_name_mapping=request.data.get('app_name_mapping', {}),
+                created_by=request.user,
+            )
+            return Response(self._serialize_config(config), status=status.HTTP_201_CREATED)
+        except Exception as e:
+            logger.exception('创建Midscene配置失败')
+            return Response({'error': f'创建失败: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, pk=None, **kwargs):
+        config = self.get_queryset().filter(pk=pk).first()
+        if not config:
+            return Response({'error': '配置不存在'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            fields = ['name', 'device_type', 'is_active',
+                      'ai_model_config', 'execution_config', 'report_config',
+                      'web_config', 'android_config', 'ios_config', 'harmony_config',
+                      'app_name_mapping']
+            for f in fields:
+                if f in request.data:
+                    setattr(config, f, request.data[f])
+            if 'project_id' in request.data:
+                config.project_id = request.data['project_id'] or None
+            config.save()
+            return Response(self._serialize_config(config))
+        except Exception as e:
+            logger.exception(f'更新Midscene配置失败 config_id={pk}')
+            return Response({'error': f'更新失败: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, pk=None):
+        return self.update(request, pk)
+
+    def destroy(self, request, pk=None):
+        config = self.get_queryset().filter(pk=pk).first()
+        if not config:
+            return Response({'error': '配置不存在'}, status=status.HTTP_404_NOT_FOUND)
+        config.delete()
+        return Response({'message': '删除成功'}, status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['post'], url_path='merged')
+    def merged_config(self, request):
+        """
+        配置合并API - 合并全局+用例级配置，返回最终生效配置
+
+        请求体: {
+            "case_id": 1,           // 可选，传了则合并用例级覆盖
+            "project_id": 1,        // 可选，筛选全局配置
+            "device_type": "web"    // 可选，筛选设备类型
+        }
+        """
+        import copy
+        case_id = request.data.get('case_id')
+        project_id = request.data.get('project_id')
+        device_type = request.data.get('device_type')
+
+        # 1. 获取全局配置
+        global_qs = MidsceneConfig.objects.filter(is_active=True)
+        if project_id:
+            global_qs = global_qs.filter(project_id=project_id)
+        if device_type:
+            global_qs = global_qs.filter(device_type=device_type)
+        global_config = global_qs.first()
+
+        merged = {
+            'device_type': device_type or 'web',
+            'ai_model_config': {},
+            'execution_config': {},
+            'report_config': {},
+            'web_config': {},
+            'android_config': {},
+            'ios_config': {},
+            'harmony_config': {},
+            'app_name_mapping': {},
+        }
+
+        # 合并全局配置
+        if global_config:
+            merged['device_type'] = device_type or global_config.device_type
+            for key in ['ai_model_config', 'execution_config', 'report_config',
+                        'web_config', 'android_config', 'ios_config', 'harmony_config',
+                        'app_name_mapping']:
+                val = getattr(global_config, key, None)
+                if val:
+                    merged[key] = copy.deepcopy(val)
+
+        # 2. 合并用例级覆盖
+        if case_id:
+            case = MidsceneCase.objects.filter(pk=case_id).first()
+            if case:
+                if case.device_type:
+                    merged['device_type'] = case.device_type
+                # AI模型覆盖（深度合并）
+                if case.ai_model_config_override:
+                    _deep_merge(merged['ai_model_config'], case.ai_model_config_override)
+                # 设备配置覆盖（根据device_type选择对应字段覆盖）
+                if case.device_config_override:
+                    device_key = _get_device_config_key(merged['device_type'])
+                    if device_key:
+                        _deep_merge(merged[device_key], case.device_config_override)
+                # App名称映射覆盖
+                if case.app_name_mapping:
+                    merged['app_name_mapping'].update(case.app_name_mapping)
+
+        return Response(merged)
+
+
+def _deep_merge(base, override):
+    """深度合并字典：override中的值覆盖base中的同名键"""
+    for key, value in override.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+
+
+def _get_device_config_key(device_type):
+    """根据device_type返回对应的配置字段名"""
+    mapping = {
+        'web': 'web_config',
+        'android': 'android_config',
+        'ios': 'ios_config',
+        'harmony': 'harmony_config',
+    }
+    return mapping.get(device_type)

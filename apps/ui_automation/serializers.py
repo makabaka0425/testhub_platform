@@ -9,7 +9,8 @@ from .models import (
     AICase, AIExecutionRecord, LoginConfig,
     UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport,
     AiProject, AiScheduledTask, AiNotificationLog,
-    AiTestPlan, AiTestPlanItem
+    AiTestPlan, AiTestPlanItem,
+    MidsceneConfig
 )
 from django.contrib.auth import get_user_model
 
@@ -1452,6 +1453,7 @@ class AiTestPlanSerializer(serializers.ModelSerializer):
             'id', 'project', 'project_name', 'name', 'description',
             'platform', 'platform_display',
             'execution_status', 'execution_status_display',
+            'execution_mode', 'login_config',
             'total_cases', 'passed_count', 'failed_count', 'skipped_count',
             'plan_items', 'plan_item_count',
             'last_execution_time', 'last_duration',
@@ -1487,13 +1489,13 @@ class AiTestPlanCreateSerializer(serializers.ModelSerializer):
     """AI测试计划创建序列化器"""
     class Meta:
         model = AiTestPlan
-        fields = ['id', 'project', 'name', 'description', 'platform']
+        fields = ['id', 'project', 'name', 'description', 'platform', 'execution_mode', 'login_config']
 
 
 class AiTestPlanUpdateSerializer(serializers.ModelSerializer):
     """AI测试计划更新序列化器"""
     class Meta:
         model = AiTestPlan
-        fields = ['name', 'description', 'platform']
+        fields = ['name', 'description', 'platform', 'execution_mode', 'login_config']
 
 

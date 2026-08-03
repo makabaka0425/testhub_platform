@@ -316,20 +316,20 @@ export default {
   },
   promptConfig: {
     // Page
-    title: '📝 Prompt Configuration',
+    title: 'Prompt Configuration',
     subtitle: 'Configure AI prompts for test case writing and review',
 
     // Section
     configListTitle: 'Prompt Configuration List',
-    loadDefaults: '📂 Load Defaults',
+    loadDefaults: 'Load Defaults',
     addConfig: '➕ Add Config',
 
     // Config Card
     enabled: 'Enabled',
     disabled: 'Disabled',
-    preview: '👁️ Preview',
-    edit: '✏️ Edit',
-    delete: '🗑️ Delete',
+    preview: 'Preview',
+    edit: 'Edit',
+    delete: 'Delete',
 
     // Config Details
     contentPreview: 'Content Preview:',
@@ -394,8 +394,8 @@ export default {
     noConfigs: 'No Configurations',
     noConfigsHint: 'Add prompt configurations to customize AI behavior and output format',
     emptyHint: 'Add prompt configurations to customize AI behavior and output format',
-    addFirstConfig: '➕ Add First Config',
-    loadDefaultsFirst: '📂 Load Defaults',
+    addFirstConfig: 'Add First Config',
+    loadDefaultsFirst: 'Load Defaults',
 
     // Messages
     nameRequired: 'Please enter config name',

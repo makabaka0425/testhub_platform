@@ -46,7 +46,7 @@ from .views import (
     AllureReportViewSet
 )
 from .views_config import EnvironmentConfigViewSet, AIIntelligentModeConfigViewSet
-from .views_midscene import MidsceneGroupViewSet, MidsceneCaseViewSet, MidsceneExecutionViewSet, AiProjectViewSet, AiScheduledTaskViewSet, AiNotificationLogViewSet, AiTestPlanViewSet
+from .views_midscene import MidsceneGroupViewSet, MidsceneCaseViewSet, MidsceneExecutionViewSet, AiProjectViewSet, AiScheduledTaskViewSet, AiNotificationLogViewSet, AiTestPlanViewSet, MidsceneConfigViewSet
 
 router = DefaultRouter()
 router.register(r'dashboard', UiDashboardViewSet, basename='dashboard')
@@ -81,6 +81,7 @@ router.register(r'midscene', MidsceneExecutionViewSet, basename='midscene')
 router.register(r'midscene-groups', MidsceneGroupViewSet, basename='midscene-groups')
 router.register(r'midscene-cases', MidsceneCaseViewSet, basename='midscene-cases')
 router.register(r'midscene-executions', MidsceneExecutionViewSet, basename='midscene-executions')
+router.register(r'midscene-configs', MidsceneConfigViewSet, basename='midscene-configs')
 
 
 # Configuration Center APIs

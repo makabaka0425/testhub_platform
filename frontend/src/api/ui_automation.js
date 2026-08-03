@@ -1767,6 +1767,32 @@ export function midsceneModelConfig() {
   return request({ url: '/ui-automation/midscene/model-config/', method: 'get' })
 }
 
+// ==================== Midscene全局配置 API ====================
+
+export function getMidsceneConfigs(params) {
+  return request({ url: '/ui-automation/midscene-configs/', method: 'get', params })
+}
+
+export function getMidsceneConfig(id) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'get' })
+}
+
+export function createMidsceneConfig(data) {
+  return request({ url: '/ui-automation/midscene-configs/', method: 'post', data })
+}
+
+export function updateMidsceneConfig(id, data) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'patch', data })
+}
+
+export function deleteMidsceneConfig(id) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'delete' })
+}
+
+export function getMergedMidsceneConfig(data) {
+  return request({ url: '/ui-automation/midscene-configs/merged/', method: 'post', data })
+}
+
 // ==================== AI自动化定时任务相关API ====================
 
 // 获取AI定时任务列表

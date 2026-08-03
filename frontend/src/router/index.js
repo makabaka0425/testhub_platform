@@ -515,6 +515,11 @@ const routes = [
                         path: 'dify',
                         name: 'DifyConfig',
                         component: () => import('@/views/configuration/DifyConfig.vue')
+                    },
+                    {
+                        path: 'midscene-config',
+                        name: 'ConfigMidscene',
+                        component: () => import('@/views/configuration/MidsceneConfig.vue')
                     }
                 ]
             }

@@ -316,20 +316,20 @@ export default {
   },
   promptConfig: {
     // Page
-    title: '📝 提示词配置',
+    title: '提示词配置',
     subtitle: '配置用于测试用例编写和评审的AI提示词',
 
     // Section
     configListTitle: '提示词配置列表',
-    loadDefaults: '📂 加载默认提示词',
+    loadDefaults: '加载默认提示词',
     addConfig: '➕ 添加配置',
 
     // Config Card
     enabled: '启用',
     disabled: '禁用',
-    preview: '👁️ 预览',
-    edit: '✏️ 编辑',
-    delete: '🗑️ 删除',
+    preview: '预览',
+    edit: '编辑',
+    delete: '删除',
 
     // Config Details
     contentPreview: '提示词内容预览:',
@@ -394,8 +394,8 @@ export default {
     noConfigs: '暂无提示词配置',
     noConfigsHint: '请添加提示词配置以自定义AI的行为和输出格式',
     emptyHint: '请添加提示词配置以自定义AI的行为和输出格式',
-    addFirstConfig: '➕ 添加第一个配置',
-    loadDefaultsFirst: '📂 加载默认提示词',
+    addFirstConfig: '添加第一个配置',
+    loadDefaultsFirst: '加载默认提示词',
 
     // Messages
     nameRequired: '请输入配置名称',

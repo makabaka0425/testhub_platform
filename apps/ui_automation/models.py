@@ -1409,8 +1409,18 @@ class MidsceneCase(models.Model):
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual', verbose_name='来源')
     source_case_id = models.IntegerField(null=True, blank=True, verbose_name='源AI用例ID')
 
-    # 平台类型
+    # 平台类型 (细化：web/android/ios/harmony)
     platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES, default='web', verbose_name='平台')
+    device_type = models.CharField(max_length=20, default='web', verbose_name='设备类型',
+        help_text='细化的设备类型：web/android/ios/harmony，决定使用哪种Agent')
+
+    # 用例级配置覆盖 (留空=继承全局配置，填写=覆盖)
+    ai_model_config_override = models.JSONField(default=dict, blank=True, verbose_name='AI模型覆盖',
+        help_text='用例级AI模型配置覆盖，留空继承全局配置')
+    device_config_override = models.JSONField(default=dict, blank=True, verbose_name='设备配置覆盖',
+        help_text='用例级设备配置覆盖(根据device_type对应)，留空继承全局配置')
+    app_name_mapping = models.JSONField(default=dict, blank=True, verbose_name='App名称映射',
+        help_text='App名称到包名/bundle名的映射')
 
     # 结构化步骤 JSON: [{"order":1, "type":"action/assert", "instruction":"...", "output_var":"varName"}]
     steps = models.JSONField(default=list, verbose_name='测试步骤')
@@ -1715,6 +1725,17 @@ class AiTestPlan(models.Model):
     execution_status = models.CharField(
         max_length=20, choices=EXECUTION_STATUS_CHOICES, default='not_run', verbose_name='执行状态'
     )
+    # 执行模式：独立模式（每用例独立浏览器）或共享会话模式（共用浏览器+变量池）
+    EXECUTION_MODE_CHOICES = [
+        ('per_case', '独立模式'),
+        ('shared_session', '共享会话模式'),
+    ]
+    execution_mode = models.CharField(
+        max_length=20, choices=EXECUTION_MODE_CHOICES, default='per_case', verbose_name='执行模式'
+    )
+    # 计划级登录配置（共享会话模式下优先使用此配置登录一次）
+    # 格式: {"url": "https://xxx/login", "steps": [{"type":"aiAct","instruction":"输入用户名admin"},...]}
+    login_config = models.JSONField(default=dict, blank=True, verbose_name='登录配置')
     total_cases = models.IntegerField(default=0, verbose_name='用例总数')
     passed_count = models.IntegerField(default=0, verbose_name='通过数')
     failed_count = models.IntegerField(default=0, verbose_name='失败数')
@@ -1757,3 +1778,73 @@ class AiTestPlanItem(models.Model):
     def __str__(self):
         case_name = self.midscene_case.name if self.midscene_case else '未知用例'
         return f"{self.test_plan.name} - {case_name}"
+
+
+# ============================================================================
+# Midscene配置中心 模型
+# ============================================================================
+
+class MidsceneConfig(models.Model):
+    """Midscene全局配置模型 - 三级配置体系的顶层"""
+    DEVICE_TYPE_CHOICES = [
+        ('web', 'Web端'),
+        ('android', 'Android'),
+        ('ios', 'iOS'),
+        ('harmony', 'HarmonyOS'),
+    ]
+
+    # 基本信息
+    name = models.CharField(max_length=200, verbose_name='配置名称')
+    project = models.ForeignKey('AiProject', on_delete=models.CASCADE, null=True, blank=True,
+                                related_name='midscene_configs', verbose_name='所属项目')
+    device_type = models.CharField(max_length=20, choices=DEVICE_TYPE_CHOICES, default='web', verbose_name='设备类型')
+    is_active = models.BooleanField(default=True, verbose_name='是否启用')
+
+    # AI模型配置 (对应 AgentOpt.modelConfig，三级意图)
+    ai_model_config = models.JSONField(default=dict, blank=True, verbose_name='AI模型配置',
+        help_text='默认AI模型配置，结构: {"default":{"modelProvider":"openai","modelName":"gpt-4o",...},'
+                  '"insight":{...},"planning":{...}}')
+
+    # 通用执行配置 (对应 AgentOpt 非模型字段)
+    execution_config = models.JSONField(default=dict, blank=True, verbose_name='执行配置',
+        help_text='通用执行参数: waitAfterAction, screenshotShrinkFactor, replanningCycleLimit, useDeviceTime等')
+
+    # 报告配置
+    report_config = models.JSONField(default=dict, blank=True, verbose_name='报告配置',
+        help_text='报告相关: generateReport, outputFormat, reportFileName, autoPrintReportMsg等')
+
+    # Web端设备配置 (对应 Playwright 启动参数)
+    web_config = models.JSONField(default=dict, blank=True, verbose_name='Web端配置',
+        help_text='Web端参数: browserPath, viewportWidth, viewportHeight, headless, '
+                  'userAgent, cacheStrategy, cookieFile等')
+
+    # Android设备配置 (对应 AndroidDeviceOpt)
+    android_config = models.JSONField(default=dict, blank=True, verbose_name='Android配置',
+        help_text='Android设备参数: androidAdbPath, remoteAdbHost, remoteAdbPort, imeStrategy, '
+                  'displayId, scrcpyConfig, exposeRunAdbShellAction等')
+
+    # iOS设备配置 (对应 IOSDeviceOpt)
+    ios_config = models.JSONField(default=dict, blank=True, verbose_name='iOS配置',
+        help_text='iOS设备参数: wdaPort, wdaHost, sessionId, wdaMjpegPort, '
+                  'wdaMjpegFrameSource, iOSDeviceClassOverride等')
+
+    # HarmonyOS设备配置 (对应 HarmonyDeviceOpt)
+    harmony_config = models.JSONField(default=dict, blank=True, verbose_name='HarmonyOS配置',
+        help_text='HarmonyOS设备参数: hdcPath等')
+
+    # App名称映射 (对应 appNameMapping)
+    app_name_mapping = models.JSONField(default=dict, blank=True, verbose_name='App名称映射',
+        help_text='App名称到包名/bundle名的映射，如: {"微信":"com.tencent.mm"}')
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='创建者')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'midscene_configs'
+        verbose_name = 'Midscene配置'
+        verbose_name_plural = 'Midscene配置'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} ({self.get_device_type_display()})"

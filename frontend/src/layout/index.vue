@@ -311,6 +311,10 @@
               <el-icon><ChatDotRound /></el-icon>
               <span>{{ $t('menu.difyConfig') }}</span>
             </el-menu-item>
+            <el-menu-item index="/configuration/midscene-config">
+              <el-icon><Coordinate /></el-icon>
+              <span>{{ $t('menu.midsceneConfig') }}</span>
+            </el-menu-item>
           </template>
         </el-menu>
       </el-aside>
@@ -384,7 +388,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram, View
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram, View, Coordinate
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -516,6 +520,7 @@ const breadcrumbTitle = computed(() => {
     '/configuration/ai-mode': t('menu.aiModeConfig'),
     '/configuration/scheduled-task': t('menu.scheduledTaskConfig'),
     '/configuration/dify': t('menu.difyConfig'),
+    '/configuration/midscene-config': t('menu.midsceneConfig'),
     
     '/profile': t('nav.profile')
   }
