@@ -229,14 +229,15 @@
               <el-icon><Odometer /></el-icon>
               <span>{{ $t('menu.dashboard') }}</span>
             </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/projects">
+              <el-icon><Folder /></el-icon>
+              <span>{{ $t('menu.aiProjectManagement') }}</span>
+            </el-menu-item>
             <el-sub-menu index="ai-automation" class="ai-automation-submenu" @title-click="router.push('/ai-intelligent-mode/dashboard')">
               <template #title>
                 <el-icon><Monitor /></el-icon>
                 <span>{{ $t('menu.midsceneExecution') }}</span>
               </template>
-              <el-menu-item index="/ai-intelligent-mode/projects">
-                <span>{{ $t('menu.aiProjectManagement') }}</span>
-              </el-menu-item>
               <el-menu-item index="/ai-intelligent-mode/midscene-web">
                 <span>{{ $t('menu.midsceneWeb') }}</span>
               </el-menu-item>

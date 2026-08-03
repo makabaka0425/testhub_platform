@@ -116,7 +116,7 @@
                 height="100%"
                 size="small"
                 @selection-change="onSelectionChange"
-                @current-change="handleRowClick"
+                @row-click="handleRowClick"
                 row-key="id"
               >
                 <el-table-column type="selection" width="40" />
@@ -217,7 +217,7 @@
               <!-- 视图切换标签 -->
               <el-tabs v-model="detailActiveTab" class="detail-tabs">
                 <el-tab-pane label="基本信息" name="info">
-                  <el-form :model="drawerForm" label-width="100px" class="detail-form">
+                  <el-form :model="drawerForm" label-width="100px" label-position="left" class="detail-form">
                     <el-form-item label="用例名称" required>
                       <el-input v-model="drawerForm.name" placeholder="请输入用例名称" />
                     </el-form-item>
@@ -324,7 +324,7 @@
                 <el-tab-pane label="测试步骤" name="steps">
                   <div class="steps-editor-drawer">
                     <div v-for="(step, idx) in drawerForm.steps" :key="idx" class="step-row-block">
-                      <!-- 主行：序号 + 模式标签 + 类型 + 描述 + 删除 -->
+                      <!-- 主行：序号 + 模式标签 + 描述 + 删除 -->
                       <div class="step-row-main" @click.self="toggleDrawerStep(idx)">
                         <el-icon class="step-toggle-icon" :class="{ 'is-expanded': drawerExpandedSteps.has(idx) }" @click.stop="toggleDrawerStep(idx)"><ArrowRight /></el-icon>
                         <span class="step-order">{{ idx + 1 }}.</span>
@@ -336,10 +336,6 @@
                           :style="{ cursor: drawerForm.platform === 'app' && step.mode !== 'traditional' ? 'not-allowed' : 'pointer', opacity: drawerForm.platform === 'app' && step.mode !== 'traditional' ? 0.5 : 1, marginRight: '4px' }"
                           :title="drawerForm.platform === 'app' && step.mode !== 'traditional' ? 'APP端不支持传统模式' : (step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式')"
                         >{{ step.mode === 'traditional' ? '传统' : 'AI' }}</el-tag>
-                        <el-select v-model="step.type" style="width:90px" size="small" @click.stop>
-                          <el-option label="操作" value="action" />
-                          <el-option label="断言" value="assert" />
-                        </el-select>
                         <el-input
                           v-if="step.mode !== 'traditional'"
                           v-model="step.instruction"
@@ -360,26 +356,48 @@
                       <div v-if="drawerExpandedSteps.has(idx)" class="step-row-params">
                         <span class="step-params-indent-toggle"></span>
                         <span class="step-params-indent-order"></span>
-                        <span class="step-params-indent-select"></span>
 
                         <!-- AI模式展开 -->
                         <template v-if="step.mode !== 'traditional'">
-                          <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1" size="small">
-                            <template #append>
-                              <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
-                                <el-icon><MagicStick /></el-icon>
-                              </el-button>
-                            </template>
-                          </el-input>
-                          <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
-                          <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" size="small" title="失败后重试次数，0=不重试" />
+                          <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+                            <div style="display:flex;gap:6px;align-items:center">
+                              <span class="step-field-label">操作类型</span>
+                              <el-select v-model="step.type" style="width:90px" size="small">
+                                <el-option label="操作" value="action" />
+                                <el-option label="断言" value="assert" />
+                              </el-select>
+                            </div>
+                            <div style="display:flex;gap:6px;align-items:center">
+                              <span class="step-field-label">输入变量</span>
+                              <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1" size="small">
+                                <template #append>
+                                  <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
+                                    <el-icon><MagicStick /></el-icon>
+                                  </el-button>
+                                </template>
+                              </el-input>
+                            </div>
+                            <div style="display:flex;gap:6px;align-items:center">
+                              <span class="step-field-label">输出变量</span>
+                              <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
+                            </div>
+                            <div style="display:flex;gap:6px;align-items:center">
+                              <span class="step-field-label">失败重试</span>
+                              <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" size="small" title="失败后重试次数，0=不重试" />
+                            </div>
+                          </div>
                         </template>
 
                         <!-- 传统模式展开 -->
                         <template v-else>
                           <div style="display:flex;flex-direction:column;gap:6px;flex:1">
                             <div style="display:flex;gap:6px;align-items:center">
-                              <el-select v-model="step.action_type" placeholder="操作类型" style="width:100px" size="small">
+                              <span class="step-field-label">操作类型</span>
+                              <el-select v-model="step.type" style="width:90px" size="small">
+                                <el-option label="操作" value="action" />
+                                <el-option label="断言" value="assert" />
+                              </el-select>
+                              <el-select v-model="step.action_type" placeholder="操作" style="width:100px" size="small">
                                 <el-option label="点击" value="click" />
                                 <el-option label="输入" value="input" />
                                 <el-option label="选择" value="select" />
@@ -390,6 +408,7 @@
                               <el-input v-model="step.locator_value" placeholder="定位表达式（如 #btn-submit 或 //button[text()='登录']）" style="flex:1" size="small" />
                             </div>
                             <div style="display:flex;gap:6px;align-items:center">
+                              <span class="step-field-label">输入变量</span>
                               <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1" size="small">
                                 <template #append>
                                   <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
@@ -397,6 +416,7 @@
                                   </el-button>
                                 </template>
                               </el-input>
+                              <span class="step-field-label">输出变量</span>
                               <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
                             </div>
                             <template v-if="step.type === 'assert'">
@@ -411,8 +431,8 @@
                               </div>
                             </template>
                             <div style="display:flex;gap:6px;align-items:center">
+                              <span class="step-field-label">失败重试</span>
                               <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" size="small" title="失败后重试次数，0=不重试" />
-                              <span style="font-size:12px;color:#909399">重试次数</span>
                             </div>
                           </div>
                         </template>
@@ -638,7 +658,7 @@
 
     <!-- 新建用例弹窗（仅新建用） -->
     <el-dialog v-model="caseDialogVisible" title="新建用例" width="700px" :close-on-click-modal="false" destroy-on-close>
-      <el-form :model="caseForm" label-width="100px">
+      <el-form :model="caseForm" label-width="100px" label-position="left">
         <el-form-item label="用例名称" required>
           <el-input v-model="caseForm.name" placeholder="请输入用例名称" />
         </el-form-item>
@@ -751,10 +771,6 @@
                   :style="{ cursor: caseForm.platform === 'app' && step.mode !== 'traditional' ? 'not-allowed' : 'pointer', opacity: caseForm.platform === 'app' && step.mode !== 'traditional' ? 0.5 : 1, marginRight: '4px' }"
                   :title="caseForm.platform === 'app' && step.mode !== 'traditional' ? 'APP端不支持传统模式' : (step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式')"
                 >{{ step.mode === 'traditional' ? '传统' : 'AI' }}</el-tag>
-                <el-select v-model="step.type" style="width:90px" @click.stop>
-                  <el-option label="操作" value="action" />
-                  <el-option label="断言" value="assert" />
-                </el-select>
                 <el-input v-model="step.instruction" placeholder="步骤描述" style="flex:1" @click.stop />
                 <el-button link type="danger" @click.stop="caseForm.steps.splice(idx, 1)">
                   <el-icon><Delete /></el-icon>
@@ -763,24 +779,46 @@
               <div v-if="caseExpandedSteps.has(idx)" class="step-row-params">
                 <span class="step-params-indent-toggle"></span>
                 <span class="step-params-indent-order"></span>
-                <span class="step-params-indent-select"></span>
                 <!-- AI模式 -->
                 <template v-if="step.mode !== 'traditional'">
-                  <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1">
-                    <template #append>
-                      <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
-                        <el-icon><MagicStick /></el-icon>
-                      </el-button>
-                    </template>
-                  </el-input>
-                  <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
-                  <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" title="失败后重试次数，0=不重试" />
+                  <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <span class="step-field-label">操作类型</span>
+                      <el-select v-model="step.type" style="width:90px" size="small">
+                        <el-option label="操作" value="action" />
+                        <el-option label="断言" value="assert" />
+                      </el-select>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <span class="step-field-label">输入变量</span>
+                      <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1">
+                        <template #append>
+                          <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
+                            <el-icon><MagicStick /></el-icon>
+                          </el-button>
+                        </template>
+                      </el-input>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <span class="step-field-label">输出变量</span>
+                      <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <span class="step-field-label">失败重试</span>
+                      <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" title="失败后重试次数，0=不重试" />
+                    </div>
+                  </div>
                 </template>
                 <!-- 传统模式 -->
                 <template v-else>
                   <div style="display:flex;flex-direction:column;gap:6px;flex:1">
                     <div style="display:flex;gap:6px;align-items:center">
-                      <el-select v-model="step.action_type" placeholder="操作类型" style="width:100px" size="small">
+                      <span class="step-field-label">操作类型</span>
+                      <el-select v-model="step.type" style="width:90px" size="small">
+                        <el-option label="操作" value="action" />
+                        <el-option label="断言" value="assert" />
+                      </el-select>
+                      <el-select v-model="step.action_type" placeholder="操作" style="width:100px" size="small">
                         <el-option label="点击" value="click" />
                         <el-option label="输入" value="input" />
                         <el-option label="选择" value="select" />
@@ -791,6 +829,7 @@
                       <el-input v-model="step.locator_value" placeholder="定位表达式" style="flex:1" size="small" />
                     </div>
                     <div style="display:flex;gap:6px;align-items:center">
+                      <span class="step-field-label">输入变量</span>
                       <el-input v-model="step.input_value" placeholder="输入值" style="flex:1" size="small">
                         <template #append>
                           <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
@@ -798,6 +837,7 @@
                           </el-button>
                         </template>
                       </el-input>
+                      <span class="step-field-label">输出变量</span>
                       <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
                     </div>
                     <template v-if="step.type === 'assert'">
@@ -812,8 +852,8 @@
                       </div>
                     </template>
                     <div style="display:flex;gap:6px;align-items:center">
+                      <span class="step-field-label">失败重试</span>
                       <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" size="small" title="失败后重试次数，0=不重试" />
-                      <span style="font-size:12px;color:#909399">重试次数</span>
                     </div>
                   </div>
                 </template>
@@ -2547,10 +2587,11 @@ watch(() => route.path, () => {
   width: 24px;
 }
 
-.step-params-indent-select {
+.step-field-label {
+  font-size: 12px;
+  color: var(--gray-500);
+  white-space: nowrap;
   flex-shrink: 0;
-  /* 和 el-select style=width:90px 同宽 */
-  width: 90px;
 }
 
 .step-params-indent-delete {
