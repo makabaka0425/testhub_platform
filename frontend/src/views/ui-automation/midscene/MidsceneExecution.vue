@@ -72,6 +72,13 @@
                 <el-option label="APP端" value="app" />
               </el-select>
             </el-form-item>
+            <el-form-item label="状态">
+              <el-select v-model="filterStatus" placeholder="全部" clearable style="width:120px" @change="onFilterChange">
+                <el-option label="通过" value="passed" />
+                <el-option label="失败" value="failed" />
+                <el-option label="执行中" value="running" />
+              </el-select>
+            </el-form-item>
           </el-form>
         </div>
 
@@ -106,6 +113,30 @@
         <!-- 30天执行趋势图 -->
         <div v-if="statsData && statsData.trend && statsData.trend.length" class="trend-chart-wrapper">
           <div ref="trendChartRef" class="trend-chart"></div>
+        </div>
+
+        <!-- Top10失败用例 -->
+        <div v-if="statsData && statsData.top_failed && statsData.top_failed.length" class="top-failed-wrapper">
+          <div class="top-failed__title">失败最多用例 Top10</div>
+          <el-table :data="statsData.top_failed" size="small" stripe>
+            <el-table-column prop="case_name" label="用例名称" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="total" label="总执行" width="80" align="center" />
+            <el-table-column prop="passed" label="通过" width="70" align="center">
+              <template #default="{ row }">
+                <span style="color:#67c23a">{{ row.passed }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="failed" label="失败" width="70" align="center">
+              <template #default="{ row }">
+                <span style="color:#f56c6c">{{ row.failed }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="pass_rate" label="通过率" width="90" align="center">
+              <template #default="{ row }">
+                <el-progress :percentage="row.pass_rate" :stroke-width="6" :color="row.pass_rate >= 80 ? '#67c23a' : row.pass_rate >= 50 ? '#e6a23c' : '#f56c6c'" style="width:70px" />
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
 
         <!-- 用例列表面板 -->
@@ -570,6 +601,38 @@
                   </template>
                   <div v-else style="color:#999;text-align:center;padding:40px">暂无执行记录</div>
                 </el-tab-pane>
+
+                <!-- 执行历史 -->
+                <el-tab-pane label="执行历史" name="history">
+                  <div v-if="caseHistoryLoading" style="text-align:center;padding:40px">
+                    <el-icon class="is-loading" style="font-size:24px"><Loading /></el-icon>
+                    <div style="margin-top:8px">加载中...</div>
+                  </div>
+                  <div v-else-if="caseHistoryList.length === 0" style="color:#999;text-align:center;padding:40px">暂无执行记录</div>
+                  <el-table v-else :data="caseHistoryList" size="small" stripe max-height="400">
+                    <el-table-column prop="started_at" label="执行时间" width="160" align="center">
+                      <template #default="{ row }">
+                        {{ formatDateTime(row.started_at) }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="status" label="状态" width="80" align="center">
+                      <template #default="{ row }">
+                        <el-tag :type="statusTagType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="duration" label="耗时" width="80" align="center">
+                      <template #default="{ row }">
+                        {{ row.duration ? row.duration.toFixed(1) + 's' : '-' }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="60" align="center">
+                      <template #default="{ row }">
+                        <el-button link type="primary" size="small" @click="viewHistoryDetail(row)">详情</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+
               </el-tabs>
             </div>
           </div>
@@ -1082,6 +1145,7 @@ import {
   batchDeleteMidsceneCases, importAIToMidscene, runMidsceneCase, copyMidsceneCase,
   getMidsceneExecutionDetail, getMidsceneExecutionStatus, getMidsceneStatistics,
   midsceneVisualCompare, midsceneSaveBaseline, midsceneListBaselines,
+  getMidsceneExecutions,
 } from '@/api/ui_automation'
 import { getAITaskList, getAITaskCases, getAiProjects } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
@@ -1529,6 +1593,7 @@ const filterPlatform = computed({
   set: (v) => { filterPlatformLocal.value = v }
 })
 const filterPlatformLocal = ref('')
+const filterStatus = ref('')
 const selectedIds = ref([])
 const runningIds = reactive({})
 const batchRunning = ref(false)
@@ -1547,6 +1612,9 @@ const filteredCases = computed(() => {
   if (filterPlatform.value) {
     list = list.filter(c => c.platform === filterPlatform.value)
   }
+  if (filterStatus.value) {
+    list = list.filter(c => c.last_status === filterStatus.value)
+  }
   return list
 })
 
@@ -1562,6 +1630,9 @@ function onSearchInput() {
     currentPage.value = 1
     loadCases()
   }, 300)
+}
+function onFilterChange() {
+  currentPage.value = 1
 }
 
 async function loadCases() {
@@ -1810,6 +1881,36 @@ const detailActiveTab = ref('info')
 const drawerResultData = ref(null)
 const drawerResultLoading = ref(false)
 const drawerResultTab = ref('steps')
+
+// ---- 执行历史 ----
+const caseHistoryList = ref([])
+const caseHistoryLoading = ref(false)
+
+async function loadCaseHistory(caseId) {
+  caseHistoryLoading.value = true
+  try {
+    const res = await getMidsceneExecutions({ case_id: caseId, page_size: 50 })
+    caseHistoryList.value = res.data?.results || res.data || []
+  } catch {
+    caseHistoryList.value = []
+  } finally {
+    caseHistoryLoading.value = false
+  }
+}
+
+function viewHistoryDetail(row) {
+  // 将历史记录加载到执行结果弹窗中查看
+  resultData.value = row
+  resultActiveTab.value = 'steps'
+  resultDialogVisible.value = true
+}
+
+// 监听detailActiveTab切换到执行历史时加载数据
+watch(detailActiveTab, (val) => {
+  if (val === 'history' && selectedCase.value) {
+    loadCaseHistory(selectedCase.value.id)
+  }
+})
 
 const detailDrawerSize = computed(() => {
   if (detailCollapsed.value) return '20px'
@@ -2790,6 +2891,24 @@ watch(() => route.path, () => {
 .trend-chart {
   width: 100%;
   height: 200px;
+}
+
+/* ============================================================
+   Top10失败用例
+   ============================================================ */
+.top-failed-wrapper {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 12px 16px 8px;
+  margin-bottom: 20px;
+}
+
+.top-failed__title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 8px;
 }
 </style>
 
