@@ -1744,6 +1744,9 @@ export function importAIToMidscene(data) {
 export function runMidsceneCase(id) {
   return request({ url: `/ui-automation/midscene-cases/${id}/run/`, method: 'post', timeout: 30000 })
 }
+export function copyMidsceneCase(id) {
+  return request({ url: `/ui-automation/midscene-cases/${id}/copy/`, method: 'post' })
+}
 export function getMidsceneExecutionStatus(params) {
   return request({ url: '/ui-automation/midscene-cases/execution-status/', method: 'get', params })
 }
@@ -1757,6 +1760,9 @@ export function getMidsceneExecutionDetail(id) {
 }
 export function deleteMidsceneExecution(id) {
   return request({ url: `/ui-automation/midscene-executions/${id}/`, method: 'delete' })
+}
+export function getMidsceneStatistics(params) {
+  return request({ url: '/ui-automation/midscene-executions/statistics/', method: 'get', params })
 }
 
 // ---- 微服务状态 ----

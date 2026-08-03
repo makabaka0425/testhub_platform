@@ -75,6 +75,34 @@
           </el-form>
         </div>
 
+        <!-- 统计概览 -->
+        <div v-if="statsData" class="stats-dashboard">
+          <div class="stats-card">
+            <div class="stats-card__value">{{ statsData.total }}</div>
+            <div class="stats-card__label">总执行</div>
+          </div>
+          <div class="stats-card stats-card--success">
+            <div class="stats-card__value">{{ statsData.passed }}</div>
+            <div class="stats-card__label">通过</div>
+          </div>
+          <div class="stats-card stats-card--danger">
+            <div class="stats-card__value">{{ statsData.failed }}</div>
+            <div class="stats-card__label">失败</div>
+          </div>
+          <div class="stats-card stats-card--primary">
+            <div class="stats-card__value">{{ statsData.pass_rate }}%</div>
+            <div class="stats-card__label">通过率</div>
+          </div>
+          <div class="stats-card">
+            <div class="stats-card__value">{{ statsData.avg_duration }}s</div>
+            <div class="stats-card__label">平均耗时</div>
+          </div>
+          <div class="stats-card stats-card--warning" v-if="statsData.running > 0">
+            <div class="stats-card__value">{{ statsData.running }}</div>
+            <div class="stats-card__label">执行中</div>
+          </div>
+        </div>
+
         <!-- 用例列表面板 -->
         <section class="panel list-panel">
           <div class="panel__header">
@@ -978,13 +1006,13 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick, ArrowRight, ArrowDown } from '@element-plus/icons-vue'
+import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick, ArrowRight, ArrowDown, CopyDocument } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
 import {
   getMidsceneGroups, getMidsceneGroupTree, createMidsceneGroup, updateMidsceneGroup, deleteMidsceneGroup, batchReorderMidsceneGroups,
   getMidsceneCases, createMidsceneCase, updateMidsceneCase, deleteMidsceneCase,
-  batchDeleteMidsceneCases, importAIToMidscene, runMidsceneCase,
-  getMidsceneExecutionDetail, getMidsceneExecutionStatus,
+  batchDeleteMidsceneCases, importAIToMidscene, runMidsceneCase, copyMidsceneCase,
+  getMidsceneExecutionDetail, getMidsceneExecutionStatus, getMidsceneStatistics,
 } from '@/api/ui_automation'
 import { getAITaskList, getAITaskCases, getAiProjects } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
@@ -1010,6 +1038,21 @@ function onProjectChange(val) {
   localStorage.setItem('lastProjectId_ai_midscene', val || '')
   loadGroups()
   loadCases()
+  loadStatistics()
+}
+
+// ---- 统计概览 ----
+const statsData = ref(null)
+
+async function loadStatistics() {
+  try {
+    const params = {}
+    if (projectId.value) params.project_id = projectId.value
+    const res = await getMidsceneStatistics(params)
+    statsData.value = res.data || null
+  } catch {
+    statsData.value = null
+  }
 }
 
 // ---- 分组 ----
@@ -1380,6 +1423,12 @@ function getCaseActions(row) {
       onClick: (r) => showResult(r),
     },
     {
+      key: 'copy',
+      label: '复制',
+      type: 'primary',
+      onClick: (r) => copyCase(r),
+    },
+    {
       key: 'delete',
       label: '删除',
       danger: true,
@@ -1519,6 +1568,16 @@ async function deleteCase(row) {
   if (selectedCase.value?.id === row.id) closeDetailDrawer()
   loadCases()
   loadGroups()
+}
+
+async function copyCase(row) {
+  try {
+    await copyMidsceneCase(row.id)
+    ElMessage.success('用例已复制')
+    loadCases()
+  } catch (e) {
+    ElMessage.error('复制失败: ' + (e?.response?.data?.error || e.message))
+  }
 }
 
 async function handleBatchDelete() {
@@ -1841,6 +1900,7 @@ onMounted(() => {
   loadGroups()
   loadCases()
   loadAICases()
+  loadStatistics()
   document.addEventListener('click', closeGroupContextMenu)
 })
 
@@ -2031,6 +2091,42 @@ watch(() => route.path, () => {
 
 .list-column .filter-bar {
   margin-bottom: 0;
+}
+
+.stats-dashboard {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  background: #fff;
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+  border-radius: 8px;
+}
+.stats-card {
+  flex: 1;
+  text-align: center;
+  padding: 10px 0;
+  border-radius: 6px;
+  background: #f5f7fa;
+}
+.stats-card--success { background: #f0f9eb; }
+.stats-card--danger { background: #fef0f0; }
+.stats-card--primary { background: #ecf5ff; }
+.stats-card--warning { background: #fdf6ec; }
+.stats-card__value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #303133;
+  line-height: 1.2;
+}
+.stats-card--success .stats-card__value { color: #67c23a; }
+.stats-card--danger .stats-card__value { color: #f56c6c; }
+.stats-card--primary .stats-card__value { color: #409eff; }
+.stats-card--warning .stats-card__value { color: #e6a23c; }
+.stats-card__label {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 
 .list-panel {

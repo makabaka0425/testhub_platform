@@ -19,6 +19,8 @@ const fs = require('fs');
 const { chromium } = require('playwright');
 const { PlaywrightAgent } = require('@midscene/web/playwright');
 const { randomUUID } = require('crypto');
+const pixelmatch = require('pixelmatch');
+const { PNG } = require('pngjs');
 
 // @midscene/android 按需加载（APP端执行时才require）
 let androidModules = null;
@@ -341,6 +343,136 @@ app.post('/cancel/:taskId', (req, res) => {
   cancelledTasks.add(taskId);
   task.logs.push({ time: new Date().toISOString(), level: 'warn', message: '收到取消请求' });
   res.json({ task_id: taskId, status: 'cancelling', message: '取消请求已发送' });
+});
+
+// ============ 视觉回归：截图对比 + 基线管理 ============
+
+const BASELINE_DIR = path.join(MIDSCENE_RUN_DIR, 'baselines');
+if (!fs.existsSync(BASELINE_DIR)) {
+  fs.mkdirSync(BASELINE_DIR, { recursive: true });
+}
+app.use('/baselines', express.static(BASELINE_DIR));
+
+/**
+ * POST /visual-compare
+ * 对比两张截图，返回差异百分比和差异图URL
+ * body: { baseline: "http://localhost:8001/screenshots/xxx.png", current: "http://localhost:8001/screenshots/yyy.png", threshold?: 0.1 }
+ */
+app.post('/visual-compare', async (req, res) => {
+  const { baseline, current, threshold = 0.1 } = req.body;
+  if (!baseline || !current) {
+    return res.status(400).json({ error: '需要提供 baseline 和 current 截图URL' });
+  }
+
+  try {
+    // 下载两张图片
+    const fetch = require('node-fetch');
+    const [baselineRes, currentRes] = await Promise.all([
+      fetch(baseline),
+      fetch(current),
+    ]);
+    if (!baselineRes.ok || !currentRes.ok) {
+      return res.status(400).json({ error: '无法获取截图文件' });
+    }
+
+    const baselineBuf = await baselineRes.buffer();
+    const currentBuf = await currentRes.buffer();
+
+    // 解析 PNG
+    const imgA = PNG.sync.read(baselineBuf);
+    const imgB = PNG.sync.read(currentBuf);
+
+    // 统一尺寸（取最大宽高，不足的用白色填充）
+    const width = Math.max(imgA.width, imgB.width);
+    const height = Math.max(imgA.height, imgB.height);
+
+    const diff = new PNG({ width, height });
+    const numDiffPixels = pixelmatch(imgA.data, imgB.data, diff.data, width, height, { threshold });
+    const totalPixels = width * height;
+    const diffPercent = parseFloat((numDiffPixels / totalPixels * 100).toFixed(2));
+
+    // 保存差异图
+    const diffFileName = `diff_${Date.now()}.png`;
+    const diffPath = path.join(SCREENSHOT_DIR, diffFileName);
+    fs.writeFileSync(diffPath, PNG.sync.write(diff));
+    const diffUrl = `http://localhost:${PORT}/screenshots/${diffFileName}`;
+
+    res.json({
+      match: diffPercent === 0,
+      diff_percent: diffPercent,
+      diff_pixels: numDiffPixels,
+      total_pixels: totalPixels,
+      diff_url: diffUrl,
+      baseline_url: baseline,
+      current_url: current,
+    });
+  } catch (e) {
+    res.status(500).json({ error: `截图对比失败: ${e.message}` });
+  }
+});
+
+/**
+ * POST /baseline/save
+ * 将指定截图保存为基线（按用例ID归档）
+ * body: { case_id: 123, screenshot_url: "http://localhost:8001/screenshots/xxx.png" }
+ */
+app.post('/baseline/save', async (req, res) => {
+  const { case_id, screenshot_url } = req.body;
+  if (!case_id || !screenshot_url) {
+    return res.status(400).json({ error: '需要提供 case_id 和 screenshot_url' });
+  }
+
+  try {
+    const fetch = require('node-fetch');
+    const imgRes = await fetch(screenshot_url);
+    if (!imgRes.ok) {
+      return res.status(400).json({ error: '无法获取截图文件' });
+    }
+    const buf = await imgRes.buffer();
+
+    const caseDir = path.join(BASELINE_DIR, String(case_id));
+    if (!fs.existsSync(caseDir)) {
+      fs.mkdirSync(caseDir, { recursive: true });
+    }
+    const fileName = `baseline_${Date.now()}.png`;
+    const filePath = path.join(caseDir, fileName);
+    fs.writeFileSync(filePath, buf);
+
+    res.json({
+      message: '基线已保存',
+      case_id,
+      baseline_url: `http://localhost:${PORT}/baselines/${case_id}/${fileName}`,
+      saved_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    res.status(500).json({ error: `基线保存失败: ${e.message}` });
+  }
+});
+
+/**
+ * GET /baseline/list?case_id=123
+ * 查询某用例的基线列表
+ */
+app.get('/baseline/list', (req, res) => {
+  const caseId = req.query.case_id;
+  if (!caseId) {
+    return res.status(400).json({ error: '需要提供 case_id' });
+  }
+  const caseDir = path.join(BASELINE_DIR, String(caseId));
+  if (!fs.existsSync(caseDir)) {
+    return res.json({ case_id: caseId, baselines: [] });
+  }
+  const files = fs.readdirSync(caseDir)
+    .filter(f => f.endsWith('.png'))
+    .map(f => ({
+      filename: f,
+      url: `http://localhost:${PORT}/baselines/${caseId}/${f}`,
+      size: fs.statSync(path.join(caseDir, f)).size,
+      saved_at: fs.statSync(path.join(caseDir, f)).mtime,
+    }))
+    .sort((a, b) => new Date(b.saved_at) - new Date(a.saved_at));
+
+  res.json({ case_id: caseId, baselines: files });
 });
 
 // ============ 执行引擎 ============
@@ -1010,16 +1142,20 @@ async function executeBatch(batchId, cases, executionMode = 'per_case', loginCon
     // ===== 共享会话模式 =====
     await executeBatchSharedSession(batchId, cases, loginConfig);
   } else {
-    // ===== 独立模式（原有逻辑）=====
+    // ===== 独立模式：并发执行（受并发控制信号量约束）=====
+    // 初始化所有 result 条目
     for (let i = 0; i < cases.length; i++) {
       const caseItem = cases[i];
+      batch.results.push({ execution_id: caseItem.execution_id, case_id: caseItem.case_id, status: 'pending', error: null });
+    }
+
+    // 并发启动所有用例，每个通过 acquireSlot 获取执行槽位
+    const promises = cases.map((caseItem, i) => (async () => {
       const payload = caseItem.payload;
-      const executionId = caseItem.execution_id;
-      const caseId = caseItem.case_id;
+      const resultIdx = i;
+      batch.results[resultIdx].status = 'running';
 
-      batch.results.push({ execution_id: executionId, case_id: caseId, status: 'running', error: null });
-      const resultIdx = batch.results.length - 1;
-
+      await acquireSlot();
       try {
         const taskId = randomUUID();
         const task = {
@@ -1032,7 +1168,7 @@ async function executeBatch(batchId, cases, executionMode = 'per_case', loginCon
           viewport: payload.viewport || { width: 1280, height: 768 },
           model_config: payload.model_config || {},
           callback_url: payload.callback_url,
-          execution_id: executionId,
+          execution_id: caseItem.execution_id,
           user_agent: payload.user_agent || null,
           device_scale_factor: payload.device_scale_factor || null,
           cookie_file: payload.cookie_file || null,
@@ -1059,14 +1195,14 @@ async function executeBatch(batchId, cases, executionMode = 'per_case', loginCon
 
         batch.results[resultIdx].status = task.status === 'completed' ? 'passed' : 'failed';
         batch.results[resultIdx].error = task.error;
-
       } catch (err) {
         batch.results[resultIdx].status = 'failed';
         batch.results[resultIdx].error = err.message;
       }
+      batch.completed = batch.results.filter(r => r.status !== 'pending' && r.status !== 'running').length;
+    })());
 
-      batch.completed = i + 1;
-    }
+    await Promise.allSettled(promises);
   }
 
   batch.status = 'completed';

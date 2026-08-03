@@ -508,6 +508,47 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         self.get_queryset().filter(id__in=ids).delete()
         return Response({'message': f'已删除{len(ids)}条用例'})
 
+    @action(detail=True, methods=['post'], url_path='copy')
+    def copy_case(self, request, pk=None):
+        """复制AI用例（含完整配置、步骤、变量、SQL）"""
+        case = self.get_object()
+        new_case = MidsceneCase.objects.create(
+            project=case.project,
+            name=f"{case.name}_copy",
+            description=case.description,
+            group=case.group,
+            source=case.source,
+            platform=case.platform,
+            device_type=case.device_type,
+            steps=case.steps or [],  # JSONField 深拷贝
+            url=case.url,
+            headless=case.headless,
+            cache_strategy=case.cache_strategy,
+            new_tab=case.new_tab,
+            user_agent=case.user_agent,
+            viewport_width=case.viewport_width,
+            viewport_height=case.viewport_height,
+            device_scale_factor=case.device_scale_factor,
+            cookie_file=case.cookie_file,
+            wait_for_network_idle_timeout=case.wait_for_network_idle_timeout,
+            continue_on_network_idle_error=case.continue_on_network_idle_error,
+            device_id=case.device_id,
+            package_name=case.package_name,
+            app_activity=case.app_activity,
+            ai_model_config_override=case.ai_model_config_override or {},
+            device_config_override=case.device_config_override or {},
+            app_name_mapping=case.app_name_mapping or {},
+            output_variables=case.output_variables or [],
+            precondition_sql=case.precondition_sql or '',
+            postcondition_sql=case.postcondition_sql or '',
+            created_by=request.user,
+        )
+        return Response({
+            'message': '用例已复制',
+            'id': new_case.id,
+            'name': new_case.name,
+        })
+
     # ---- 从AI生成用例导入 ----
     @action(detail=False, methods=['post'], url_path='import-ai')
     def import_ai(self, request):
@@ -1295,6 +1336,74 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
             'executed_by': execution.executed_by.username if execution.executed_by else None,
             'variable_snapshot': execution.variable_snapshot or {},
             'sql_results': execution.sql_results or [],
+        })
+
+    @action(detail=False, methods=['get'], url_path='statistics')
+    def statistics(self, request):
+        """执行统计：总体概览 + 近30天趋势"""
+        from django.db.models import Count, Avg
+        from django.utils import timezone as tz
+        import datetime
+
+        project_id = request.query_params.get('project_id')
+        qs = self.get_queryset()
+        if project_id:
+            qs = qs.filter(case__project_id=project_id)
+
+        # 总体统计
+        total = qs.count()
+        passed = qs.filter(status='passed').count()
+        failed = qs.filter(status='failed').count()
+        running = qs.filter(status='running').count()
+        avg_duration = qs.exclude(duration__isnull=True).aggregate(avg=Avg('duration'))['avg']
+
+        # 近30天趋势（按天聚合）
+        today = tz.now().date()
+        trend = []
+        for offset in range(29, -1, -1):
+            day = today - datetime.timedelta(days=offset)
+            day_qs = qs.filter(started_at__date=day)
+            day_total = day_qs.count()
+            day_passed = day_qs.filter(status='passed').count()
+            day_failed = day_qs.filter(status='failed').count()
+            trend.append({
+                'date': day.strftime('%Y-%m-%d'),
+                'total': day_total,
+                'passed': day_passed,
+                'failed': day_failed,
+            })
+
+        # 用例维度：通过率最低的Top10
+        case_stats = (
+            qs.values('case_id', 'case__name')
+            .annotate(
+                exec_count=Count('id'),
+                pass_count=Count('id', filter=Q(status='passed')),
+                fail_count=Count('id', filter=Q(status='failed')),
+            )
+            .order_by('-fail_count')[:10]
+        )
+        top_failed = [
+            {
+                'case_id': s['case_id'],
+                'case_name': s['case__name'],
+                'total': s['exec_count'],
+                'passed': s['pass_count'],
+                'failed': s['fail_count'],
+                'pass_rate': round(s['pass_count'] / s['exec_count'] * 100, 1) if s['exec_count'] else 0,
+            }
+            for s in case_stats
+        ]
+
+        return Response({
+            'total': total,
+            'passed': passed,
+            'failed': failed,
+            'running': running,
+            'pass_rate': round(passed / total * 100, 1) if total else 0,
+            'avg_duration': round(avg_duration, 1) if avg_duration else 0,
+            'trend': trend,
+            'top_failed': top_failed,
         })
 
 
