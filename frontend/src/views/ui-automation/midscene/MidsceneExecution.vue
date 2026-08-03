@@ -843,22 +843,11 @@
 
     <!-- 从AI导入弹窗 -->
     <el-dialog v-model="showImportDialog" title="从AI生成用例导入" width="800px" destroy-on-close>
-      <div style="margin-bottom:12px">
-        <el-radio-group v-model="importPlatform">
-          <el-radio value="web">导入为Web端用例</el-radio>
-          <el-radio value="app">导入为APP端用例</el-radio>
-        </el-radio-group>
-      </div>
       <el-table :data="aiCases" @selection-change="onAISelection" height="350" v-loading="loadingAI">
         <el-table-column type="selection" width="40" />
-        <el-table-column prop="case_id" label="编号" width="80" />
-        <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="index" label="编号" width="70" />
+        <el-table-column prop="scenario" label="标题" min-width="200" show-overflow-tooltip />
         <el-table-column prop="priority" label="优先级" width="70" />
-        <el-table-column prop="status" label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag size="small">{{ row.status }}</el-tag>
-          </template>
-        </el-table-column>
       </el-table>
       <template #footer>
         <el-button @click="showImportDialog = false">取消</el-button>
@@ -2028,7 +2017,7 @@ async function showResult(row) {
 
 // ---- 从AI导入 ----
 const showImportDialog = ref(false)
-const importPlatform = ref('web')
+const aiTaskId = ref('')
 const aiCases = ref([])
 const selectedAICases = ref([])
 const loadingAI = ref(false)
@@ -2040,7 +2029,8 @@ async function loadAICases() {
     const res = await getAITaskList()
     const tasks = res.data || res
     if (tasks.length > 0) {
-      const detailRes = await getAITaskCases(tasks[0].id || tasks[0].task_id)
+      aiTaskId.value = tasks[0].task_id
+      const detailRes = await getAITaskCases(aiTaskId.value)
       aiCases.value = detailRes.data || detailRes
     }
   } catch {} finally {
@@ -2055,9 +2045,13 @@ function onAISelection(rows) {
 async function doImport() {
   importing.value = true
   try {
-    const caseIds = selectedAICases.value.map(c => c.id)
-    await importAIToMidscene({ case_ids: caseIds, platform: importPlatform.value })
-    ElMessage.success(`成功导入${caseIds.length}条用例`)
+    const indices = selectedAICases.value.map(c => c.index)
+    await importAIToMidscene({
+      task_id: aiTaskId.value,
+      indices,
+      platform: routePlatform.value || 'web',
+    })
+    ElMessage.success(`成功导入${indices.length}条用例`)
     showImportDialog.value = false
     loadCases()
     loadGroups()

@@ -566,35 +566,55 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='import-ai')
     def import_ai(self, request):
         """从AI生成用例导入到Midscene"""
-        case_ids = request.data.get('case_ids', [])
+        task_id = request.data.get('task_id')
+        indices = request.data.get('indices', [])
         group_id = request.data.get('group_id')
         platform = request.data.get('platform', 'web')
         project_id = request.data.get('project_id')
 
-        if not case_ids:
+        if not task_id:
+            return Response({'error': '请指定AI任务'}, status=status.HTTP_400_BAD_REQUEST)
+        if not indices:
             return Response({'error': '请选择要导入的用例'}, status=status.HTTP_400_BAD_REQUEST)
 
-        from apps.requirement_analysis.models import GeneratedTestCase
-        ai_cases = GeneratedTestCase.objects.filter(id__in=case_ids)
-        imported = []
+        try:
+            from apps.requirement_analysis.models import TestCaseGenerationTask
+            task = TestCaseGenerationTask.objects.get(task_id=task_id)
+        except Exception:
+            return Response({'error': 'AI生成任务不存在'}, status=status.HTTP_400_BAD_REQUEST)
 
-        for ai_case in ai_cases:
-            # 将AI用例的test_steps和expected_result映射为结构化步骤
+        if task.status != 'completed' or not task.final_test_cases:
+            return Response({'error': '该任务无可用用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 复用TestCaseViewSet的解析逻辑
+        from apps.ui_automation.views import TestCaseViewSet
+        helper = TestCaseViewSet()
+        helper.request = request
+        test_cases = helper._parse_ai_test_cases(task.final_test_cases)
+
+        imported = []
+        for idx in indices:
+            if not isinstance(idx, int) or idx < 0 or idx >= len(test_cases):
+                continue
+            tc = test_cases[idx]
+            # 将AI用例的steps和expected映射为结构化步骤
             steps = []
 
             # 前置条件作为第一步
-            if ai_case.precondition and ai_case.precondition.strip():
+            precondition = tc.get('precondition', '')
+            if precondition and precondition.strip():
                 steps.append({
                     'order': len(steps) + 1,
                     'type': 'action',
-                    'instruction': ai_case.precondition.strip(),
+                    'instruction': precondition.strip(),
                 })
 
-            # 测试步骤拆分（AI生成的步骤通常以换行或数字编号分隔）
-            raw_steps = ai_case.test_steps or ''
+            # 测试步骤拆分
+            raw_steps = tc.get('steps', '') or ''
+            # 步骤可能以换行或<br>分隔
+            raw_steps = raw_steps.replace('<br>', '\n').replace('<br/>', '\n')
             step_lines = [s.strip() for s in raw_steps.split('\n') if s.strip()]
             for line in step_lines:
-                # 去掉数字前缀如 "1." "1)" "步骤1:"
                 cleaned = line
                 for prefix in ['步骤', 'Step', 'step']:
                     if cleaned.lower().startswith(prefix.lower()):
@@ -610,8 +630,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                     })
 
             # 预期结果作为断言步骤
-            if ai_case.expected_result and ai_case.expected_result.strip():
-                expected_lines = [s.strip() for s in ai_case.expected_result.split('\n') if s.strip()]
+            raw_expected = tc.get('expected', '') or ''
+            raw_expected = raw_expected.replace('<br>', '\n').replace('<br/>', '\n')
+            if raw_expected.strip():
+                expected_lines = [s.strip() for s in raw_expected.split('\n') if s.strip()]
                 for line in expected_lines:
                     cleaned = re.sub(r'^\d+[.、:：)）]\s*', '', line)
                     if cleaned:
@@ -621,13 +643,13 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                             'instruction': cleaned,
                         })
 
+            scenario = tc.get('scenario', '') or f'AI导入用例-{idx+1}'
             mc = MidsceneCase.objects.create(
-                name=ai_case.title or f'AI导入-{ai_case.case_id}',
-                description=f'从AI用例 {ai_case.case_id} 导入',
+                name=scenario,
+                description=f'从AI任务 {task_id} 导入',
                 group_id=group_id or None,
                 project_id=project_id or None,
                 source='ai_import',
-                source_case_id=ai_case.id,
                 platform=platform,
                 steps=steps,
                 created_by=request.user,
