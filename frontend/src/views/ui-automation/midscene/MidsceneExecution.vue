@@ -1077,8 +1077,15 @@ async function loadCases() {
     if (projectId.value) params.project_id = projectId.value
 
     const res = await getMidsceneCases(params)
-    const data = res.data?.results || res.data || res
-    cases.value = data.results || data
+    const data = res.data
+    // 后端返回 { count, results }，直接取 results
+    cases.value = Array.isArray(data) ? data : (data.results || [])
+
+    // 刷新列表后，保持 selectedCase 与新数据同步
+    if (selectedCase.value) {
+      const updated = cases.value.find(c => c.id === selectedCase.value.id)
+      if (updated) selectedCase.value = updated
+    }
   } catch {}
 }
 
@@ -1382,7 +1389,10 @@ async function pollStatus(row, executionId) {
       const data = res.data || res
       if (data.status === 'passed' || data.status === 'failed') {
         runningIds[row.id] = false
-        loadCases()
+        // 只更新行级状态，不重新加载整个列表（避免过滤条件导致用例消失）
+        row.last_status = data.status
+        row.last_executed_at = data.started_at || new Date().toISOString()
+        row.last_duration = data.duration || null
         // 如果当前抽屉打开的是该用例，刷新结果
         if (selectedCase.value?.id === row.id) {
           loadDrawerResult(row)
@@ -1409,7 +1419,13 @@ async function batchRun() {
   }
   batchRunning.value = false
   ElMessage.success(`已提交${submitted}个用例`)
-  setTimeout(loadCases, 5000)
+  // 不再全量重载列表，pollStatus 会逐条行级更新状态
+  // 如果需要兜底，10秒后仅刷新一次状态而非全量加载
+  setTimeout(() => {
+    cases.value.forEach(c => {
+      if (runningIds[c.id]) runningIds[c.id] = false
+    })
+  }, 10000)
 }
 
 // ---- 执行结果弹窗 ----

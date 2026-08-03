@@ -592,11 +592,65 @@ async function executeTask(taskId) {
   } finally {
     task.completed_at = new Date().toISOString();
 
-    // ---- 全同步流程：回调Django → agent.destroy → 关浏览器 ----
-    // await executeTask() 只有这个 finally 块走完才会返回
-    // executeBatch for 循环里 await executeTask() 自然就是一条完再下一条
+    // ---- 全同步流程：agent.destroy生成报告 → 关浏览器 → 回调Django（带报告路径）----
 
-    // 1. 回调Django
+    // 1. agent.destroy（生成回放报告，5秒超时）
+    try {
+      if (agent) {
+        await Promise.race([
+          agent.destroy(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+        ]);
+        if (agent.reportFile) task.report_file = agent.reportFile;
+      }
+    } catch (_) {
+      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: 'agent.destroy() 超时，扫描报告目录' });
+    }
+
+    // 如果 agent.destroy 没返回 reportFile，扫描报告目录找最新文件
+    if (!task.report_file) {
+      try {
+        const reportFiles = fs.readdirSync(REPORT_DIR).filter(f => f.endsWith('.html')).sort().reverse();
+        if (reportFiles.length > 0) {
+          // 找比 task.started_at 更新的报告文件
+          const startedAt = task.started_at ? new Date(task.started_at) : new Date(Date.now() - 300000);
+          for (const fname of reportFiles) {
+            const fpath = path.join(REPORT_DIR, fname);
+            const stat = fs.statSync(fpath);
+            if (stat.mtime >= startedAt) {
+              task.report_file = fpath;
+              task.logs.push({ time: new Date().toISOString(), level: 'info', message: `从目录扫描到报告: ${fname}` });
+              break;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. 关闭浏览器（2秒超时）
+    try {
+      if (browser) await Promise.race([
+        browser.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+      ]);
+    } catch (_) {}
+    // 按PID精准杀残留进程
+    try {
+      if (browser && browser.process) {
+        const proc = browser.process();
+        if (proc) {
+          const { execSync } = require('child_process');
+          execSync(`taskkill /f /pid ${proc.pid} /t 2>nul`, { timeout: 2000 });
+        }
+      }
+    } catch (_) {}
+    task.browser_closed = true;
+    task.logs.push({ time: new Date().toISOString(), level: 'info', message: '浏览器已关闭' });
+
+    // 3. 回调Django（此时报告已生成，路径可带上）
+    const reportUrl = task.report_file
+      ? `http://localhost:${PORT}/report/${path.basename(task.report_file)}`
+      : null;
     if (task.callback_url) {
       try {
         const callbackBody = JSON.stringify({
@@ -606,8 +660,8 @@ async function executeTask(taskId) {
           result: task.result,
           error: task.error,
           completed_at: task.completed_at,
-          report_url: null,
-          report_file: null,
+          report_url: reportUrl,
+          report_file: task.report_file || null,
         });
 
         task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调Django: ${task.callback_url}` });
@@ -624,39 +678,6 @@ async function executeTask(taskId) {
         task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `回调失败: ${e.message}` });
       }
     }
-
-    // 2. agent.destroy（生成报告，3秒超时）
-    try {
-      if (agent) {
-        await Promise.race([
-          agent.destroy(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-        ]);
-        if (agent.reportFile) task.report_file = agent.reportFile;
-      }
-    } catch (_) {}
-
-    // 3. 关闭浏览器（2秒超时）
-    try {
-      if (browser) await Promise.race([
-        browser.close(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
-      ]);
-    } catch (_) {}
-
-    // 4. 按PID精准杀残留进程
-    try {
-      if (browser && browser.process) {
-        const proc = browser.process();
-        if (proc) {
-          const { execSync } = require('child_process');
-          execSync(`taskkill /f /pid ${proc.pid} /t 2>nul`, { timeout: 2000 });
-        }
-      }
-    } catch (_) {}
-
-    task.browser_closed = true;
-    task.logs.push({ time: new Date().toISOString(), level: 'info', message: '用例执行完毕，浏览器已关闭' });
   }
 }
 
