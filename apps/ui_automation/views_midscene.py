@@ -402,7 +402,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         search = request.query_params.get('search')
 
         if project_id:
-            qs = qs.filter(project_id=project_id)
+            qs = qs.filter(Q(project_id=project_id) | Q(project_id__isnull=True))
         if group_id:
             if group_id in ('0', 'ungrouped'):
                 qs = qs.filter(group_id__isnull=True)
