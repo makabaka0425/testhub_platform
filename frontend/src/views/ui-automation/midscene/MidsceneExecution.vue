@@ -24,33 +24,35 @@
       <section class="panel group-panel">
         <div class="panel__header">
           <span class="panel__title">用例分组</span>
-          <el-button text size="small" class="panel__action" @click="showGroupDialog = true">
+          <el-button text size="small" class="panel__action" @click="openAddGroup">
             <el-icon><Plus /></el-icon>
             <span>添加</span>
           </el-button>
         </div>
         <div class="panel__body group-tree-wrapper">
-          <div class="group-list">
-            <div
-              class="group-item"
-              :class="{ active: !currentGroupId }"
-              @click="selectGroup(null)"
-            >全部</div>
-            <div
-              class="group-item"
-              :class="{ active: currentGroupId === 'ungrouped' }"
-              @click="selectGroup('ungrouped')"
-            >未分组</div>
-            <div
-              v-for="g in groups" :key="g.id"
-              class="group-item"
-              :class="{ active: currentGroupId === g.id }"
-              @click="selectGroup(g.id)"
-            >
-              <span class="group-node-label">{{ g.name }}</span>
-              <span class="group-count">{{ g.case_count || 0 }}</span>
-            </div>
-          </div>
+          <el-tree
+            ref="groupTreeRef"
+            :data="groupTreeWithAll"
+            :props="{ children: 'children', label: 'name' }"
+            node-key="id"
+            :current-node-key="currentGroupId === null ? '__all__' : currentGroupId === 'ungrouped' ? '__ungrouped__' : currentGroupId"
+            :expand-on-click-node="false"
+            :default-expanded-keys="groupExpandedKeys"
+            highlight-current
+            draggable
+            :allow-drag="allowGroupDrag"
+            :allow-drop="allowGroupDrop"
+            @node-click="onGroupNodeClick"
+            @node-contextmenu="onGroupRightClick"
+            @node-drop="onGroupNodeDrop"
+          >
+            <template #default="{ node, data }">
+              <span class="group-tree-node">
+                <span class="group-tree-label">{{ data.name }}</span>
+                <span v-if="data.case_count !== undefined" class="group-count">{{ data.case_count }}</span>
+              </span>
+            </template>
+          </el-tree>
         </div>
       </section>
 
@@ -210,7 +212,7 @@
                     <el-form-item label="用例名称" required>
                       <el-input v-model="drawerForm.name" placeholder="请输入用例名称" />
                     </el-form-item>
-                    <el-form-item label="平台" required>
+                    <el-form-item v-if="!routePlatform" label="平台" required>
                       <el-radio-group v-model="drawerForm.platform" :disabled="!!selectedCase">
                         <el-radio value="web">Web端</el-radio>
                         <el-radio value="app">APP端</el-radio>
@@ -291,18 +293,22 @@
                 <el-tab-pane label="测试步骤" name="steps">
                   <div class="steps-editor-drawer">
                     <div v-for="(step, idx) in drawerForm.steps" :key="idx" class="step-row-block">
-                      <div class="step-row-main">
+                      <div class="step-row-main" @click.self="toggleDrawerStep(idx)">
+                        <el-icon class="step-toggle-icon" :class="{ 'is-expanded': drawerExpandedSteps.has(idx) }" @click.stop="toggleDrawerStep(idx)"><ArrowRight /></el-icon>
                         <span class="step-order">{{ idx + 1 }}.</span>
-                        <el-select v-model="step.type" style="width:90px" size="small">
+                        <el-select v-model="step.type" style="width:90px" size="small" @click.stop>
                           <el-option label="操作" value="action" />
                           <el-option label="断言" value="assert" />
                         </el-select>
-                        <el-input v-model="step.instruction" placeholder="步骤描述（支持${变量名}引用）" style="flex:1" size="small" />
-                        <el-button link type="danger" size="small" @click="drawerForm.steps.splice(idx, 1)">
+                        <el-input v-model="step.instruction" placeholder="步骤描述（支持${变量名}引用）" style="flex:1" size="small" @click.stop />
+                        <el-button link type="danger" size="small" @click.stop="drawerForm.steps.splice(idx, 1)">
                           <el-icon><Delete /></el-icon>
                         </el-button>
                       </div>
-                      <div class="step-row-params">
+                      <div v-if="drawerExpandedSteps.has(idx)" class="step-row-params">
+                        <span class="step-params-indent-toggle"></span>
+                        <span class="step-params-indent-order"></span>
+                        <span class="step-params-indent-select"></span>
                         <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1" size="small">
                           <template #append>
                             <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
@@ -311,6 +317,7 @@
                           </template>
                         </el-input>
                         <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
+                        <span class="step-params-indent-delete"></span>
                       </div>
                     </div>
                     <el-button link type="primary" @click="addStepToDrawer" style="margin-top:4px">+ 添加步骤</el-button>
@@ -431,7 +438,7 @@
         <el-form-item label="用例名称" required>
           <el-input v-model="caseForm.name" placeholder="请输入用例名称" />
         </el-form-item>
-        <el-form-item label="平台" required>
+        <el-form-item v-if="!routePlatform" label="平台" required>
           <el-radio-group v-model="caseForm.platform" :disabled="!!routePlatform">
             <el-radio value="web">Web端</el-radio>
             <el-radio value="app">APP端</el-radio>
@@ -513,18 +520,22 @@
         <el-form-item label="测试步骤">
           <div class="steps-editor">
             <div v-for="(step, idx) in caseForm.steps" :key="idx" class="step-row-block">
-              <div class="step-row-main">
+              <div class="step-row-main" @click.self="toggleCaseStep(idx)">
+                <el-icon class="step-toggle-icon" :class="{ 'is-expanded': caseExpandedSteps.has(idx) }" @click.stop="toggleCaseStep(idx)"><ArrowRight /></el-icon>
                 <span class="step-order">{{ idx + 1 }}.</span>
-                <el-select v-model="step.type" style="width:90px">
+                <el-select v-model="step.type" style="width:90px" @click.stop>
                   <el-option label="操作" value="action" />
                   <el-option label="断言" value="assert" />
                 </el-select>
-                <el-input v-model="step.instruction" placeholder="步骤描述（支持${变量名}引用）" style="flex:1" />
-                <el-button link type="danger" @click="caseForm.steps.splice(idx, 1)">
+                <el-input v-model="step.instruction" placeholder="步骤描述（支持${变量名}引用）" style="flex:1" @click.stop />
+                <el-button link type="danger" @click.stop="caseForm.steps.splice(idx, 1)">
                   <el-icon><Delete /></el-icon>
                 </el-button>
               </div>
-              <div class="step-row-params">
+              <div v-if="caseExpandedSteps.has(idx)" class="step-row-params">
+                <span class="step-params-indent-toggle"></span>
+                <span class="step-params-indent-order"></span>
+                <span class="step-params-indent-select"></span>
                 <el-input v-model="step.input_value" placeholder="输入值（支持${变量}和数据工厂函数）" style="flex:1">
                   <template #append>
                     <el-button size="small" @click="openVariableHelper(step, 'input_value')" title="变量助手">
@@ -533,6 +544,7 @@
                   </template>
                 </el-input>
                 <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
+                <span class="step-params-indent-delete"></span>
               </div>
             </div>
             <el-button link type="primary" @click="addStep">+ 添加步骤</el-button>
@@ -681,15 +693,37 @@
       </el-tabs>
     </el-dialog>
 
-    <el-dialog v-model="showGroupDialog" title="新建分组" width="400px" destroy-on-close>
+    <!-- 分组右键菜单 -->
+    <div v-if="showGroupContextMenu" class="group-context-menu"
+      :style="{ left: groupContextMenuX + 'px', top: groupContextMenuY + 'px' }">
+      <div class="context-menu-item" @click="editGroupNode">编辑</div>
+      <div class="context-menu-item" @click="addSubGroup">新增子分组</div>
+      <div class="context-menu-item danger" @click="deleteGroupNode">删除</div>
+    </div>
+
+    <!-- 新建/编辑分组弹窗 -->
+    <el-dialog v-model="showGroupDialog" :title="editingGroup ? '编辑分组' : '新增分组'" width="450px" destroy-on-close @close="resetGroupForm">
       <el-form :model="groupForm" label-width="80px">
         <el-form-item label="分组名称" required>
           <el-input v-model="groupForm.name" />
         </el-form-item>
+        <el-form-item label="父分组">
+          <el-tree-select
+            v-model="groupForm.parent_id"
+            :data="groupTreeSelectData"
+            :props="{ children: 'children', label: 'name', value: 'id' }"
+            placeholder="无（顶级分组）"
+            clearable
+            check-strictly
+          />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="groupForm.description" type="textarea" :rows="2" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showGroupDialog = false">取消</el-button>
-        <el-button type="primary" @click="createGroup">创建</el-button>
+        <el-button type="primary" @click="saveGroupForm">{{ editingGroup ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -699,10 +733,10 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick } from '@element-plus/icons-vue'
+import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick, ArrowRight, ArrowDown } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
 import {
-  getMidsceneGroups, createMidsceneGroup,
+  getMidsceneGroups, getMidsceneGroupTree, createMidsceneGroup, updateMidsceneGroup, deleteMidsceneGroup, batchReorderMidsceneGroups,
   getMidsceneCases, createMidsceneCase, updateMidsceneCase, deleteMidsceneCase,
   batchDeleteMidsceneCases, importAIToMidscene, runMidsceneCase,
   getMidsceneExecutionDetail, getMidsceneExecutionStatus,
@@ -729,39 +763,218 @@ async function loadProjects() {
 
 function onProjectChange(val) {
   localStorage.setItem('lastProjectId_ai_midscene', val || '')
+  loadGroups()
   loadCases()
 }
 
 // ---- 分组 ----
+const groupTreeRef = ref(null)
 const groups = ref([])
 const currentGroupId = ref(null)
 const showGroupDialog = ref(false)
-const groupForm = reactive({ name: '' })
+const editingGroup = ref(null)           // null=新建, object=编辑
+const groupForm = reactive({ name: '', parent_id: null, description: '' })
+const groupExpandedKeys = ref([])
+const showGroupContextMenu = ref(false)
+const groupContextMenuX = ref(0)
+const groupContextMenuY = ref(0)
+const groupRightClickNode = ref(null)
+
+// 组装 el-tree 数据：全部 + 未分组 + 用户分组树
+const groupTreeWithAll = computed(() => {
+  const allNode = { id: '__all__', name: '全部', case_count: 0, children: [] }
+  const ungroupedNode = { id: '__ungrouped__', name: '未分组', case_count: 0, children: [] }
+  // 统计全部和未分组的用例数
+  const countAll = (list) => {
+    let c = 0
+    for (const g of list) {
+      c += (g.case_count || 0)
+      if (g.children?.length) c += countAll(g.children)
+    }
+    return c
+  }
+  allNode.case_count = countAll(groups.value)
+  return [allNode, ungroupedNode, ...groups.value]
+})
+
+// 父分组选择数据（编辑时排除自身及子树）
+const groupTreeSelectData = computed(() => {
+  const filterSelf = (list, excludeId) => {
+    return list.filter(item => {
+      if (item.id === excludeId) return false
+      if (item.children?.length) {
+        item = { ...item, children: filterSelf(item.children, excludeId) }
+      }
+      return true
+    })
+  }
+  if (editingGroup.value) {
+    return filterSelf(JSON.parse(JSON.stringify(groups.value)), editingGroup.value.id)
+  }
+  return groups.value
+})
 
 async function loadGroups() {
   try {
-    const res = await getMidsceneGroups()
-    groups.value = res.data?.results || res.data || res
+    const params = {}
+    if (projectId.value) params.project_id = projectId.value
+    const res = await getMidsceneGroupTree(params)
+    groups.value = res.data || []
   } catch {}
 }
 
-function selectGroup(id) {
-  currentGroupId.value = id
+function onGroupNodeClick(data) {
+  if (data.id === '__all__') {
+    currentGroupId.value = null
+  } else if (data.id === '__ungrouped__') {
+    currentGroupId.value = 'ungrouped'
+  } else {
+    currentGroupId.value = data.id
+  }
   currentPage.value = 1
   loadCases()
 }
 
-async function createGroup() {
+// 右键菜单
+function onGroupRightClick(data, node, ev) {
+  if (data.id === '__all__' || data.id === '__ungrouped__') return
+  groupRightClickNode.value = { data, node }
+  groupContextMenuX.value = ev.clientX
+  groupContextMenuY.value = ev.clientY
+  showGroupContextMenu.value = true
+}
+
+function editGroupNode() {
+  showGroupContextMenu.value = false
+  if (!groupRightClickNode.value) return
+  const data = groupRightClickNode.value.data
+  const node = groupRightClickNode.value.node
+  // 优先从data取id，兜底从node.key取
+  const groupId = data.id ?? node?.key ?? node?.id
+  if (!groupId && groupId !== 0) {
+    ElMessage.error('无法获取分组ID，请刷新页面后重试')
+    return
+  }
+  editingGroup.value = { ...data, id: groupId }
+  groupForm.name = data.name || ''
+  groupForm.parent_id = data.parent_id ?? null
+  groupForm.description = data.description || ''
+  showGroupDialog.value = true
+}
+
+function addSubGroup() {
+  showGroupContextMenu.value = false
+  if (!groupRightClickNode.value) return
+  const data = groupRightClickNode.value.data
+  editingGroup.value = null
+  groupForm.name = ''
+  groupForm.parent_id = data.id
+  groupForm.description = ''
+  showGroupDialog.value = true
+}
+
+async function deleteGroupNode() {
+  showGroupContextMenu.value = false
+  if (!groupRightClickNode.value) return
+  const data = groupRightClickNode.value.data
+  try {
+    await ElMessageBox.confirm(`确定要删除分组「${data.name}」吗？子分组将一并删除，用例将移至未分组。`, '确认删除', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await deleteMidsceneGroup(data.id)
+    if (currentGroupId.value === data.id) {
+      currentGroupId.value = null
+      loadCases()
+    }
+    loadGroups()
+    ElMessage.success('分组已删除')
+  } catch {}
+}
+
+// 拖拽排序
+function allowGroupDrag() { return true }
+function allowGroupDrop(draggingNode, dropNode, type) {
+  // 不允许拖到"全部"和"未分组"上
+  if (dropNode.data.id === '__all__' || dropNode.data.id === '__ungrouped__') return type !== 'inner'
+  return true
+}
+
+async function onGroupNodeDrop(draggingNode, dropNode, dropType) {
+  // 收集同级节点的新顺序
+  const siblings = dropNode.parent.childNodes
+  const parentId = dropNode.parent.data.id
+  const orders = siblings
+    .filter(n => n.data.id !== '__all__' && n.data.id !== '__ungrouped__')
+    .map((n, i) => {
+      const item = { id: n.data.id, order: i }
+      if (dropType === 'inner') {
+        item.parent = dropNode.data.id
+      } else {
+        item.parent = (parentId === '__all__' || parentId === '__ungrouped__' || !parentId) ? null : parentId
+      }
+      return item
+    })
+  try {
+    await batchReorderMidsceneGroups({ orders })
+  } catch {
+    ElMessage.error('排序保存失败')
+    loadGroups()
+  }
+}
+
+async function saveGroupForm() {
   if (!groupForm.name) return ElMessage.warning('请输入分组名称')
   try {
-    await createMidsceneGroup({ name: groupForm.name })
+    if (editingGroup.value) {
+      const groupId = editingGroup.value.id
+      if (!groupId && groupId !== 0) {
+        console.error('编辑分组ID为空:', editingGroup.value)
+        ElMessage.error('分组ID无效，请刷新页面后重试')
+        return
+      }
+      await updateMidsceneGroup(groupId, {
+        name: groupForm.name,
+        parent_id: groupForm.parent_id,
+      })
+      ElMessage.success('分组已更新')
+    } else {
+      await createMidsceneGroup({
+        name: groupForm.name,
+        parent_id: groupForm.parent_id || null,
+        project_id: projectId.value || null,
+      })
+      ElMessage.success('分组已创建')
+    }
     showGroupDialog.value = false
-    groupForm.name = ''
     loadGroups()
-    ElMessage.success('分组已创建')
-  } catch (e) {
-    ElMessage.error('创建失败')
+  } catch {
+    ElMessage.error(editingGroup.value ? '更新失败' : '创建失败')
   }
+}
+
+function resetGroupForm() {
+  editingGroup.value = null
+  groupForm.name = ''
+  groupForm.parent_id = null
+  groupForm.description = ''
+}
+
+// 点击空白处关闭右键菜单
+function closeGroupContextMenu(e) {
+  if (showGroupContextMenu.value && !e.target.closest('.group-context-menu')) {
+    showGroupContextMenu.value = false
+  }
+}
+
+// 分组面板顶部的"添加"按钮：新建顶级分组
+function openAddGroup() {
+  editingGroup.value = null
+  groupForm.name = ''
+  groupForm.parent_id = null
+  groupForm.description = ''
+  showGroupDialog.value = true
 }
 
 // ---- 变量助手 ----
@@ -926,6 +1139,26 @@ function getCaseActions(row) {
 // ---- 新建用例弹窗 ----
 const caseDialogVisible = ref(false)
 const saving = ref(false)
+const caseExpandedSteps = ref(new Set())
+
+// ---- 抽屉步骤折叠 ----
+const drawerExpandedSteps = ref(new Set())
+
+function toggleCaseStep(idx) {
+  if (caseExpandedSteps.value.has(idx)) {
+    caseExpandedSteps.value.delete(idx)
+  } else {
+    caseExpandedSteps.value.add(idx)
+  }
+}
+
+function toggleDrawerStep(idx) {
+  if (drawerExpandedSteps.value.has(idx)) {
+    drawerExpandedSteps.value.delete(idx)
+  } else {
+    drawerExpandedSteps.value.add(idx)
+  }
+}
 const caseForm = reactive({
   name: '', platform: 'web', description: '', group_id: null,
   url: '', headless: false, cache_strategy: 'normal', new_tab: false,
@@ -951,11 +1184,13 @@ function openCreateDialog() {
     precondition_sql: '',
     postcondition_sql: '',
   })
+  caseExpandedSteps.value = new Set()
   caseDialogVisible.value = true
 }
 
 function addStep() {
-  caseForm.steps.push({ order: caseForm.steps.length + 1, type: 'action', instruction: '', input_value: '', output_var: '' })
+  const idx = caseForm.steps.length
+  caseForm.steps.push({ order: idx + 1, type: 'action', instruction: '', input_value: '', output_var: '' })
 }
 
 async function saveCase() {
@@ -1042,6 +1277,7 @@ function openDetailDrawer(caseData) {
   })
   detailActiveTab.value = 'info'
   drawerResultData.value = null
+  drawerExpandedSteps.value = new Set()
   detailDrawerVisible.value = true
   detailCollapsed.value = false
   // 加载执行结果
@@ -1076,7 +1312,8 @@ function startResize(e) {
 }
 
 function addStepToDrawer() {
-  drawerForm.steps.push({ order: drawerForm.steps.length + 1, type: 'action', instruction: '', input_value: '', output_var: '' })
+  const idx = drawerForm.steps.length
+  drawerForm.steps.push({ order: idx + 1, type: 'action', instruction: '', input_value: '', output_var: '' })
 }
 
 async function saveCaseFromDrawer() {
@@ -1261,6 +1498,7 @@ onMounted(() => {
   loadGroups()
   loadCases()
   loadAICases()
+  document.addEventListener('click', closeGroupContextMenu)
 })
 
 // 路由切换时重新加载（同组件不重建，需手动刷新）
@@ -1356,37 +1594,37 @@ watch(() => route.path, () => {
 .group-tree-wrapper {
   display: flex;
   flex-direction: column;
-}
-
-.group-list {
-  flex: 1;
   overflow-y: auto;
 }
 
-.group-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--gray-600);
-  border-radius: var(--radius-md);
-  margin: 2px 0;
-  transition: background 0.2s;
+.group-tree-wrapper :deep(.el-tree) {
+  background: transparent;
 }
 
-.group-item:hover {
+.group-tree-wrapper :deep(.el-tree-node__content) {
+  height: 36px;
+  padding-left: 8px !important;
+}
+
+.group-tree-wrapper :deep(.el-tree-node__content:hover) {
   background: var(--gray-100);
 }
 
-.group-item.active {
+.group-tree-wrapper :deep(.el-tree-node.is-current > .el-tree-node__content) {
   background: var(--brand-50);
   color: var(--brand-700);
   font-weight: 500;
 }
 
-.group-node-label {
+.group-tree-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  overflow: hidden;
+}
+
+.group-tree-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1402,6 +1640,39 @@ watch(() => route.path, () => {
   min-width: 18px;
   text-align: center;
   flex-shrink: 0;
+  margin-left: 8px;
+}
+
+/* 右键菜单 */
+.group-context-menu {
+  position: fixed;
+  z-index: 9999;
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  padding: 4px 0;
+  min-width: 120px;
+}
+
+.group-context-menu .context-menu-item {
+  padding: 7px 16px;
+  font-size: 13px;
+  color: var(--gray-700);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.group-context-menu .context-menu-item:hover {
+  background: var(--gray-100);
+}
+
+.group-context-menu .context-menu-item.danger {
+  color: var(--red-600);
+}
+
+.group-context-menu .context-menu-item.danger:hover {
+  background: var(--red-50);
 }
 
 /* ============================================================
@@ -1654,6 +1925,25 @@ watch(() => route.path, () => {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+}
+
+.step-row-main:hover {
+  background-color: #f0f2f5;
+}
+
+.step-toggle-icon {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  font-size: 12px;
+  color: #909399;
+  flex-shrink: 0;
+}
+
+.step-toggle-icon.is-expanded {
+  transform: rotate(90deg);
 }
 
 .step-row-params {
@@ -1661,7 +1951,31 @@ watch(() => route.path, () => {
   align-items: center;
   gap: 8px;
   margin-top: 6px;
-  padding-left: 32px;
+}
+
+/* 参数行占位：和主行对应元素等宽，确保输入值/输出变量和 instruction 对齐 */
+.step-params-indent-toggle {
+  flex-shrink: 0;
+  /* 和 .step-toggle-icon 同宽（icon font-size 12px + 自身无额外宽度） */
+  width: 12px;
+}
+
+.step-params-indent-order {
+  flex-shrink: 0;
+  /* 和 .step-order 同宽 */
+  width: 24px;
+}
+
+.step-params-indent-select {
+  flex-shrink: 0;
+  /* 和 el-select style=width:90px 同宽 */
+  width: 90px;
+}
+
+.step-params-indent-delete {
+  flex-shrink: 0;
+  /* 和删除按钮（icon 16px + padding）同宽 */
+  width: 24px;
 }
 
 .step-order {

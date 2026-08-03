@@ -243,6 +243,12 @@
 
           <!-- 页签1：AI生成用例 -->
           <div v-if="activeTab === 'generate'" class="stage-body">
+            <template v-if="tabData.generate.time && stagePhase !== 'generating'">
+              <div class="tab-summary">
+                <div class="tab-summary__title">{{ tabData.generate.title || 'AI生成用例' }}</div>
+                <div class="tab-summary__time">{{ tabData.generate.time }}</div>
+              </div>
+            </template>
             <div v-if="streamedContent" class="output-block">
               <div class="markdown-body" v-html="renderMarkdown(streamedContent)"></div>
             </div>
@@ -250,6 +256,12 @@
 
           <!-- 页签2：AI评审意见 -->
           <div v-if="activeTab === 'review'" class="stage-body">
+            <template v-if="tabData.review.time && stagePhase !== 'reviewing'">
+              <div class="tab-summary">
+                <div class="tab-summary__title">{{ tabData.review.title || 'AI评审意见' }}</div>
+                <div class="tab-summary__time">{{ tabData.review.time }}</div>
+              </div>
+            </template>
             <div v-if="streamedReviewContent" class="output-block review-block">
               <div class="markdown-body" v-html="renderMarkdown(streamedReviewContent)"></div>
             </div>
@@ -257,6 +269,12 @@
 
           <!-- 页签3：改进后用例 -->
           <div v-if="activeTab === 'revise'" class="stage-body">
+            <template v-if="tabData.revise.time && stagePhase !== 'revising'">
+              <div class="tab-summary">
+                <div class="tab-summary__title">{{ tabData.revise.title || '改进用例' }}</div>
+                <div class="tab-summary__time">{{ tabData.revise.time }}</div>
+              </div>
+            </template>
             <div v-if="finalTestCases" class="output-block final-block">
               <div class="markdown-body" v-html="renderMarkdown(finalTestCases)"></div>
             </div>
@@ -2118,6 +2136,28 @@ export default {
 /* 输出块 */
 .output-block {
   margin-bottom: 16px;
+}
+
+.tab-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.tab-summary__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.tab-summary__time {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .output-block-title {

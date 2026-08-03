@@ -1687,10 +1687,10 @@ export function deleteAiProject(id) {
   return request({ url: `/ui-automation/ai-projects/${id}/`, method: 'delete' })
 }
 
-// 测试AI项目数据库连接
-export function aiTestDbConnection(id, data) {
+// 测试AI项目数据库连接（无需项目ID，直接传配置）
+export function aiTestDbConnection(data) {
   return request({
-    url: `/ui-automation/ai-projects/${id}/test-db-connection/`,
+    url: `/ui-automation/ai-projects/test-db-connection/`,
     method: 'post',
     data,
     timeout: 15000
@@ -1703,6 +1703,9 @@ export function aiTestDbConnection(id, data) {
 export function getMidsceneGroups(params) {
   return request({ url: '/ui-automation/midscene-groups/', method: 'get', params })
 }
+export function getMidsceneGroupTree(params) {
+  return request({ url: '/ui-automation/midscene-groups/tree/', method: 'get', params })
+}
 export function createMidsceneGroup(data) {
   return request({ url: '/ui-automation/midscene-groups/', method: 'post', data })
 }
@@ -1711,6 +1714,9 @@ export function updateMidsceneGroup(id, data) {
 }
 export function deleteMidsceneGroup(id) {
   return request({ url: `/ui-automation/midscene-groups/${id}/`, method: 'delete' })
+}
+export function batchReorderMidsceneGroups(data) {
+  return request({ url: '/ui-automation/midscene-groups/batch_reorder/', method: 'post', data })
 }
 
 // ---- 用例 ----

@@ -1491,6 +1491,8 @@ class MidsceneExecution(models.Model):
     variable_snapshot = models.JSONField(default=dict, blank=True, verbose_name='变量快照')
     # SQL执行结果：记录前置/后置SQL的执行情况
     sql_results = models.JSONField(default=list, blank=True, verbose_name='SQL执行结果')
+    # 计划执行批次ID：标记本次计划执行创建的记录，用于准确汇总
+    plan_execution_batch = models.CharField(max_length=36, blank=True, default='', verbose_name='计划执行批次')
 
     class Meta:
         db_table = 'midscene_executions'

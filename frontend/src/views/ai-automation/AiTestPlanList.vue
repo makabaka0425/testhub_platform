@@ -382,11 +382,12 @@ async function confirmRun() {
 
 function pollPlanStatus(planId) {
   let pollCount = 0
-  const maxPolls = 120
+  const maxPolls = 600  // 最多10分钟
   const pollInterval = setInterval(async () => {
     pollCount++
     if (pollCount > maxPolls) {
       clearInterval(pollInterval)
+      loadPlans()  // 超时后做一次最终刷新
       return
     }
     try {
@@ -398,11 +399,12 @@ function pollPlanStatus(planId) {
       }
       if (plan.execution_status !== 'running') {
         clearInterval(pollInterval)
+        loadPlans()  // 执行完成后刷新完整列表
       }
     } catch (e) {
       console.error('轮询计划状态失败:', e)
     }
-  }, 1000)
+  }, 3000)  // 3秒轮询一次，减少请求压力
 }
 
 // ==================== 批量操作 ====================

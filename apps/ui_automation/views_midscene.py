@@ -8,6 +8,8 @@ import time
 import logging
 import httpx
 from django.utils import timezone
+from django.db import transaction
+from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -67,16 +69,29 @@ class AiProjectViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         instance.delete()
 
-    @action(detail=True, methods=['post'], url_path='test-db-connection')
-    def test_db_connection(self, request, pk=None):
-        """测试被测系统数据库连接"""
-        import time
+    @action(detail=False, methods=['post'], url_path='test-db-connection')
+    def test_db_connection_direct(self, request):
+        """测试数据库连接（无需项目ID，直接传配置）"""
+        db_type = request.data.get('target_db_type')
+        db_host = request.data.get('target_db_host')
+        db_port = request.data.get('target_db_port')
+        db_name = request.data.get('target_db_name')
+        db_user = request.data.get('target_db_user')
+        db_password = request.data.get('target_db_password', '')
 
+        if not db_type:
+            return Response({'success': False, 'error': '请先选择数据库类型'}, status=status.HTTP_400_BAD_REQUEST)
+        if not db_name:
+            return Response({'success': False, 'error': '请先填写数据库名'}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = _do_test_db_connection(db_type, db_host, db_port, db_name, db_user, db_password)
+        return Response(result)
+
+    @action(detail=True, methods=['post'], url_path='test-db-connection-for-project')
+    def test_db_connection(self, request, pk=None):
+        """测试被测系统数据库连接（基于已保存项目）"""
         project = self.get_object()
 
-        # 支持两种场景：
-        # 1. 已保存的项目：使用项目上的数据库配置
-        # 2. 请求体中传入配置：优先使用请求体中的值（编辑时即时测试）
         db_type = request.data.get('target_db_type') or project.target_db_type
         db_host = request.data.get('target_db_host') or project.target_db_host
         db_port = request.data.get('target_db_port') or project.target_db_port
@@ -91,89 +106,97 @@ class AiProjectViewSet(viewsets.ModelViewSet):
         if not db_name:
             return Response({'success': False, 'error': '请先填写数据库名'}, status=status.HTTP_400_BAD_REQUEST)
 
-        db_type = db_type.lower()
-        conn = None
-        start = time.time()
+        result = _do_test_db_connection(db_type, db_host, db_port, db_name, db_user, db_password)
+        return Response(result)
 
+
+def _do_test_db_connection(db_type, db_host, db_port, db_name, db_user, db_password):
+    """执行数据库连接测试，返回结果字典"""
+    import time
+
+    db_type = db_type.lower()
+    conn = None
+    start = time.time()
+
+    try:
+        if db_type == 'mysql':
+            import pymysql
+            conn = pymysql.connect(
+                host=db_host or 'localhost',
+                port=int(db_port) if db_port else 3306,
+                user=db_user or '',
+                password=db_password,
+                database=db_name,
+                charset='utf8mb4',
+                connect_timeout=10
+            )
+        elif db_type in ('postgresql', 'postgres'):
+            import psycopg2
+            conn = psycopg2.connect(
+                host=db_host or 'localhost',
+                port=int(db_port) if db_port else 5432,
+                user=db_user or '',
+                password=db_password,
+                dbname=db_name,
+                connect_timeout=10
+            )
+        elif db_type == 'sqlite':
+            import sqlite3
+            conn = sqlite3.connect(db_name)
+        elif db_type == 'oracle':
+            import cx_Oracle
+            dsn = cx_Oracle.makedsn(
+                db_host or 'localhost',
+                int(db_port) if db_port else 1521,
+                service_name=db_name
+            )
+            conn = cx_Oracle.connect(user=db_user or '', password=db_password, dsn=dsn)
+        else:
+            return {'success': False, 'error': f'不支持的数据库类型: {db_type}'}
+
+        # 测试查询
+        with conn.cursor() as cursor:
+            cursor.execute('SELECT 1')
+
+        elapsed = round((time.time() - start) * 1000)
+        db_version = ''
         try:
-            if db_type == 'mysql':
-                import pymysql
-                conn = pymysql.connect(
-                    host=db_host or 'localhost',
-                    port=int(db_port) if db_port else 3306,
-                    user=db_user or '',
-                    password=db_password,
-                    database=db_name,
-                    charset='utf8mb4',
-                    connect_timeout=10
-                )
-            elif db_type in ('postgresql', 'postgres'):
-                import psycopg2
-                conn = psycopg2.connect(
-                    host=db_host or 'localhost',
-                    port=int(db_port) if db_port else 5432,
-                    user=db_user or '',
-                    password=db_password,
-                    dbname=db_name,
-                    connect_timeout=10
-                )
-            elif db_type == 'sqlite':
-                import sqlite3
-                conn = sqlite3.connect(db_name)
-            elif db_type == 'oracle':
-                import cx_Oracle
-                dsn = cx_Oracle.makedsn(
-                    db_host or 'localhost',
-                    int(db_port) if db_port else 1521,
-                    service_name=db_name
-                )
-                conn = cx_Oracle.connect(user=db_user or '', password=db_password, dsn=dsn)
-            else:
-                return Response({'success': False, 'error': f'不支持的数据库类型: {db_type}'}, status=status.HTTP_400_BAD_REQUEST)
-
-            # 测试查询
             with conn.cursor() as cursor:
-                cursor.execute('SELECT 1')
+                if db_type == 'mysql':
+                    cursor.execute('SELECT VERSION()')
+                elif db_type in ('postgresql', 'postgres'):
+                    cursor.execute('SELECT version()')
+                elif db_type == 'sqlite':
+                    cursor.execute('SELECT sqlite_version()')
+                elif db_type == 'oracle':
+                    cursor.execute('SELECT * FROM v$version WHERE rownum = 1')
+                row = cursor.fetchone()
+                if row:
+                    db_version = str(row[0])
+        except Exception:
+            pass
 
-            elapsed = round((time.time() - start) * 1000)
-            db_version = ''
+        return {
+            'success': True,
+            'message': '数据库连接成功',
+            'db_type': db_type,
+            'db_version': db_version,
+            'elapsed_ms': elapsed
+        }
+
+    except Exception as e:
+        elapsed = round((time.time() - start) * 1000)
+        return {
+            'success': False,
+            'error': str(e),
+            'elapsed_ms': elapsed
+        }
+    finally:
+        if conn:
             try:
-                with conn.cursor() as cursor:
-                    if db_type == 'mysql':
-                        cursor.execute('SELECT VERSION()')
-                    elif db_type in ('postgresql', 'postgres'):
-                        cursor.execute('SELECT version()')
-                    elif db_type == 'sqlite':
-                        cursor.execute('SELECT sqlite_version()')
-                    elif db_type == 'oracle':
-                        cursor.execute('SELECT * FROM v$version WHERE rownum = 1')
-                    row = cursor.fetchone()
-                    if row:
-                        db_version = str(row[0])
+                conn.close()
             except Exception:
                 pass
-
-            return Response({
-                'success': True,
-                'message': '数据库连接成功',
-                'db_type': db_type,
-                'db_version': db_version,
-                'elapsed_ms': elapsed
-            })
-
-        except Exception as e:
-            elapsed = round((time.time() - start) * 1000)
-            return Response({
-                'success': False,
-                'error': str(e),
-                'elapsed_ms': elapsed
-            })
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
 
 
 # ============================================================================
@@ -191,7 +214,7 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
         project_id = request.query_params.get('project_id')
         qs = self.get_queryset()
         if project_id:
-            qs = qs.filter(project_id=project_id)
+            qs = qs.filter(models.Q(project_id=project_id) | models.Q(project_id__isnull=True))
 
         data = []
         for g in qs.order_by('order', '-created_at'):
@@ -220,6 +243,11 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
         return Response({'id': group.id, 'name': group.name}, status=status.HTTP_201_CREATED)
 
     def update(self, request, pk=None, **kwargs):
+        # 防御非法pk（如前端传入'undefined'）
+        try:
+            pk = int(pk)
+        except (TypeError, ValueError):
+            return Response({'error': '无效的分组ID'}, status=status.HTTP_400_BAD_REQUEST)
         group = self.get_queryset().filter(pk=pk).first()
         if not group:
             return Response({'error': '分组不存在'}, status=status.HTTP_404_NOT_FOUND)
@@ -233,12 +261,71 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
         group.save()
         return Response({'id': group.id, 'name': group.name})
 
+    def partial_update(self, request, pk=None, **kwargs):
+        return self.update(request, pk=pk, **kwargs)
+
     def destroy(self, request, pk=None):
+        try:
+            pk = int(pk)
+        except (TypeError, ValueError):
+            return Response({'error': '无效的分组ID'}, status=status.HTTP_400_BAD_REQUEST)
         group = self.get_queryset().filter(pk=pk).first()
         if not group:
             return Response({'error': '分组不存在'}, status=status.HTTP_404_NOT_FOUND)
         group.delete()
         return Response({'message': '已删除'})
+
+    @action(detail=False, methods=['get'])
+    def tree(self, request):
+        """获取分组树形结构"""
+        project_id = request.query_params.get('project_id')
+        qs = self.get_queryset()
+        # 过滤指定项目 + 无项目归属的分组（兼容旧数据）
+        if project_id:
+            qs = qs.filter(models.Q(project_id=project_id) | models.Q(project_id__isnull=True))
+        roots = qs.filter(parent__isnull=True).order_by('order', '-created_at')
+        data = self._build_tree(roots)
+        return Response(data)
+
+    @action(detail=False, methods=['post'])
+    def batch_reorder(self, request):
+        """批量更新分组排序（同时支持更新 parent）"""
+        orders = request.data.get('orders', [])
+        if not orders:
+            return Response({'error': '缺少排序数据'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            with transaction.atomic():
+                for item in orders:
+                    item_id = item.get('id')
+                    if not isinstance(item_id, int):
+                        continue
+                    update_fields = {'order': item.get('order', 0)}
+                    if 'parent' in item:
+                        update_fields['parent_id'] = item['parent']
+                    MidsceneGroup.objects.filter(id=item_id).update(**update_fields)
+        except Exception as e:
+            return Response({'error': f'排序保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'status': 'ok'})
+
+    def _build_tree(self, groups):
+        """递归构建树形结构"""
+        result = []
+        for g in groups:
+            node = {
+                'id': g.id,
+                'name': g.name,
+                'parent_id': g.parent_id,
+                'order': g.order,
+                'case_count': g.cases.count(),
+                'created_at': g.created_at,
+            }
+            children = MidsceneGroup.objects.filter(parent=g).order_by('order', '-created_at')
+            if children.exists():
+                node['children'] = self._build_tree(children)
+            else:
+                node['children'] = []
+            result.append(node)
+        return result
 
 
 # ============================================================================
@@ -786,6 +873,51 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         case.last_status = 'passed' if task_status == 'completed' else 'failed'
         case.last_result = error_msg or (json.dumps(result_data, ensure_ascii=False)[:500] if result_data else '')
         case.save(update_fields=['last_status', 'last_result', 'updated_at'])
+
+        # 刷新关联计划的进度和状态（每条用例回调后自动更新）
+        try:
+            from apps.ui_automation.models import AiTestPlan, AiTestPlanItem
+            plan_items = AiTestPlanItem.objects.filter(midscene_case=case).select_related('plan')
+            for plan_item in plan_items:
+                plan = plan_item.plan
+                plan_case_ids = list(plan.plan_items.values_list('midscene_case_id', flat=True))
+
+                # 找该计划最近一次执行批次（通过plan_items关联的case的execution记录）
+                latest_exec = MidsceneExecution.objects.filter(
+                    plan_execution_batch__isnull=False,
+                    case_id__in=plan_case_ids,
+                ).order_by('-id').first()
+
+                if latest_exec and latest_exec.plan_execution_batch:
+                    batch_id = latest_exec.plan_execution_batch
+                    batch_execs = MidsceneExecution.objects.filter(
+                        plan_execution_batch=batch_id,
+                        case_id__in=plan_case_ids,
+                    )
+                    passed = batch_execs.filter(status='passed').count()
+                    failed = batch_execs.filter(status='failed').count()
+                    skipped = batch_execs.filter(status='skipped').count()
+                    total_done = passed + failed + skipped
+
+                    plan.passed_count = passed
+                    plan.failed_count = failed
+                    plan.skipped_count = skipped
+
+                    if total_done < plan.total_cases:
+                        plan.execution_status = 'running'
+                    elif failed > 0:
+                        plan.execution_status = 'failed'
+                    elif skipped > 0 and passed == 0:
+                        plan.execution_status = 'skipped'
+                    else:
+                        plan.execution_status = 'passed'
+
+                    plan.save(update_fields=[
+                        'execution_status',
+                        'passed_count', 'failed_count', 'skipped_count'
+                    ])
+        except Exception as plan_err:
+            logger.error(f"刷新计划状态失败: {plan_err}")
 
         # 触发通知：查找关联此用例的活跃定时任务
         try:
@@ -1715,57 +1847,78 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def run_plan(self, request, pk=None):
-        """执行AI测试计划"""
+        """执行AI测试计划 —— 一次提交所有用例到微服务，微服务内部顺序执行"""
         plan = self.get_object()
-        items = plan.plan_items.all().select_related('midscene_case')
+        items = list(plan.plan_items.all().select_related('midscene_case'))
 
-        if not items.exists():
+        if not items:
             return Response({'error': '计划中没有用例'}, status=status.HTTP_400_BAD_REQUEST)
 
-        plan.execution_status = 'running'
-        plan.save(update_fields=['execution_status'])
+        if plan.execution_status == 'running':
+            return Response({'error': '计划正在执行中，请稍后'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 逐个提交用例到Midscene微服务执行
-        results = []
+        # 生成执行批次ID
+        import uuid
+        batch_id = str(uuid.uuid4())
+
+        # 为每个用例创建execution记录和payload
+        cases_payload = []
         for item in items:
             case = item.midscene_case
             if not case:
                 continue
+            execution = MidsceneExecution.objects.create(
+                case=case,
+                status='running',
+                executed_by=request.user,
+                plan_execution_batch=batch_id,
+            )
+            case.last_status = 'running'
+            case.save(update_fields=['last_status'])
 
-            try:
-                execution = MidsceneExecution.objects.create(
-                    case=case,
-                    status='running',
-                    executed_by=request.user,
+            payload = _build_midscene_payload(case, execution.id)
+            cases_payload.append({
+                'payload': payload,
+                'execution_id': execution.id,
+                'case_id': case.id,
+            })
+
+        if not cases_payload:
+            return Response({'error': '没有可执行的用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 更新计划状态
+        plan.execution_status = 'running'
+        plan.passed_count = 0
+        plan.failed_count = 0
+        plan.skipped_count = 0
+        plan.total_cases = len(cases_payload)
+        plan.save(update_fields=['execution_status', 'passed_count', 'failed_count', 'skipped_count', 'total_cases'])
+
+        # 一次提交所有用例到微服务 /execute-batch
+        try:
+            import httpx
+            with httpx.Client(timeout=15) as client:
+                resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute-batch', json={
+                    'cases': cases_payload,
+                    'plan_id': plan.id,
+                    'callback_base': f'http://localhost:8000/api/ui-automation',
+                }, timeout=15)
+                resp.raise_for_status()
+        except Exception as e:
+            # 提交失败，把所有execution标记为failed
+            for item_data in cases_payload:
+                MidsceneExecution.objects.filter(id=item_data['execution_id']).update(
+                    status='failed', error_message=f'提交微服务失败: {str(e)}', finished_at=timezone.now()
                 )
-                case.last_status = 'running'
-                case.save(update_fields=['last_status'])
-
-                payload = _build_midscene_payload(case, execution.id)
-
-                try:
-                    import httpx
-                    with httpx.Client(timeout=10) as client:
-                        resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute', json=payload)
-                        resp.raise_for_status()
-                    results.append({'case_id': case.id, 'case_name': case.name, 'status': 'submitted'})
-                except Exception as e:
-                    execution.status = 'failed'
-                    execution.error_message = str(e)
-                    execution.finished_at = timezone.now()
-                    execution.save()
-                    case.last_status = 'failed'
-                    case.last_result = str(e)[:500]
-                    case.save(update_fields=['last_status', 'last_result'])
-                    results.append({'case_id': case.id, 'case_name': case.name, 'status': 'failed', 'error': str(e)})
-
-            except Exception as e:
-                results.append({'case_id': case.id if case else None, 'status': 'error', 'error': str(e)})
+            plan.execution_status = 'failed'
+            plan.save(update_fields=['execution_status'])
+            return Response({'error': f'提交微服务失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({
             'message': '计划已提交执行',
             'execution_status': 'running',
-            'results': results
+            'total_cases': plan.total_cases,
+            'batch_id': batch_id,
         })
 
     def _update_plan_counts(self, plan):

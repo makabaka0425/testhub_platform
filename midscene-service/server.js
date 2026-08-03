@@ -18,7 +18,7 @@ const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
 const { PlaywrightAgent } = require('@midscene/web/playwright');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 
 // @midscene/android 按需加载（APP端执行时才require）
 let androidModules = null;
@@ -114,7 +114,7 @@ app.post('/execute', async (req, res) => {
     task.logs && task.logs.push ? null : null; // 仅日志提示，不拦截
   }
 
-  const taskId = uuidv4();
+  const taskId = randomUUID();
   const task = {
     task_id: taskId,
     platform,
@@ -167,7 +167,7 @@ app.post('/execute-step', async (req, res) => {
   // 将单步包装成 steps 格式
   const steps = [{ type: task_type, instruction }];
 
-  const taskId = uuidv4();
+  const taskId = randomUUID();
   const task = {
     task_id: taskId,
     status: 'pending',
@@ -202,6 +202,7 @@ app.get('/task/:taskId', (req, res) => {
   res.json({
     task_id: task.task_id,
     status: task.status,
+    browser_closed: task.browser_closed !== false,  // 兼容旧任务
     url: task.url,
     started_at: task.started_at,
     completed_at: task.completed_at,
@@ -554,46 +555,19 @@ async function executeTask(taskId) {
       page._releaseCdpScreenshot();
     }
 
-    // ---- 6. 销毁 Agent（必须！报告在这步写入磁盘）----
-    task.logs.push({ time: new Date().toISOString(), level: 'info', message: '正在生成报告...' });
-    try {
-      await Promise.race([
-        agent.destroy(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('agent.destroy() 超时30秒')), 30000))
-      ]);
-    } catch (destroyErr) {
-      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `Agent销毁超时或失败: ${destroyErr.message}` });
-    }
-
-    // ---- 7. 获取报告路径 ----
-    if (agent.reportFile) {
-      task.report_file = agent.reportFile;
-      task.logs.push({ time: new Date().toISOString(), level: 'info', message: `报告已生成: ${agent.reportFile}` });
-    } else {
-      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: '未获取到报告路径，尝试扫描报告目录' });
-      // fallback: 扫描报告目录找最新生成的文件
-      try {
-        const reportFiles = fs.readdirSync(REPORT_DIR).filter(f => f.endsWith('.html'));
-        if (reportFiles.length > 0) {
-          const latest = reportFiles.map(f => ({
-            name: f,
-            mtime: fs.statSync(path.join(REPORT_DIR, f)).mtime,
-          })).sort((a, b) => b.mtime - a.mtime)[0];
-          task.report_file = path.join(REPORT_DIR, latest.name);
-          task.logs.push({ time: new Date().toISOString(), level: 'info', message: `Fallback找到报告: ${task.report_file}` });
-        }
-      } catch (_) {}
-    }
-
-    // ---- 8. 判断整体结果 ----
+    // ---- 6. 判断整体结果（步骤已执行完，立刻出结果，不等agent.destroy）----
     const hasFailed = stepResults.some(s => s.status === 'failed');
     task.result = {
       status: hasFailed ? 'failed' : 'passed',
       step_results: stepResults,
     };
     task.status = hasFailed ? 'failed' : 'completed';
+    if (hasFailed && !task.error) {
+      const failedStep = stepResults.find(s => s.status === 'failed');
+      task.error = failedStep?.message || '步骤执行失败';
+    }
 
-    // ---- 恢复环境变量 ----
+    // ---- 7. 恢复环境变量 ----
     for (const [key, envName] of Object.entries(envMappings)) {
       if (mc[key]) {
         if (prevEnv[envName] === undefined) {
@@ -615,52 +589,16 @@ async function executeTask(taskId) {
     task.result = { status: 'failed', error: err.message };
     task.logs.push({ time: new Date().toISOString(), level: 'error', message: `执行失败: ${err.message}` });
 
-    // 失败时也要尝试 destroy agent（让报告记录失败状态）
-    try {
-      if (agent) {
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: '尝试销毁Agent生成报告...' });
-        await Promise.race([
-          agent.destroy(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('agent.destroy() 超时30秒')), 30000))
-        ]);
-        if (agent.reportFile) {
-          task.report_file = agent.reportFile;
-          task.logs.push({ time: new Date().toISOString(), level: 'info', message: `失败报告已生成: ${agent.reportFile}` });
-        }
-      }
-    } catch (destroyErr) {
-      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `Agent销毁超时或失败: ${destroyErr.message}` });
-    }
-
   } finally {
     task.completed_at = new Date().toISOString();
 
-    // 关闭浏览器（加超时保护，避免卡住整个执行流程）
-    try {
-      if (browser) {
-        await Promise.race([
-          browser.close(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('browser.close() 超时10秒')), 10000))
-        ]);
-      }
-    } catch (closeErr) {
-      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `浏览器关闭超时，强制终止: ${closeErr.message}` });
-      // 强制杀掉chromium进程
-      try {
-        const { execSync } = require('child_process');
-        execSync('taskkill /f /im chromium.exe 2>nul', { timeout: 3000 });
-        execSync('taskkill /f /im chrome.exe 2>nul', { timeout: 3000 });
-      } catch (_) {}
-    }
+    // ---- 全同步流程：回调Django → agent.destroy → 关浏览器 ----
+    // await executeTask() 只有这个 finally 块走完才会返回
+    // executeBatch for 循环里 await executeTask() 自然就是一条完再下一条
 
-    // 回调 Django
+    // 1. 回调Django
     if (task.callback_url) {
       try {
-        let reportUrl = null;
-        if (task.report_file) {
-          reportUrl = `http://localhost:${PORT}/report/${path.basename(task.report_file)}`;
-        }
-
         const callbackBody = JSON.stringify({
           task_id: task.task_id,
           execution_id: task.execution_id,
@@ -668,12 +606,11 @@ async function executeTask(taskId) {
           result: task.result,
           error: task.error,
           completed_at: task.completed_at,
-          report_url: reportUrl,
-          report_file: task.report_file,
+          report_url: null,
+          report_file: null,
         });
 
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `正在回调Django: ${task.callback_url}` });
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调payload: execution_id=${task.execution_id}, status=${task.status}` });
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调Django: ${task.callback_url}` });
 
         const fetch = require('node-fetch');
         const cbRes = await fetch(task.callback_url, {
@@ -682,14 +619,174 @@ async function executeTask(taskId) {
           body: callbackBody,
         });
 
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调响应: HTTP ${cbRes.status} ${cbRes.statusText}` });
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `回调响应: HTTP ${cbRes.status}` });
       } catch (e) {
         task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `回调失败: ${e.message}` });
       }
-    } else {
-      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: '未配置callback_url，跳过回调' });
     }
+
+    // 2. agent.destroy（生成报告，3秒超时）
+    try {
+      if (agent) {
+        await Promise.race([
+          agent.destroy(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        if (agent.reportFile) task.report_file = agent.reportFile;
+      }
+    } catch (_) {}
+
+    // 3. 关闭浏览器（2秒超时）
+    try {
+      if (browser) await Promise.race([
+        browser.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+      ]);
+    } catch (_) {}
+
+    // 4. 按PID精准杀残留进程
+    try {
+      if (browser && browser.process) {
+        const proc = browser.process();
+        if (proc) {
+          const { execSync } = require('child_process');
+          execSync(`taskkill /f /pid ${proc.pid} /t 2>nul`, { timeout: 2000 });
+        }
+      }
+    } catch (_) {}
+
+    task.browser_closed = true;
+    task.logs.push({ time: new Date().toISOString(), level: 'info', message: '用例执行完毕，浏览器已关闭' });
   }
+}
+
+// ============ 批量执行接口（计划执行用） ============
+
+/**
+ * POST /execute-batch
+ * 
+ * 一次接收计划所有用例，微服务内部顺序执行，每条完就回调Django。
+ * Django 不需要当调度器，不再轮询，彻底解决浏览器竞态问题。
+ * 
+ * 请求体：
+ * {
+ *   cases: [
+ *     { payload: { <与/execute相同的body> }, execution_id: 123, case_id: 456 },
+ *     ...
+ *   ],
+ *   plan_id: 2,           // 计划ID（回调用）
+ *   callback_base: 'http://localhost:8000/api/ui-automation/...',  // Django回调基础URL
+ * }
+ */
+app.post('/execute-batch', async (req, res) => {
+  const { cases = [], plan_id, callback_base } = req.body;
+
+  if (!cases.length) {
+    return res.status(400).json({ error: 'cases 不能为空' });
+  }
+
+  const batchId = randomUUID();
+  const batchTask = {
+    batch_id: batchId,
+    plan_id,
+    status: 'running',
+    total: cases.length,
+    completed: 0,
+    results: [],
+    created_at: new Date().toISOString(),
+  };
+
+  batches.set(batchId, batchTask);
+
+  // 后台顺序执行
+  executeBatch(batchId, cases);
+
+  res.json({ batch_id: batchId, status: 'pending', total: cases.length, message: '批量任务已提交' });
+});
+
+// 批量任务存储
+const batches = new Map();
+
+// 查询批量任务状态
+app.get('/batch/:batchId', (req, res) => {
+  const batch = batches.get(req.params.batchId);
+  if (!batch) {
+    return res.status(404).json({ error: '批量任务不存在' });
+  }
+  res.json({
+    batch_id: batch.batch_id,
+    plan_id: batch.plan_id,
+    status: batch.status,
+    total: batch.total,
+    completed: batch.completed,
+    results: batch.results.map(r => ({
+      execution_id: r.execution_id,
+      case_id: r.case_id,
+      status: r.status,
+      error: r.error,
+    })),
+  });
+});
+
+/**
+ * 顺序执行批量用例
+ * 简单 for 循环 await executeTask()，一条完全结束再下一条
+ */
+async function executeBatch(batchId, cases) {
+  const batch = batches.get(batchId);
+  if (!batch) return;
+
+  for (let i = 0; i < cases.length; i++) {
+    const caseItem = cases[i];
+    const payload = caseItem.payload;
+    const executionId = caseItem.execution_id;
+    const caseId = caseItem.case_id;
+
+    batch.results.push({ execution_id: executionId, case_id: caseId, status: 'running', error: null });
+    const resultIdx = batch.results.length - 1;
+
+    try {
+      // 构造标准task，复用 executeTask
+      const taskId = randomUUID();
+      const task = {
+        task_id: taskId,
+        platform: payload.platform || 'web',
+        url: payload.url,
+        steps: payload.steps || [],
+        headless: payload.headless || false,
+        viewport: payload.viewport || { width: 1280, height: 768 },
+        model_config: payload.model_config || {},
+        callback_url: payload.callback_url,
+        execution_id: executionId,
+        user_agent: payload.user_agent || null,
+        device_scale_factor: payload.device_scale_factor || null,
+        cookie_file: payload.cookie_file || null,
+        wait_for_network_idle: payload.wait_for_network_idle || null,
+        app_config: payload.app_config || null,
+        created_at: new Date().toISOString(),
+        started_at: null,
+        completed_at: null,
+        result: null,
+        error: null,
+        logs: [],
+        report_file: null,
+      };
+
+      tasks.set(taskId, task);
+      await executeTask(taskId);
+
+      batch.results[resultIdx].status = task.status === 'completed' ? 'passed' : 'failed';
+      batch.results[resultIdx].error = task.error;
+
+    } catch (err) {
+      batch.results[resultIdx].status = 'failed';
+      batch.results[resultIdx].error = err.message;
+    }
+
+    batch.completed = i + 1;
+  }
+
+  batch.status = 'completed';
 }
 
 // ============ 启动 ============
