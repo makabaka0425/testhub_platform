@@ -364,6 +364,7 @@
                             </template>
                           </el-input>
                           <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" size="small" />
+                          <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" size="small" title="失败后重试次数，0=不重试" />
                         </template>
 
                         <!-- 传统模式展开 -->
@@ -401,6 +402,10 @@
                                 <el-input v-model="step.assert_value" placeholder="期望值" style="flex:1" size="small" />
                               </div>
                             </template>
+                            <div style="display:flex;gap:6px;align-items:center">
+                              <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" size="small" title="失败后重试次数，0=不重试" />
+                              <span style="font-size:12px;color:#909399">重试次数</span>
+                            </div>
                           </div>
                         </template>
 
@@ -722,6 +727,7 @@
                     </template>
                   </el-input>
                   <el-input v-model="step.output_var" placeholder="输出变量名" style="width:120px" />
+                  <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" title="失败后重试次数，0=不重试" />
                 </template>
                 <!-- 传统模式 -->
                 <template v-else>
@@ -758,6 +764,10 @@
                         <el-input v-model="step.assert_value" placeholder="期望值" style="flex:1" size="small" />
                       </div>
                     </template>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <el-input-number v-model="step.retry_count" :min="0" :max="5" controls-position="right" style="width:90px" size="small" title="失败后重试次数，0=不重试" />
+                      <span style="font-size:12px;color:#909399">重试次数</span>
+                    </div>
                   </div>
                 </template>
                 <span class="step-params-indent-delete"></span>
@@ -1473,7 +1483,8 @@ function addStep(mode = 'ai') {
   caseForm.steps.push({
     order: idx + 1, type: 'action', mode,
     instruction: '', input_value: '', output_var: '',
-    locator_value: '', action_type: '', assert_type: '', assert_value: ''
+    locator_value: '', action_type: '', assert_type: '', assert_value: '',
+    retry_count: 0
   })
 }
 
@@ -1562,7 +1573,7 @@ function openDetailDrawer(caseData) {
     ai_model_config_override: caseData.ai_model_config_override || {},
     device_config_override: caseData.device_config_override || {},
     app_name_mapping: caseData.app_name_mapping || {},
-    steps: (caseData.steps || []).map(s => ({ ...s, mode: s.mode || 'ai', input_value: s.input_value || '', output_var: s.output_var || '', locator_value: s.locator_value || '', action_type: s.action_type || '', assert_type: s.assert_type || '', assert_value: s.assert_value || '' })),
+    steps: (caseData.steps || []).map(s => ({ ...s, mode: s.mode || 'ai', input_value: s.input_value || '', output_var: s.output_var || '', locator_value: s.locator_value || '', action_type: s.action_type || '', assert_type: s.assert_type || '', assert_value: s.assert_value || '', retry_count: s.retry_count ?? 0 })),
     output_variables: caseData.output_variables || [],
     precondition_sql: caseData.precondition_sql || '',
     postcondition_sql: caseData.postcondition_sql || '',
@@ -1609,7 +1620,8 @@ function addStepToDrawer(mode = 'ai') {
     order: idx + 1, type: 'action', mode,
     instruction: '', input_value: '', output_var: '',
     // 传统模式字段（AI模式不使用）
-    locator_value: '', action_type: '', assert_type: '', assert_value: ''
+    locator_value: '', action_type: '', assert_type: '', assert_value: '',
+    retry_count: 0
   })
 }
 

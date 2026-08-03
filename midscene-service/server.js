@@ -481,12 +481,35 @@ async function executeTask(taskId) {
         )
       ]);
     }
+
+    // 步骤级重试辅助：执行异步操作，失败时按 retry_count 自动重试
+    async function withRetry(fn, retryCount, label) {
+      let lastError = null;
+      const maxAttempts = (retryCount || 0) + 1;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const result = await fn();
+          if (attempt > 1) {
+            task.logs.push({ time: new Date().toISOString(), level: 'info', message: `${label} 第${attempt}次尝试成功` });
+          }
+          return result;
+        } catch (err) {
+          lastError = err;
+          if (attempt < maxAttempts) {
+            task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `${label} 第${attempt}次失败(${err.message})，${2}秒后重试(${attempt}/${retryCount})` });
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+      }
+      throw lastError;
+    }
     
     for (let i = 0; i < task.steps.length; i++) {
       const step = task.steps[i];
       const stepMode = step.mode || 'ai';  // 默认AI模式（向后兼容）
       let instruction = step.instruction || '';
       const input_value = step.input_value || '';
+      const retryCount = step.retry_count || 0;
       
       if (stepMode === 'traditional') {
         // ===== 传统模式：使用 Playwright 原生 API =====
@@ -494,67 +517,70 @@ async function executeTask(taskId) {
         task.logs.push({ time: new Date().toISOString(), level: 'info', message: stepLog });
 
         try {
-          let stepResult;
-          const locator = step.locator_value;
-          const actionType = step.action_type || 'click';
+          const stepResult = await withRetry(async () => {
+            const locator = step.locator_value;
+            const actionType = step.action_type || 'click';
 
-          if (!page) {
-            throw new Error('传统模式仅支持 Web 端（需要 Playwright page 对象）');
-          }
-
-          switch (actionType) {
-            case 'click':
-              await withTimeout(page.locator(locator).click(), STEP_TIMEOUT, `步骤${i+1} click`);
-              stepResult = { status: 'passed', message: '点击完成' };
-              break;
-            case 'input':
-              await withTimeout(page.locator(locator).fill(input_value), STEP_TIMEOUT, `步骤${i+1} input`);
-              stepResult = { status: 'passed', message: '输入完成', input_value };
-              break;
-            case 'select':
-              await withTimeout(page.locator(locator).selectOption(input_value), STEP_TIMEOUT, `步骤${i+1} select`);
-              stepResult = { status: 'passed', message: '选择完成', input_value };
-              break;
-            case 'hover':
-              await withTimeout(page.locator(locator).hover(), STEP_TIMEOUT, `步骤${i+1} hover`);
-              stepResult = { status: 'passed', message: '悬停完成' };
-              break;
-            case 'wait':
-              await page.waitForSelector(locator, { timeout: STEP_TIMEOUT });
-              stepResult = { status: 'passed', message: '元素出现' };
-              break;
-            case 'scroll':
-              await page.locator(locator).scrollIntoViewIfNeeded();
-              stepResult = { status: 'passed', message: '滚动到元素' };
-              break;
-            default:
-              await withTimeout(page.locator(locator).click(), STEP_TIMEOUT, `步骤${i+1} click(default)`);
-              stepResult = { status: 'passed', message: `操作完成(${actionType})` };
-          }
-
-          // 传统断言
-          if (step.type === 'assert' && step.assert_type) {
-            const assertType = step.assert_type;
-            const assertValue = step.assert_value || '';
-            if (assertType === 'exists') {
-              const visible = await page.locator(locator).isVisible().catch(() => false);
-              if (!visible) throw new Error(`断言失败: 元素不存在或不可见`);
-            } else {
-              const text = await page.locator(locator).textContent().catch(() => '');
-              if (assertType === 'equals' && text !== assertValue) throw new Error(`断言失败: 期望"${assertValue}", 实际"${text}"`);
-              if (assertType === 'contains' && !text.includes(assertValue)) throw new Error(`断言失败: 期望包含"${assertValue}", 实际"${text}"`);
-              if (assertType === 'not_equals' && text === assertValue) throw new Error(`断言失败: 值不应等于"${assertValue}"`);
+            if (!page) {
+              throw new Error('传统模式仅支持 Web 端（需要 Playwright page 对象）');
             }
-            stepResult = { status: 'passed', message: '断言通过' };
-          }
 
-          // 操作后等待
-          await page.waitForTimeout(waitAfterAction);
+            let result;
+            switch (actionType) {
+              case 'click':
+                await withTimeout(page.locator(locator).click(), STEP_TIMEOUT, `步骤${i+1} click`);
+                result = { status: 'passed', message: '点击完成' };
+                break;
+              case 'input':
+                await withTimeout(page.locator(locator).fill(input_value), STEP_TIMEOUT, `步骤${i+1} input`);
+                result = { status: 'passed', message: '输入完成', input_value };
+                break;
+              case 'select':
+                await withTimeout(page.locator(locator).selectOption(input_value), STEP_TIMEOUT, `步骤${i+1} select`);
+                result = { status: 'passed', message: '选择完成', input_value };
+                break;
+              case 'hover':
+                await withTimeout(page.locator(locator).hover(), STEP_TIMEOUT, `步骤${i+1} hover`);
+                result = { status: 'passed', message: '悬停完成' };
+                break;
+              case 'wait':
+                await page.waitForSelector(locator, { timeout: STEP_TIMEOUT });
+                result = { status: 'passed', message: '元素出现' };
+                break;
+              case 'scroll':
+                await page.locator(locator).scrollIntoViewIfNeeded();
+                result = { status: 'passed', message: '滚动到元素' };
+                break;
+              default:
+                await withTimeout(page.locator(locator).click(), STEP_TIMEOUT, `步骤${i+1} click(default)`);
+                result = { status: 'passed', message: `操作完成(${actionType})` };
+            }
+
+            // 传统断言
+            if (step.type === 'assert' && step.assert_type) {
+              const assertType = step.assert_type;
+              const assertValue = step.assert_value || '';
+              if (assertType === 'exists') {
+                const visible = await page.locator(locator).isVisible().catch(() => false);
+                if (!visible) throw new Error(`断言失败: 元素不存在或不可见`);
+              } else {
+                const text = await page.locator(locator).textContent().catch(() => '');
+                if (assertType === 'equals' && text !== assertValue) throw new Error(`断言失败: 期望"${assertValue}", 实际"${text}"`);
+                if (assertType === 'contains' && !text.includes(assertValue)) throw new Error(`断言失败: 期望包含"${assertValue}", 实际"${text}"`);
+                if (assertType === 'not_equals' && text === assertValue) throw new Error(`断言失败: 值不应等于"${assertValue}"`);
+              }
+              result = { status: 'passed', message: '断言通过' };
+            }
+
+            await page.waitForTimeout(waitAfterAction);
+            return result;
+          }, retryCount, `步骤${i+1}`);
 
           stepResults.push({
             order: i + 1, type: step.type, mode: 'traditional',
-            instruction, locator_value: locator, action_type: actionType,
+            instruction, locator_value: step.locator_value, action_type: step.action_type || 'click',
             output_var: step.output_var || null,
+            retry_count: retryCount,
             ...stepResult,
           });
 
@@ -563,9 +589,10 @@ async function executeTask(taskId) {
             order: i + 1, type: step.type, mode: 'traditional',
             instruction, locator_value: step.locator_value,
             output_var: step.output_var || null,
+            retry_count: retryCount,
             status: 'failed', message: stepErr.message,
           });
-          task.logs.push({ time: new Date().toISOString(), level: 'error', message: `步骤${i + 1} 失败: ${stepErr.message}` });
+          task.logs.push({ time: new Date().toISOString(), level: 'error', message: `步骤${i + 1} 失败(重试${retryCount}次后): ${stepErr.message}` });
           break;
         }
 
@@ -580,50 +607,54 @@ async function executeTask(taskId) {
         task.logs.push({ time: new Date().toISOString(), level: 'info', message: stepLog });
 
         try {
-          let stepResult;
-          switch (step.type) {
-            case 'aiAct':
-              await withTimeout(agent.aiAct(instruction), STEP_TIMEOUT, `步骤${i+1} aiAct`);
-              stepResult = { status: 'passed', message: '操作完成' };
-              if (input_value) stepResult.input_value = input_value;
-              break;
-            case 'aiTap':
-              await withTimeout(agent.aiTap(instruction), STEP_TIMEOUT, `步骤${i+1} aiTap`);
-              stepResult = { status: 'passed', message: '点击完成' };
-              if (input_value) stepResult.input_value = input_value;
-              break;
-            case 'aiAssert':
-              await withTimeout(agent.aiAssert(instruction), STEP_TIMEOUT, `步骤${i+1} aiAssert`);
-              stepResult = { status: 'passed', message: '断言通过' };
-              if (input_value) stepResult.input_value = input_value;
-              break;
-            case 'aiQuery':
-              const queryResult = await withTimeout(agent.aiQuery(instruction), STEP_TIMEOUT, `步骤${i+1} aiQuery`);
-              stepResult = { status: 'passed', message: '查询完成', data: queryResult };
-              if (input_value) stepResult.input_value = input_value;
-              break;
-            case 'aiWaitFor':
-              await withTimeout(agent.aiWaitFor(instruction), STEP_TIMEOUT, `步骤${i+1} aiWaitFor`);
-              stepResult = { status: 'passed', message: '等待条件满足' };
-              break;
-            case 'sleep':
-              await new Promise(r => setTimeout(r, step.duration || 2000));
-              stepResult = { status: 'passed', message: `等待${(step.duration || 2000) / 1000}秒` };
-              break;
-            default:
-              await withTimeout(agent.aiAct(instruction || step.instruction), STEP_TIMEOUT, `步骤${i+1} aiAct`);
-              stepResult = { status: 'passed', message: '操作完成（默认aiAct）' };
-          }
+          const stepResult = await withRetry(async () => {
+            let result;
+            switch (step.type) {
+              case 'aiAct':
+                await withTimeout(agent.aiAct(instruction), STEP_TIMEOUT, `步骤${i+1} aiAct`);
+                result = { status: 'passed', message: '操作完成' };
+                if (input_value) result.input_value = input_value;
+                break;
+              case 'aiTap':
+                await withTimeout(agent.aiTap(instruction), STEP_TIMEOUT, `步骤${i+1} aiTap`);
+                result = { status: 'passed', message: '点击完成' };
+                if (input_value) result.input_value = input_value;
+                break;
+              case 'aiAssert':
+                await withTimeout(agent.aiAssert(instruction), STEP_TIMEOUT, `步骤${i+1} aiAssert`);
+                result = { status: 'passed', message: '断言通过' };
+                if (input_value) result.input_value = input_value;
+                break;
+              case 'aiQuery':
+                const queryResult = await withTimeout(agent.aiQuery(instruction), STEP_TIMEOUT, `步骤${i+1} aiQuery`);
+                result = { status: 'passed', message: '查询完成', data: queryResult };
+                if (input_value) result.input_value = input_value;
+                break;
+              case 'aiWaitFor':
+                await withTimeout(agent.aiWaitFor(instruction), STEP_TIMEOUT, `步骤${i+1} aiWaitFor`);
+                result = { status: 'passed', message: '等待条件满足' };
+                break;
+              case 'sleep':
+                await new Promise(r => setTimeout(r, step.duration || 2000));
+                result = { status: 'passed', message: `等待${(step.duration || 2000) / 1000}秒` };
+                break;
+              default:
+                await withTimeout(agent.aiAct(instruction || step.instruction), STEP_TIMEOUT, `步骤${i+1} aiAct`);
+                result = { status: 'passed', message: '操作完成（默认aiAct）' };
+            }
 
-          // 操作后等待
-          if (step.type !== 'sleep') {
-            await new Promise(r => setTimeout(r, Math.min(waitAfterAction, 3000)));
-          }
+            // 操作后等待
+            if (step.type !== 'sleep') {
+              await new Promise(r => setTimeout(r, Math.min(waitAfterAction, 3000)));
+            }
+            return result;
+          }, retryCount, `步骤${i+1}`);
 
           stepResults.push({
             order: i + 1, type: step.type, mode: 'ai',
             instruction: step.instruction,
             output_var: step.output_var || null,
+            retry_count: retryCount,
             ...stepResult,
           });
         } catch (stepErr) {
@@ -631,9 +662,10 @@ async function executeTask(taskId) {
             order: i + 1, type: step.type, mode: 'ai',
             instruction: step.instruction,
             output_var: step.output_var || null,
+            retry_count: retryCount,
             status: 'failed', message: stepErr.message,
           });
-          task.logs.push({ time: new Date().toISOString(), level: 'error', message: `步骤${i + 1} 失败: ${stepErr.message}` });
+          task.logs.push({ time: new Date().toISOString(), level: 'error', message: `步骤${i + 1} 失败(重试${retryCount}次后): ${stepErr.message}` });
           break;
         }
       }
@@ -951,6 +983,28 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
     ]);
   }
 
+  // 步骤级重试辅助（共享会话模式）
+  async function withRetry(fn, retryCount, label) {
+    let lastError = null;
+    const maxAttempts = (retryCount || 0) + 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const result = await fn();
+        if (attempt > 1) {
+          console.log(`[SharedSession] ${label} 第${attempt}次尝试成功`);
+        }
+        return result;
+      } catch (err) {
+        lastError = err;
+        if (attempt < maxAttempts) {
+          console.log(`[SharedSession] ${label} 第${attempt}次失败(${err.message})，2秒后重试(${attempt}/${retryCount})`);
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+    }
+    throw lastError;
+  }
+
   let browser = null;
   let page = null;
   let agent = null;
@@ -1145,6 +1199,7 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
           const stepMode = step.mode || 'ai';
           let instruction = step.instruction || '';
           const input_value = step.input_value || '';
+          const retryCount = step.retry_count || 0;
 
           if (stepMode === 'traditional') {
             // ===== 传统模式 =====
@@ -1154,46 +1209,50 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
                 order: j + 1, type: step.type, mode: 'traditional',
                 instruction, locator_value: step.locator_value,
                 output_var: step.output_var || null,
+                retry_count: retryCount,
                 status: 'skipped', message: 'APP端不支持传统模式步骤，已跳过',
               });
               continue;
             }
-            // Web端传统步骤（原有逻辑）
-            const stepLog = `用例${i+1} 步骤${j+1} [传统/${step.action_type || 'click'}]: ${step.locator_value || instruction}`;
+            // Web端传统步骤（withRetry包装）
             try {
-              const locator = step.locator_value;
-              const actionType = step.action_type || 'click';
-              switch (actionType) {
-                case 'click': await withTimeout(page.locator(locator).click(), STEP_TIMEOUT, `步骤${j+1}`); break;
-                case 'input': await withTimeout(page.locator(locator).fill(input_value), STEP_TIMEOUT, `步骤${j+1}`); break;
-                case 'select': await withTimeout(page.locator(locator).selectOption(input_value), STEP_TIMEOUT, `步骤${j+1}`); break;
-                case 'hover': await withTimeout(page.locator(locator).hover(), STEP_TIMEOUT, `步骤${j+1}`); break;
-                case 'wait': await page.waitForSelector(locator, { timeout: STEP_TIMEOUT }); break;
-                case 'scroll': await page.locator(locator).scrollIntoViewIfNeeded(); break;
-                default: await withTimeout(page.locator(locator).click(), STEP_TIMEOUT, `步骤${j+1}`);
-              }
-              // 传统断言
-              if (step.type === 'assert' && step.assert_type) {
-                const assertType = step.assert_type;
-                const assertValue = step.assert_value || '';
-                if (assertType === 'exists') {
-                  const visible = await page.locator(locator).isVisible().catch(() => false);
-                  if (!visible) throw new Error(`断言失败: 元素不存在或不可见`);
-                } else {
-                  const text = await page.locator(locator).textContent().catch(() => '');
-                  if (assertType === 'equals' && text !== assertValue) throw new Error(`断言失败: 期望"${assertValue}", 实际"${text}"`);
-                  if (assertType === 'contains' && !text.includes(assertValue)) throw new Error(`断言失败: 期望包含"${assertValue}"`);
+              const stepResult = await withRetry(async () => {
+                const locator = step.locator_value;
+                const actionType = step.action_type || 'click';
+                switch (actionType) {
+                  case 'click': await withTimeout(page.locator(locator).click(), STEP_TIMEOUT, `步骤${j+1}`); break;
+                  case 'input': await withTimeout(page.locator(locator).fill(input_value), STEP_TIMEOUT, `步骤${j+1}`); break;
+                  case 'select': await withTimeout(page.locator(locator).selectOption(input_value), STEP_TIMEOUT, `步骤${j+1}`); break;
+                  case 'hover': await withTimeout(page.locator(locator).hover(), STEP_TIMEOUT, `步骤${j+1}`); break;
+                  case 'wait': await page.waitForSelector(locator, { timeout: STEP_TIMEOUT }); break;
+                  case 'scroll': await page.locator(locator).scrollIntoViewIfNeeded(); break;
+                  default: await withTimeout(page.locator(locator).click(), STEP_TIMEOUT, `步骤${j+1}`);
                 }
-              }
-              await page.waitForTimeout(waitAfterAction);
-              // 变量提取
-              if (step.output_var) {
-                const elText = await page.locator(locator).textContent().catch(() => '');
-                sharedVariables[step.output_var] = elText;
-              }
-              stepResults.push({ order: j + 1, type: step.type, mode: 'traditional', instruction, locator_value: locator, action_type: actionType, output_var: step.output_var || null, status: 'passed', message: '操作完成' });
+                // 传统断言
+                if (step.type === 'assert' && step.assert_type) {
+                  const assertType = step.assert_type;
+                  const assertValue = step.assert_value || '';
+                  if (assertType === 'exists') {
+                    const visible = await page.locator(locator).isVisible().catch(() => false);
+                    if (!visible) throw new Error(`断言失败: 元素不存在或不可见`);
+                  } else {
+                    const text = await page.locator(locator).textContent().catch(() => '');
+                    if (assertType === 'equals' && text !== assertValue) throw new Error(`断言失败: 期望"${assertValue}", 实际"${text}"`);
+                    if (assertType === 'contains' && !text.includes(assertValue)) throw new Error(`断言失败: 期望包含"${assertValue}"`);
+                  }
+                }
+                await page.waitForTimeout(waitAfterAction);
+                // 变量提取
+                if (step.output_var) {
+                  const elText = await page.locator(step.locator_value).textContent().catch(() => '');
+                  sharedVariables[step.output_var] = elText;
+                }
+                return { status: 'passed', message: '操作完成' };
+              }, retryCount, `用例${i+1}步骤${j+1}`);
+
+              stepResults.push({ order: j + 1, type: step.type, mode: 'traditional', instruction, locator_value: step.locator_value, action_type: step.action_type || 'click', output_var: step.output_var || null, retry_count: retryCount, ...stepResult });
             } catch (stepErr) {
-              stepResults.push({ order: j + 1, type: step.type, mode: 'traditional', instruction, locator_value: step.locator_value, output_var: step.output_var || null, status: 'failed', message: stepErr.message });
+              stepResults.push({ order: j + 1, type: step.type, mode: 'traditional', instruction, locator_value: step.locator_value, output_var: step.output_var || null, retry_count: retryCount, status: 'failed', message: stepErr.message });
               break;
             }
           } else {
@@ -1208,45 +1267,49 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
               }
             }
             try {
-              let stepResult;
-              switch (step.type) {
-                case 'aiAct':
-                  await withTimeout(agent.aiAct(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
-                  stepResult = { status: 'passed', message: '操作完成' };
-                  break;
-                case 'aiTap':
-                  await withTimeout(agent.aiTap(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
-                  stepResult = { status: 'passed', message: '点击完成' };
-                  break;
-                case 'aiAssert':
-                  await withTimeout(agent.aiAssert(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
-                  stepResult = { status: 'passed', message: '断言通过' };
-                  break;
-                case 'aiQuery':
-                  const queryResult = await withTimeout(agent.aiQuery(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
-                  stepResult = { status: 'passed', message: '查询完成', data: queryResult };
-                  break;
-                case 'aiWaitFor':
-                  await withTimeout(agent.aiWaitFor(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
-                  stepResult = { status: 'passed', message: '等待条件满足' };
-                  break;
-                case 'sleep':
-                  await new Promise(r => setTimeout(r, step.duration || 2000));
-                  stepResult = { status: 'passed', message: `等待${(step.duration || 2000) / 1000}秒` };
-                  break;
-                default:
-                  await withTimeout(agent.aiAct(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
-                  stepResult = { status: 'passed', message: '操作完成（默认aiAct）' };
-              }
-              if (step.type !== 'sleep') await new Promise(r => setTimeout(r, Math.min(waitAfterAction, 3000)));
-              // 变量提取
-              if (step.output_var) {
-                let varValue = stepResult.data || input_value || stepResult.message || '';
-                sharedVariables[step.output_var] = varValue;
-              }
-              stepResults.push({ order: j + 1, type: step.type, mode: 'ai', instruction: step.instruction, output_var: step.output_var || null, ...stepResult });
+              const stepResult = await withRetry(async () => {
+                let result;
+                switch (step.type) {
+                  case 'aiAct':
+                    await withTimeout(agent.aiAct(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
+                    result = { status: 'passed', message: '操作完成' };
+                    break;
+                  case 'aiTap':
+                    await withTimeout(agent.aiTap(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
+                    result = { status: 'passed', message: '点击完成' };
+                    break;
+                  case 'aiAssert':
+                    await withTimeout(agent.aiAssert(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
+                    result = { status: 'passed', message: '断言通过' };
+                    break;
+                  case 'aiQuery':
+                    const queryResult = await withTimeout(agent.aiQuery(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
+                    result = { status: 'passed', message: '查询完成', data: queryResult };
+                    break;
+                  case 'aiWaitFor':
+                    await withTimeout(agent.aiWaitFor(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
+                    result = { status: 'passed', message: '等待条件满足' };
+                    break;
+                  case 'sleep':
+                    await new Promise(r => setTimeout(r, step.duration || 2000));
+                    result = { status: 'passed', message: `等待${(step.duration || 2000) / 1000}秒` };
+                    break;
+                  default:
+                    await withTimeout(agent.aiAct(aiInstruction), STEP_TIMEOUT, `步骤${j+1}`);
+                    result = { status: 'passed', message: '操作完成（默认aiAct）' };
+                }
+                if (step.type !== 'sleep') await new Promise(r => setTimeout(r, Math.min(waitAfterAction, 3000)));
+                // 变量提取
+                if (step.output_var) {
+                  let varValue = result.data || input_value || result.message || '';
+                  sharedVariables[step.output_var] = varValue;
+                }
+                return result;
+              }, retryCount, `用例${i+1}步骤${j+1}`);
+
+              stepResults.push({ order: j + 1, type: step.type, mode: 'ai', instruction: step.instruction, output_var: step.output_var || null, retry_count: retryCount, ...stepResult });
             } catch (stepErr) {
-              stepResults.push({ order: j + 1, type: step.type, mode: 'ai', instruction: step.instruction, output_var: step.output_var || null, status: 'failed', message: stepErr.message });
+              stepResults.push({ order: j + 1, type: step.type, mode: 'ai', instruction: step.instruction, output_var: step.output_var || null, retry_count: retryCount, status: 'failed', message: stepErr.message });
               break;
             }
           }
