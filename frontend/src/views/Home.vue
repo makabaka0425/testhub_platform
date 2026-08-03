@@ -63,11 +63,18 @@
         </div>
       </div>
 
-      <h1 class="main-title">{{ $t('home.title') }}</h1>
+      <h1 class="main-title">
+        <span class="brand-name">
+          <span class="brand-corner">
+            <span class="brand-text">{{ $t('home.brandName') }}</span>
+          </span>
+        </span>
+        {{ $t('home.titleSuffix') }}
+      </h1>
       <p class="subtitle">{{ $t('home.subtitle') }}</p>
 
       <div class="cards-container">
-        <!-- AI用例生成 -->
+        <!-- 1. AI用例生成 -->
         <div class="nav-card" @click="handleNavigate('ai')" role="button" tabindex="0">
           <div class="card-icon ai-icon">
             <el-icon><MagicStick /></el-icon>
@@ -76,16 +83,16 @@
           <p>{{ $t('home.aiCaseGenerationDesc') }}</p>
         </div>
 
-        <!-- 接口测试 -->
-        <div class="nav-card" @click="handleNavigate('api')" role="button" tabindex="0">
-          <div class="card-icon api-icon">
-            <el-icon><Link /></el-icon>
+        <!-- 2. AI自动化测试 -->
+        <div class="nav-card" @click="handleNavigate('ai-intelligent')" role="button" tabindex="0">
+          <div class="card-icon ai-intelligent-icon">
+            <el-icon><Cpu /></el-icon>
           </div>
-          <h3>{{ $t('home.apiTesting') }}</h3>
-          <p>{{ $t('home.apiTestingDesc') }}</p>
+          <h3>{{ $t('home.aiIntelligentMode') }}</h3>
+          <p>{{ $t('home.aiIntelligentModeDesc') }}</p>
         </div>
 
-        <!-- UI自动化测试 -->
+        <!-- 3. UI自动化测试 -->
         <div class="nav-card" @click="handleNavigate('ui')" role="button" tabindex="0">
           <div class="card-icon ui-icon">
             <el-icon><Monitor /></el-icon>
@@ -94,25 +101,7 @@
           <p>{{ $t('home.uiAutomationDesc') }}</p>
         </div>
 
-        <!-- Bug缺陷管理 -->
-        <div class="nav-card" @click="handleNavigate('defects')" role="button" tabindex="0">
-          <div class="card-icon defects-icon">
-            <el-icon><Tickets /></el-icon>
-          </div>
-          <h3>{{ $t('home.defectManagement') }}</h3>
-          <p>{{ $t('home.defectManagementDesc') }}</p>
-        </div>
-
-        <!-- 数据工厂 -->
-        <div class="nav-card" @click="handleNavigate('data')" role="button" tabindex="0">
-          <div class="card-icon data-icon">
-            <el-icon><DataLine /></el-icon>
-          </div>
-          <h3>{{ $t('home.dataFactory') }}</h3>
-          <p>{{ $t('home.dataFactoryDesc') }}</p>
-        </div>
-
-        <!-- APP自动化测试 -->
+        <!-- 4. APP自动化测试 -->
         <div class="nav-card" @click="handleNavigate('app')" role="button" tabindex="0">
           <div class="card-icon app-icon">
             <el-icon><Cellphone /></el-icon>
@@ -121,15 +110,34 @@
           <p>{{ $t('home.appAutomationDesc') }}</p>
         </div>
 
-        <!-- AI 智能模式 -->
-        <div class="nav-card" @click="handleNavigate('ai-intelligent')" role="button" tabindex="0">
-          <div class="card-icon ai-intelligent-icon">
-            <el-icon><Cpu /></el-icon>
+        <!-- 5. 接口测试 -->
+        <div class="nav-card" @click="handleNavigate('api')" role="button" tabindex="0">
+          <div class="card-icon api-icon">
+            <el-icon><Link /></el-icon>
           </div>
-          <h3>{{ $t('home.aiIntelligentMode') }}</h3>
-          <p>{{ $t('home.aiIntelligentModeDesc') }}</p>
+          <h3>{{ $t('home.apiTesting') }}</h3>
+          <p>{{ $t('home.apiTestingDesc') }}</p>
         </div>
-        <!-- AI评测师 -->
+
+        <!-- 6. Bug缺陷管理 -->
+        <div class="nav-card" @click="handleNavigate('defects')" role="button" tabindex="0">
+          <div class="card-icon defects-icon">
+            <el-icon><Tickets /></el-icon>
+          </div>
+          <h3>{{ $t('home.defectManagement') }}</h3>
+          <p>{{ $t('home.defectManagementDesc') }}</p>
+        </div>
+
+        <!-- 7. 数据工厂 -->
+        <div class="nav-card" @click="handleNavigate('data')" role="button" tabindex="0">
+          <div class="card-icon data-icon">
+            <el-icon><DataLine /></el-icon>
+          </div>
+          <h3>{{ $t('home.dataFactory') }}</h3>
+          <p>{{ $t('home.dataFactoryDesc') }}</p>
+        </div>
+
+        <!-- 8. AI评测师 -->
         <div class="nav-card" @click="handleNavigate('assistant')" role="button" tabindex="0">
           <div class="card-icon assistant-icon">
             <el-icon><ChatDotRound /></el-icon>
@@ -137,7 +145,8 @@
           <h3>{{ $t('home.aiEvaluator') }}</h3>
           <p>{{ $t('home.aiEvaluatorDesc') }}</p>
         </div>
-        <!-- 配置中心 -->
+
+        <!-- 9. 配置中心 -->
         <div class="nav-card" @click="handleNavigate('config')" role="button" tabindex="0">
           <div class="card-icon config-icon">
             <el-icon><Setting /></el-icon>
@@ -437,6 +446,51 @@ const handleNavigate = (type) => {
   margin-bottom: 1rem;
   font-weight: 700;
   letter-spacing: 2px;
+}
+
+.brand-name {
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: baseline;
+}
+
+.brand-corner {
+  display: inline-block;
+  position: relative;
+  padding: 8px 14px 8px 10px;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-color: #409eff;
+    border-style: solid;
+    border-width: 0;
+  }
+
+  // 左上角 ∟
+  &::before {
+    top: 0;
+    left: 0;
+    border-top-width: 3px;
+    border-left-width: 3px;
+    border-top-left-radius: 4px;
+  }
+
+  // 右下角 ∟
+  &::after {
+    bottom: 0;
+    right: 0;
+    border-bottom-width: 3px;
+    border-right-width: 3px;
+    border-bottom-right-radius: 4px;
+  }
+}
+
+.brand-text {
+  display: inline;
 }
 
 .subtitle {
@@ -773,6 +827,17 @@ const handleNavigate = (type) => {
     margin-bottom: 8px;
   }
 
+  .brand-corner {
+    padding: 5px 8px 5px 6px;
+
+    &::before,
+    &::after {
+      width: 14px;
+      height: 14px;
+      border-width: 2px;
+    }
+  }
+
   .subtitle {
     font-size: 0.9375rem;
     color: #7a8494;
@@ -858,6 +923,17 @@ const handleNavigate = (type) => {
 
   .main-title {
     font-size: 1.5rem;
+  }
+
+  .brand-corner {
+    padding: 4px 6px 4px 5px;
+
+    &::before,
+    &::after {
+      width: 12px;
+      height: 12px;
+      border-width: 2px;
+    }
   }
 
   .subtitle {

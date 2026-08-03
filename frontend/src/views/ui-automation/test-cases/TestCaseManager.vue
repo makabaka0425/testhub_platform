@@ -25,6 +25,10 @@
           <el-icon><Plus /></el-icon>
           <span>新增</span>
         </el-button>
+        <el-button size="small" @click="openImportDialog">
+          <el-icon><Upload /></el-icon>
+          <span>导入</span>
+        </el-button>
       </div>
     </div>
 
@@ -1073,6 +1077,68 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 导入用例弹窗 -->
+    <el-dialog v-model="showImportDialog" title="导入测试用例" width="680px" :close-on-click-modal="false" destroy-on-close>
+      <el-tabs v-model="importTab">
+        <!-- Tab 1: AI生成用例 -->
+        <el-tab-pane label="AI生成用例" name="ai">
+          <div style="margin-bottom: 12px; color: #666; font-size: 13px;">
+            选择已完成的AI生成任务，将用例导入为当前项目的描述型步骤，后续需人工编排操作类型和元素定位。
+          </div>
+          <el-select v-model="selectedAITask" placeholder="选择AI生成任务" style="width: 100%; margin-bottom: 12px;" :loading="aiTaskListLoading" @change="onAITaskSelect">
+            <el-option v-for="task in aiTaskList" :key="task.task_id" :label="`${task.title} (${task.case_count}条用例, ${task.created_at})`" :value="task.task_id" />
+          </el-select>
+          <div v-if="aiTaskCasesLoading" style="text-align: center; padding: 20px; color: #999;">加载中...</div>
+          <el-table v-else-if="aiTaskCases.length > 0" :data="aiTaskCases" border size="small" max-height="300" @selection-change="handleAISelectionChange" style="margin-bottom: 12px;">
+            <el-table-column type="selection" width="40" />
+            <el-table-column prop="scenario" label="用例场景" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="priority" label="优先级" width="80" />
+          </el-table>
+          <div v-else-if="selectedAITask && !aiTaskCasesLoading" style="text-align: center; padding: 20px; color: #999;">该任务暂无用例</div>
+          <div v-if="!selectedAITask && !aiTaskCasesLoading" style="text-align: center; padding: 20px; color: #bbb;">请先选择AI生成任务</div>
+        </el-tab-pane>
+
+        <!-- Tab 2: 文件上传 -->
+        <el-tab-pane label="上传文件" name="file">
+          <div style="margin-bottom: 12px; color: #666; font-size: 13px;">
+            上传Excel(.xlsx/.xls)或CSV文件，表头需包含：场景/名称、步骤、预期结果 等列。
+          </div>
+          <el-upload
+            :auto-upload="false"
+            :limit="1"
+            accept=".xlsx,.xls,.csv"
+            :on-change="(file) => { importFile = file.raw }"
+            :on-remove="() => { importFile = null }"
+            drag
+          >
+            <el-icon style="font-size: 40px; color: #c0c4cc; margin-bottom: 8px;"><Upload /></el-icon>
+            <div style="color: #606266;">将文件拖到此处，或<em style="color: #409eff;">点击上传</em></div>
+            <template #tip>
+              <div style="color: #909399; font-size: 12px; margin-top: 8px;">支持 .xlsx / .xls / .csv 格式</div>
+            </template>
+          </el-upload>
+        </el-tab-pane>
+      </el-tabs>
+
+      <!-- 目标分组 -->
+      <div style="margin-top: 16px; border-top: 1px solid #eee; padding-top: 16px;">
+        <el-form label-width="80px" size="small">
+          <el-form-item label="导入到分组">
+            <el-select v-model="importGroup" placeholder="可选，选择目标分组" clearable style="width: 100%;">
+              <el-option v-for="g in groupTree" :key="g.id" :label="g.name" :value="g.id" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <template #footer>
+        <el-button @click="showImportDialog = false">取消</el-button>
+        <el-button type="primary" @click="doImport" :loading="importLoading">
+          {{ importLoading ? '导入中...' : '确认导入' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1080,7 +1146,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search, Plus, Edit, Delete, Check, CaretRight, CaretLeft, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument, Close, FolderOpened, DeleteFilled, Coin
+  Search, Plus, Edit, Delete, Check, CaretRight, CaretLeft, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, Folder, VideoPlay, CopyDocument, Close, FolderOpened, DeleteFilled, Coin, Upload
 } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import Sortable from 'sortablejs'
@@ -1111,7 +1177,11 @@ import {
   batchUpdateTestCaseGroup,
   batchUpdateTestCases,
   getTestCaseExecutions,
-  batchReorderTestCaseGroups
+  batchReorderTestCaseGroups,
+  importCasesFromAITask,
+  importCasesFromFile,
+  getAITaskList,
+  getAITaskCases
 } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
 
@@ -1133,6 +1203,19 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const showCreateDialog = ref(false)
 const editingTestCase = ref(null)
+
+// 导入弹窗相关
+const showImportDialog = ref(false)
+const importTab = ref('ai')  // 'ai' or 'file'
+const importLoading = ref(false)
+const aiTaskList = ref([])
+const aiTaskListLoading = ref(false)
+const selectedAITask = ref('')
+const aiTaskCases = ref([])
+const aiTaskCasesLoading = ref(false)
+const selectedAICases = ref([])  // 选中的AI用例索引
+const importFile = ref(null)
+const importGroup = ref(null)
 const executionResult = ref(null)
 const lastRunCaseId = ref(null)  // 记录最近运行的用例ID
 
@@ -1778,6 +1861,100 @@ const loadElements = async () => {
     elementTreeData.value = pageNodes
   } catch (error) {
     console.error('获取元素列表失败:', error)
+  }
+}
+
+// ===== 导入用例相关 =====
+const openImportDialog = async () => {
+  showImportDialog.value = true
+  importTab.value = 'ai'
+  selectedAITask.value = ''
+  aiTaskCases.value = []
+  selectedAICases.value = []
+  importFile.value = null
+  importGroup.value = null
+  // 加载AI任务列表
+  aiTaskListLoading.value = true
+  try {
+    const res = await getAITaskList()
+    aiTaskList.value = res.data || []
+  } catch (e) {
+    console.error('加载AI任务列表失败:', e)
+    aiTaskList.value = []
+  } finally {
+    aiTaskListLoading.value = false
+  }
+}
+
+const onAITaskSelect = async (taskId) => {
+  if (!taskId) {
+    aiTaskCases.value = []
+    selectedAICases.value = []
+    return
+  }
+  aiTaskCasesLoading.value = true
+  aiTaskCases.value = []
+  selectedAICases.value = []
+  try {
+    const res = await getAITaskCases(taskId)
+    aiTaskCases.value = res.data || []
+  } catch (e) {
+    console.error('加载AI用例列表失败:', e)
+    ElMessage.error('加载AI用例列表失败')
+  } finally {
+    aiTaskCasesLoading.value = false
+  }
+}
+
+const handleAISelectionChange = (val) => {
+  selectedAICases.value = val.map(v => v.index)
+}
+
+const doImport = async () => {
+  if (!projectId.value) {
+    ElMessage.warning('请先选择当前项目')
+    return
+  }
+
+  importLoading.value = true
+  try {
+    if (importTab.value === 'ai') {
+      if (!selectedAITask.value) {
+        ElMessage.warning('请选择AI生成任务')
+        importLoading.value = false
+        return
+      }
+      const data = {
+        import_type: 'ai_task',
+        project_id: projectId.value,
+        group_id: importGroup.value || null,
+        ai_task_id: selectedAITask.value,
+        selected_indices: selectedAICases.value.length > 0 ? selectedAICases.value : null,
+      }
+      const res = await importCasesFromAITask(data)
+      ElMessage.success(res.data.message || `成功导入 ${res.data.imported_count} 条用例`)
+    } else {
+      if (!importFile.value) {
+        ElMessage.warning('请选择要上传的文件')
+        importLoading.value = false
+        return
+      }
+      const formData = new FormData()
+      formData.append('import_type', 'file')
+      formData.append('project_id', projectId.value)
+      if (importGroup.value) formData.append('group_id', importGroup.value)
+      formData.append('file', importFile.value)
+      const res = await importCasesFromFile(formData)
+      ElMessage.success(res.data.message || `成功导入 ${res.data.imported_count} 条用例`)
+    }
+
+    showImportDialog.value = false
+    loadTestCases()  // 刷新用例列表
+  } catch (e) {
+    const msg = e.response?.data?.error || e.message
+    ElMessage.error('导入失败: ' + msg)
+  } finally {
+    importLoading.value = false
   }
 }
 

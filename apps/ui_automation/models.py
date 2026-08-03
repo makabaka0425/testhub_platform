@@ -1305,3 +1305,455 @@ class AllureReport(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.get_status_display()}"
+
+
+# ============================================================================
+# AI自动化测试项目 模型
+# ============================================================================
+
+class AiProject(models.Model):
+    """AI自动化测试项目模型"""
+    STATUS_CHOICES = [
+        ('NOT_STARTED', '未开始'),
+        ('IN_PROGRESS', '进行中'),
+        ('COMPLETED', '已结束'),
+    ]
+    PLATFORM_CHOICES = [
+        ('web', 'Web端'),
+        ('app', 'APP端'),
+    ]
+
+    name = models.CharField(max_length=200, verbose_name='项目名称')
+    description = models.TextField(blank=True, default='', verbose_name='项目描述')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, verbose_name='项目状态', default='IN_PROGRESS')
+    default_platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES, default='web', verbose_name='默认平台')
+    start_date = models.DateField(null=True, blank=True, verbose_name='开始日期')
+    end_date = models.DateField(null=True, blank=True, verbose_name='结束日期')
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='owned_ai_projects', verbose_name='负责人')
+    members = models.ManyToManyField(User, blank=True, related_name='ai_projects', verbose_name='团队成员')
+
+    # 被测系统数据库连接配置（用于前置/后置SQL执行）
+    target_db_type = models.CharField(max_length=20, blank=True, default='', verbose_name='数据库类型',
+        help_text='支持 mysql/postgresql/sqlite/oracle')
+    target_db_host = models.CharField(max_length=200, blank=True, default='', verbose_name='数据库地址')
+    target_db_port = models.IntegerField(null=True, blank=True, verbose_name='数据库端口')
+    target_db_name = models.CharField(max_length=200, blank=True, default='', verbose_name='数据库名称')
+    target_db_user = models.CharField(max_length=200, blank=True, default='', verbose_name='数据库用户')
+    target_db_password = models.CharField(max_length=200, blank=True, default='', verbose_name='数据库密码')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ai_projects'
+        verbose_name = 'AI自动化项目'
+        verbose_name_plural = 'AI自动化项目'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+# ============================================================================
+# Midscene AI视觉自动化 模型
+# ============================================================================
+
+class MidsceneGroup(models.Model):
+    """Midscene用例分组"""
+    name = models.CharField(max_length=200, verbose_name='分组名称')
+    project = models.ForeignKey('AiProject', on_delete=models.CASCADE, null=True, blank=True,
+                                related_name='midscene_groups', verbose_name='所属项目')
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True,
+                              related_name='children', verbose_name='父分组')
+    order = models.IntegerField(default=0, verbose_name='排序')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        db_table = 'midscene_groups'
+        verbose_name = 'Midscene用例分组'
+        verbose_name_plural = 'Midscene用例分组'
+        ordering = ['order', '-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+class MidsceneCase(models.Model):
+    """Midscene AI视觉自动化用例"""
+    PLATFORM_CHOICES = [
+        ('web', 'Web端'),
+        ('app', 'APP端'),
+    ]
+    SOURCE_CHOICES = [
+        ('ai_import', 'AI导入'),
+        ('manual', '手动创建'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', '待执行'),
+        ('running', '执行中'),
+        ('passed', '通过'),
+        ('failed', '失败'),
+    ]
+    CACHE_STRATEGY_CHOICES = [
+        ('normal', '默认'),
+        ('clear', '每次清除'),
+        ('new', '全新会话'),
+    ]
+
+    # 基本信息
+    name = models.CharField(max_length=200, verbose_name='用例名称')
+    description = models.TextField(blank=True, default='', verbose_name='描述')
+    group = models.ForeignKey(MidsceneGroup, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='cases', verbose_name='所属分组')
+    project = models.ForeignKey('AiProject', on_delete=models.CASCADE, null=True, blank=True,
+                                related_name='midscene_cases', verbose_name='所属项目')
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual', verbose_name='来源')
+    source_case_id = models.IntegerField(null=True, blank=True, verbose_name='源AI用例ID')
+
+    # 平台类型
+    platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES, default='web', verbose_name='平台')
+
+    # 结构化步骤 JSON: [{"order":1, "type":"action/assert", "instruction":"...", "output_var":"varName"}]
+    steps = models.JSONField(default=list, verbose_name='测试步骤')
+
+    # 变量与SQL
+    output_variables = models.JSONField(default=list, blank=True, verbose_name='输出变量定义',
+        help_text='用例级变量定义，如 [{"var_name":"orderId","source":"step","step_index":2}]')
+    precondition_sql = models.TextField(blank=True, default='', verbose_name='前置数据SQL',
+        help_text='用例执行前自动执行的数据准备SQL，支持${变量名}引用变量，禁止DROP语句')
+    postcondition_sql = models.TextField(blank=True, default='', verbose_name='后置清理SQL',
+        help_text='用例执行后自动执行的清理SQL，支持${变量名}引用步骤输出变量')
+
+    # Web端配置
+    url = models.CharField(max_length=500, blank=True, default='', verbose_name='目标URL')
+    headless = models.BooleanField(default=False, verbose_name='无头模式')
+    cache_strategy = models.CharField(max_length=20, choices=CACHE_STRATEGY_CHOICES, default='normal', verbose_name='缓存策略')
+    new_tab = models.BooleanField(default=False, verbose_name='新开页签')
+
+    # Web端高级配置（对齐 Midscene YAML 配置项）
+    user_agent = models.CharField(max_length=500, blank=True, default='', verbose_name='User-Agent')
+    viewport_width = models.IntegerField(null=True, blank=True, default=1280, verbose_name='视口宽度')
+    viewport_height = models.IntegerField(null=True, blank=True, default=768, verbose_name='视口高度')
+    device_scale_factor = models.FloatField(null=True, blank=True, default=1.0, verbose_name='设备缩放比')
+    cookie_file = models.CharField(max_length=500, blank=True, default='', verbose_name='Cookie文件路径')
+    wait_for_network_idle_timeout = models.IntegerField(null=True, blank=True, default=None, verbose_name='网络空闲等待超时(ms)')
+    continue_on_network_idle_error = models.BooleanField(default=True, verbose_name='网络超时时继续')
+
+    # APP端配置
+    device_id = models.CharField(max_length=200, blank=True, default='', verbose_name='设备ID')
+    package_name = models.CharField(max_length=200, blank=True, default='', verbose_name='包名')
+    app_activity = models.CharField(max_length=300, blank=True, default='', verbose_name='Activity')
+
+    # 执行状态
+    last_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='最近执行状态')
+    last_result = models.TextField(blank=True, default='', verbose_name='最近执行结果')
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='创建者')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'midscene_cases'
+        verbose_name = 'Midscene用例'
+        verbose_name_plural = 'Midscene用例'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+class MidsceneExecution(models.Model):
+    """Midscene执行记录"""
+    STATUS_CHOICES = [
+        ('running', '执行中'),
+        ('passed', '通过'),
+        ('failed', '失败'),
+    ]
+
+    case = models.ForeignKey(MidsceneCase, on_delete=models.CASCADE, related_name='executions', verbose_name='关联用例')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running', verbose_name='执行状态')
+
+    # 每步执行结果 JSON: [{"order":1, "type":"action", "instruction":"...", "status":"passed/failed", "result":"...", "screenshot":"..."}]
+    step_results = models.JSONField(default=list, verbose_name='步骤结果')
+    logs = models.TextField(blank=True, default='', verbose_name='执行日志')
+    error_message = models.TextField(blank=True, default='', verbose_name='错误信息')
+    screenshot_urls = models.JSONField(default=list, verbose_name='截图URL列表')
+
+    # Midscene操作回放报告
+    report_url = models.URLField(max_length=500, blank=True, default='', verbose_name='回放报告URL')
+    report_file = models.CharField(max_length=500, blank=True, default='', verbose_name='报告文件路径')
+
+    started_at = models.DateTimeField(auto_now_add=True, verbose_name='开始时间')
+    finished_at = models.DateTimeField(null=True, blank=True, verbose_name='结束时间')
+    duration = models.FloatField(null=True, blank=True, verbose_name='执行时长(秒)')
+    executed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='执行人')
+
+    # 变量快照：记录执行时的变量池
+    variable_snapshot = models.JSONField(default=dict, blank=True, verbose_name='变量快照')
+    # SQL执行结果：记录前置/后置SQL的执行情况
+    sql_results = models.JSONField(default=list, blank=True, verbose_name='SQL执行结果')
+    # 计划执行批次ID：标记本次计划执行创建的记录，用于准确汇总
+    plan_execution_batch = models.CharField(max_length=36, blank=True, default='', verbose_name='计划执行批次')
+
+    class Meta:
+        db_table = 'midscene_executions'
+        verbose_name = 'Midscene执行记录'
+        verbose_name_plural = 'Midscene执行记录'
+        ordering = ['-started_at']
+
+    def __str__(self):
+        return f"{self.case.name} - {self.get_status_display()}"
+
+
+class AiScheduledTask(models.Model):
+    """AI自动化定时任务模型"""
+    TASK_TYPE_CHOICES = [
+        ('TEST_PLAN', '测试计划执行'),
+    ]
+
+    STATUS_CHOICES = [
+        ('ACTIVE', '激活'),
+        ('PAUSED', '暂停'),
+        ('COMPLETED', '已完成'),
+        ('FAILED', '失败'),
+    ]
+
+    TRIGGER_TYPE_CHOICES = [
+        ('CRON', 'Cron表达式'),
+        ('INTERVAL', '固定间隔'),
+        ('ONCE', '单次执行'),
+    ]
+
+    name = models.CharField(max_length=200, verbose_name='任务名称')
+    description = models.TextField(blank=True, verbose_name='任务描述')
+    task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='TEST_PLAN',
+                                  verbose_name='任务类型')
+    trigger_type = models.CharField(max_length=20, choices=TRIGGER_TYPE_CHOICES, verbose_name='触发器类型')
+
+    # Cron表达式配置
+    cron_expression = models.CharField(max_length=100, blank=True, verbose_name='Cron表达式')
+
+    # 固定间隔配置（秒）
+    interval_seconds = models.IntegerField(null=True, blank=True, verbose_name='间隔秒数')
+
+    # 单次执行时间
+    execute_at = models.DateTimeField(null=True, blank=True, verbose_name='执行时间')
+
+    # 关联配置
+    project = models.ForeignKey('AiProject', on_delete=models.CASCADE, verbose_name='关联项目')
+    test_plan = models.ForeignKey('AiTestPlan', on_delete=models.CASCADE, null=True, blank=True,
+                                  verbose_name='测试计划')
+
+    # 通知配置
+    NOTIFICATION_TYPE_CHOICES = [
+        ('email', '邮箱通知'),
+        ('webhook', 'Webhook机器人'),
+        ('both', '两者都发送'),
+    ]
+
+    notify_on_success = models.BooleanField(default=False, verbose_name='成功时通知')
+    notify_on_failure = models.BooleanField(default=False, verbose_name='失败时通知')
+    notification_type = models.CharField(max_length=20, blank=True, choices=NOTIFICATION_TYPE_CHOICES,
+                                           verbose_name='通知类型')
+    notify_emails = models.JSONField(default=list, blank=True, verbose_name='通知邮箱列表')
+
+    # 状态管理
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE', verbose_name='任务状态')
+    last_run_time = models.DateTimeField(null=True, blank=True, verbose_name='最后运行时间')
+    next_run_time = models.DateTimeField(null=True, blank=True, verbose_name='下次运行时间')
+    total_runs = models.IntegerField(default=0, verbose_name='总运行次数')
+    successful_runs = models.IntegerField(default=0, verbose_name='成功运行次数')
+    failed_runs = models.IntegerField(default=0, verbose_name='失败运行次数')
+
+    # 执行结果
+    last_result = models.JSONField(default=dict, verbose_name='最后执行结果')
+    error_message = models.TextField(blank=True, verbose_name='错误信息')
+
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='创建者')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ai_scheduled_tasks'
+        verbose_name = 'AI定时任务'
+        verbose_name_plural = 'AI定时任务'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.name} ({self.get_task_type_display()})"
+
+    def calculate_next_run(self):
+        """计算下次运行时间"""
+        from datetime import datetime, timedelta
+        from croniter import croniter
+
+        now = timezone.now()
+
+        if self.trigger_type == 'CRON' and self.cron_expression:
+            try:
+                iter = croniter(self.cron_expression, now)
+                return iter.get_next(datetime)
+            except Exception:
+                return None
+
+        elif self.trigger_type == 'INTERVAL' and self.interval_seconds:
+            return now + timedelta(seconds=self.interval_seconds)
+
+        elif self.trigger_type == 'ONCE' and self.execute_at:
+            return self.execute_at if self.execute_at > now else None
+
+        return None
+
+    def should_run_now(self):
+        """检查是否应该现在运行"""
+        if self.status != 'ACTIVE':
+            return False
+        if not self.next_run_time:
+            return False
+        return timezone.now() >= self.next_run_time
+
+
+class AiNotificationLog(models.Model):
+    """AI自动化通知日志模型"""
+    NOTIFICATION_TYPES = [
+        ('task_execution', '定时任务执行'),
+        ('case_execution', '用例执行'),
+        ('system_alert', '系统警告'),
+    ]
+
+    STATUS_CHOICES = [
+        ('pending', '待发送'),
+        ('sending', '发送中'),
+        ('success', '发送成功'),
+        ('failed', '发送失败'),
+    ]
+
+    task = models.ForeignKey(AiScheduledTask, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='关联任务')
+    task_name = models.CharField(max_length=200, verbose_name='任务名称')
+    task_type = models.CharField(max_length=20, blank=True, null=True, verbose_name='任务类型快照')
+    notification_type = models.CharField(max_length=50, choices=NOTIFICATION_TYPES, verbose_name='通知类型')
+    sender_name = models.CharField(max_length=100, verbose_name='发件人姓名')
+    sender_email = models.EmailField(verbose_name='发件人邮箱')
+    recipient_info = models.JSONField(verbose_name='收件人信息')
+    webhook_bot_info = models.JSONField(default=dict, blank=True, null=True, verbose_name='Webhook机器人信息')
+    notification_content = models.TextField(verbose_name='通知内容')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='发送状态')
+    error_message = models.TextField(blank=True, null=True, verbose_name='错误信息')
+    response_info = models.JSONField(default=dict, blank=True, null=True, verbose_name='响应信息')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    sent_at = models.DateTimeField(null=True, blank=True, verbose_name='发送时间')
+    retry_count = models.IntegerField(default=0, verbose_name='重试次数')
+    is_retried = models.BooleanField(default=False, verbose_name='是否已重试')
+
+    class Meta:
+        db_table = 'ai_notification_logs'
+        verbose_name = 'AI通知日志'
+        verbose_name_plural = 'AI通知日志'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['notification_type']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.task_name} - {self.get_notification_type_display()} - {self.status}"
+
+    def get_recipient_names(self):
+        """获取收件人姓名列表"""
+        if self.recipient_info:
+            if isinstance(self.recipient_info, list):
+                recipient_list = []
+                for rec in self.recipient_info:
+                    email = rec.get('email', '')
+                    name = rec.get('name', '')
+                    if name and email:
+                        recipient_list.append(f"{name}({email})")
+                    elif email:
+                        recipient_list.append(email)
+                    else:
+                        recipient_list.append('未知用户')
+                return ', '.join(recipient_list)
+            elif isinstance(self.recipient_info, dict):
+                email = self.recipient_info.get('email', '')
+                name = self.recipient_info.get('name', '')
+                if name and email:
+                    return f"{name}({email})"
+                elif email:
+                    return email
+        return "未知收件人"
+
+    def get_retry_status(self):
+        """获取重试状态"""
+        if self.is_retried:
+            return f"已重试 {self.retry_count} 次"
+        return "未重试"
+
+
+class AiTestPlan(models.Model):
+    """AI自动化测试计划模型"""
+    EXECUTION_STATUS_CHOICES = [
+        ('not_run', '未执行'),
+        ('passed', '通过'),
+        ('failed', '失败'),
+        ('running', '执行中'),
+    ]
+
+    PLATFORM_CHOICES = [
+        ('web', 'Web端'),
+        ('app', 'APP端'),
+    ]
+
+    project = models.ForeignKey(
+        AiProject, on_delete=models.CASCADE,
+        related_name='ai_test_plans', verbose_name='所属项目'
+    )
+    name = models.CharField(max_length=200, verbose_name='计划名称')
+    description = models.TextField(blank=True, default='', verbose_name='计划描述')
+    platform = models.CharField(
+        max_length=10, choices=PLATFORM_CHOICES, default='web', verbose_name='平台'
+    )
+    execution_status = models.CharField(
+        max_length=20, choices=EXECUTION_STATUS_CHOICES, default='not_run', verbose_name='执行状态'
+    )
+    total_cases = models.IntegerField(default=0, verbose_name='用例总数')
+    passed_count = models.IntegerField(default=0, verbose_name='通过数')
+    failed_count = models.IntegerField(default=0, verbose_name='失败数')
+    skipped_count = models.IntegerField(default=0, verbose_name='跳过数')
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True, verbose_name='创建人'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ai_test_plans'
+        verbose_name = 'AI测试计划'
+        verbose_name_plural = 'AI测试计划'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+class AiTestPlanItem(models.Model):
+    """AI测试计划项 — 关联Midscene用例"""
+    test_plan = models.ForeignKey(
+        AiTestPlan, on_delete=models.CASCADE,
+        related_name='plan_items', verbose_name='所属计划'
+    )
+    midscene_case = models.ForeignKey(
+        MidsceneCase, on_delete=models.CASCADE,
+        null=True, blank=True, verbose_name='Midscene用例'
+    )
+    order = models.IntegerField(default=0, verbose_name='排序')
+
+    class Meta:
+        db_table = 'ai_test_plan_items'
+        verbose_name = 'AI测试计划项'
+        verbose_name_plural = 'AI测试计划项'
+        ordering = ['order']
+
+    def __str__(self):
+        case_name = self.midscene_case.name if self.midscene_case else '未知用例'
+        return f"{self.test_plan.name} - {case_name}"

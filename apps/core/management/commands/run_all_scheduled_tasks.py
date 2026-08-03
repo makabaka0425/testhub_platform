@@ -33,7 +33,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"{'='*60}"))
         self.stdout.write(self.style.SUCCESS("启动统一定时任务调度器"))
         self.stdout.write(self.style.SUCCESS(f"检查间隔: {interval}秒"))
-        self.stdout.write(self.style.SUCCESS(f"调度模块: API测试 + UI自动化 + APP自动化"))
+        self.stdout.write(self.style.SUCCESS(f"调度模块: API测试 + UI自动化 + APP自动化 + AI自动化"))
         self.stdout.write(self.style.SUCCESS(f"{'='*60}"))
 
         while True:
@@ -53,9 +53,12 @@ class Command(BaseCommand):
                 # 调度 APP 自动化模块的定时任务
                 app_count = self.schedule_app_tasks()
 
-                total_count = api_count + ui_count + app_count
+                # 调度 AI 自动化模块的定时任务
+                ai_count = self.schedule_ai_tasks()
+
+                total_count = api_count + ui_count + app_count + ai_count
                 if total_count > 0:
-                    self.stdout.write(self.style.SUCCESS(f"✓ 本次调度执行了 {total_count} 个任务 (API: {api_count}, UI: {ui_count}, APP: {app_count})"))
+                    self.stdout.write(self.style.SUCCESS(f"✓ 本次调度执行了 {total_count} 个任务 (API: {api_count}, UI: {ui_count}, APP: {app_count}, AI: {ai_count})"))
                 else:
                     self.stdout.write("  没有需要执行的任务")
 
@@ -392,4 +395,123 @@ class Command(BaseCommand):
         except Exception as e:
             logger.error(f"调度APP任务时出错: {e}", exc_info=True)
             self.stdout.write(self.style.ERROR(f"[APP] 调度失败: {e}"))
+            return 0
+
+    def schedule_ai_tasks(self):
+        """调度 AI 自动化模块的定时任务（Midscene异步执行）"""
+        try:
+            import httpx
+            from apps.ui_automation.models import AiScheduledTask, MidsceneExecution, MidsceneCase
+            from apps.ui_automation.views_midscene import _build_midscene_payload, MIDSCENE_SERVICE_URL
+
+            active_tasks = AiScheduledTask.objects.filter(status='ACTIVE')
+            executed_count = 0
+
+            if active_tasks.exists():
+                now = timezone.now()
+                self.stdout.write(f"  [AI]  活跃任务数: {active_tasks.count()}")
+                for task in active_tasks:
+                    if task.next_run_time:
+                        time_diff = (task.next_run_time - now).total_seconds()
+                        if time_diff > 0:
+                            self.stdout.write(f"        - {task.name}: 距下次执行还有 {int(time_diff)} 秒")
+                        else:
+                            self.stdout.write(f"        - {task.name}: 应该立即执行！")
+                    else:
+                        self.stdout.write(f"        - {task.name}: 未设置下次执行时间")
+
+            for task in active_tasks:
+                if task.should_run_now():
+                    self.stdout.write(f"  [AI]  执行任务: {task.name}")
+                    self.stdout.write(f"       类型: {task.get_task_type_display()}, 触发方式: {task.get_trigger_type_display()}")
+                    try:
+                        # 更新任务统计（必须在发请求前更新，防止下一轮重复触发）
+                        task.last_run_time = timezone.now()
+                        task.total_runs += 1
+                        task.next_run_time = task.calculate_next_run()
+
+                        if not task.midscene_case:
+                            self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 未配置Midscene用例"))
+                            task.save()
+                            continue
+
+                        case = task.midscene_case
+
+                        # 创建执行记录
+                        execution = MidsceneExecution.objects.create(
+                            case=case,
+                            status='running',
+                            executed_by=task.created_by,
+                        )
+                        case.last_status = 'running'
+                        case.save(update_fields=['last_status'])
+
+                        task.save()
+
+                        # 构建并发送 Midscene 执行请求
+                        payload = _build_midscene_payload(case, execution.id)
+
+                        try:
+                            with httpx.Client(timeout=10) as client:
+                                resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute', json=payload)
+                                resp.raise_for_status()
+
+                            self.stdout.write(self.style.SUCCESS(f"    ✓ 任务 {task.name} 已提交到Midscene微服务"))
+                        except httpx.ConnectError:
+                            execution.status = 'failed'
+                            execution.error_message = 'Midscene微服务未启动'
+                            execution.finished_at = timezone.now()
+                            execution.save()
+                            case.last_status = 'failed'
+                            case.last_result = 'Midscene微服务未启动'
+                            case.save(update_fields=['last_status', 'last_result'])
+
+                            task.failed_runs += 1
+                            task.last_result = {'status': 'failed', 'message': 'Midscene微服务未启动'}
+                            task.error_message = 'Midscene微服务未启动'
+                            task.save()
+
+                            self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name}: Midscene微服务未启动"))
+
+                            # 发送失败通知
+                            try:
+                                from apps.ui_automation.views_midscene import _send_ai_task_notification
+                                _send_ai_task_notification(task, success=False)
+                            except Exception as notify_err:
+                                logger.error(f"发送AI任务 {task.name} 失败通知失败: {notify_err}")
+
+                        except Exception as e:
+                            execution.status = 'failed'
+                            execution.error_message = str(e)
+                            execution.finished_at = timezone.now()
+                            execution.save()
+                            case.last_status = 'failed'
+                            case.last_result = str(e)[:500]
+                            case.save(update_fields=['last_status', 'last_result'])
+
+                            task.failed_runs += 1
+                            task.last_result = {'status': 'failed', 'message': str(e)}
+                            task.error_message = str(e)[:500]
+                            task.save()
+
+                            self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 提交失败: {e}"))
+
+                            # 发送失败通知
+                            try:
+                                from apps.ui_automation.views_midscene import _send_ai_task_notification
+                                _send_ai_task_notification(task, success=False)
+                            except Exception as notify_err:
+                                logger.error(f"发送AI任务 {task.name} 失败通知失败: {notify_err}")
+
+                        executed_count += 1
+
+                    except Exception as e:
+                        logger.error(f"执行AI任务 {task.name} 时出错: {e}", exc_info=True)
+                        self.stdout.write(self.style.ERROR(f"    ✗ 任务 {task.name} 执行失败: {e}"))
+
+            return executed_count
+
+        except Exception as e:
+            logger.error(f"调度AI任务时出错: {e}", exc_info=True)
+            self.stdout.write(self.style.ERROR(f"[AI] 调度失败: {e}"))
             return 0

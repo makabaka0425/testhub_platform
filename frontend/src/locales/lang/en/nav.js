@@ -11,7 +11,7 @@ export default {
     uiAutomation: 'UI Automation Testing',
     defects: 'Bug Management',
     appAutomation: 'APP Automation',
-    aiIntelligentMode: 'AI Intelligent Mode',
+    aiIntelligentMode: 'AI Automated Testing',
     configuration: 'Configuration Center'
   },
   menu: {
@@ -59,9 +59,18 @@ export default {
     caseDesign: 'Case Design',
 
     // AI Intelligent Mode
+    aiProjectManagement: 'Project Management',
     aiIntelligentTesting: 'AI Intelligent Testing',
     aiCaseManagement: 'AI Case Management',
-    aiExecutionRecords: 'AI Test Reports',
+    aiExecutionRecords: 'AI Execution Records',
+    aiIntelligentDebug: 'AI Intelligent Debug',
+    midsceneExecution: 'AI Automation Testing',
+    midsceneWeb: 'Web Automation',
+    midsceneApp: 'App Automation',
+    aiTestReport: 'AI Test Report',
+    aiScheduledTasks: 'AI Scheduled Tasks',
+    aiTestPlan: 'AI Test Plan',
+    aiNotificationList: 'AI Notification Logs',
 
     // Configuration Center
     aiCaseGenerationConfig: 'AI Test Case Config',

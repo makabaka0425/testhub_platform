@@ -62,8 +62,9 @@
 
   // Layout
   --content-gap: 20px;
-  --sidebar-w: 220px;
-  --header-h: 56px;
+  --layout-gap: 20px;        // 统一布局间距（侧边栏到内容区 = 内容区到浏览器右边缘）
+  --sidebar-w: 160px;       // 与 layout/index.vue 实际宽度一致
+  --header-h: 60px;         // 与 layout/index.vue 实际高度一致
   --title-h: 64px;
   --group-w: 160px;
   --detail-w: 400px;
@@ -80,6 +81,21 @@ html, body {
   width: 100%;
   height: 100%;
   overflow-x: hidden;
+  scrollbar-width: none; /* Firefox: 隐藏滚动条 */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Edge: 隐藏滚动条 */
+}
+
+// 全局隐藏滚动条但保留滚动功能
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
 }
 
 body {
@@ -99,6 +115,7 @@ body {
   min-height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  width: 100%;
 
   .page-header {
     display: flex;
@@ -259,6 +276,7 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-2);
+  width: 100%;
 }
 
 // ========== 响应式 ==========

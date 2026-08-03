@@ -80,7 +80,9 @@ export default {
     },
 
     // Title
-    title: 'TestHub 测试平台',
+    title: '灵测 测试平台',
+    brandName: '灵测',
+    titleSuffix: '测试平台',
     subtitle: '一站式智能化测试解决方案',
 
     // Cards
@@ -96,7 +98,7 @@ export default {
     dataFactoryDesc: '灵活的测试数据构造与管理',
     appAutomation: 'APP自动化测试',
     appAutomationDesc: '基于Airtest的Android APP自动化测试',
-    aiIntelligentMode: 'AI 智能模式',
+    aiIntelligentMode: 'AI自动化测试',
     aiIntelligentModeDesc: '基于自然语言的智能化测试执行',
     aiEvaluator: 'AI评测师',
     aiEvaluatorDesc: '基于评测师知识库，提供专业软件测试问答',
@@ -106,7 +108,7 @@ export default {
     // Messages
     featureInDevelopment: '功能正在开发中......',
     mobileTipTitle: '请使用电脑端访问',
-    mobileTipDesc: '本平台需在电脑浏览器中使用，请复制链接或切换至电脑打开 TestHub。',
+    mobileTipDesc: '本平台需在电脑浏览器中使用，请复制链接或切换至电脑打开灵测。',
     mobileTipOk: '我知道了'
   },
   profile: {

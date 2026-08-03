@@ -7,7 +7,9 @@ from .models import (
     TestCase, TestCaseStep, TestCaseExecution, TestCasePrecondition, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
     AICase, AIExecutionRecord, LoginConfig,
-    UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport
+    UiTestPlan, UiTestPlanItem, TestCaseGroup, AllureReport,
+    AiProject, AiScheduledTask, AiNotificationLog,
+    AiTestPlan, AiTestPlanItem
 )
 from django.contrib.auth import get_user_model
 
@@ -41,6 +43,30 @@ class UiProjectUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UiProject
         fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'members',
+                  'target_db_type', 'target_db_host', 'target_db_port', 'target_db_name', 'target_db_user', 'target_db_password')
+
+
+class AiProjectSerializer(serializers.ModelSerializer):
+    owner = UserSerializer(read_only=True)
+    members = UserSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AiProject
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at')
+
+
+class AiProjectCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AiProject
+        fields = ('name', 'description', 'status', 'default_platform', 'start_date', 'end_date', 'owner', 'members',
+                  'target_db_type', 'target_db_host', 'target_db_port', 'target_db_name', 'target_db_user', 'target_db_password')
+
+
+class AiProjectUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AiProject
+        fields = ('name', 'description', 'status', 'default_platform', 'start_date', 'end_date', 'members',
                   'target_db_type', 'target_db_host', 'target_db_port', 'target_db_name', 'target_db_user', 'target_db_password')
 
 
@@ -1021,6 +1047,138 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
         return instance
 
 
+class AiScheduledTaskSerializer(serializers.ModelSerializer):
+    """AI自动化定时任务序列化器"""
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    test_plan_name = serializers.CharField(source='test_plan.name', read_only=True, default='')
+    task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    trigger_type_display = serializers.CharField(source='get_trigger_type_display', read_only=True)
+    notification_type_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiScheduledTask
+        fields = [
+            'id', 'name', 'description', 'task_type', 'task_type_display',
+            'trigger_type', 'trigger_type_display', 'cron_expression',
+            'interval_seconds', 'execute_at', 'project', 'project_name',
+            'test_plan', 'test_plan_name',
+            'notify_on_success', 'notify_on_failure', 'notification_type', 'notification_type_display', 'notify_emails',
+            'status', 'status_display',
+            'last_run_time', 'next_run_time', 'total_runs',
+            'successful_runs', 'failed_runs', 'last_result', 'error_message',
+            'created_by', 'created_by_name', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'created_by', 'last_run_time', 'next_run_time', 'total_runs',
+            'successful_runs', 'failed_runs', 'last_result',
+            'error_message', 'created_at', 'updated_at'
+        ]
+
+    def get_notification_type_display(self, obj):
+        if obj.notification_type:
+            return obj.get_notification_type_display()
+        return "-"
+
+    def validate(self, attrs):
+        trigger_type = attrs.get('trigger_type')
+
+        if trigger_type == 'CRON':
+            if not attrs.get('cron_expression'):
+                raise serializers.ValidationError("Cron表达式不能为空")
+
+        elif trigger_type == 'INTERVAL':
+            if not attrs.get('interval_seconds'):
+                raise serializers.ValidationError("间隔秒数不能为空")
+            if attrs['interval_seconds'] < 60:
+                raise serializers.ValidationError("间隔秒数不能小于60秒")
+
+        elif trigger_type == 'ONCE':
+            if not attrs.get('execute_at'):
+                raise serializers.ValidationError("执行时间不能为空")
+            if attrs['execute_at'] <= timezone.now():
+                raise serializers.ValidationError("执行时间必须大于当前时间")
+
+        # 验证任务类型配置
+        task_type = attrs.get('task_type')
+        if task_type == 'TEST_PLAN' and not attrs.get('test_plan'):
+            raise serializers.ValidationError("测试计划不能为空")
+
+        return attrs
+
+    def create(self, validated_data):
+        validated_data['created_by'] = self.context['request'].user
+        instance = super().create(validated_data)
+        instance.next_run_time = instance.calculate_next_run()
+        instance.save()
+        return instance
+
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        instance.next_run_time = instance.calculate_next_run()
+        instance.save()
+        return instance
+
+
+class AiNotificationLogSerializer(serializers.ModelSerializer):
+    """AI自动化通知日志序列化器"""
+    recipient_names = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    notification_type_display = serializers.CharField(source='get_notification_type_display', read_only=True)
+    retry_status = serializers.SerializerMethodField()
+    task_type_display = serializers.SerializerMethodField()
+    actual_notification_type_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiNotificationLog
+        fields = [
+            'id', 'task', 'task_name', 'notification_type',
+            'notification_type_display', 'actual_notification_type_display', 'task_type_display',
+            'sender_name', 'sender_email',
+            'recipient_names', 'webhook_bot_info', 'notification_content',
+            'status', 'status_display', 'error_message', 'response_info',
+            'created_at', 'sent_at', 'retry_count', 'retry_status'
+        ]
+        read_only_fields = ['created_at', 'sent_at']
+
+    def get_recipient_names(self, obj):
+        return obj.get_recipient_names()
+
+    def get_retry_status(self, obj):
+        return obj.get_retry_status()
+
+    def get_task_type_display(self, obj):
+        if obj.task_type:
+            task_type_choices = dict(AiScheduledTask.TASK_TYPE_CHOICES)
+            return task_type_choices.get(obj.task_type, obj.task_type)
+        return '未记录'
+
+    def get_actual_notification_type_display(self, obj):
+        if obj.webhook_bot_info:
+            bot_type = obj.webhook_bot_info.get('bot_type', '') or obj.webhook_bot_info.get('type', '')
+            type_map = {
+                'wechat': '企微机器人',
+                'feishu': '飞书机器人',
+                'dingtalk': '钉钉机器人'
+            }
+            return type_map.get(bot_type, 'Webhook机器人')
+        if obj.recipient_info:
+            if isinstance(obj.recipient_info, list) and len(obj.recipient_info) > 0:
+                return '邮箱通知'
+            elif isinstance(obj.recipient_info, dict) and obj.recipient_info.get('email'):
+                return '邮箱通知'
+        if obj.task:
+            notification_type = obj.task.notification_type
+            type_map = {
+                'email': '邮箱通知',
+                'webhook': 'Webhook机器人',
+                'both': '两种都发送'
+            }
+            return type_map.get(notification_type, notification_type)
+        return '-'
+
+
 class AICaseSerializer(serializers.ModelSerializer):
     project = UiProjectSerializer(read_only=True)
     created_by = UserSerializer(read_only=True)
@@ -1252,5 +1410,90 @@ class AllureReportCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = AllureReport
         fields = ('name', 'project', 'test_plan', 'test_execution')
+
+
+# ──────────────────────────────────────────────
+# AI 测试计划序列化器
+# ──────────────────────────────────────────────
+
+class AiTestPlanItemSerializer(serializers.ModelSerializer):
+    """AI测试计划项序列化器"""
+    midscene_case_name = serializers.CharField(source='midscene_case.name', read_only=True, default='')
+    platform_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiTestPlanItem
+        fields = [
+            'id', 'test_plan', 'midscene_case', 'order',
+            'midscene_case_name', 'platform_display'
+        ]
+        read_only_fields = ['id']
+
+    def get_platform_display(self, obj):
+        if obj.midscene_case:
+            return obj.midscene_case.get_platform_display()
+        return ''
+
+
+class AiTestPlanSerializer(serializers.ModelSerializer):
+    """AI测试计划序列化器"""
+    project_name = serializers.CharField(source='project.name', read_only=True, default='')
+    plan_items = AiTestPlanItemSerializer(many=True, read_only=True)
+    plan_item_count = serializers.SerializerMethodField()
+    platform_display = serializers.CharField(source='get_platform_display', read_only=True)
+    execution_status_display = serializers.CharField(source='get_execution_status_display', read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+    last_execution_time = serializers.SerializerMethodField()
+    last_duration = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiTestPlan
+        fields = [
+            'id', 'project', 'project_name', 'name', 'description',
+            'platform', 'platform_display',
+            'execution_status', 'execution_status_display',
+            'total_cases', 'passed_count', 'failed_count', 'skipped_count',
+            'plan_items', 'plan_item_count',
+            'last_execution_time', 'last_duration',
+            'created_by', 'created_by_name',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'execution_status', 'total_cases', 'passed_count', 'failed_count', 'skipped_count']
+
+    def get_plan_item_count(self, obj):
+        return obj.plan_items.count()
+
+    def get_created_by_name(self, obj):
+        return obj.created_by.username if obj.created_by else ''
+
+    def get_last_execution_time(self, obj):
+        from .models import MidsceneExecution, AiTestPlanItem
+        case_ids = AiTestPlanItem.objects.filter(test_plan=obj).values_list('midscene_case_id', flat=True)
+        if not case_ids:
+            return None
+        last_exec = MidsceneExecution.objects.filter(case_id__in=case_ids).order_by('-started_at').first()
+        return last_exec.started_at.isoformat() if last_exec and last_exec.started_at else None
+
+    def get_last_duration(self, obj):
+        from .models import MidsceneExecution, AiTestPlanItem
+        case_ids = AiTestPlanItem.objects.filter(test_plan=obj).values_list('midscene_case_id', flat=True)
+        if not case_ids:
+            return None
+        last_exec = MidsceneExecution.objects.filter(case_id__in=case_ids).order_by('-started_at').first()
+        return last_exec.duration if last_exec and last_exec.duration else None
+
+
+class AiTestPlanCreateSerializer(serializers.ModelSerializer):
+    """AI测试计划创建序列化器"""
+    class Meta:
+        model = AiTestPlan
+        fields = ['id', 'project', 'name', 'description', 'platform']
+
+
+class AiTestPlanUpdateSerializer(serializers.ModelSerializer):
+    """AI测试计划更新序列化器"""
+    class Meta:
+        model = AiTestPlan
+        fields = ['name', 'description', 'platform']
 
 

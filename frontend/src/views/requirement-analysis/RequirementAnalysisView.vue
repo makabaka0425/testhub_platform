@@ -2,7 +2,6 @@
   <div class="requirement-analysis">
     <div class="page-header">
       <h1>{{ $t('requirementAnalysis.title') }}</h1>
-      <p>{{ $t('requirementAnalysis.subtitle') }}</p>
     </div>
 
     <!-- 配置引导弹出窗口 -->
@@ -89,249 +88,229 @@
       </div>
     </div>
 
-    <!-- 输出模式选择器 - 全局设置 -->
-    <div class="output-mode-section" v-if="!isGenerating && !showResults">
-      <div class="output-mode-card">
-        <h3>{{ $t('requirementAnalysis.outputModeTitle') }}</h3>
-        <p class="mode-section-desc">{{ $t('requirementAnalysis.outputModeDesc') }}</p>
-        <div class="output-mode-selector">
-          <label class="mode-option" :class="{ active: globalOutputMode === 'stream' }">
-            <input type="radio" v-model="globalOutputMode" value="stream">
+    <!-- 输出模式选择弹窗 -->
+    <div v-if="showOutputModeDialog" class="modal-overlay" @click.self="showOutputModeDialog = false">
+      <div class="output-mode-dialog">
+        <h3 class="dialog-title">{{ $t('requirementAnalysis.outputModeTitle') }}</h3>
+        <p class="dialog-desc">{{ $t('requirementAnalysis.outputModeDesc') }}</p>
+        <div class="mode-options">
+          <label class="mode-option" :class="{ active: pendingOutputMode === 'stream' }" @click="pendingOutputMode = 'stream'">
+            <input type="radio" v-model="pendingOutputMode" value="stream">
             <div class="mode-content">
               <div class="mode-title">{{ $t('requirementAnalysis.realtimeStream') }}</div>
               <div class="mode-desc">{{ $t('requirementAnalysis.realtimeStreamDesc') }}</div>
             </div>
           </label>
-          <label class="mode-option" :class="{ active: globalOutputMode === 'complete' }">
-            <input type="radio" v-model="globalOutputMode" value="complete">
+          <label class="mode-option" :class="{ active: pendingOutputMode === 'complete' }" @click="pendingOutputMode = 'complete'">
+            <input type="radio" v-model="pendingOutputMode" value="complete">
             <div class="mode-content">
               <div class="mode-title">{{ $t('requirementAnalysis.completeOutput') }}</div>
               <div class="mode-desc">{{ $t('requirementAnalysis.completeOutputDesc') }}</div>
             </div>
           </label>
         </div>
+        <div class="dialog-actions">
+          <button class="dialog-cancel" @click="showOutputModeDialog = false">{{ $t('requirementAnalysis.cancelGeneration') || '取消' }}</button>
+          <button class="dialog-confirm" @click="confirmGenerate">{{ $t('requirementAnalysis.generateButton') }}</button>
+        </div>
       </div>
     </div>
 
-    <div class="main-content">
-      <!-- 手动输入需求描述区域 -->
-      <div class="manual-input-section" v-if="!isGenerating && !showResults">
-        <div class="manual-input-card">
-          <h2>{{ $t('requirementAnalysis.manualInputTitle') }}</h2>
-          <div class="input-form">
-            <div class="form-group">
-              <label>{{ $t('requirementAnalysis.requirementTitle') }} <span class="required">*</span></label>
-              <input
-                v-model="manualInput.title"
-                type="text"
-                class="form-input"
-                :placeholder="$t('requirementAnalysis.titlePlaceholder')">
-            </div>
-
-            <div class="form-group">
-              <label>{{ $t('requirementAnalysis.requirementDescription') }} <span class="required">*</span></label>
-              <textarea
-                v-model="manualInput.description"
-                class="form-textarea"
-                rows="8"
-                :placeholder="$t('requirementAnalysis.descriptionPlaceholder')"></textarea>
-              <div class="char-count">{{ manualInput.description.length }}/2000</div>
-            </div>
-
-            <div class="form-group">
-              <label>{{ $t('requirementAnalysis.associatedProject') }}</label>
-              <select v-model="manualInput.selectedProject" class="form-select">
-                <option value="">{{ $t('requirementAnalysis.selectProject') }}</option>
-                <option v-for="project in projects" :key="project.id" :value="project.id">
-                  {{ project.name }}
-                </option>
-              </select>
-            </div>
-
-            <button
-              class="generate-manual-btn"
-              @click="generateFromManualInput"
-              :disabled="!canGenerateManual || isGenerating">
-              <span v-if="isGenerating">{{ $t('requirementAnalysis.generating') }}</span>
-              <span v-else>{{ $t('requirementAnalysis.generateButton') }}</span>
-            </button>
-          </div>
+    <!-- 评审确认弹窗 -->
+    <div v-if="showReviewConfirmDialog" class="modal-overlay" @click.self="showReviewConfirmDialog = false">
+      <div class="output-mode-dialog">
+        <h3 class="dialog-title">AI评审确认</h3>
+        <p class="dialog-desc">测试用例已生成完成，是否需要AI评审用例质量？</p>
+        <div class="dialog-actions">
+          <button class="dialog-cancel" @click="skipReview">跳过评审</button>
+          <button class="dialog-confirm" @click="startReview">启动评审</button>
         </div>
       </div>
+    </div>
 
-      <!-- 分隔线 -->
-      <div class="divider" v-if="!isGenerating && !showResults">
-        <span>{{ $t('requirementAnalysis.dividerOr') }}</span>
-      </div>
+    <!-- 主内容：左右分栏 -->
+    <div class="workspace">
+      <!-- 左栏：需求输入 -->
+      <div class="left-panel" :style="{ width: leftPanelWidth + 'px' }">
+        <div class="panel-section task-input-section">
+          <div class="section-title">
+            <span class="section-bar"></span>
+            任务输入
+          </div>
+          <div class="form-group">
+            <label class="form-label">* 任务描述</label>
+            <input
+              v-model="manualInput.title"
+              type="text"
+              class="form-input title-input"
+              :placeholder="$t('requirementAnalysis.titlePlaceholder')">
+          </div>
+          <textarea
+            v-model="manualInput.description"
+            class="form-textarea main-textarea"
+            :placeholder="$t('requirementAnalysis.descriptionPlaceholder')"
+            @input="manualInput.description = manualInput.description.slice(0, 2000)"></textarea>
+          <div class="char-count-bottom">{{ manualInput.description.length }}/2000</div>
+        </div>
 
-      <!-- 文档上传区域 -->
-      <div class="upload-section" v-if="!isGenerating && !showResults">
-        <div class="upload-card">
-          <h2>{{ $t('requirementAnalysis.uploadTitle') }}</h2>
-          <div class="upload-area"
-               @dragover.prevent
-               @drop="handleDrop"
-               :class="{ 'drag-over': isDragOver }"
-               @dragenter="isDragOver = true"
-               @dragleave="isDragOver = false">
-            <div v-if="!selectedFile" class="upload-placeholder">
-              <i class="upload-icon">📁</i>
-              <p>{{ $t('requirementAnalysis.dragDropText') }}</p>
-              <p class="upload-hint">{{ $t('requirementAnalysis.supportedFormats') }}</p>
+        <div class="left-toolbar">
+          <div class="toolbar-left">
+            <select v-model="manualInput.selectedProject" class="form-select project-select">
+              <option value="">{{ $t('requirementAnalysis.selectProject') }}</option>
+              <option v-for="project in projects" :key="project.id" :value="project.id">
+                {{ project.name }}
+              </option>
+            </select>
+            <div class="upload-inline">
               <input
                 type="file"
                 ref="fileInput"
                 @change="handleFileSelect"
                 accept=".pdf,.doc,.docx,.txt,.md"
                 style="display: none;">
-              <button class="select-file-btn" @click="$refs.fileInput.click()">
-                {{ $t('requirementAnalysis.selectFile') }}
+              <button class="upload-btn-inline" @click="$refs.fileInput.click()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span v-if="!selectedFile">{{ $t('requirementAnalysis.selectFile') }}</span>
+                <span v-else class="file-name-inline">{{ selectedFile.name }}</span>
               </button>
-            </div>
-
-            <div v-else class="file-selected">
-              <div class="file-info">
-                <i class="file-icon">📄</i>
-                <div class="file-details">
-                  <p class="file-name">{{ selectedFile.name }}</p>
-                  <p class="file-size">{{ formatFileSize(selectedFile.size) }}</p>
-                </div>
-                <button class="remove-file" @click="removeFile">❌</button>
-              </div>
+              <button v-if="selectedFile" class="remove-file-inline" @click="removeFile">✕</button>
             </div>
           </div>
-
-          <div v-if="selectedFile" class="document-info">
-            <div class="form-group">
-              <label>{{ $t('requirementAnalysis.documentTitle') }}</label>
-              <input
-                v-model="documentTitle"
-                type="text"
-                class="form-input"
-                :placeholder="$t('requirementAnalysis.documentPlaceholder')">
-            </div>
-
-            <div class="form-group">
-              <label>{{ $t('requirementAnalysis.associatedProject') }}</label>
-              <select v-model="selectedProject" class="form-select">
-                <option value="">{{ $t('requirementAnalysis.selectProject') }}</option>
-                <option v-for="project in projects" :key="project.id" :value="project.id">
-                  {{ project.name }}
-                </option>
-              </select>
-            </div>
-
-            <button
-              class="generate-btn"
-              @click="generateFromDocument"
-              :disabled="!documentTitle || isGenerating">
-              <span v-if="isGenerating">{{ $t('requirementAnalysis.generating') }}</span>
-              <span v-else>{{ $t('requirementAnalysis.generateButton') }}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 生成进度和结果 -->
-      <div v-if="isGenerating || showResults" class="generation-progress">
-        <div class="progress-card">
-          <h3>
-            {{ $t('requirementAnalysis.aiGeneratingTitle') }}
-            <span class="current-mode-badge">
-              ({{ globalOutputMode === 'stream' ? $t('requirementAnalysis.realtimeStream') : $t('requirementAnalysis.completeOutput') }})
-            </span>
-          </h3>
-          <div class="progress-info">
-            <div class="progress-item">
-              <span class="label">{{ $t('requirementAnalysis.taskId') }}</span>
-              <span class="value">{{ currentTaskId || $t('requirementAnalysis.preparing') }}</span>
-            </div>
-            <div class="progress-item">
-              <span class="label">{{ $t('requirementAnalysis.currentStatus') }}</span>
-              <span class="value">{{ showResults ? $t('requirementAnalysis.generationComplete') : progressText }}</span>
-            </div>
-          </div>
-
-          <!-- 流式内容实时显示区域 -->
-          <div v-if="streamedContent" class="stream-content-display">
-            <div class="stream-header">
-              <span class="stream-title">{{ $t('requirementAnalysis.realtimeGeneratedContent') }}</span>
-              <span class="stream-status">{{ $t('requirementAnalysis.characters', { count: streamedContent.length }) }}</span>
-            </div>
-            <div class="stream-content" v-html="formatMarkdown(streamedContent)"></div>
-          </div>
-
-          <!-- 评审内容显示区域 -->
-          <div v-if="streamedReviewContent" class="stream-content-display" style="margin-top: 15px;">
-            <div class="stream-header">
-              <span class="stream-title">{{ $t('requirementAnalysis.aiReviewComments') }}</span>
-              <span class="stream-status">{{ $t('requirementAnalysis.characters', { count: streamedReviewContent.length }) }}</span>
-            </div>
-            <div class="stream-content" v-html="formatMarkdown(streamedReviewContent)"></div>
-          </div>
-
-          <!-- 最终版用例显示区域 -->
-          <div v-if="finalTestCases" class="stream-content-display" style="margin-top: 15px;">
-            <div class="stream-header">
-              <span class="stream-title">
-                {{ $t('requirementAnalysis.finalVersionTestCases') }}
-                <span v-if="isGenerating" class="streaming-indicator">{{ $t('requirementAnalysis.generating') }}</span>
-              </span>
-              <span class="stream-status">{{ $t('requirementAnalysis.characters', { count: finalTestCases.length }) }}</span>
-            </div>
-            <div class="stream-content final-testcases" v-html="formatMarkdown(finalTestCases)"></div>
-          </div>
-
-          <div class="progress-steps">
-            <div class="step" :class="{ active: currentStep >= 1 }">
-              <span class="step-number">1</span>
-              <span class="step-text">{{ $t('requirementAnalysis.stepAnalysis') }}</span>
-            </div>
-            <div class="step" :class="{ active: currentStep >= 2 }">
-              <span class="step-number">2</span>
-              <span class="step-text">{{ $t('requirementAnalysis.stepWriting') }}</span>
-            </div>
-            <div v-if="showReviewStep" class="step" :class="{ active: currentStep >= 3 }">
-              <span class="step-number">3</span>
-              <span class="step-text">{{ $t('requirementAnalysis.stepReview') }}</span>
-            </div>
-            <div class="step" :class="{ active: currentStep >= (showReviewStep ? 4 : 3) }">
-              <span class="step-number">{{ showReviewStep ? 4 : 3 }}</span>
-              <span class="step-text">{{ $t('requirementAnalysis.stepComplete') }}</span>
-            </div>
-          </div>
-
-          <!-- 任务完成后的操作按钮 -->
-          <div v-if="showResults" class="completion-actions">
-            <button class="download-btn" @click="downloadTestCases">
-              <span>📥 {{ $t('requirementAnalysis.downloadExcel') }}</span>
-            </button>
-            <button class="save-btn" @click="saveToTestCaseRecords">
-              <span>💾 {{ $t('requirementAnalysis.saveToRecords') }}</span>
-            </button>
-            <button class="new-generation-btn" @click="resetGeneration">
-              <span>📝 {{ $t('requirementAnalysis.newGeneration') }}</span>
-            </button>
-          </div>
-          <button v-else class="cancel-generation-btn" @click="cancelGeneration">
-            {{ $t('requirementAnalysis.cancelGeneration') }}
+          <button
+            class="generate-btn"
+            @click="showOutputModeDialog = true"
+            :disabled="!canGenerateManual || isGenerating">
+            {{ isGenerating ? '生成中...' : $t('requirementAnalysis.generateButton') }}
           </button>
         </div>
+
+        <div class="left-tip">
+          <div class="tip-title">提示</div>
+          <div class="tip-text">AI模式使用"配置中心-AI智能模式配置"中的模型（如未添加模型，请前往添加）。支持中英文任务描述，任务描述越详细，生成效果越好。</div>
+        </div>
       </div>
 
-      <!-- 旧的生成结果区域已废弃，保留用于兼容 -->
-      <!-- 现在使用流式显示区域 + 最终版用例区域 -->
-      <div v-if="false && showResults && generationResult" class="generation-result">
-        <div class="result-header">
-          <h2>{{ $t('requirementAnalysis.generationComplete') }}</h2>
-          <div class="result-summary">
-            <span class="summary-item">
-              {{ $t('requirementAnalysis.summaryTaskId', { taskId: generationResult.task_id }) }}
-            </span>
-            <span class="summary-item">
-              {{ $t('requirementAnalysis.summaryGenerationTime', { time: formatDateTime(generationResult.completed_at) }) }}
-            </span>
+      <!-- 拖拽分隔条 -->
+      <div
+        class="resize-handle"
+        @mousedown="onResizeStart"
+      >
+        <div class="resize-line"></div>
+      </div>
+
+      <!-- 右栏：输出展示（页签式三阶段） -->
+      <div class="right-panel" :style="{ width: rightPanelWidth + 'px' }">
+        <!-- 页签栏 -->
+        <div class="stage-tabs">
+          <div
+            class="stage-tab"
+            :class="{ active: activeTab === 'generate', completed: stagePhase === 'generated' || stagePhase === 'reviewing' || stagePhase === 'reviewed' || stagePhase === 'revising' || stagePhase === 'revised' || stagePhase === 'skip_review' }"
+            @click="switchTab('generate')"
+          >
+            <span class="tab-step">1</span>
+            <span class="tab-label">AI生成用例</span>
+            <span v-if="isGenerating && stagePhase === 'generating'" class="streaming-tag">生成中...</span>
+            <span v-else-if="stagePhase === 'generated' || stagePhase === 'reviewing' || stagePhase === 'reviewed' || stagePhase === 'revising' || stagePhase === 'revised' || stagePhase === 'skip_review'" class="tab-done">✓</span>
           </div>
+          <div
+            class="stage-tab"
+            :class="{ active: activeTab === 'review', completed: stagePhase === 'reviewed' || stagePhase === 'revising' || stagePhase === 'revised', disabled: !tabData.review.visible }"
+            @click="tabData.review.visible && switchTab('review')"
+          >
+            <span class="tab-step">2</span>
+            <span class="tab-label">AI评审意见</span>
+            <span v-if="isGenerating && stagePhase === 'reviewing'" class="streaming-tag">评审中...</span>
+            <span v-else-if="stagePhase === 'reviewed' || stagePhase === 'revising' || stagePhase === 'revised'" class="tab-done">✓</span>
+          </div>
+          <div
+            class="stage-tab"
+            :class="{ active: activeTab === 'revise', completed: stagePhase === 'revised', disabled: !tabData.revise.visible }"
+            @click="tabData.revise.visible && switchTab('revise')"
+          >
+            <span class="tab-step">3</span>
+            <span class="tab-label">改进用例</span>
+            <span v-if="isGenerating && stagePhase === 'revising'" class="streaming-tag">改进中...</span>
+            <span v-else-if="stagePhase === 'revised'" class="tab-done">✓</span>
+          </div>
+        </div>
+
+        <!-- 页签内容区 -->
+        <div class="stage-content">
+          <!-- 空态 -->
+          <div v-if="activeTab === 'generate' && !isGenerating && !streamedContent && stagePhase === 'idle'" class="empty-state">
+            请在左侧输入需求描述并点击生成
+          </div>
+
+          <!-- 页签1：AI生成用例 -->
+          <div v-if="activeTab === 'generate'" class="stage-body">
+            <template v-if="tabData.generate.time && stagePhase !== 'generating'">
+              <div class="tab-summary">
+                <div class="tab-summary__title">{{ tabData.generate.title || 'AI生成用例' }}</div>
+                <div class="tab-summary__time">{{ tabData.generate.time }}</div>
+              </div>
+            </template>
+            <div v-if="streamedContent" class="output-block">
+              <div class="markdown-body" v-html="renderMarkdown(streamedContent)"></div>
+            </div>
+          </div>
+
+          <!-- 页签2：AI评审意见 -->
+          <div v-if="activeTab === 'review'" class="stage-body">
+            <template v-if="tabData.review.time && stagePhase !== 'reviewing'">
+              <div class="tab-summary">
+                <div class="tab-summary__title">{{ tabData.review.title || 'AI评审意见' }}</div>
+                <div class="tab-summary__time">{{ tabData.review.time }}</div>
+              </div>
+            </template>
+            <div v-if="streamedReviewContent" class="output-block review-block">
+              <div class="markdown-body" v-html="renderMarkdown(streamedReviewContent)"></div>
+            </div>
+          </div>
+
+          <!-- 页签3：改进后用例 -->
+          <div v-if="activeTab === 'revise'" class="stage-body">
+            <template v-if="tabData.revise.time && stagePhase !== 'revising'">
+              <div class="tab-summary">
+                <div class="tab-summary__title">{{ tabData.revise.title || '改进用例' }}</div>
+                <div class="tab-summary__time">{{ tabData.revise.time }}</div>
+              </div>
+            </template>
+            <div v-if="finalTestCases" class="output-block final-block">
+              <div class="markdown-body" v-html="renderMarkdown(finalTestCases)"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右栏底部操作 -->
+        <div class="right-actions">
+          <!-- 生成完成 → 确定（进入评审） -->
+          <button v-if="activeTab === 'generate' && stagePhase === 'generated'" class="action-btn primary" @click="onGeneratedConfirm">
+            确定
+          </button>
+          <!-- 跳过评审 -->
+          <button v-if="activeTab === 'generate' && stagePhase === 'generated'" class="action-btn cancel" @click="skipReview">
+            跳过评审
+          </button>
+          <!-- 评审完成 → 确定（进入改进） -->
+          <button v-if="activeTab === 'review' && stagePhase === 'reviewed'" class="action-btn primary" @click="onReviewedConfirm">
+            确定
+          </button>
+          <!-- 改进完成 → 采纳 -->
+          <button v-if="activeTab === 'revise' && stagePhase === 'revised'" class="action-btn success" @click="onAdopt">
+            采纳
+          </button>
+          <!-- 跳过评审后 → 采纳 -->
+          <button v-if="activeTab === 'generate' && stagePhase === 'skip_review'" class="action-btn success" @click="onAdopt">
+            采纳
+          </button>
+          <!-- 生成中/评审中/改进中 → 取消 -->
+          <button v-if="isGenerating" class="action-btn cancel" @click="cancelGeneration">
+            取消
+          </button>
+          <!-- 下载 -->
+          <button v-if="stagePhase !== 'idle' && !isGenerating" class="action-btn download" @click="downloadTestCases">
+            下载
+          </button>
         </div>
       </div>
     </div>
@@ -340,9 +319,28 @@
 
 <script>
 import api from '@/utils/api'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import { useUserStore } from '@/stores/user'
+import MarkdownIt from 'markdown-it'
+import hljs from 'highlight.js'
+
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+  highlight: function (str, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return hljs.highlight(str, { language: lang }).value
+      } catch (_) {}
+    }
+    try {
+      return hljs.highlightAuto(str).value
+    } catch (_) {}
+    return ''
+  }
+})
 
 export default {
   name: 'RequirementAnalysisView',
@@ -426,7 +424,25 @@ export default {
       },
       showConfigGuide: false,
       checkingConfig: true,
-      modalKey: 0  // 用于强制重新渲染弹窗
+      modalKey: 0,  // 用于强制重新渲染弹窗
+      showOutputModeDialog: false,
+      pendingOutputMode: 'stream',
+
+      // 新版左右分栏
+      leftPanelWidth: 0,  // 在 mounted 中初始化
+      isResizing: false,
+
+      // 新版流程阶段
+      stagePhase: 'idle',  // idle | generating | generated | reviewing | reviewed | revising | revised | skip_review
+      showReviewConfirmDialog: false,
+
+      // 页签式阶段
+      activeTab: 'generate',  // generate | review | revise
+      tabData: {
+        generate: { title: '', time: '' },
+        review: { title: '', time: '', visible: false },
+        revise: { title: '', time: '', visible: false }
+      }
     }
   },
 
@@ -435,6 +451,20 @@ export default {
       return this.manualInput.title.trim() &&
              this.manualInput.description.trim() &&
              this.manualInput.description.length <= 2000
+    },
+    rightPanelWidth() {
+      const container = this.$el?.querySelector?.('.workspace')
+      if (!container) return 0
+      const total = container.clientWidth
+      const handleWidth = 6
+      return total - this.leftPanelWidth - handleWidth
+    },
+    rightPanelTitle() {
+      if (this.stagePhase === 'generating' || this.stagePhase === 'generated') return 'AI生成用例'
+      if (this.stagePhase === 'reviewing' || this.stagePhase === 'reviewed') return 'AI评审意见'
+      if (this.stagePhase === 'revising' || this.stagePhase === 'revised') return '改进后用例'
+      if (this.stagePhase === 'skip_review') return 'AI生成用例'
+      return '输出结果'
     }
   },
 
@@ -442,6 +472,10 @@ export default {
     this.progressText = this.$t('requirementAnalysis.preparing')
     this.loadProjects()
     this.checkConfigStatus()
+    this.$nextTick(() => {
+      this.initPanelWidths()
+    })
+    window.addEventListener('resize', this.onWindowResize)
   },
 
   activated() {
@@ -464,6 +498,7 @@ export default {
     // 停止token自动刷新定时器
     const userStore = useUserStore()
     userStore.stopAutoRefresh()
+    window.removeEventListener('resize', this.onWindowResize)
   },
 
   methods: {
@@ -657,6 +692,21 @@ export default {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
     },
 
+    confirmGenerate() {
+      if (!this.canGenerateManual) {
+        ElMessage.error(this.$t('requirementAnalysis.fillRequiredInfo'))
+        return
+      }
+      this.globalOutputMode = this.pendingOutputMode
+      this.showOutputModeDialog = false
+
+      if (this.selectedFile) {
+        this.generateFromDocument()
+      } else {
+        this.generateFromManualInput()
+      }
+    },
+
     async generateFromManualInput() {
       if (!this.canGenerateManual) {
         ElMessage.error(this.$t('requirementAnalysis.fillRequiredInfo'))
@@ -744,6 +794,8 @@ export default {
       this.streamedReviewContent = ''  // 清空评审内容
       this.hasShownCompletionMessage = false  // 重置完成消息标志位
       this.showResults = false  // 隐藏上一次的结果
+      this.stagePhase = 'generating'  // 新版：设置阶段
+      this.activeTab = 'generate'
 
       try {
         // 调用新的生成API
@@ -751,7 +803,7 @@ export default {
           title: title,
           requirement_text: requirementText,
           use_writer_model: true,
-          use_reviewer_model: true,
+          use_reviewer_model: false,  // 不自动评审，由前端决定是否启动评审
           output_mode: outputMode  // 添加输出模式参数
         }
 
@@ -814,12 +866,15 @@ export default {
             if (data.status === 'generating') {
               this.currentStep = 2
               this.progressText = `${this.$t('requirementAnalysis.statusGenerating')} ${data.progress}%`
+              if (this.stagePhase === 'generating') this.stagePhase = 'generating'
             } else if (data.status === 'reviewing') {
               this.currentStep = 3
               this.progressText = `${this.$t('requirementAnalysis.statusReviewing')} ${data.progress}%`
+              if (this.stagePhase === 'reviewing') this.stagePhase = 'reviewing'
             } else if (data.status === 'revising') {
               this.currentStep = 3
               this.progressText = `${this.$t('requirementAnalysis.statusRevising')} ${data.progress}%`
+              if (this.stagePhase === 'revising') this.stagePhase = 'revising'
             }
           } else if (data.type === 'content') {
             // Real-time streaming content (case generation)
@@ -846,6 +901,15 @@ export default {
               this.progressText = this.$t('requirementAnalysis.statusCompleted')
               // Fetch final result
               this.fetchFinalResult()
+            } else if (data.status === 'reviewed') {
+              // 评审完成
+              this.fetchFinalResult()
+            } else if (data.status === 'review_failed') {
+              this.progressText = '评审失败'
+              this.isGenerating = false
+              this.stagePhase = 'generated'
+              // 获取任务详情以显示具体错误
+              this.fetchTaskError('review')
             } else if (data.status === 'failed') {
               this.progressText = this.$t('requirementAnalysis.statusFailed')
               this.handleGenerationError()
@@ -915,6 +979,17 @@ export default {
       }
     },
 
+    async fetchTaskError(phase) {
+      try {
+        const response = await api.get(`/requirement-analysis/testcase-generation/${this.currentTaskId}/progress/`)
+        const task = response.data
+        const errMsg = task.error_message || '执行失败，请重试'
+        ElMessage.error(errMsg)
+      } catch (e) {
+        ElMessage.error(phase === 'review' ? 'AI评审执行失败，请重试' : '执行失败，请重试')
+      }
+    },
+
     async fetchFinalResult() {
       try {
         // 修复URL：去掉多余的/api/前缀（axios baseURL已经包含/api）
@@ -931,8 +1006,6 @@ export default {
         // 设置最终版用例（如果还没有通过流式接收完整）
         if (task.final_test_cases) {
           console.log('📝 Getting final cases from task object')
-          // 无论this.finalTestCases是否已有值，都用最新的final_test_cases覆盖
-          // 这样确保完整输出模式下也能正确显示最终版用例
           this.finalTestCases = task.final_test_cases
         }
 
@@ -951,6 +1024,20 @@ export default {
         if (this.eventSource) {
           this.eventSource.close()
           this.eventSource = null
+        }
+
+        // 根据当前阶段更新 stagePhase
+        if (this.stagePhase === 'reviewing') {
+          this.stagePhase = 'reviewed'
+          this.updateTabData('review', this.manualInput.title)
+          this.activeTab = 'review'
+        } else if (this.stagePhase === 'revising') {
+          this.stagePhase = 'revised'
+          this.updateTabData('revise', this.manualInput.title)
+          this.activeTab = 'revise'
+        } else if (this.stagePhase === 'generating') {
+          this.stagePhase = 'generated'
+          this.updateTabData('generate', this.manualInput.title)
         }
 
         // Only show completion message once
@@ -1180,6 +1267,7 @@ export default {
       this.currentStep = 0;
       this.showResults = false;
       this.generationResult = null;
+      this.stagePhase = 'idle';
 
       // 清空流式内容和最终版用例
       this.streamedContent = '';
@@ -1196,6 +1284,162 @@ export default {
     },
 
     // 格式化日期时间
+    // === 新版左右分栏方法 ===
+    initPanelWidths() {
+      const container = this.$el?.querySelector?.('.workspace')
+      if (container) {
+        this.leftPanelWidth = Math.floor(container.clientWidth / 2)
+      } else {
+        this.leftPanelWidth = Math.floor((window.innerWidth - 80) / 2) // fallback
+      }
+    },
+    onWindowResize() {
+      this.initPanelWidths()
+    },
+    onResizeStart(e) {
+      e.preventDefault()
+      this.isResizing = true
+      const startX = e.clientX
+      const startWidth = this.leftPanelWidth
+      const container = this.$el.querySelector('.workspace')
+      const maxWidth = container ? container.clientWidth - 200 : 800
+
+      const onMouseMove = (ev) => {
+        const diff = ev.clientX - startX
+        const newWidth = Math.min(Math.max(startWidth + diff, 300), maxWidth)
+        this.leftPanelWidth = newWidth
+      }
+      const onMouseUp = () => {
+        this.isResizing = false
+        document.removeEventListener('mousemove', onMouseMove)
+        document.removeEventListener('mouseup', onMouseUp)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      document.addEventListener('mousemove', onMouseMove)
+      document.addEventListener('mouseup', onMouseUp)
+    },
+
+    // === 新版流程方法 ===
+    switchTab(tab) {
+      // 已完成的页签可以切换回去查看，但活跃中的不能切
+      this.activeTab = tab
+    },
+
+    // 更新页签数据（标题+时间）
+    updateTabData(tab, title) {
+      this.tabData[tab] = {
+        title: title,
+        time: new Date().toLocaleString('zh-CN'),
+        visible: true
+      }
+    },
+
+    renderMarkdown(content) {
+      if (!content) return ''
+      // 去除"新增"标记
+      let cleaned = content
+        .replace(/\*\*新增\*\*-/g, '')
+        .replace(/新增-/g, '')
+      return md.render(cleaned)
+    },
+
+    // 生成完成 → 点击"确定"
+    onGeneratedConfirm() {
+      this.showReviewConfirmDialog = true
+    },
+
+    // 启动评审
+    async startReview() {
+      this.showReviewConfirmDialog = false
+      this.stagePhase = 'reviewing'
+      this.isGenerating = true
+      this.streamedReviewContent = ''
+      this.tabData.review.visible = true
+      this.activeTab = 'review'
+
+      try {
+        const response = await api.post(`/requirement-analysis/testcase-generation/${this.currentTaskId}/start_review/`)
+        if (response.data.status === 'reviewing' || response.data.status === 'ok') {
+          // 重新开启SSE接收评审内容
+          this.startStreamingProgress()
+        } else {
+          ElMessage.error('启动评审失败：' + (response.data.error || '未知错误'))
+          this.isGenerating = false
+          this.stagePhase = 'generated'
+          this.tabData.review.visible = false
+        }
+      } catch (error) {
+        console.error('启动评审失败:', error)
+        ElMessage.error('启动评审失败：' + (error.response?.data?.error || error.message))
+        this.isGenerating = false
+        this.stagePhase = 'generated'
+        this.tabData.review.visible = false
+      }
+    },
+
+    // 跳过评审
+    skipReview() {
+      this.showReviewConfirmDialog = false
+      this.stagePhase = 'skip_review'
+    },
+
+    // 评审完成 → 点击"确定" → 基于评审重新生成
+    async onReviewedConfirm() {
+      this.stagePhase = 'revising'
+      this.isGenerating = true
+      this.finalTestCases = ''
+      this.tabData.revise.visible = true
+      this.activeTab = 'revise'
+
+      try {
+        const response = await api.post(`/requirement-analysis/testcase-generation/${this.currentTaskId}/start_revise/`)
+        if (response.data.status === 'revising' || response.data.status === 'ok') {
+          this.startStreamingProgress()
+        } else {
+          ElMessage.error('启动改进失败：' + (response.data.error || '未知错误'))
+          this.isGenerating = false
+          this.stagePhase = 'reviewed'
+          this.tabData.revise.visible = false
+        }
+      } catch (error) {
+        console.error('启动改进失败:', error)
+        ElMessage.error('启动改进失败：' + (error.response?.data?.error || error.message))
+        this.isGenerating = false
+        this.stagePhase = 'reviewed'
+        this.tabData.revise.visible = false
+      }
+    },
+
+    // 采纳
+    async onAdopt() {
+      try {
+        await ElMessageBox.confirm('确认采纳生成的测试用例？用例将导入到用例管理菜单。', '采纳确认', {
+          confirmButtonText: '确认',
+          cancelButtonText: '取消',
+          type: 'info'
+        })
+      } catch {
+        return
+      }
+      try {
+        const response = await api.post(`/requirement-analysis/testcase-generation/${this.currentTaskId}/batch_adopt/`)
+        const importedCount = response.data.imported_count || response.data.count || 0
+        ElMessage.success(`已采纳 ${importedCount} 条测试用例，已导入到用例管理`)
+        this.resetGeneration()
+      } catch (error) {
+        console.error('采纳失败:', error)
+        ElMessage.error('采纳失败：' + (error.response?.data?.error || error.message))
+      }
+    },
+
+    // 格式化Markdown为HTML（简化版 - 保留兼容）
+    formatMarkdown(content) {
+      return this.renderMarkdown(content)
+    },
+
     formatDateTime(dateTimeString) {
       if (!dateTimeString) return '';
       const date = new Date(dateTimeString);
@@ -1475,989 +1719,857 @@ export default {
 
 <style scoped>
 .requirement-analysis {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
+  padding: 0;
+  margin: 0;
   position: relative;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 .page-header {
-  text-align: center;
-  margin-bottom: 40px;
+  padding: 16px 20px 0;
+  flex-shrink: 0;
 }
 
 .page-header h1 {
-  font-size: 2.5rem;
-  color: #2c3e50;
-  margin-bottom: 10px;
-}
-
-.page-header p {
-  color: #666;
-  font-size: 1.1rem;
-}
-
-/* 输出模式设置区域 - 全局 */
-.output-mode-section {
-  margin-bottom: 30px;
-}
-
-.output-mode-card {
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  transition: all 0.3s ease;
-}
-
-.output-mode-card:hover {
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-}
-
-.output-mode-card h3 {
-  font-size: 1.3rem;
-  color: #1a202c;
-  margin: 0 0 8px 0;
+  font-size: 1.25rem;
   font-weight: 600;
+  color: #1a202c;
+  margin: 0;
+}
+
+/* === 工作区：左右分栏 === */
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 12px;
+  gap: 0;
+  width: 100%;
+}
+
+/* === 左栏 === */
+.left-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 300px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.task-input-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  overflow: auto;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a202c;
+  margin-bottom: 12px;
+}
+
+.section-bar {
+  width: 3px;
+  height: 16px;
+  background: #4f6ef7;
+  border-radius: 2px;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.title-input {
+  font-size: 14px !important;
+  font-weight: 500;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  background: #f8fafc !important;
+  margin-bottom: 8px;
+}
+
+.title-input:focus {
+  border-color: #4f6ef7 !important;
+  box-shadow: 0 0 0 2px rgba(79, 110, 247, 0.1) !important;
+}
+
+.main-textarea {
+  flex: 1;
+  min-height: 120px;
+  resize: none !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  font-size: 14px !important;
+  line-height: 1.6 !important;
+  padding: 10px 12px !important;
+  background: #f8fafc !important;
+}
+
+.main-textarea:focus {
+  border-color: #4f6ef7 !important;
+  box-shadow: 0 0 0 2px rgba(79, 110, 247, 0.1) !important;
+}
+
+.main-textarea::placeholder {
+  color: #94a3b8;
+}
+
+.char-count-bottom {
+  text-align: right;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* 左栏底部工具栏 */
+.left-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid #f1f5f9;
+  background: #fafbfc;
+  flex-shrink: 0;
+}
+
+.left-toolbar .toolbar-left {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.mode-section-desc {
+.project-select {
+  width: 140px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: #475569;
+  background: white;
+  cursor: pointer;
+}
+
+.upload-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.upload-btn-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 13px;
   color: #64748b;
-  font-size: 0.9rem;
-  margin: 0 0 16px 0;
+  transition: all 0.2s;
+}
+
+.upload-btn-inline:hover {
+  border-color: #4f6ef7;
+  color: #4f6ef7;
+}
+
+.file-name-inline {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remove-file-inline {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+}
+
+.generate-btn {
+  height: 32px;
+  padding: 0 20px;
+  background: #4f6ef7;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.generate-btn:hover:not(:disabled) {
+  background: #3b5de7;
+}
+
+.generate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 左栏提示 */
+.left-tip {
+  padding: 12px 16px;
+  border-top: 1px solid #f1f5f9;
+  background: #fafbfc;
+  flex-shrink: 0;
+}
+
+.tip-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.tip-text {
+  font-size: 12px;
+  color: #94a3b8;
   line-height: 1.5;
 }
 
-/* 配置引导弹出窗口 */
-.modal-overlay {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  background: rgba(15, 23, 42, 0.6) !important;
-  backdrop-filter: blur(4px);
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  z-index: 9999 !important;
-  padding: 20px;
-  margin: 0 !important;
-  opacity: 1 !important;
-}
-
-.guide-config-modal {
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%) !important;
-  border-radius: 24px;
-  padding: 36px;
-  max-width: 850px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  position: relative;
+/* === 拖拽分隔条 === */
+.resize-handle {
+  width: 6px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  margin: auto;
-  opacity: 1 !important;
+  transition: background 0.2s;
+  position: relative;
+  z-index: 5;
 }
 
-.guide-config-modal::before {
+.resize-handle:hover {
+  background: rgba(79, 110, 247, 0.08);
+}
+
+.resize-line {
+  width: 2px;
+  height: 40px;
+  background: #cbd5e1;
+  border-radius: 1px;
+  transition: background 0.2s;
+}
+
+.resize-handle:hover .resize-line {
+  background: #4f6ef7;
+}
+
+/* === 右栏 === */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 300px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+/* === 页签栏 === */
+.stage-tabs {
+  display: flex;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  padding: 0 8px;
+}
+
+.stage-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: #94a3b8;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.stage-tab:hover:not(.disabled) {
+  color: #475569;
+}
+
+.stage-tab.active {
+  color: #4f6ef7;
+  font-weight: 600;
+  border-bottom-color: #4f6ef7;
+}
+
+.stage-tab.completed {
+  color: #475569;
+}
+
+.stage-tab.disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
+}
+
+.tab-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.stage-tab.active .tab-step {
+  background: #4f6ef7;
+  color: white;
+}
+
+.stage-tab.completed .tab-step {
+  background: #10b981;
+  color: white;
+}
+
+.stage-tab.disabled .tab-step {
+  background: #f1f5f9;
+  color: #d1d5db;
+}
+
+.tab-done {
+  color: #10b981;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* === 页签内容区 === */
+.stage-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.stage-body {
+  padding: 16px;
+}
+
+.output-section {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.streaming-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 2px 10px;
+  background: #ecfdf5;
+  color: #059669;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  animation: tag-pulse 1.5s ease-in-out infinite;
+}
+
+.streaming-tag::before {
   content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 5px;
-  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-  border-radius: 24px 24px 0 0;
+  width: 6px;
+  height: 6px;
+  background: #10b981;
+  border-radius: 50%;
+  animation: dot-blink 1s ease-in-out infinite;
+}
+
+@keyframes dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes tag-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+/* 输出块 */
+.output-block {
+  margin-bottom: 16px;
+}
+
+.tab-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.tab-summary__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.tab-summary__time {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.output-block-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.review-block .output-block-title {
+  color: #f59e0b;
+}
+
+.final-block .output-block-title {
+  color: #10b981;
+}
+
+/* Markdown 渲染样式 */
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #334155;
+  word-wrap: break-word;
+}
+
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4),
+.markdown-body :deep(h5),
+.markdown-body :deep(h6) {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #1a202c;
+}
+
+.markdown-body :deep(h1) { font-size: 1.4em; }
+.markdown-body :deep(h2) { font-size: 1.25em; }
+.markdown-body :deep(h3) { font-size: 1.1em; }
+.markdown-body :deep(h4) { font-size: 1em; }
+
+.markdown-body :deep(p) {
+  margin: 0 0 8px 0;
+}
+
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  margin: 0 0 8px 0;
+  padding-left: 24px;
+}
+
+.markdown-body :deep(li) {
+  margin-bottom: 4px;
+}
+
+.markdown-body :deep(strong) {
+  font-weight: 600;
+  color: #1a202c;
+}
+
+.markdown-body :deep(code) {
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  color: #e11d48;
+}
+
+.markdown-body :deep(pre) {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 12px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.markdown-body :deep(pre code) {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+
+.markdown-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+  border: 1px solid #e2e8f0;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-body :deep(th) {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #1a202c;
+}
+
+.markdown-body :deep(blockquote) {
+  margin: 8px 0;
+  padding: 8px 16px;
+  border-left: 3px solid #4f6ef7;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.markdown-body :deep(hr) {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 12px 0;
+}
+
+/* 右栏底部操作 */
+.right-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #f1f5f9;
+  background: #fafbfc;
+  flex-shrink: 0;
+}
+
+.action-btn {
+  height: 32px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn.primary {
+  background: #4f6ef7;
+  color: white;
+}
+
+.action-btn.primary:hover {
+  background: #3b5de7;
+}
+
+.action-btn.success {
+  background: #10b981;
+  color: white;
+}
+
+.action-btn.success:hover {
+  background: #059669;
+}
+
+.action-btn.cancel {
+  background: white;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.action-btn.cancel:hover {
+  background: #f8fafc;
+}
+
+.action-btn.download {
+  background: white;
+  color: #4f6ef7;
+  border: 1px solid #4f6ef7;
+}
+
+.action-btn.download:hover {
+  background: rgba(79, 110, 247, 0.05);
+}
+
+/* === 弹窗样式 === */
+.output-mode-dialog {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a202c;
+  margin: 0 0 8px;
+}
+
+.dialog-desc {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0 0 16px;
+}
+
+.mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mode-option:hover {
+  border-color: #4f6ef7;
+}
+
+.mode-option.active {
+  border-color: #4f6ef7;
+  background: rgba(79, 110, 247, 0.04);
+}
+
+.mode-option input[type="radio"] {
+  margin-top: 2px;
+  accent-color: #4f6ef7;
+}
+
+.mode-content {
+  flex: 1;
+}
+
+.mode-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a202c;
+  margin-bottom: 2px;
+}
+
+.mode-desc {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dialog-cancel {
+  height: 36px;
+  padding: 0 20px;
+  background: white;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.dialog-confirm {
+  height: 36px;
+  padding: 0 20px;
+  background: #4f6ef7;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dialog-confirm:hover {
+  background: #3b5de7;
+}
+
+/* === 配置引导弹窗 === */
+.config-groups {
+  margin-bottom: 16px;
+}
+
+.config-group {
+  margin-bottom: 12px;
+}
+
+.group-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.config-items-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.config-item-inline {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+}
+
+.config-item-inline.configured {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.04);
+}
+
+.config-item-inline.not-configured {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.04);
+}
+
+.config-label {
+  font-weight: 500;
+  color: #1a202c;
+}
+
+.config-name {
+  color: #10b981;
+  font-size: 12px;
+}
+
+.status-text {
+  font-size: 12px;
+  color: #f59e0b;
+}
+
+.status-text.warning {
+  color: #ef4444;
+}
+
+.guide-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.guide-actions button {
+  width: 240px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guide-actions .generate-manual-btn {
+  background: #4f6ef7;
+  color: white;
+  border: none;
+}
+
+.skip-action {
+  font-size: 13px;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.skip-action:hover {
+  color: #64748b;
 }
 
 .guide-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 28px;
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
 .guide-icon {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   flex-shrink: 0;
-  filter: drop-shadow(0 4px 8px rgba(245, 158, 11, 0.2));
 }
 
 .guide-title h2 {
-  font-size: 1.6rem;
+  font-size: 16px;
   color: #1a202c;
-  margin: 0 0 6px 0;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  margin: 0 0 4px;
 }
 
 .guide-title p {
+  font-size: 13px;
   color: #64748b;
-  font-size: 0.95rem;
   margin: 0;
-  font-weight: 400;
-}
-
-.config-groups {
-  margin-bottom: 24px;
-}
-
-.config-group {
-  margin-bottom: 20px;
-}
-
-.group-label {
-  font-size: 0.85rem;
-  color: #94a3b8;
-  margin-bottom: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.config-items-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-}
-
-.config-item-inline {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  border-radius: 12px;
-  border: 2px solid transparent;
-  position: relative;
-  overflow: hidden;
-  font-weight: 500;
-}
-
-.config-item-inline::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: 12px 0 0 12px;
-}
-
-.config-item-inline.optional {
-  opacity: 0.75;
-}
-
-/* 根据状态设置背景色和样式 */
-.config-item-inline.status-enabled {
-  background: linear-gradient(135deg, rgba(236, 253, 245, 0.9) 0%, rgba(220, 252, 231, 0.6) 100%);
-  border-color: rgba(34, 197, 94, 0.2);
-  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.1);
-}
-
-.config-item-inline.status-enabled::before {
-  background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
-}
-
-.config-item-inline.status-disabled {
-  background: linear-gradient(135deg, rgba(254, 249, 195, 0.9) 0%, rgba(254, 240, 138, 0.6) 100%);
-  border-color: rgba(234, 179, 8, 0.2);
-  box-shadow: 0 4px 12px rgba(234, 179, 8, 0.1);
-}
-
-.config-item-inline.status-disabled::before {
-  background: linear-gradient(180deg, #eab308 0%, #ca8a04 100%);
-}
-
-.config-item-inline.status-unconfigured {
-  background: linear-gradient(135deg, rgba(254, 242, 242, 0.9) 0%, rgba(254, 226, 226, 0.6) 100%);
-  border-color: rgba(239, 68, 68, 0.2);
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.1);
-}
-
-.config-item-inline.status-unconfigured::before {
-  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
 }
 
 .status-symbol {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  font-size: 20px;
-}
-
-.config-label {
-  font-size: 0.95rem;
-  color: #334155;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.config-name {
-  font-size: 0.85rem;
-  color: #64748b;
-  margin-left: 4px;
-  font-weight: 500;
-}
-
-.status-text {
-  margin-left: auto;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  background: #ef4444;
-  color: white;
-  white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.2);
-}
-
-.status-text.warning {
-  background: #eab308;
-  box-shadow: 0 2px 6px rgba(234, 179, 8, 0.2);
-}
-
-.guide-actions {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  gap: 12px;
-  margin-top: 30px;
-  width: 100%;
-}
-
-.guide-actions button {
-  flex: none !important;
-  width: 240px !important;
-  height: 50px !important;
-  padding: 0 24px !important;
-  border-radius: 12px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  text-align: center;
-  white-space: nowrap;
-  opacity: 1 !important;
-  cursor: pointer;
-  box-sizing: border-box !important;
-}
-
-.guide-actions .generate-manual-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-  color: white !important;
-  border: 2px solid transparent !important;
-  box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
-}
-
-.guide-actions .skip-action {
-  font-size: 0.85rem;
-  color: #94a3b8;
-  cursor: pointer;
-  text-decoration: none;
-  padding: 4px 8px;
-  transition: color 0.3s;
-}
-
-.guide-actions .skip-action:hover {
-  color: #64748b;
-  text-decoration: underline;
-}
-
-
-.manual-input-card, .upload-card {
-  background: white;
-  border-radius: 12px;
-  padding: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e1e8ed;
-  margin-bottom: 30px;
-}
-
-.manual-input-card h2, .upload-card h2 {
-  color: #2c3e50;
-  margin-bottom: 20px;
-  font-size: 1.5rem;
-}
-
-.form-group {
-  margin-bottom: 20px;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 600;
-  color: #2c3e50;
-}
-
-/* 输出模式选择器 */
-.output-mode-selector {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  align-items: stretch;
-}
-
-.mode-option {
-  position: relative;
-  cursor: pointer;
-  display: flex;
-}
-
-.mode-option input[type="radio"] {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.mode-content {
-  border: 2px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 16px;
-  transition: all 0.3s ease;
-  background: white;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.mode-option:hover .mode-content {
-  border-color: #3b82f6;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
-}
-
-.mode-option.active .mode-content {
-  border-color: #3b82f6;
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
-}
-
-.mode-title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #1e293b;
-  margin-bottom: 6px;
-}
-
-.mode-desc {
-  font-size: 0.85rem;
-  color: #64748b;
-  line-height: 1.4;
-}
-
-.mode-option.active .mode-title {
-  color: #2563eb;
-}
-
-.mode-option.active .mode-desc {
-  color: #475569;
-}
-
-.form-input, .form-select, .form-textarea {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 1rem;
-  transition: border-color 0.3s ease;
-}
-
-.form-input:focus, .form-select:focus, .form-textarea:focus {
-  outline: none;
-  border-color: #3498db;
-  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
-}
-
-.form-textarea {
-  resize: vertical;
-  font-family: inherit;
-}
-
-.char-count {
-  text-align: right;
-  font-size: 0.85rem;
-  color: #666;
-  margin-top: 5px;
-}
-
-.required {
-  color: #e74c3c;
-}
-
-.generate-manual-btn, .generate-btn {
-  background: #27ae60;
-  color: white;
-  border: none;
-  padding: 15px 30px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 1.1rem;
-  transition: background 0.3s ease;
-  width: 100%;
-  margin-top: 10px;
-}
-
-.generate-manual-btn:hover:not(:disabled), .generate-btn:hover:not(:disabled) {
-  background: #219a52;
-}
-
-.generate-manual-btn:disabled, .generate-btn:disabled {
-  background: #bdc3c7;
-  cursor: not-allowed;
-}
-
-.divider {
-  text-align: center;
-  margin: 40px 0;
-  position: relative;
-}
-
-.divider::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: #ddd;
-}
-
-.divider span {
-  background: white;
-  padding: 0 20px;
-  color: #666;
-  font-size: 1rem;
-}
-
-.upload-area {
-  border: 2px dashed #ddd;
-  border-radius: 8px;
-  padding: 40px;
-  text-align: center;
-  transition: border-color 0.3s ease;
-  margin-bottom: 20px;
-}
-
-.upload-area.drag-over {
-  border-color: #3498db;
-  background: #f8f9fa;
-}
-
-.upload-placeholder {
-  color: #666;
-}
-
-.upload-icon {
-  font-size: 3rem;
-  margin-bottom: 15px;
-  display: block;
-}
-
-.upload-hint {
-  color: #999;
-  font-size: 0.9rem;
-  margin-top: 5px;
-}
-
-.select-file-btn {
-  background: #3498db;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-  margin-top: 15px;
-}
-
-.file-selected {
-  padding: 20px;
-  background: #f8f9fa;
-  border-radius: 6px;
-}
-
-.file-info {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.file-icon {
-  font-size: 2rem;
-}
-
-.file-details {
-  flex: 1;
-}
-
-.file-name {
-  font-weight: 600;
-  margin: 0;
-}
-
-.file-size {
-  color: #666;
-  font-size: 0.9rem;
-  margin: 5px 0 0 0;
-}
-
-.remove-file {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1.2rem;
-}
-
-.generation-progress {
-  margin: 40px 0;
-}
-
-.progress-card {
-  background: white;
-  border-radius: 12px;
-  padding: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e1e8ed;
-  text-align: center;
-}
-
-.progress-card h3 {
-  color: #2c3e50;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.current-mode-badge {
-  display: inline-block;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  margin-left: 8px;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-}
-
-.progress-info {
-  display: flex;
-  justify-content: center;
-  gap: 30px;
-  margin-bottom: 30px;
-  flex-wrap: wrap;
-}
-
-.progress-item {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.progress-item .label {
-  font-size: 0.9rem;
-  color: #666;
-}
-
-.progress-item .value {
-  font-weight: 600;
-  color: #2c3e50;
-}
-
-/* 流式内容显示区域 */
-.stream-content-display {
-  margin: 20px 0;
-  border: 2px solid #e1e8ed;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #f8f9fa;
-}
-
-.stream-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: #e9ecef;
-  border-bottom: 1px solid #dee2e6;
-}
-
-.stream-title {
-  font-weight: 600;
-  color: #495057;
-  font-size: 0.95rem;
-}
-
-.stream-status {
-  font-size: 0.85rem;
-  color: #6c757d;
-  background: white;
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid #dee2e6;
-}
-
-.stream-content {
-  max-height: 400px;
-  overflow-y: auto;
-  padding: 16px;
-  text-align: left;
-  background: white;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: #2c3e50;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
-
-.stream-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.stream-content::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.stream-content::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
-}
-
-.stream-content::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
-
-/* 最终版用例特殊样式 */
-.stream-content.final-testcases {
-  background: #f0f7ff;
-  border-left: 4px solid #2196F3;
-}
-
-.stream-content.final-testcases::before {
-  content: '📋 最终版本';
-  display: block;
-  font-weight: 600;
-  color: #2196F3;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid #e3f2fd;
-}
-
-/* 流式输出指示器 */
-.streaming-indicator {
-  font-size: 0.85em;
-  margin-left: 8px;
-  color: #4CAF50;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-.stream-content h1,
-.stream-content h2,
-.stream-content h3,
-.stream-content h4,
-.stream-content h5,
-.stream-content h6 {
-  margin-top: 1em;
-  margin-bottom: 0.5em;
-  color: #2c3e50;
-  font-weight: 600;
-}
-
-.stream-content code {
-  background: #f1f3f5;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.85em;
-}
-
-.stream-content pre {
-  background: #f1f3f5;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 10px 0;
-}
-
-.stream-content pre code {
-  background: none;
-  padding: 0;
-}
-
-.progress-steps {
-  display: flex;
-  justify-content: center;
-  gap: 20px;
-  margin-bottom: 30px;
-  flex-wrap: wrap;
-}
-
-.step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  opacity: 0.4;
-  transition: opacity 0.3s ease;
-}
-
-.step.active {
-  opacity: 1;
-}
-
-.step-number {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #ddd;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  color: white;
-}
-
-.step.active .step-number {
-  background: #3498db;
-}
-
-.step-text {
-  font-size: 0.9rem;
-  color: #666;
-}
-
-.cancel-generation-btn {
-  background: #e74c3c;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.completion-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 20px;
-  flex-wrap: wrap;
-}
-
-.completion-actions button {
-  flex: 1;
-  min-width: 150px;
-  padding: 12px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.completion-actions .download-btn {
-  background: #28a745;
-  color: white;
-  font-size: 1rem;
-}
-
-.completion-actions .download-btn:hover {
-  background: #218838;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
-}
-
-.completion-actions .save-btn {
-  background: #007bff;
-  color: white;
-  font-size: 1rem;
-}
-
-.completion-actions .save-btn:hover {
-  background: #0056b3;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
-}
-
-.completion-actions .new-generation-btn {
-  background: #6c757d;
-  color: white;
-  font-size: 1rem;
-}
-
-.completion-actions .new-generation-btn:hover {
-  background: #5a6268;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(108, 117, 125, 0.3);
-}
-
-.generation-result {
-  margin: 40px 0;
-}
-
-.result-header {
-  background: white;
-  border-radius: 12px;
-  padding: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e1e8ed;
-  margin-bottom: 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 20px;
-}
-
-.result-header h2 {
-  color: #27ae60;
-  margin: 0;
-}
-
-.result-summary {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.summary-item {
-  color: #666;
-  font-size: 0.9rem;
-}
-
-.new-generation-btn {
-  background: #3498db;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.generated-testcases-section, .review-feedback-section, .final-testcases-section {
-  background: white;
-  border-radius: 12px;
-  padding: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e1e8ed;
-  margin-bottom: 20px;
-}
-
-.generated-testcases-section h3, .review-feedback-section h3, .final-testcases-section h3 {
-  color: #2c3e50;
-  margin-bottom: 20px;
-}
-
-.testcase-content, .review-content {
-  background: #f8f9fa;
-  border-radius: 6px;
-  padding: 20px;
-  border-left: 4px solid #3498db;
-}
-
-.testcase-content pre, .review-content pre {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  margin: 0;
-  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
-@media (max-width: 768px) {
-  .result-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .progress-info, .result-summary {
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .progress-steps {
-    gap: 10px;
-  }
-}
-
-.actions-section {
-  display: flex;
-  gap: 20px;
-  justify-content: center;
-  margin-top: 30px;
-  flex-wrap: wrap;
-}
-
-.download-btn, .save-btn {
-  padding: 12px 24px;
-  border: none;
-  border-radius: 6px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.3s ease;
-}
-
-.download-btn {
-  background-color: #1abc9c;
-  color: white;
-}
-
-.download-btn:hover {
-  background-color: #16a085;
-}
-
-.save-btn {
-  background-color: #3498db;
-  color: white;
-}
-
-.save-btn:hover {
-  background-color: #2980b9;
-}
-
-@media (max-width: 768px) {
-  .actions-section {
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .download-btn, .save-btn {
-    width: 100%;
-    max-width: 300px;
-    justify-content: center;
-  }
+  font-size: 16px;
 }
 </style>
 

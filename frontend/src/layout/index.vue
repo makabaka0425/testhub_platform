@@ -4,7 +4,8 @@
       <!-- 侧边栏 -->
       <el-aside width="160px">
         <div class="logo" @click="router.push('/home')" style="cursor: pointer;">
-          <img :src="logoImage" alt="TestHub" class="logo-img" />
+        <!-- <img :src="logoImage" alt="灵测" class="logo-img" /> -->
+          <!-- logo待替换，暂留空白 -->
         </div>
         <el-menu
           :default-active="$route.path"
@@ -15,35 +16,34 @@
         >
           <!-- AI用例生成模块菜单 -->
           <template v-if="currentModule === 'ai-generation'">
-            <el-sub-menu index="requirement">
-              <template #title>
-                <el-icon><MagicStick /></el-icon>
-                <span>{{ $t('menu.intelligentCaseGeneration') }}</span>
-              </template>
-              <el-menu-item index="/ai-generation/requirement-analysis">{{ $t('menu.aiCaseGeneration') }}</el-menu-item>
-              <el-menu-item index="/ai-generation/generated-testcases">{{ $t('menu.aiGeneratedTestcases') }}</el-menu-item>
-            </el-sub-menu>
             <el-menu-item index="/ai-generation/projects">
               <el-icon><Folder /></el-icon>
               <span>{{ $t('menu.projectManagement') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-generation/testcases">
-              <el-icon><Document /></el-icon>
-              <span>{{ $t('menu.testCases') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-generation/versions">
               <el-icon><Flag /></el-icon>
               <span>{{ $t('menu.versionManagement') }}</span>
             </el-menu-item>
-            <el-sub-menu index="reviews">
-              <template #title>
-                <el-icon><Check /></el-icon>
-                <span>{{ $t('menu.reviewManagement') }}</span>
-              </template>
-              <el-menu-item index="/ai-generation/reviews">{{ $t('menu.reviewList') }}</el-menu-item>
-              <el-menu-item index="/ai-generation/review-templates">{{ $t('menu.reviewTemplates') }}</el-menu-item>
-            </el-sub-menu>
-
+            <el-menu-item index="/ai-generation/requirement-analysis">
+              <el-icon><MagicStick /></el-icon>
+              <span>{{ $t('menu.aiCaseGeneration') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/generated-testcases">
+              <el-icon><Document /></el-icon>
+              <span>{{ $t('menu.aiGeneratedTestcases') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/testcases">
+              <el-icon><DocumentCopy /></el-icon>
+              <span>{{ $t('menu.testCases') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/reviews">
+              <el-icon><Check /></el-icon>
+              <span>{{ $t('menu.reviewManagement') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/review-templates">
+              <el-icon><Edit /></el-icon>
+              <span>{{ $t('menu.reviewTemplates') }}</span>
+            </el-menu-item>
             <el-menu-item index="/ai-generation/executions">
               <el-icon><VideoPlay /></el-icon>
               <span>{{ $t('menu.testPlan') }}</span>
@@ -225,18 +225,49 @@
 
           <!-- AI 智能模式模块菜单 -->
           <template v-else-if="currentModule === 'ai-intelligent-mode'">
-            <el-menu-item index="/ai-intelligent-mode/testing">
-              <el-icon><VideoPlay /></el-icon>
-              <span>{{ $t('menu.aiIntelligentTesting') }}</span>
+            <el-menu-item index="/ai-intelligent-mode/projects">
+              <el-icon><Folder /></el-icon>
+              <span>{{ $t('menu.aiProjectManagement') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/cases">
-              <el-icon><Document /></el-icon>
-              <span>{{ $t('menu.aiCaseManagement') }}</span>
+            <el-menu-item index="/ai-intelligent-mode/midscene-web">
+              <el-icon><Monitor /></el-icon>
+              <span>{{ $t('menu.midsceneWeb') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/execution-records">
-              <el-icon><Timer /></el-icon>
-              <span>{{ $t('menu.aiExecutionRecords') }}</span>
+            <el-menu-item index="/ai-intelligent-mode/midscene-app">
+              <el-icon><Iphone /></el-icon>
+              <span>{{ $t('menu.midsceneApp') }}</span>
             </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/test-plans">
+              <el-icon><Tickets /></el-icon>
+              <span>{{ $t('menu.aiTestPlan') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/midscene-reports">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>{{ $t('menu.aiTestReport') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
+              <el-icon><AlarmClock /></el-icon>
+              <span>{{ $t('menu.aiScheduledTasks') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/notification-logs">
+              <el-icon><Bell /></el-icon>
+              <span>{{ $t('menu.aiNotificationList') }}</span>
+            </el-menu-item>
+            <el-sub-menu index="ai-intelligent-debug" class="ai-debug-submenu">
+              <template #title>
+                <el-icon><Cpu /></el-icon>
+                <span>{{ $t('menu.aiIntelligentDebug') }}</span>
+              </template>
+              <el-menu-item index="/ai-intelligent-mode/testing">
+                <span>{{ $t('menu.aiIntelligentTesting') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/cases">
+                <span>{{ $t('menu.aiCaseManagement') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/execution-records">
+                <span>{{ $t('menu.aiExecutionRecords') }}</span>
+              </el-menu-item>
+            </el-sub-menu>
 
           </template>
 
@@ -353,7 +384,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram, View
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -466,9 +497,15 @@ const breadcrumbTitle = computed(() => {
     '/app-automation/reports': t('menu.testReport'),
 
     // AI 智能模式
+    '/ai-intelligent-mode/projects': t('menu.aiProjectManagement'),
     '/ai-intelligent-mode/testing': t('menu.aiIntelligentTesting'),
     '/ai-intelligent-mode/cases': t('menu.aiCaseManagement'),
     '/ai-intelligent-mode/execution-records': t('menu.aiExecutionRecords'),
+    '/ai-intelligent-mode/midscene-reports': t('menu.aiTestReport'),
+    '/ai-intelligent-mode/midscene-web': t('menu.midsceneWeb'),
+    '/ai-intelligent-mode/midscene-app': t('menu.midsceneApp'),
+    '/ai-intelligent-mode/test-plans': t('menu.aiTestPlan'),
+    '/ai-intelligent-mode/scheduled-tasks': t('menu.aiScheduledTasks'),
 
 
     // 配置中心
@@ -481,6 +518,12 @@ const breadcrumbTitle = computed(() => {
     '/configuration/dify': t('menu.difyConfig'),
     
     '/profile': t('nav.profile')
+  }
+  // 动态路由回退匹配
+  if (!routeMap[route.path]) {
+    if (/\/ai-intelligent-mode\/test-plans\/\d+/.test(route.path)) {
+      return t('menu.aiTestPlan')
+    }
   }
   return routeMap[route.path] || route.meta.title || ''
 })
@@ -620,6 +663,28 @@ const handleCommand = (command) => {
   }
 }
 
+/* AI智能调试子菜单：修复展开箭头与文字重叠 */
+.ai-debug-submenu {
+  :deep(.el-sub-menu__title) {
+    .el-sub-menu__icon-arrow {
+      position: absolute;
+      right: 12px;
+    }
+    span {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+  :deep(.el-menu-item) {
+    padding-left: 44px !important;
+    height: 40px;
+    line-height: 40px;
+    font-size: 13px;
+  }
+}
+
 .el-container .el-container {
   height: 100%;
   overflow: hidden;
@@ -639,7 +704,7 @@ const handleCommand = (command) => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 20px;
+    padding: 0 var(--layout-gap);
   }
 
   .header-left {
@@ -721,10 +786,11 @@ const handleCommand = (command) => {
 
 .el-main {
   background-color: #f5f5f5;
-  padding: 20px !important;
+  padding: var(--layout-gap) !important;
   flex: 1;
   overflow: hidden;
   box-sizing: border-box;
+  width: 100%;
 }
 
 @media screen and (max-width: 1920px) {

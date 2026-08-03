@@ -11,7 +11,7 @@ export default {
     uiAutomation: 'UI自动化测试',
     defects: 'Bug缺陷管理',
     appAutomation: 'APP自动化测试',
-    aiIntelligentMode: 'AI 智能模式',
+    aiIntelligentMode: 'AI自动化测试',
     configuration: '配置中心'
   },
   menu: {
@@ -59,9 +59,18 @@ export default {
     caseDesign: '用例编排',
 
     // AI智能模式
+    aiProjectManagement: '项目管理',
     aiIntelligentTesting: 'AI 智能测试',
     aiCaseManagement: 'AI 用例管理',
-    aiExecutionRecords: 'AI测试报告',
+    aiExecutionRecords: 'AI执行记录',
+    aiIntelligentDebug: 'AI智能调试',
+    midsceneExecution: 'AI自动化测试',
+    midsceneWeb: 'Web端自动化',
+    midsceneApp: 'APP端自动化',
+    aiTestReport: 'AI测试报告',
+    aiScheduledTasks: 'AI定时任务',
+    aiTestPlan: 'AI测试计划',
+    aiNotificationList: 'AI通知列表',
 
     // 配置中心
     aiCaseGenerationConfig: 'AI用例生成配置',
