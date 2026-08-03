@@ -82,62 +82,6 @@
           </el-form>
         </div>
 
-        <!-- 统计概览 -->
-        <div v-if="statsData" class="stats-dashboard">
-          <div class="stats-card">
-            <div class="stats-card__value">{{ statsData.total }}</div>
-            <div class="stats-card__label">总执行</div>
-          </div>
-          <div class="stats-card stats-card--success">
-            <div class="stats-card__value">{{ statsData.passed }}</div>
-            <div class="stats-card__label">通过</div>
-          </div>
-          <div class="stats-card stats-card--danger">
-            <div class="stats-card__value">{{ statsData.failed }}</div>
-            <div class="stats-card__label">失败</div>
-          </div>
-          <div class="stats-card stats-card--primary">
-            <div class="stats-card__value">{{ statsData.pass_rate }}%</div>
-            <div class="stats-card__label">通过率</div>
-          </div>
-          <div class="stats-card">
-            <div class="stats-card__value">{{ statsData.avg_duration }}s</div>
-            <div class="stats-card__label">平均耗时</div>
-          </div>
-          <div class="stats-card stats-card--warning" v-if="statsData.running > 0">
-            <div class="stats-card__value">{{ statsData.running }}</div>
-            <div class="stats-card__label">执行中</div>
-          </div>
-        </div>
-
-        <!-- 30天执行趋势图 -->
-        <div v-if="statsData && statsData.trend && statsData.trend.length" class="trend-chart-wrapper">
-          <div ref="trendChartRef" class="trend-chart"></div>
-        </div>
-
-        <!-- Top10失败用例 -->
-        <div v-if="statsData && statsData.top_failed && statsData.top_failed.length" class="top-failed-wrapper">
-          <div class="top-failed__title">失败最多用例 Top10</div>
-          <el-table :data="statsData.top_failed" size="small" stripe>
-            <el-table-column prop="case_name" label="用例名称" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="total" label="总执行" width="80" align="center" />
-            <el-table-column prop="passed" label="通过" width="70" align="center">
-              <template #default="{ row }">
-                <span style="color:#67c23a">{{ row.passed }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="failed" label="失败" width="70" align="center">
-              <template #default="{ row }">
-                <span style="color:#f56c6c">{{ row.failed }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="pass_rate" label="通过率" width="90" align="center">
-              <template #default="{ row }">
-                <el-progress :percentage="row.pass_rate" :stroke-width="6" :color="row.pass_rate >= 80 ? '#67c23a' : row.pass_rate >= 50 ? '#e6a23c' : '#f56c6c'" style="width:70px" />
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
 
         <!-- 用例列表面板 -->
         <section class="panel list-panel">
@@ -1143,7 +1087,7 @@ import {
   getMidsceneGroups, getMidsceneGroupTree, createMidsceneGroup, updateMidsceneGroup, deleteMidsceneGroup, batchReorderMidsceneGroups,
   getMidsceneCases, createMidsceneCase, updateMidsceneCase, deleteMidsceneCase,
   batchDeleteMidsceneCases, importAIToMidscene, runMidsceneCase, copyMidsceneCase,
-  getMidsceneExecutionDetail, getMidsceneExecutionStatus, getMidsceneStatistics,
+  getMidsceneExecutionDetail, getMidsceneExecutionStatus,
   midsceneVisualCompare, midsceneSaveBaseline, midsceneListBaselines,
   getMidsceneExecutions,
 } from '@/api/ui_automation'
@@ -1171,99 +1115,7 @@ function onProjectChange(val) {
   localStorage.setItem('lastProjectId_ai_midscene', val || '')
   loadGroups()
   loadCases()
-  loadStatistics()
 }
-
-// ---- 统计概览 ----
-const statsData = ref(null)
-
-async function loadStatistics() {
-  try {
-    const params = {}
-    if (projectId.value) params.project_id = projectId.value
-    const res = await getMidsceneStatistics(params)
-    statsData.value = res.data || null
-    // 趋势图在数据加载后渲染
-    await nextTick()
-    renderTrendChart()
-  } catch {
-    statsData.value = null
-  }
-}
-
-// ---- 30天趋势图 ----
-const trendChartRef = ref(null)
-let trendChartInstance = null
-
-function renderTrendChart() {
-  if (!trendChartRef.value || !statsData.value?.trend?.length) return
-  // 销毁旧实例
-  if (trendChartInstance) {
-    trendChartInstance.dispose()
-    trendChartInstance = null
-  }
-  trendChartInstance = echarts.init(trendChartRef.value)
-  const trend = statsData.value.trend
-  const dates = trend.map(d => d.date.slice(5)) // MM-DD
-  const option = {
-    grid: { top: 30, right: 20, bottom: 30, left: 40 },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-    },
-    legend: {
-      data: ['通过', '失败'],
-      top: 4,
-      right: 10,
-      textStyle: { fontSize: 12 },
-    },
-    xAxis: {
-      type: 'category',
-      data: dates,
-      axisLabel: { fontSize: 11, color: '#909399' },
-      axisLine: { lineStyle: { color: '#dcdfe6' } },
-      axisTick: { show: false },
-    },
-    yAxis: {
-      type: 'value',
-      minInterval: 1,
-      axisLabel: { fontSize: 11, color: '#909399' },
-      splitLine: { lineStyle: { color: '#f0f0f0' } },
-    },
-    series: [
-      {
-        name: '通过',
-        type: 'bar',
-        stack: 'total',
-        data: trend.map(d => d.passed),
-        itemStyle: { color: '#67c23a', borderRadius: [0, 0, 0, 0] },
-        barMaxWidth: 18,
-      },
-      {
-        name: '失败',
-        type: 'bar',
-        stack: 'total',
-        data: trend.map(d => d.failed),
-        itemStyle: { color: '#f56c6c', borderRadius: [2, 2, 0, 0] },
-        barMaxWidth: 18,
-      },
-    ],
-  }
-  trendChartInstance.setOption(option)
-}
-
-// 响应窗口大小变化
-function handleResize() {
-  trendChartInstance?.resize()
-}
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize)
-  if (trendChartInstance) {
-    trendChartInstance.dispose()
-    trendChartInstance = null
-  }
-})
 
 // ---- 视觉回归 ----
 const visualCompareVisible = ref(false)
@@ -2213,9 +2065,7 @@ onMounted(() => {
   loadGroups()
   loadCases()
   loadAICases()
-  loadStatistics()
   document.addEventListener('click', closeGroupContextMenu)
-  window.addEventListener('resize', handleResize)
 })
 
 // 路由切换时重新加载（同组件不重建，需手动刷新）
@@ -2405,42 +2255,6 @@ watch(() => route.path, () => {
 
 .list-column .filter-bar {
   margin-bottom: 0;
-}
-
-.stats-dashboard {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 12px 16px;
-  background: #fff;
-  border: 1px solid var(--el-border-color-lighter, #ebeef5);
-  border-radius: 8px;
-}
-.stats-card {
-  flex: 1;
-  text-align: center;
-  padding: 10px 0;
-  border-radius: 6px;
-  background: #f5f7fa;
-}
-.stats-card--success { background: #f0f9eb; }
-.stats-card--danger { background: #fef0f0; }
-.stats-card--primary { background: #ecf5ff; }
-.stats-card--warning { background: #fdf6ec; }
-.stats-card__value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #303133;
-  line-height: 1.2;
-}
-.stats-card--success .stats-card__value { color: #67c23a; }
-.stats-card--danger .stats-card__value { color: #f56c6c; }
-.stats-card--primary .stats-card__value { color: #409eff; }
-.stats-card--warning .stats-card__value { color: #e6a23c; }
-.stats-card__label {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 4px;
 }
 
 .list-panel {
@@ -2875,40 +2689,6 @@ watch(() => route.path, () => {
   max-height: 240px;
   border: 1px solid #ebeef5;
   border-radius: 4px;
-}
-
-/* ============================================================
-   趋势图
-   ============================================================ */
-.trend-chart-wrapper {
-  background: #fff;
-  border: 1px solid var(--gray-200);
-  border-radius: 8px;
-  padding: 12px 16px 8px;
-  margin-bottom: 20px;
-}
-
-.trend-chart {
-  width: 100%;
-  height: 200px;
-}
-
-/* ============================================================
-   Top10失败用例
-   ============================================================ */
-.top-failed-wrapper {
-  background: #fff;
-  border: 1px solid var(--gray-200);
-  border-radius: 8px;
-  padding: 12px 16px 8px;
-  margin-bottom: 20px;
-}
-
-.top-failed__title {
-  font-weight: 600;
-  font-size: 14px;
-  color: #303133;
-  margin-bottom: 8px;
 }
 </style>
 
