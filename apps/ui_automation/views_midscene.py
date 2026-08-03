@@ -886,6 +886,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         error_msg = request.data.get('error') or ''
         report_url = request.data.get('report_url') or ''
         report_file = request.data.get('report_file') or ''
+        failed_screenshots = request.data.get('failed_screenshots') or []
 
         execution = MidsceneExecution.objects.filter(id=execution_id).first()
         if execution:
@@ -901,6 +902,15 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             # 保存回放报告信息
             execution.report_url = report_url
             execution.report_file = report_file
+
+            # 保存失败步骤截图 URL 到 step_results 和 screenshot_urls
+            if failed_screenshots:
+                screenshot_map = {s['order']: s['screenshot'] for s in failed_screenshots if isinstance(s, dict) and 'order' in s and 'screenshot' in s}
+                if screenshot_map and isinstance(execution.step_results, list):
+                    for sr in execution.step_results:
+                        if isinstance(sr, dict) and sr.get('order') in screenshot_map:
+                            sr['screenshot'] = screenshot_map[sr['order']]
+                execution.screenshot_urls = list(screenshot_map.values())
 
             # ---- 提取步骤输出变量 ----
             context_variables = {}
@@ -1259,6 +1269,7 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
                 'started_at': e.started_at,
                 'finished_at': e.finished_at,
                 'step_results': e.step_results,
+                'screenshot_urls': e.screenshot_urls,
                 'executed_by': e.executed_by.username if e.executed_by else None,
             })
         return Response({'results': data, 'count': total, 'page': page, 'page_size': page_size})
@@ -1418,7 +1429,7 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='run-now')
     def run_now(self, request, pk=None):
-        """立即运行任务 — POST 到 Midscene 微服务，异步回调更新结果"""
+        """立即运行任务 — 通过 /execute-batch 统一提交到 Midscene 微服务，避免并发资源失控"""
         task = self.get_object()
 
         try:
@@ -1437,50 +1448,72 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
             task.next_run_time = task.calculate_next_run()
             task.save()
 
-            # 逐个执行计划中的用例
-            execution_ids = []
-            first_execution = None
+            # 生成执行批次ID
+            import uuid
+            batch_id = str(uuid.uuid4())
+            execution_mode = plan.execution_mode or 'per_case'
+            login_config = plan.login_config or {}
+
+            # 为每个用例创建 execution 记录和 payload
+            cases_payload = []
             for item in items:
                 case = item.midscene_case
+                if not case:
+                    continue
                 execution = MidsceneExecution.objects.create(
                     case=case,
                     status='running',
                     executed_by=task.created_by,
+                    plan_execution_batch=batch_id,
                 )
                 case.last_status = 'running'
                 case.save(update_fields=['last_status'])
-                if not first_execution:
-                    first_execution = execution
-                execution_ids.append(execution.id)
 
                 payload = _build_midscene_payload(case, execution.id)
-                try:
-                    with httpx.Client(timeout=10) as client:
-                        resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute', json=payload)
-                        resp.raise_for_status()
-                except httpx.ConnectError:
-                    execution.status = 'failed'
-                    execution.error_message = 'Midscene微服务未启动'
-                    execution.finished_at = timezone.now()
-                    execution.save()
-                    case.last_status = 'failed'
-                    case.last_result = 'Midscene微服务未启动'
-                    case.save(update_fields=['last_status', 'last_result'])
+                cases_payload.append({
+                    'payload': payload,
+                    'execution_id': execution.id,
+                    'case_id': case.id,
+                })
 
-                    task.failed_runs += 1
-                    task.last_result = {'status': 'failed', 'message': 'Midscene微服务未启动'}
-                    task.error_message = 'Midscene微服务未启动'
-                    task.save()
+            if not cases_payload:
+                return Response({'error': '没有可执行的用例'}, status=status.HTTP_400_BAD_REQUEST)
 
-                    return Response({
-                        'error': 'Midscene微服务未启动，请检查 midscene-service 是否运行',
-                    }, status=status.HTTP_400_BAD_REQUEST)
+            # 统一提交到微服务 /execute-batch
+            try:
+                import httpx
+                batch_body = {
+                    'cases': cases_payload,
+                    'plan_id': plan.id,
+                    'callback_base': 'http://localhost:8000/api/ui-automation',
+                    'execution_mode': execution_mode,
+                }
+                if execution_mode == 'shared_session' and login_config:
+                    batch_body['login_config'] = login_config
+
+                with httpx.Client(timeout=15) as client:
+                    resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute-batch', json=batch_body, timeout=15)
+                    resp.raise_for_status()
+            except httpx.ConnectError:
+                # 微服务不可用，标记所有 execution 为失败
+                for item_data in cases_payload:
+                    MidsceneExecution.objects.filter(id=item_data['execution_id']).update(
+                        status='failed', error_message='Midscene微服务未启动', finished_at=timezone.now()
+                    )
+                task.failed_runs += 1
+                task.last_result = {'status': 'failed', 'message': 'Midscene微服务未启动'}
+                task.error_message = 'Midscene微服务未启动'
+                task.save()
+                return Response({
+                    'error': 'Midscene微服务未启动，请检查 midscene-service 是否运行',
+                }, status=status.HTTP_400_BAD_REQUEST)
 
             return Response({
                 'message': '测试计划已提交到Midscene微服务',
                 'task_id': task.id,
                 'task_name': task.name,
-                'execution_ids': execution_ids,
+                'batch_id': batch_id,
+                'execution_mode': execution_mode,
                 'plan_name': plan.name,
                 'status': 'submitted',
             }, status=status.HTTP_200_OK)

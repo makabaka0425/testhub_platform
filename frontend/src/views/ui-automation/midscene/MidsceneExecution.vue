@@ -460,7 +460,7 @@
                     <el-tabs v-model="drawerResultTab" class="result-tabs">
                       <el-tab-pane label="步骤结果" name="steps">
                         <div v-if="drawerResultData.step_results && drawerResultData.step_results.length">
-                          <div v-for="(s, idx) in drawerResultData.step_results" :key="idx" class="step-result-row">
+                          <div v-for="(s, idx) in drawerResultData.step_results" :key="idx" class="step-result-row" style="flex-wrap:wrap">
                             <el-tag :type="s.status === 'passed' ? 'success' : 'danger'" size="small">{{ s.status }}</el-tag>
                             <el-tag v-if="s.mode === 'traditional'" type="info" size="small" style="margin-left:6px">传统</el-tag>
                             <el-tag v-else type="" size="small" style="margin-left:6px">AI</el-tag>
@@ -474,6 +474,9 @@
                             </span>
                             <el-tag v-if="s.type" size="small" style="margin-left:6px">{{ s.type }}</el-tag>
                             <el-tag v-if="s.output_var" type="warning" size="small" style="margin-left:6px">→ {{ s.output_var }}</el-tag>
+                            <div v-if="s.screenshot && s.status === 'failed'" style="width:100%;margin-top:6px;margin-left:0">
+                              <el-image :src="s.screenshot" fit="contain" style="max-width:360px;max-height:200px;border:1px solid #ebeef5;border-radius:4px" :preview-src-list="[s.screenshot]" preview-teleported />
+                            </div>
                           </div>
                         </div>
                         <div v-else style="color:#999;text-align:center;padding:20px">暂无步骤结果</div>
@@ -839,7 +842,7 @@
         <el-tabs v-model="resultActiveTab">
           <el-tab-pane label="步骤结果" name="steps">
             <div v-if="resultData.step_results && resultData.step_results.length">
-              <div v-for="(s, idx) in resultData.step_results" :key="idx" class="step-result-row">
+              <div v-for="(s, idx) in resultData.step_results" :key="idx" class="step-result-row" style="flex-wrap:wrap">
                 <el-tag :type="s.status === 'passed' ? 'success' : 'danger'" size="small">{{ s.status }}</el-tag>
                 <el-tag v-if="s.mode === 'traditional'" type="info" size="small" style="margin-left:6px">传统</el-tag>
                 <el-tag v-else type="" size="small" style="margin-left:6px">AI</el-tag>
@@ -853,6 +856,9 @@
                 </span>
                 <el-tag v-if="s.type" size="small" style="margin-left:6px">{{ s.type }}</el-tag>
                 <el-tag v-if="s.output_var" type="warning" size="small" style="margin-left:6px">→ {{ s.output_var }}</el-tag>
+                <div v-if="s.screenshot && s.status === 'failed'" style="width:100%;margin-top:6px;margin-left:0">
+                  <el-image :src="s.screenshot" fit="contain" style="max-width:360px;max-height:200px;border:1px solid #ebeef5;border-radius:4px" :preview-src-list="[s.screenshot]" preview-teleported />
+                </div>
               </div>
             </div>
             <div v-else style="color:#999;text-align:center;padding:20px">暂无步骤结果</div>

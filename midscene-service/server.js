@@ -39,17 +39,54 @@ app.use(express.json());
 
 const PORT = 8001;
 
+// ============ 并发控制 ============
+const MAX_CONCURRENCY = 3;  // 最大并行执行数
+let activeCount = 0;        // 当前活跃任务数
+const taskQueue = [];       // 等待队列: [{ taskId, resolve }]
+
+/** 获取执行槽位（信号量模式） */
+function acquireSlot() {
+  return new Promise((resolve) => {
+    if (activeCount < MAX_CONCURRENCY) {
+      activeCount++;
+      resolve();
+    } else {
+      taskQueue.push({ resolve });
+    }
+  });
+}
+
+/** 释放执行槽位 */
+function releaseSlot() {
+  if (taskQueue.length > 0) {
+    const { resolve } = taskQueue.shift();
+    resolve();  // 直接转让槽位，不增减 activeCount
+  } else {
+    activeCount = Math.max(0, activeCount - 1);
+  }
+}
+
+// ============ 任务取消控制 ============
+// 存储已被请求取消的 taskId，executeTask 检查后提前退出
+const cancelledTasks = new Set();
+
 // Midscene 运行产物目录（与 Midscene CLI 行为一致）
 const MIDSCENE_RUN_DIR = path.join(__dirname, 'midscene_run');
 const REPORT_DIR = path.join(MIDSCENE_RUN_DIR, 'report');
+const SCREENSHOT_DIR = path.join(MIDSCENE_RUN_DIR, 'screenshots');
 
 // 确保目录存在
-if (!fs.existsSync(REPORT_DIR)) {
-  fs.mkdirSync(REPORT_DIR, { recursive: true });
+for (const dir of [REPORT_DIR, SCREENSHOT_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
-// 报告静态文件服务
+// 报告静态文件服务（全局报告目录 + 任务独立子目录）
 app.use('/report', express.static(REPORT_DIR));
+// 任务独立报告目录：通过 /report/<taskId>/report/<filename> 访问
+app.use('/report', express.static(MIDSCENE_RUN_DIR));
+app.use('/screenshots', express.static(SCREENSHOT_DIR));
 
 // 任务存储
 const tasks = new Map();
@@ -60,8 +97,11 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'midscene-service',
-    version: '2.0.0',
+    version: '2.1.0',
     activeTasks: tasks.size,
+    activeRunning: activeCount,
+    maxConcurrency: MAX_CONCURRENCY,
+    queuedTasks: taskQueue.length,
     reportDir: REPORT_DIR,
   });
 });
@@ -288,11 +328,36 @@ app.post('/browser/close', (req, res) => {
   res.json({ message: '当前版本每次任务独立浏览器，无需手动关闭' });
 });
 
+// ============ 任务取消接口 ============
+app.post('/cancel/:taskId', (req, res) => {
+  const taskId = req.params.taskId;
+  const task = tasks.get(taskId);
+  if (!task) {
+    return res.status(404).json({ error: '任务不存在' });
+  }
+  if (task.status === 'completed' || task.status === 'failed') {
+    return res.status(400).json({ error: '任务已结束，无法取消' });
+  }
+  cancelledTasks.add(taskId);
+  task.logs.push({ time: new Date().toISOString(), level: 'warn', message: '收到取消请求' });
+  res.json({ task_id: taskId, status: 'cancelling', message: '取消请求已发送' });
+});
+
 // ============ 执行引擎 ============
 
 async function executeTask(taskId) {
   const task = tasks.get(taskId);
   if (!task) return;
+
+  // 取消检查
+  if (cancelledTasks.has(taskId)) {
+    task.status = 'failed';
+    task.error = '任务已被取消';
+    task.completed_at = new Date().toISOString();
+    cancelledTasks.delete(taskId);
+    releaseSlot();
+    return;
+  }
 
   task.status = 'running';
   task.started_at = new Date().toISOString();
@@ -317,9 +382,14 @@ async function executeTask(taskId) {
     if (mc.insight) modelConfig.insight = mc.insight;
     if (mc.planning) modelConfig.planning = mc.planning;
 
-    // 设置 MIDSCENE_RUN_DIR，让报告存到我们的目录
+    // 设置每个任务独立的 MIDSCENE_RUN_DIR，避免并发竞态
+    const taskRunDir = path.join(MIDSCENE_RUN_DIR, taskId);
+    const taskReportDir = path.join(taskRunDir, 'report');
+    if (!fs.existsSync(taskReportDir)) {
+      fs.mkdirSync(taskReportDir, { recursive: true });
+    }
     const prevRunDir = process.env.MIDSCENE_RUN_DIR;
-    process.env.MIDSCENE_RUN_DIR = MIDSCENE_RUN_DIR;
+    process.env.MIDSCENE_RUN_DIR = taskRunDir;
 
     // ---- 2. 根据device_type选择Agent工厂 ----
     let page = null;
@@ -504,7 +574,30 @@ async function executeTask(taskId) {
       throw lastError;
     }
     
+    // 失败截图捕获辅助：截图保存到 SCREENSHOT_DIR，返回可访问的 URL
+    async function captureFailureScreenshot(stepIndex, pageOrDevice) {
+      try {
+        const screenshotFileName = `${taskId}_step${stepIndex + 1}_fail_${Date.now()}.png`;
+        const screenshotPath = path.join(SCREENSHOT_DIR, screenshotFileName);
+        if (pageOrDevice && typeof pageOrDevice.screenshot === 'function') {
+          const buf = await pageOrDevice.screenshot({ type: 'png', timeout: 5000 });
+          fs.writeFileSync(screenshotPath, buf);
+          task.logs.push({ time: new Date().toISOString(), level: 'info', message: `失败截图已保存: ${screenshotFileName}` });
+          return `http://localhost:${PORT}/screenshots/${screenshotFileName}`;
+        }
+      } catch (e) {
+        task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `失败截图捕获异常: ${e.message}` });
+      }
+      return null;
+    }
+
     for (let i = 0; i < task.steps.length; i++) {
+      // 取消检查
+      if (cancelledTasks.has(taskId)) {
+        task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `任务已取消，中止执行（步骤${i + 1}前）` });
+        break;
+      }
+
       const step = task.steps[i];
       const stepMode = step.mode || 'ai';  // 默认AI模式（向后兼容）
       let instruction = step.instruction || '';
@@ -585,12 +678,15 @@ async function executeTask(taskId) {
           });
 
         } catch (stepErr) {
+          // 失败截图（Web端 page 对象可用时）
+          const failureScreenshot = await captureFailureScreenshot(i, page);
           stepResults.push({
             order: i + 1, type: step.type, mode: 'traditional',
             instruction, locator_value: step.locator_value,
             output_var: step.output_var || null,
             retry_count: retryCount,
             status: 'failed', message: stepErr.message,
+            screenshot: failureScreenshot,
           });
           task.logs.push({ time: new Date().toISOString(), level: 'error', message: `步骤${i + 1} 失败(重试${retryCount}次后): ${stepErr.message}` });
           break;
@@ -658,12 +754,15 @@ async function executeTask(taskId) {
             ...stepResult,
           });
         } catch (stepErr) {
+          // 失败截图（Web端 page 对象可用时）
+          const failureScreenshot = await captureFailureScreenshot(i, page);
           stepResults.push({
             order: i + 1, type: step.type, mode: 'ai',
             instruction: step.instruction,
             output_var: step.output_var || null,
             retry_count: retryCount,
             status: 'failed', message: stepErr.message,
+            screenshot: failureScreenshot,
           });
           task.logs.push({ time: new Date().toISOString(), level: 'error', message: `步骤${i + 1} 失败(重试${retryCount}次后): ${stepErr.message}` });
           break;
@@ -719,19 +818,35 @@ async function executeTask(taskId) {
       task.logs.push({ time: new Date().toISOString(), level: 'warn', message: 'agent.destroy() 超时，扫描报告目录' });
     }
 
-    // 如果 agent.destroy 没返回 reportFile，扫描报告目录找最新文件
+    // 如果 agent.destroy 没返回 reportFile，扫描任务独立报告目录找最新文件
     if (!task.report_file) {
       try {
-        const reportFiles = fs.readdirSync(REPORT_DIR).filter(f => f.endsWith('.html')).sort().reverse();
-        if (reportFiles.length > 0) {
-          // 找比 task.started_at 更新的报告文件
+        const taskReportDir = path.join(taskRunDir, 'report');
+        if (fs.existsSync(taskReportDir)) {
+          const reportFiles = fs.readdirSync(taskReportDir).filter(f => f.endsWith('.html')).sort().reverse();
+          if (reportFiles.length > 0) {
+            const startedAt = task.started_at ? new Date(task.started_at) : new Date(Date.now() - 300000);
+            for (const fname of reportFiles) {
+              const fpath = path.join(taskReportDir, fname);
+              const stat = fs.statSync(fpath);
+              if (stat.mtime >= startedAt) {
+                task.report_file = fpath;
+                task.logs.push({ time: new Date().toISOString(), level: 'info', message: `从目录扫描到报告: ${fname}` });
+                break;
+              }
+            }
+          }
+        }
+        // 降级：扫描全局报告目录
+        if (!task.report_file) {
+          const globalReportFiles = fs.readdirSync(REPORT_DIR).filter(f => f.endsWith('.html')).sort().reverse();
           const startedAt = task.started_at ? new Date(task.started_at) : new Date(Date.now() - 300000);
-          for (const fname of reportFiles) {
+          for (const fname of globalReportFiles) {
             const fpath = path.join(REPORT_DIR, fname);
             const stat = fs.statSync(fpath);
             if (stat.mtime >= startedAt) {
               task.report_file = fpath;
-              task.logs.push({ time: new Date().toISOString(), level: 'info', message: `从目录扫描到报告: ${fname}` });
+              task.logs.push({ time: new Date().toISOString(), level: 'info', message: `从全局目录扫描到报告: ${fname}` });
               break;
             }
           }
@@ -803,6 +918,11 @@ async function executeTask(taskId) {
         task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `回调失败: ${e.message}` });
       }
     }
+
+    // 清理取消标记
+    cancelledTasks.delete(taskId);
+    // 释放并发槽位
+    releaseSlot();
   }
 }
 
@@ -1003,6 +1123,20 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
       }
     }
     throw lastError;
+  }
+
+  // 失败截图捕获辅助（共享会话模式）
+  async function captureFailureScreenshot(batchTaskId, stepIndex, pageOrDevice) {
+    try {
+      const screenshotFileName = `batch-${batchTaskId}_step${stepIndex + 1}_fail_${Date.now()}.png`;
+      const screenshotPath = path.join(SCREENSHOT_DIR, screenshotFileName);
+      if (pageOrDevice && typeof pageOrDevice.screenshot === 'function') {
+        const buf = await pageOrDevice.screenshot({ type: 'png', timeout: 5000 });
+        fs.writeFileSync(screenshotPath, buf);
+        return `http://localhost:${PORT}/screenshots/${screenshotFileName}`;
+      }
+    } catch (_) {}
+    return null;
   }
 
   let browser = null;
@@ -1252,7 +1386,8 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
 
               stepResults.push({ order: j + 1, type: step.type, mode: 'traditional', instruction, locator_value: step.locator_value, action_type: step.action_type || 'click', output_var: step.output_var || null, retry_count: retryCount, ...stepResult });
             } catch (stepErr) {
-              stepResults.push({ order: j + 1, type: step.type, mode: 'traditional', instruction, locator_value: step.locator_value, output_var: step.output_var || null, retry_count: retryCount, status: 'failed', message: stepErr.message });
+              const failureScreenshot = await captureFailureScreenshot(batchId, j, page);
+              stepResults.push({ order: j + 1, type: step.type, mode: 'traditional', instruction, locator_value: step.locator_value, output_var: step.output_var || null, retry_count: retryCount, status: 'failed', message: stepErr.message, screenshot: failureScreenshot });
               break;
             }
           } else {
@@ -1309,7 +1444,8 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
 
               stepResults.push({ order: j + 1, type: step.type, mode: 'ai', instruction: step.instruction, output_var: step.output_var || null, retry_count: retryCount, ...stepResult });
             } catch (stepErr) {
-              stepResults.push({ order: j + 1, type: step.type, mode: 'ai', instruction: step.instruction, output_var: step.output_var || null, retry_count: retryCount, status: 'failed', message: stepErr.message });
+              const failureScreenshot = await captureFailureScreenshot(batchId, j, page);
+              stepResults.push({ order: j + 1, type: step.type, mode: 'ai', instruction: step.instruction, output_var: step.output_var || null, retry_count: retryCount, status: 'failed', message: stepErr.message, screenshot: failureScreenshot });
               break;
             }
           }
@@ -1322,6 +1458,11 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
 
         batch.results[resultIdx].status = hasFailed ? 'failed' : 'passed';
         batch.results[resultIdx].error = caseError || null;
+
+        // 提取失败步骤截图
+        const failedScreenshots = stepResults
+          .filter(s => s.status === 'failed' && s.screenshot)
+          .map(s => ({ order: s.order, screenshot: s.screenshot }));
 
         // 回调
         if (payload.callback_url) {
@@ -1339,6 +1480,7 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
                 completed_at: new Date().toISOString(),
                 report_url: null,
                 report_file: null,
+                failed_screenshots: failedScreenshots,
               })
             });
           } catch (_) {}
@@ -1364,6 +1506,7 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
                 completed_at: new Date().toISOString(),
                 report_url: null,
                 report_file: null,
+                failed_screenshots: [],
               })
             });
           } catch (_) {}
@@ -1413,9 +1556,13 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
 // ============ 启动 ============
 
 app.listen(PORT, () => {
-  console.log(`[Midscene Service v2] 已启动，端口: ${PORT}`);
+  console.log(`[Midscene Service v2.1] 已启动，端口: ${PORT}`);
   console.log(`[Midscene Service] 健康检查: http://localhost:${PORT}/health`);
   console.log(`[Midscene Service] 执行接口: POST http://localhost:${PORT}/execute`);
+  console.log(`[Midscene Service] 批量执行: POST http://localhost:${PORT}/execute-batch`);
+  console.log(`[Midscene Service] 取消任务: POST http://localhost:${PORT}/cancel/:taskId`);
+  console.log(`[Midscene Service] 最大并发数: ${MAX_CONCURRENCY}`);
   console.log(`[Midscene Service] 报告目录: ${REPORT_DIR}`);
+  console.log(`[Midscene Service] 截图目录: ${SCREENSHOT_DIR}`);
   console.log(`[Midscene Service] 报告访问: http://localhost:${PORT}/report/<filename>`);
 });
