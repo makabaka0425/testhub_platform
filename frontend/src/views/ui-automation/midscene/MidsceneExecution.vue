@@ -296,14 +296,18 @@
                     <!-- APP端配置 -->
                     <template v-if="drawerForm.platform === 'app'">
                       <el-divider content-position="left">APP配置</el-divider>
-                      <el-form-item label="设备ID">
-                        <el-input v-model="drawerForm.device_id" placeholder="如：adb devices获取" />
+                      <el-form-item label="启动URL">
+                        <el-input v-model="drawerForm.url" placeholder="可选，留空则通过包名启动" />
+                        <div style="font-size:12px;color:#909399;margin-top:4px">配置包名后优先使用包名启动，URL仅作为回退方式</div>
                       </el-form-item>
-                      <el-form-item label="包名">
+                      <el-form-item label="设备ID">
+                        <el-input v-model="drawerForm.device_id" placeholder="如：adb devices获取，留空自动检测" />
+                      </el-form-item>
+                      <el-form-item label="包名" required>
                         <el-input v-model="drawerForm.package_name" placeholder="com.example.app" />
                       </el-form-item>
                       <el-form-item label="Activity">
-                        <el-input v-model="drawerForm.app_activity" placeholder=".MainActivity" />
+                        <el-input v-model="drawerForm.app_activity" placeholder=".MainActivity（可选）" />
                       </el-form-item>
                     </template>
                   </el-form>
@@ -320,9 +324,9 @@
                           :type="step.mode === 'traditional' ? 'warning' : 'success'"
                           size="small"
                           class="step-mode-tag"
-                          @click.stop="toggleStepMode(step)"
-                          style="cursor:pointer;margin-right:4px"
-                          :title="step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式'"
+                          @click.stop="!(drawerForm.platform === 'app' && step.mode !== 'traditional') && toggleStepMode(step)"
+                          :style="{ cursor: drawerForm.platform === 'app' && step.mode !== 'traditional' ? 'not-allowed' : 'pointer', opacity: drawerForm.platform === 'app' && step.mode !== 'traditional' ? 0.5 : 1, marginRight: '4px' }"
+                          :title="drawerForm.platform === 'app' && step.mode !== 'traditional' ? 'APP端不支持传统模式' : (step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式')"
                         >{{ step.mode === 'traditional' ? '传统' : 'AI' }}</el-tag>
                         <el-select v-model="step.type" style="width:90px" size="small" @click.stop>
                           <el-option label="操作" value="action" />
@@ -592,6 +596,19 @@
             <el-radio value="app">APP端</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item v-if="caseForm.platform === 'app'" label="设备类型">
+          <el-select v-model="caseForm.device_type" placeholder="请选择设备类型" style="width:100%">
+            <el-option label="Android" value="android" />
+            <el-option label="iOS" value="ios" disabled>
+              <span>iOS</span>
+              <span style="color:#909399;font-size:12px;margin-left:4px">（暂未实现）</span>
+            </el-option>
+            <el-option label="HarmonyOS" value="harmony" disabled>
+              <span>HarmonyOS</span>
+              <span style="color:#909399;font-size:12px;margin-left:4px">（暂未实现）</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
 
         <!-- Web端配置 -->
         <template v-if="caseForm.platform === 'web'">
@@ -643,14 +660,18 @@
 
         <!-- APP端配置 -->
         <template v-if="caseForm.platform === 'app'">
-          <el-form-item label="设备ID">
-            <el-input v-model="caseForm.device_id" placeholder="如：adb devices获取" />
+          <el-form-item label="启动URL">
+            <el-input v-model="caseForm.url" placeholder="可选，留空则通过包名启动" />
+            <div style="font-size:12px;color:#909399;margin-top:4px">配置包名后优先使用包名启动，URL仅作为回退方式</div>
           </el-form-item>
-          <el-form-item label="包名">
+          <el-form-item label="设备ID">
+            <el-input v-model="caseForm.device_id" placeholder="如：adb devices获取，留空自动检测" />
+          </el-form-item>
+          <el-form-item label="包名" required>
             <el-input v-model="caseForm.package_name" placeholder="com.example.app" />
           </el-form-item>
           <el-form-item label="Activity">
-            <el-input v-model="caseForm.app_activity" placeholder=".MainActivity" />
+            <el-input v-model="caseForm.app_activity" placeholder=".MainActivity（可选）" />
           </el-form-item>
         </template>
 
@@ -674,9 +695,9 @@
                 <el-tag
                   :type="step.mode === 'traditional' ? 'warning' : 'success'"
                   size="small" class="step-mode-tag"
-                  @click.stop="toggleStepMode(step)"
-                  style="cursor:pointer;margin-right:4px"
-                  :title="step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式'"
+                  @click.stop="!(caseForm.platform === 'app' && step.mode !== 'traditional') && toggleStepMode(step)"
+                  :style="{ cursor: caseForm.platform === 'app' && step.mode !== 'traditional' ? 'not-allowed' : 'pointer', opacity: caseForm.platform === 'app' && step.mode !== 'traditional' ? 0.5 : 1, marginRight: '4px' }"
+                  :title="caseForm.platform === 'app' && step.mode !== 'traditional' ? 'APP端不支持传统模式' : (step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式')"
                 >{{ step.mode === 'traditional' ? '传统' : 'AI' }}</el-tag>
                 <el-select v-model="step.type" style="width:90px" @click.stop>
                   <el-option label="操作" value="action" />
@@ -1410,7 +1431,7 @@ function toggleDrawerStep(idx) {
   }
 }
 const caseForm = reactive({
-  name: '', platform: 'web', description: '', group_id: null,
+  name: '', platform: 'web', device_type: '', description: '', group_id: null,
   url: '', headless: false, cache_strategy: 'normal', new_tab: false,
   user_agent: '', viewport_width: 1280, viewport_height: 768, device_scale_factor: 1.0,
   cookie_file: '', wait_for_network_idle_timeout: null, continue_on_network_idle_error: true,
@@ -1421,10 +1442,19 @@ const caseForm = reactive({
   postcondition_sql: '',
 })
 
+// 平台切换联动device_type
+watch(() => caseForm.platform, (val) => {
+  if (val === 'app') {
+    if (!caseForm.device_type) caseForm.device_type = 'android'
+  } else {
+    caseForm.device_type = ''
+  }
+})
+
 function openCreateDialog() {
   const defaultPlatform = routePlatform.value || 'web'
   Object.assign(caseForm, {
-    name: '', platform: defaultPlatform, description: '', group_id: null,
+    name: '', platform: defaultPlatform, device_type: defaultPlatform === 'app' ? 'android' : '', description: '', group_id: null,
     url: '', headless: false, cache_strategy: 'normal', new_tab: false,
     user_agent: '', viewport_width: 1280, viewport_height: 768, device_scale_factor: 1.0,
     cookie_file: '', wait_for_network_idle_timeout: null, continue_on_network_idle_error: true,
@@ -1584,6 +1614,12 @@ function addStepToDrawer(mode = 'ai') {
 }
 
 function toggleStepMode(step) {
+  // 检查当前是否为APP端环境（通过抽屉或新建弹窗的platform判断）
+  const currentPlatform = detailDrawerVisible.value ? drawerForm.platform : caseForm.platform
+  if (step.mode !== 'traditional' && currentPlatform === 'app') {
+    ElMessage.warning('APP端不支持传统模式步骤，请使用AI模式')
+    return
+  }
   if (step.mode === 'traditional') {
     step.mode = 'ai'
   } else {

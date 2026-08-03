@@ -330,7 +330,8 @@ async function executeTask(taskId) {
       // ===== Android端 =====
       const appCfg = task.app_config || {};
       const androidCfg = task.android_config || {};
-      task.logs.push({ time: new Date().toISOString(), level: 'info', message: `Android模式: device=${appCfg.device_id || '自动检测'}, pkg=${appCfg.package_name || '未指定'}` });
+      const appNameMapping = task.app_name_mapping || {};
+      task.logs.push({ time: new Date().toISOString(), level: 'info', message: `Android模式: device=${appCfg.device_id || '自动检测'}, pkg=${appCfg.package_name || '未指定'}, activity=${appCfg.app_activity || '未指定'}` });
 
       const { AndroidAgent, AndroidDevice, getConnectedDevices } = getAndroidModules();
 
@@ -343,29 +344,57 @@ async function executeTask(taskId) {
         task.logs.push({ time: new Date().toISOString(), level: 'info', message: `自动选择设备: ${deviceId}` });
       }
 
-      const androidPage = new AndroidDevice(deviceId);
+      // 传递 android_config 给 AndroidDevice（如 adbPath 等）
+      const androidDeviceOpts = {};
+      if (androidCfg.androidAdbPath) androidDeviceOpts.adbPath = androidCfg.androidAdbPath;
+      const androidPage = new AndroidDevice(deviceId, Object.keys(androidDeviceOpts).length ? androidDeviceOpts : undefined);
       await androidPage.connect();
+      task.androidDevice = androidPage; // 保存引用，用于 finally disconnect
 
-      if (task.url) {
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `APP导航到: ${task.url}` });
+      // APP启动方式：优先使用包名+Activity启动，而非URL
+      const packageName = appCfg.package_name;
+      const appActivity = appCfg.app_activity;
+      if (packageName) {
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `APP包名启动: ${packageName}${appActivity ? '/' + appActivity : ''}` });
+        try {
+          await androidPage.launchApp(packageName, appActivity || undefined);
+          await new Promise(r => setTimeout(r, 3000));
+        } catch (launchErr) {
+          // launchApp 不可用时回退到 url 方式
+          task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `launchApp 失败(${launchErr.message})，尝试URL启动` });
+          if (task.url) {
+            await androidPage.launch(task.url);
+            await new Promise(r => setTimeout(r, 3000));
+          }
+        }
+      } else if (task.url) {
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `APP导航到: ${task.url}（未配置包名，使用URL方式）` });
         await androidPage.launch(task.url);
         await new Promise(r => setTimeout(r, 3000));
       }
 
-      // 构造 AndroidAgent 的 modelConfig
-      agent = new AndroidAgent(androidPage, {
+      // 构造 AndroidAgent 的 modelConfig + app_name_mapping
+      const agentOpts = {
         modelConfig: Object.keys(modelConfig).length ? modelConfig : undefined,
         aiActContext: 'If any location, permission, user agreement, etc. popup, click agree. If login page pops up, close it.',
-      });
-      task.logs.push({ time: new Date().toISOString(), level: 'info', message: 'AndroidAgent 已初始化 (modelConfig注入)' });
+      };
+      // 传递 app_name_mapping（应用名称→包名映射）
+      if (Object.keys(appNameMapping).length) {
+        agentOpts.appNameMapping = appNameMapping;
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `app_name_mapping: ${JSON.stringify(appNameMapping)}` });
+      }
+      agent = new AndroidAgent(androidPage, agentOpts);
+      task.logs.push({ time: new Date().toISOString(), level: 'info', message: 'AndroidAgent 已初始化 (modelConfig注入' + (Object.keys(appNameMapping).length ? ', appNameMapping注入' : '') + ')' });
 
     } else if (resolvedDeviceType === 'ios') {
-      // ===== iOS端（预留，暂不支持） =====
-      throw new Error('iOS端暂未实现，请使用 Web 或 Android 模式');
+      // ===== iOS端（预留占位，友好提示） =====
+      // @midscene/ios 尚未安装，给出明确指引
+      throw new Error('iOS端暂未实现。请安装 @midscene/ios 后重试，或使用 Web / Android 模式执行。参考: npm install @midscene/ios');
 
     } else if (resolvedDeviceType === 'harmony') {
-      // ===== HarmonyOS端（预留，暂不支持） =====
-      throw new Error('HarmonyOS端暂未实现，请使用 Web 或 Android 模式');
+      // ===== HarmonyOS端（预留占位，友好提示） =====
+      // @midscene/harmony 尚未安装，给出明确指引
+      throw new Error('HarmonyOS端暂未实现。请安装 @midscene/harmony 后重试，或使用 Web / Android 模式执行。参考: npm install @midscene/harmony');
 
     } else {
       // ===== Web端：启动浏览器 =====
@@ -688,7 +717,20 @@ async function executeTask(taskId) {
       } catch (_) {}
     }
 
-    // 2. 关闭浏览器（2秒超时）
+    // 2. Android设备断开连接（3秒超时）
+    try {
+      if (task.androidDevice && typeof task.androidDevice.disconnect === 'function') {
+        await Promise.race([
+          task.androidDevice.disconnect(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: 'Android设备已断开' });
+      }
+    } catch (_) {
+      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: 'Android设备断开超时' });
+    }
+
+    // 3. 关闭浏览器（2秒超时）
     try {
       if (browser) await Promise.race([
         browser.close(),
@@ -905,10 +947,12 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
   // 从第一条用例提取公共配置
   const firstPayload = cases[0]?.payload || {};
   const execCfg = firstPayload.execution_config || {};
-  const webCfg = firstPayload.web_config || {};
   const mc = firstPayload.model_config || {};
   const waitAfterAction = execCfg.waitAfterAction || 1000;
   const STEP_TIMEOUT = 60000;
+
+  // 判断设备类型（共享会话模式下所有用例必须同设备类型）
+  const sharedDeviceType = firstPayload.device_type || (firstPayload.platform === 'app' ? 'android' : 'web');
 
   function withTimeout(promise, ms, label) {
     return Promise.race([
@@ -920,6 +964,7 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
   let browser = null;
   let page = null;
   let agent = null;
+  let androidDevice = null;
   const sharedVariables = {}; // 共享变量池
 
   try {
@@ -938,82 +983,135 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
     const prevRunDir = process.env.MIDSCENE_RUN_DIR;
     process.env.MIDSCENE_RUN_DIR = MIDSCENE_RUN_DIR;
 
-    // ---- 2. 启动浏览器（取第一条用例的配置）----
-    const headless = firstPayload.headless || false;
-    const viewport = firstPayload.viewport || { width: 1280, height: 768 };
+    if (sharedDeviceType === 'android') {
+      // ===== Android端共享会话 =====
+      const appCfg = firstPayload.app_config || {};
+      const androidCfg = firstPayload.android_config || {};
+      const appNameMapping = firstPayload.app_name_mapping || {};
+      batch.logs && console.log(`[SharedSession-Android] 启动共享Android会话`);
 
-    batch.logs && batch.batch_id && console.log(`[SharedSession] 启动共享浏览器 headless=${headless}`);
-
-    const launchArgs = [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-infobars',
-      '--disable-background-timer-throttling',
-      '--disable-renderer-backgrounding',
-      '--no-first-run',
-    ];
-    if (!headless) {
-      launchArgs.push(`--window-size=${viewport.width},${viewport.height}`);
-      launchArgs.push('--window-position=0,0');
-      launchArgs.push('--disable-gpu', '--disable-software-rasterizer', '--disable-dev-shm-usage');
-      launchArgs.push('--disable-features=TranslateUI,WindowsDwmComposition');
-      launchArgs.push('--disable-frame-rate-limit', '--run-all-compositor-stages-before-draw', '--disable-smooth-scrolling');
-    }
-
-    const launchOpts = { headless, args: launchArgs };
-    if (webCfg.browserPath) launchOpts.executablePath = webCfg.browserPath;
-
-    browser = await chromium.launch(launchOpts);
-
-    const contextOpts = {};
-    if (firstPayload.user_agent) contextOpts.userAgent = firstPayload.user_agent;
-    if (firstPayload.device_scale_factor) contextOpts.deviceScaleFactor = firstPayload.device_scale_factor;
-    if (firstPayload.cookie_file) contextOpts.storageState = firstPayload.cookie_file;
-    if (!headless) contextOpts.noViewport = true;
-
-    const context = await browser.newContext(contextOpts);
-    page = await context.newPage();
-    if (headless) await page.setViewportSize(viewport);
-
-    // 有头模式防闪烁
-    if (!headless) {
-      await page.addStyleTag({
-        content: `*, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }`
-      });
-      const cdpClient = await context.newCDPSession(page);
-      const originalScreenshot = page.screenshot.bind(page);
-      page.screenshot = async function (opts = {}) {
-        try {
-          const { data } = await cdpClient.send('Page.captureScreenshot', { format: opts.type || 'jpeg', quality: opts.type === 'png' ? undefined : (opts.quality || 90) });
-          return Buffer.from(data, 'base64');
-        } catch (e) { return originalScreenshot(opts); }
-      };
-      page._releaseCdpScreenshot = () => { page.screenshot = originalScreenshot; };
-    }
-
-    // ---- 3. 导航到第一个URL（如果有）----
-    const firstUrl = firstPayload.url;
-    if (firstUrl) {
-      const gotoOptions = { waitUntil: 'domcontentloaded', timeout: 30000 };
-      if (firstPayload.wait_for_network_idle && firstPayload.wait_for_network_idle.timeout) {
-        gotoOptions.waitUntil = 'networkidle';
-        gotoOptions.timeout = firstPayload.wait_for_network_idle.timeout;
+      const { AndroidAgent, AndroidDevice, getConnectedDevices } = getAndroidModules();
+      let deviceId = appCfg.device_id;
+      if (!deviceId) {
+        const devices = await getConnectedDevices();
+        if (!devices.length) throw new Error('未检测到已连接的Android设备');
+        deviceId = devices[0].udid;
       }
-      await page.goto(firstUrl, gotoOptions);
-      await page.waitForTimeout(2000);
+
+      const androidDeviceOpts = {};
+      if (androidCfg.androidAdbPath) androidDeviceOpts.adbPath = androidCfg.androidAdbPath;
+      androidDevice = new AndroidDevice(deviceId, Object.keys(androidDeviceOpts).length ? androidDeviceOpts : undefined);
+      await androidDevice.connect();
+
+      // 包名启动
+      const packageName = appCfg.package_name;
+      const appActivity = appCfg.app_activity;
+      if (packageName) {
+        try {
+          await androidDevice.launchApp(packageName, appActivity || undefined);
+          await new Promise(r => setTimeout(r, 3000));
+        } catch (launchErr) {
+          if (firstPayload.url) {
+            await androidDevice.launch(firstPayload.url);
+            await new Promise(r => setTimeout(r, 3000));
+          }
+        }
+      } else if (firstPayload.url) {
+        await androidDevice.launch(firstPayload.url);
+        await new Promise(r => setTimeout(r, 3000));
+      }
+
+      // 创建 AndroidAgent
+      const agentOpts = {
+        modelConfig: Object.keys(modelConfig).length ? modelConfig : undefined,
+        aiActContext: 'If any location, permission, user agreement, etc. popup, click agree. If login page pops up, close it.',
+      };
+      if (Object.keys(appNameMapping).length) agentOpts.appNameMapping = appNameMapping;
+      agent = new AndroidAgent(androidDevice, agentOpts);
+
+    } else if (sharedDeviceType === 'ios') {
+      throw new Error('iOS端共享会话模式暂未实现，请使用独立模式或 Web/Android 模式');
+    } else if (sharedDeviceType === 'harmony') {
+      throw new Error('HarmonyOS端共享会话模式暂未实现，请使用独立模式或 Web/Android 模式');
+    } else {
+      // ===== Web端共享会话（原有逻辑） =====
+      const webCfg = firstPayload.web_config || {};
+      const headless = firstPayload.headless || false;
+      const viewport = firstPayload.viewport || { width: 1280, height: 768 };
+
+      batch.logs && console.log(`[SharedSession-Web] 启动共享浏览器 headless=${headless}`);
+
+      const launchArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-infobars',
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--no-first-run',
+      ];
+      if (!headless) {
+        launchArgs.push(`--window-size=${viewport.width},${viewport.height}`);
+        launchArgs.push('--window-position=0,0');
+        launchArgs.push('--disable-gpu', '--disable-software-rasterizer', '--disable-dev-shm-usage');
+        launchArgs.push('--disable-features=TranslateUI,WindowsDwmComposition');
+        launchArgs.push('--disable-frame-rate-limit', '--run-all-compositor-stages-before-draw', '--disable-smooth-scrolling');
+      }
+
+      const launchOpts = { headless, args: launchArgs };
+      if (webCfg.browserPath) launchOpts.executablePath = webCfg.browserPath;
+
+      browser = await chromium.launch(launchOpts);
+
+      const contextOpts = {};
+      if (firstPayload.user_agent) contextOpts.userAgent = firstPayload.user_agent;
+      if (firstPayload.device_scale_factor) contextOpts.deviceScaleFactor = firstPayload.device_scale_factor;
+      if (firstPayload.cookie_file) contextOpts.storageState = firstPayload.cookie_file;
+      if (!headless) contextOpts.noViewport = true;
+
+      const context = await browser.newContext(contextOpts);
+      page = await context.newPage();
+      if (headless) await page.setViewportSize(viewport);
+
+      // 有头模式防闪烁
+      if (!headless) {
+        await page.addStyleTag({
+          content: `*, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }`
+        });
+        const cdpClient = await context.newCDPSession(page);
+        const originalScreenshot = page.screenshot.bind(page);
+        page.screenshot = async function (opts = {}) {
+          try {
+            const { data } = await cdpClient.send('Page.captureScreenshot', { format: opts.type || 'jpeg', quality: opts.type === 'png' ? undefined : (opts.quality || 90) });
+            return Buffer.from(data, 'base64');
+          } catch (e) { return originalScreenshot(opts); }
+        };
+        page._releaseCdpScreenshot = () => { page.screenshot = originalScreenshot; };
+      }
+
+      // 导航到第一个URL
+      const firstUrl = firstPayload.url;
+      if (firstUrl) {
+        const gotoOptions = { waitUntil: 'domcontentloaded', timeout: 30000 };
+        if (firstPayload.wait_for_network_idle && firstPayload.wait_for_network_idle.timeout) {
+          gotoOptions.waitUntil = 'networkidle';
+          gotoOptions.timeout = firstPayload.wait_for_network_idle.timeout;
+        }
+        await page.goto(firstUrl, gotoOptions);
+        await page.waitForTimeout(2000);
+      }
+
+      // 创建 PlaywrightAgent
+      const agentOpts = { forceChromeSelectRendering: false };
+      if (Object.keys(modelConfig).length) agentOpts.modelConfig = modelConfig;
+      agent = new PlaywrightAgent(page, agentOpts);
     }
 
-    // ---- 4. 创建 PlaywrightAgent ----
-    const agentOpts = { forceChromeSelectRendering: false };
-    if (Object.keys(modelConfig).length) agentOpts.modelConfig = modelConfig;
-    agent = new PlaywrightAgent(page, agentOpts);
-
-    // ---- 5. 执行 login_config（共享会话模式下仅登录一次）----
+    // ---- 执行 login_config（共享会话模式下仅登录一次）----
     if (loginConfig && loginConfig.steps && loginConfig.steps.length) {
-      const loginUrl = loginConfig.url;
-      if (loginUrl) {
-        await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      // Web端导航到登录URL
+      if (sharedDeviceType === 'web' && page && loginConfig.url) {
+        await page.goto(loginConfig.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForTimeout(2000);
       }
       for (const step of loginConfig.steps) {
@@ -1024,14 +1122,13 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
           await new Promise(r => setTimeout(r, Math.min(waitAfterAction, 3000)));
         } catch (loginErr) {
           console.error(`[SharedSession] 登录步骤失败: ${loginErr.message}`);
-          // 登录失败不继续执行
           throw new Error(`登录步骤失败: ${loginErr.message}`);
         }
       }
       console.log(`[SharedSession] 登录完成，开始执行用例`);
     }
 
-    // ---- 6. 逐条执行用例（共享浏览器+变量池）----
+    // ---- 逐条执行用例（共享Agent+变量池）----
     for (let i = 0; i < cases.length; i++) {
       const caseItem = cases[i];
       const payload = caseItem.payload;
@@ -1042,19 +1139,16 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
       const resultIdx = batch.results.length - 1;
 
       try {
-        // 如果用例URL不同于当前页面，导航到用例URL
-        if (payload.url && payload.url !== page.url()) {
+        // Web端：如果用例URL不同于当前页面，导航到用例URL
+        if (sharedDeviceType === 'web' && page && payload.url && payload.url !== page.url()) {
           await page.goto(payload.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await page.waitForTimeout(1000);
         }
 
         // 过滤步骤：跳过登录步骤（共享会话模式下已统一登录）
         const steps = (payload.steps || []).filter(step => {
-          // 步骤标记为 login 的跳过
           if (step.is_login_step) return false;
-          // 如果有 login_config，跳过用例开头的导航+登录步骤（启发式）
           if (loginConfig && loginConfig.steps && loginConfig.steps.length) {
-            // 如果 login_config 中包含相同指令，跳过
             const loginInstructions = loginConfig.steps.map(s => (s.instruction || '').trim()).filter(Boolean);
             if (loginInstructions.includes((step.instruction || '').trim())) return false;
           }
@@ -1070,7 +1164,18 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
           const input_value = step.input_value || '';
 
           if (stepMode === 'traditional') {
-            // 传统模式
+            // ===== 传统模式 =====
+            // APP端不支持传统模式，跳过并标记警告
+            if (sharedDeviceType !== 'web' || !page) {
+              stepResults.push({
+                order: j + 1, type: step.type, mode: 'traditional',
+                instruction, locator_value: step.locator_value,
+                output_var: step.output_var || null,
+                status: 'skipped', message: 'APP端不支持传统模式步骤，已跳过',
+              });
+              continue;
+            }
+            // Web端传统步骤（原有逻辑）
             const stepLog = `用例${i+1} 步骤${j+1} [传统/${step.action_type || 'click'}]: ${step.locator_value || instruction}`;
             try {
               const locator = step.locator_value;
@@ -1109,7 +1214,7 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
               break;
             }
           } else {
-            // AI模式
+            // ===== AI模式 =====
             let aiInstruction = instruction;
             if (input_value) aiInstruction = aiInstruction ? `${aiInstruction}，输入值为: ${input_value}` : `输入: ${input_value}`;
             // 替换共享变量
@@ -1232,13 +1337,19 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
       }
     }
   } finally {
-    // 恢复截图方法
+    // 恢复截图方法（Web端）
     if (page && typeof page._releaseCdpScreenshot === 'function') {
       page._releaseCdpScreenshot();
     }
     // agent.destroy
     try {
       if (agent) await Promise.race([agent.destroy(), new Promise((_, r) => setTimeout(() => r(), 5000))]);
+    } catch (_) {}
+    // Android设备断开
+    try {
+      if (androidDevice && typeof androidDevice.disconnect === 'function') {
+        await Promise.race([androidDevice.disconnect(), new Promise((_, r) => setTimeout(() => r(), 3000))]);
+      }
     } catch (_) {}
     // 关闭浏览器
     try {

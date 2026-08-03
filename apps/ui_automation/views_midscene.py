@@ -355,7 +355,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             'source': case.source,
             'source_case_id': case.source_case_id,
             'platform': case.platform,
-            'device_type': case.device_type or case.platform,
+            'device_type': case.device_type or ('android' if case.platform == 'app' else case.platform) or 'web',
             'ai_model_config_override': case.ai_model_config_override or {},
             'device_config_override': case.device_config_override or {},
             'app_name_mapping': case.app_name_mapping or {},
@@ -436,7 +436,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 project_id=request.data.get('project_id') or None,
                 source='manual',
                 platform=request.data.get('platform', 'web'),
-                device_type=request.data.get('device_type', 'web'),
+                device_type=request.data.get('device_type') or ('android' if request.data.get('platform') == 'app' else 'web'),
                 steps=steps,
                 # Web配置
                 url=request.data.get('url', ''),
@@ -683,7 +683,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             return Response({'error': '用例没有测试步骤'}, status=status.HTTP_400_BAD_REQUEST)
 
         # 设备类型（合并配置优先）
-        resolved_device_type = merged_config.get('device_type') or case.device_type or case.platform or 'web'
+        resolved_device_type = merged_config.get('device_type') or case.device_type or ('android' if case.platform == 'app' else 'web')
 
         payload = {
             'platform': case.platform or 'web',  # 传递平台类型
@@ -765,7 +765,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
     def _get_merged_config(self, case):
         """获取三级合并配置：全局MidsceneConfig + 用例级覆盖"""
         import copy
-        device_type = case.device_type or case.platform or 'web'
+        device_type = case.device_type or ('android' if case.platform == 'app' else 'web')
 
         # 获取全局配置
         global_config = MidsceneConfig.objects.filter(
@@ -1305,7 +1305,7 @@ def _build_midscene_payload(case, execution_id):
         model_config = MidsceneCaseViewSet._get_legacy_model_config()
 
     # ---- 设备类型 ----
-    resolved_device_type = merged_config.get('device_type') or case.device_type or case.platform or 'web'
+    resolved_device_type = merged_config.get('device_type') or case.device_type or ('android' if case.platform == 'app' else 'web')
 
     # ---- 步骤构建 ----
     steps = []
