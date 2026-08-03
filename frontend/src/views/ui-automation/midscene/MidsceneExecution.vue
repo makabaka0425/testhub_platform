@@ -2060,8 +2060,8 @@ async function doImport() {
 }
 
 // ---- 初始化 ----
-onMounted(() => {
-  loadProjects()
+onMounted(async () => {
+  await loadProjects()
   loadGroups()
   loadCases()
   loadAICases()
