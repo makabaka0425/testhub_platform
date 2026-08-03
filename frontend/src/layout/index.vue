@@ -225,34 +225,37 @@
 
           <!-- AI 智能模式模块菜单 -->
           <template v-else-if="currentModule === 'ai-intelligent-mode'">
-            <el-menu-item index="/ai-intelligent-mode/projects">
-              <el-icon><Folder /></el-icon>
-              <span>{{ $t('menu.aiProjectManagement') }}</span>
+            <el-menu-item index="/ai-intelligent-mode/dashboard">
+              <el-icon><Odometer /></el-icon>
+              <span>{{ $t('menu.dashboard') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/midscene-web">
-              <el-icon><Monitor /></el-icon>
-              <span>{{ $t('menu.midsceneWeb') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/midscene-app">
-              <el-icon><Iphone /></el-icon>
-              <span>{{ $t('menu.midsceneApp') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/test-plans">
-              <el-icon><Tickets /></el-icon>
-              <span>{{ $t('menu.aiTestPlan') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/midscene-reports">
-              <el-icon><DataAnalysis /></el-icon>
-              <span>{{ $t('menu.aiTestReport') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
-              <el-icon><AlarmClock /></el-icon>
-              <span>{{ $t('menu.aiScheduledTasks') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/notification-logs">
-              <el-icon><Bell /></el-icon>
-              <span>{{ $t('menu.aiNotificationList') }}</span>
-            </el-menu-item>
+            <el-sub-menu index="ai-automation" class="ai-automation-submenu" @title-click="router.push('/ai-intelligent-mode/dashboard')">
+              <template #title>
+                <el-icon><Monitor /></el-icon>
+                <span>{{ $t('menu.midsceneExecution') }}</span>
+              </template>
+              <el-menu-item index="/ai-intelligent-mode/projects">
+                <span>{{ $t('menu.aiProjectManagement') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/midscene-web">
+                <span>{{ $t('menu.midsceneWeb') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/midscene-app">
+                <span>{{ $t('menu.midsceneApp') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/test-plans">
+                <span>{{ $t('menu.aiTestPlan') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/midscene-reports">
+                <span>{{ $t('menu.aiTestReport') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
+                <span>{{ $t('menu.aiScheduledTasks') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/notification-logs">
+                <span>{{ $t('menu.aiNotificationList') }}</span>
+              </el-menu-item>
+            </el-sub-menu>
             <el-sub-menu index="ai-intelligent-debug" class="ai-debug-submenu">
               <template #title>
                 <el-icon><Cpu /></el-icon>
@@ -501,6 +504,7 @@ const breadcrumbTitle = computed(() => {
     '/app-automation/reports': t('menu.testReport'),
 
     // AI 智能模式
+    '/ai-intelligent-mode/dashboard': t('menu.dashboard'),
     '/ai-intelligent-mode/projects': t('menu.aiProjectManagement'),
     '/ai-intelligent-mode/testing': t('menu.aiIntelligentTesting'),
     '/ai-intelligent-mode/cases': t('menu.aiCaseManagement'),
@@ -665,6 +669,28 @@ const handleCommand = (command) => {
   :deep(.el-sub-menu__title span),
   :deep(.el-menu-item span) {
     display: none;
+  }
+}
+
+/* AI自动化测试子菜单：修复展开箭头与文字重叠 */
+.ai-automation-submenu {
+  :deep(.el-sub-menu__title) {
+    .el-sub-menu__icon-arrow {
+      position: absolute;
+      right: 12px;
+    }
+    span {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+  :deep(.el-menu-item) {
+    padding-left: 44px !important;
+    height: 40px;
+    line-height: 40px;
+    font-size: 13px;
   }
 }
 
