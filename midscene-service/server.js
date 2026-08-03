@@ -351,22 +351,12 @@ async function executeTask(taskId) {
       await androidPage.connect();
       task.androidDevice = androidPage; // 保存引用，用于 finally disconnect
 
-      // APP启动方式：优先使用包名+Activity启动，而非URL
+      // APP启动方式：使用包名启动（AndroidDevice.launch 接受包名字符串）
       const packageName = appCfg.package_name;
-      const appActivity = appCfg.app_activity;
       if (packageName) {
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `APP包名启动: ${packageName}${appActivity ? '/' + appActivity : ''}` });
-        try {
-          await androidPage.launchApp(packageName, appActivity || undefined);
-          await new Promise(r => setTimeout(r, 3000));
-        } catch (launchErr) {
-          // launchApp 不可用时回退到 url 方式
-          task.logs.push({ time: new Date().toISOString(), level: 'warn', message: `launchApp 失败(${launchErr.message})，尝试URL启动` });
-          if (task.url) {
-            await androidPage.launch(task.url);
-            await new Promise(r => setTimeout(r, 3000));
-          }
-        }
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: `APP包名启动: ${packageName}` });
+        await androidPage.launch(packageName);
+        await new Promise(r => setTimeout(r, 3000));
       } else if (task.url) {
         task.logs.push({ time: new Date().toISOString(), level: 'info', message: `APP导航到: ${task.url}（未配置包名，使用URL方式）` });
         await androidPage.launch(task.url);
@@ -719,15 +709,15 @@ async function executeTask(taskId) {
 
     // 2. Android设备断开连接（3秒超时）
     try {
-      if (task.androidDevice && typeof task.androidDevice.disconnect === 'function') {
+      if (task.androidDevice && typeof task.androidDevice.destroy === 'function') {
         await Promise.race([
-          task.androidDevice.disconnect(),
+          task.androidDevice.destroy(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
         ]);
-        task.logs.push({ time: new Date().toISOString(), level: 'info', message: 'Android设备已断开' });
+        task.logs.push({ time: new Date().toISOString(), level: 'info', message: 'Android设备已释放' });
       }
     } catch (_) {
-      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: 'Android设备断开超时' });
+      task.logs.push({ time: new Date().toISOString(), level: 'warn', message: 'Android设备释放超时' });
     }
 
     // 3. 关闭浏览器（2秒超时）
@@ -1007,15 +997,8 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
       const packageName = appCfg.package_name;
       const appActivity = appCfg.app_activity;
       if (packageName) {
-        try {
-          await androidDevice.launchApp(packageName, appActivity || undefined);
-          await new Promise(r => setTimeout(r, 3000));
-        } catch (launchErr) {
-          if (firstPayload.url) {
-            await androidDevice.launch(firstPayload.url);
-            await new Promise(r => setTimeout(r, 3000));
-          }
-        }
+        await androidDevice.launch(packageName);
+        await new Promise(r => setTimeout(r, 3000));
       } else if (firstPayload.url) {
         await androidDevice.launch(firstPayload.url);
         await new Promise(r => setTimeout(r, 3000));
@@ -1345,10 +1328,10 @@ async function executeBatchSharedSession(batchId, cases, loginConfig) {
     try {
       if (agent) await Promise.race([agent.destroy(), new Promise((_, r) => setTimeout(() => r(), 5000))]);
     } catch (_) {}
-    // Android设备断开
+    // Android设备释放
     try {
-      if (androidDevice && typeof androidDevice.disconnect === 'function') {
-        await Promise.race([androidDevice.disconnect(), new Promise((_, r) => setTimeout(() => r(), 3000))]);
+      if (androidDevice && typeof androidDevice.destroy === 'function') {
+        await Promise.race([androidDevice.destroy(), new Promise((_, r) => setTimeout(() => r(), 3000))]);
       }
     } catch (_) {}
     // 关闭浏览器
