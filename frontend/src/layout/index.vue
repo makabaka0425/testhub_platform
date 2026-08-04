@@ -36,19 +36,19 @@
               <el-icon><DocumentCopy /></el-icon>
               <span>{{ $t('menu.testCases') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/reviews">
+            <el-menu-item v-if="false" index="/ai-generation/reviews">
               <el-icon><Check /></el-icon>
               <span>{{ $t('menu.reviewManagement') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/review-templates">
+            <el-menu-item v-if="false" index="/ai-generation/review-templates">
               <el-icon><Edit /></el-icon>
               <span>{{ $t('menu.reviewTemplates') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/executions">
+            <el-menu-item v-if="false" index="/ai-generation/executions">
               <el-icon><VideoPlay /></el-icon>
               <span>{{ $t('menu.testPlan') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/reports">
+            <el-menu-item v-if="false" index="/ai-generation/reports">
               <el-icon><DataAnalysis /></el-icon>
               <span>{{ $t('menu.testReport') }}</span>
             </el-menu-item>

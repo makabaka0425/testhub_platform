@@ -23,8 +23,8 @@ export default {
     selectProject: 'Select Project',
     charCount: '{count}/2000',
     generating: '🔄 Generating...',
-    generateBtn: '🚀 Generate Test Cases',
-    generateButton: '🚀 Generate Test Cases',
+    generateBtn: 'Generate Test Cases',
+    generateButton: 'Generate Test Cases',
 
     // Document Upload
     uploadTitle: '📄 Upload Document',
@@ -156,26 +156,31 @@ export default {
     // Filters
     statusFilter: 'Status Filter:',
     allStatus: 'All Status',
-    pending: 'Analyzing',
-    generating: 'Writing',
+    selectProject: 'Select Project',
+    pending: 'Pending',
+    generating: 'Generating',
     reviewing: 'Reviewing',
     completed: 'Completed',
     failed: 'Failed',
 
     // Status Display
-    statusPending: 'Analyzing',
-    statusGenerating: 'Writing',
+    statusPending: 'Pending',
+    statusGenerating: 'Generating',
     statusReviewing: 'Reviewing',
+    statusRevising: 'Revising',
     statusCompleted: 'Completed',
     statusFailed: 'Failed',
+    statusCancelled: 'Cancelled',
+    statusReviewed: 'Reviewed',
+    statusReviewFailed: 'Review Failed',
     statusDraft: 'Draft',
     statusActive: 'Active',
 
     // Actions
-    batchDelete: '🗑️ Batch Delete({count})',
-    deleting: '🗑️ Deleting...',
-    refresh: '🔄 Refresh',
-    loading: '🔄 Loading...',
+    batchDelete: 'Batch Delete({count})',
+    deleting: 'Deleting...',
+    refresh: 'Refresh',
+    loading: 'Loading...',
 
     // Stats
     totalTasks: 'Total',
@@ -504,11 +509,11 @@ export default {
     // Page Header
     title: 'Task Detail',
     taskId: 'Task ID',
-    exportBtn: '💾 Export Excel',
-    exporting: '💾 Exporting...',
+    exportBtn: 'Export Excel',
+    exporting: 'Exporting...',
 
     // Requirement Collapse Card
-    requirementTitle: '📋 Requirement Description',
+    requirementTitle: 'Requirement Description',
     requirementHint: '(Click to expand for full content)',
     copyRequirement: 'Copy Requirement',
 
@@ -522,8 +527,8 @@ export default {
     // Batch Operations
     selectAll: 'Select All',
     selectedCount: '{count} test cases selected',
-    batchAdopt: '✅ Batch Adopt ({count})',
-    batchDiscard: '❌ Batch Discard ({count})',
+    batchAdopt: 'Batch Adopt ({count})',
+    batchDiscard: 'Batch Discard ({count})',
 
     // Table Headers
     tableSelect: 'Select',
@@ -536,9 +541,9 @@ export default {
     tableActions: 'Actions',
 
     // Table Action Buttons
-    viewDetail: '📖 View Detail',
-    adopt: '✅ Adopt',
-    discard: '❌ Discard',
+    viewDetail: 'View Detail',
+    adopt: 'Adopt',
+    discard: 'Discard',
 
     // Empty State
     emptyTitle: 'No Test Case Data',
