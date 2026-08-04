@@ -79,7 +79,7 @@
           <div class="card-icon ai-icon">
             <el-icon><MagicStick /></el-icon>
           </div>
-          <h3>{{ $t('home.aiCaseGeneration') }}</h3>
+          <h3>{{ $t('home.aiCaseGeneration') }}<span class="ai-badge">AI</span></h3>
           <p>{{ $t('home.aiCaseGenerationDesc') }}</p>
         </div>
 
@@ -88,7 +88,7 @@
           <div class="card-icon ai-intelligent-icon">
             <el-icon><Cpu /></el-icon>
           </div>
-          <h3>{{ $t('home.aiIntelligentMode') }}</h3>
+          <h3>{{ $t('home.aiIntelligentMode') }}<span class="ai-badge">AI</span></h3>
           <p>{{ $t('home.aiIntelligentModeDesc') }}</p>
         </div>
 
@@ -119,7 +119,8 @@
           <p>{{ $t('home.apiTestingDesc') }}</p>
         </div>
 
-        <!-- 6. Bug缺陷管理 -->
+        <!-- 6. Bug缺陷管理（暂时隐藏） -->
+        <template v-if="false">
         <div class="nav-card" @click="handleNavigate('defects')" role="button" tabindex="0">
           <div class="card-icon defects-icon">
             <el-icon><Tickets /></el-icon>
@@ -127,6 +128,7 @@
           <h3>{{ $t('home.defectManagement') }}</h3>
           <p>{{ $t('home.defectManagementDesc') }}</p>
         </div>
+        </template>
 
         <!-- 7. 数据工厂 -->
         <div class="nav-card" @click="handleNavigate('data')" role="button" tabindex="0">
@@ -137,7 +139,8 @@
           <p>{{ $t('home.dataFactoryDesc') }}</p>
         </div>
 
-        <!-- 8. AI评测师 -->
+        <!-- 8. AI评测师（暂时隐藏） -->
+        <template v-if="false">
         <div class="nav-card" @click="handleNavigate('assistant')" role="button" tabindex="0">
           <div class="card-icon assistant-icon">
             <el-icon><ChatDotRound /></el-icon>
@@ -145,6 +148,7 @@
           <h3>{{ $t('home.aiEvaluator') }}</h3>
           <p>{{ $t('home.aiEvaluatorDesc') }}</p>
         </div>
+        </template>
 
         <!-- 9. 配置中心 -->
         <div class="nav-card" @click="handleNavigate('config')" role="button" tabindex="0">
@@ -278,7 +282,7 @@ const handleNavigate = (type) => {
     'ui': '/ui-automation/dashboard',
     'defects': '/defects/dashboard',
     'app': '/app-automation/dashboard',
-    'ai-intelligent': '/ai-intelligent-mode/testing',
+    'ai-intelligent': '/ai-intelligent-mode/dashboard',
     'assistant': '/ai-generation/assistant',
     'config': '/configuration/ai-model',
     'data': '/data-factory'
@@ -301,13 +305,47 @@ const handleNavigate = (type) => {
 </script>
 
 <style scoped lang="scss">
+/* ========== 深邃科技蓝背景 + 微光粒子 ========== */
 .home-container {
   min-height: calc(100vh - 100px);
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: linear-gradient(135deg, #0B1120 0%, #162544 40%, #1E3A6E 70%, #0F172A 100%);
+  background-size: 400% 400%;
+  animation: bgShift 20s ease infinite;
   display: flex;
   justify-content: center;
   align-items: center;
   padding: 20px;
+  position: relative;
+  overflow: hidden;
+
+  /* 装饰光晕 */
+  &::before {
+    content: '';
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    top: -150px;
+    right: -100px;
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.08) 0%, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  &::after {
+    content: '';
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    bottom: -100px;
+    left: -80px;
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.07) 0%, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+}
+
+@keyframes bgShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
 .content-wrapper {
@@ -315,8 +353,10 @@ const handleNavigate = (type) => {
   max-width: 1200px;
   width: 100%;
   position: relative;
+  z-index: 1;
 }
 
+/* ========== 顶部操作区 ========== */
 .header-actions {
   position: absolute;
   top: 0;
@@ -334,12 +374,12 @@ const handleNavigate = (type) => {
       display: flex;
       align-items: center;
       cursor: pointer;
-      color: #5e6d82;
+      color: rgba(255, 255, 255, 0.65);
       transition: color 0.3s;
       outline: none;
 
-      &:focus {
-        outline: none;
+      &:hover {
+        color: #22D3EE;
       }
 
       .language-icon {
@@ -352,10 +392,6 @@ const handleNavigate = (type) => {
         margin: 0 5px;
         font-size: 14px;
       }
-
-      &:hover {
-        color: #409eff;
-      }
     }
   }
 
@@ -363,13 +399,9 @@ const handleNavigate = (type) => {
     display: flex;
     align-items: center;
     cursor: pointer;
-    color: #5e6d82;
+    color: rgba(255, 255, 255, 0.65);
     transition: color 0.3s;
     outline: none;
-
-    &:focus {
-      outline: none;
-    }
 
     .username {
       margin: 0 8px;
@@ -377,7 +409,7 @@ const handleNavigate = (type) => {
     }
 
     &:hover {
-      color: #409eff;
+      color: #22D3EE;
     }
   }
 }
@@ -391,15 +423,15 @@ const handleNavigate = (type) => {
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  color: #5e6d82;
+  color: rgba(255, 255, 255, 0.7);
   padding: 6px 10px 6px 6px;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 2px 8px rgba(31, 45, 61, 0.06);
-  transition: color 0.3s, background 0.3s;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s;
   outline: none;
 
   &:focus {
@@ -407,8 +439,9 @@ const handleNavigate = (type) => {
   }
 
   &:hover {
-    color: #409eff;
-    background: rgba(255, 255, 255, 0.85);
+    color: #22D3EE;
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(34, 211, 238, 0.3);
   }
 
   .avatar-wrap {
@@ -423,15 +456,15 @@ const handleNavigate = (type) => {
     bottom: -3px;
     font-size: 11px;
     line-height: 1;
-    background: #fff;
+    background: rgba(15, 23, 42, 0.8);
     border-radius: 50%;
     padding: 1px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   }
 
   .trigger-arrow {
     font-size: 12px;
-    color: #909399;
+    color: rgba(255, 255, 255, 0.4);
   }
 }
 
@@ -440,12 +473,14 @@ const handleNavigate = (type) => {
   margin-right: 5px;
 }
 
+/* ========== 主标题：纯白+深蓝科技感 ========== */
 .main-title {
   font-size: 3.5rem;
-  color: #2c3e50;
+  color: #ffffff;
   margin-bottom: 1rem;
-  font-weight: 700;
-  letter-spacing: 2px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-shadow: 0 2px 20px rgba(34, 211, 238, 0.15);
 }
 
 .brand-name {
@@ -465,27 +500,30 @@ const handleNavigate = (type) => {
     position: absolute;
     width: 20px;
     height: 20px;
-    border-color: #409eff;
     border-style: solid;
     border-width: 0;
   }
 
-  // 左上角 ∟
+  /* 左上角 */
   &::before {
     top: 0;
     left: 0;
     border-top-width: 3px;
     border-left-width: 3px;
     border-top-left-radius: 4px;
+    border-color: #22D3EE;
+    box-shadow: -2px -2px 8px rgba(34, 211, 238, 0.25);
   }
 
-  // 右下角 ∟
+  /* 右下角 */
   &::after {
     bottom: 0;
     right: 0;
     border-bottom-width: 3px;
     border-right-width: 3px;
     border-bottom-right-radius: 4px;
+    border-color: #8B5CF6;
+    box-shadow: 2px 2px 8px rgba(139, 92, 246, 0.25);
   }
 }
 
@@ -495,10 +533,13 @@ const handleNavigate = (type) => {
 
 .subtitle {
   font-size: 1.5rem;
-  color: #5e6d82;
+  color: rgba(255, 255, 255, 0.55);
   margin-bottom: 4rem;
+  font-weight: 300;
+  letter-spacing: 1px;
 }
 
+/* ========== 卡片网格 ========== */
 .cards-container {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -506,97 +547,190 @@ const handleNavigate = (type) => {
   padding: 20px;
 }
 
+/* ========== Glassmorphism 玻璃拟态卡片 ========== */
 .nav-card {
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 20px;
   padding: 40px 20px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* 玻璃拟态核心属性 */
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  position: relative;
+  overflow: hidden;
+
+  /* 卡片顶部高光线 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 20%;
+    right: 20%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+  }
 
   &:hover {
-    transform: translateY(-10px);
-    box-shadow: 0 20px 30px rgba(0, 0, 0, 0.1);
-    background: #fff;
+    transform: translateY(-8px);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow:
+      0 20px 40px rgba(0, 0, 0, 0.3),
+      0 1px 0 rgba(255, 255, 255, 0.08) inset;
   }
 
   h3 {
     font-size: 1.5rem;
-    color: #2c3e50;
+    color: #ffffff;
     margin: 20px 0 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   p {
-    color: #7f8c8d;
-    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.5);
+    line-height: 1.6;
     margin: 0;
+    font-size: 14px;
   }
 }
 
+/* ========== AI 流光渐变胶囊标签 ========== */
+.ai-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(135deg, #22D3EE, #8B5CF6);
+  position: relative;
+  flex-shrink: 0;
+
+  /* 流光边框动画 */
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 999px;
+    padding: 1px;
+    background: linear-gradient(135deg, #22D3EE, #8B5CF6, #22D3EE);
+    background-size: 300% 300%;
+    animation: badgeGlow 3s ease infinite;
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+}
+
+@keyframes badgeGlow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ========== 图标色彩：科技感升级 ========== */
 .card-icon {
   width: 80px;
   height: 80px;
-  border-radius: 50%;
+  border-radius: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 40px;
   margin-bottom: 10px;
-  transition: all 0.3s ease;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 
+  /* AI功能：亮青色/电光蓝 */
   &.ai-icon {
-    background: #e8f4ff;
-    color: #409eff;
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(6, 182, 212, 0.08) 100%);
+    color: #22D3EE;
+    box-shadow: 0 0 20px rgba(34, 211, 238, 0.15);
   }
 
-  &.api-icon {
-    background: #f0f9eb;
-    color: #67c23a;
-  }
-
-  &.ui-icon {
-    background: #fdf6ec;
-    color: #e6a23c;
-  }
-
-  &.data-icon {
-    background: #e8f4ff;
-    color: #409eff;
-  }
-
-  &.defects-icon {
-    background: #fef0f0;
-    color: #f56c6c;
-  }
-
-  &.app-icon {
-    background: #f9f0ff;
-    color: #722ed1;
-  }
-
+  /* AI智能：电光蓝 */
   &.ai-intelligent-icon {
-    background: #f0f5ff;
-    color: #2f54eb;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(99, 102, 241, 0.08) 100%);
+    color: #60A5FA;
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
   }
 
+  /* UI测试：活力紫 */
+  &.ui-icon {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(168, 85, 247, 0.08) 100%);
+    color: #A78BFA;
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+  }
+
+  /* APP测试：活力紫（偏粉） */
+  &.app-icon {
+    background: linear-gradient(135deg, rgba(192, 132, 252, 0.15) 0%, rgba(232, 121, 249, 0.08) 100%);
+    color: #C084FC;
+    box-shadow: 0 0 20px rgba(192, 132, 252, 0.15);
+  }
+
+  /* 接口测试：薄荷绿 */
+  &.api-icon {
+    background: linear-gradient(135deg, rgba(52, 211, 153, 0.15) 0%, rgba(16, 185, 129, 0.08) 100%);
+    color: #34D399;
+    box-shadow: 0 0 20px rgba(52, 211, 153, 0.15);
+  }
+
+  /* 数据工厂：橙色 */
+  &.data-icon {
+    background: linear-gradient(135deg, rgba(251, 146, 60, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%);
+    color: #FB923C;
+    box-shadow: 0 0 20px rgba(251, 146, 60, 0.15);
+  }
+
+  /* 缺陷管理：玫瑰红 */
+  &.defects-icon {
+    background: linear-gradient(135deg, rgba(251, 113, 133, 0.15) 0%, rgba(244, 63, 94, 0.08) 100%);
+    color: #FB7185;
+    box-shadow: 0 0 20px rgba(251, 113, 133, 0.15);
+  }
+
+  /* 配置中心：琥珀金 */
   &.config-icon {
-    background: #e6fffb;
-    color: #13c2c2;
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%);
+    color: #FBBF24;
+    box-shadow: 0 0 20px rgba(251, 191, 36, 0.15);
   }
 
+  /* AI评测师：橙色渐变 */
   &.assistant-icon {
-    background: #fff7e6;
-    color: #fa8c16;
+    background: linear-gradient(135deg, rgba(251, 146, 60, 0.15) 0%, rgba(234, 88, 12, 0.08) 100%);
+    color: #FB923C;
+    box-shadow: 0 0 20px rgba(251, 146, 60, 0.15);
   }
 }
 
+/* 悬停时图标发光增强 */
 .nav-card:hover .card-icon {
-  transform: scale(1.1);
+  transform: scale(1.08);
+  filter: brightness(1.2);
 }
+.nav-card:hover .ai-icon { box-shadow: 0 0 30px rgba(34, 211, 238, 0.35); }
+.nav-card:hover .ai-intelligent-icon { box-shadow: 0 0 30px rgba(59, 130, 246, 0.35); }
+.nav-card:hover .ui-icon { box-shadow: 0 0 30px rgba(139, 92, 246, 0.35); }
+.nav-card:hover .app-icon { box-shadow: 0 0 30px rgba(192, 132, 252, 0.35); }
+.nav-card:hover .api-icon { box-shadow: 0 0 30px rgba(52, 211, 153, 0.35); }
+.nav-card:hover .data-icon { box-shadow: 0 0 30px rgba(251, 146, 60, 0.35); }
+.nav-card:hover .config-icon { box-shadow: 0 0 30px rgba(251, 191, 36, 0.35); }
 
+/* ========== 响应式 ========== */
 @media screen and (max-width: 1920px) {
   .main-title {
     font-size: 3.2rem;
@@ -659,6 +793,7 @@ const handleNavigate = (type) => {
     width: 70px;
     height: 70px;
     font-size: 35px;
+    border-radius: 18px;
   }
 }
 
@@ -689,6 +824,7 @@ const handleNavigate = (type) => {
     width: 65px;
     height: 65px;
     font-size: 32px;
+    border-radius: 16px;
   }
 }
 
@@ -765,14 +901,13 @@ const handleNavigate = (type) => {
   }
 }
 
-/* 移动端：≤768px 专用样式 */
+/* ========== 移动端 ========== */
 @media screen and (max-width: 768px) {
   .home-container {
     position: relative;
     overflow: hidden;
     padding: 14px 14px 24px;
     padding-top: max(14px, env(safe-area-inset-top));
-    background: linear-gradient(165deg, #eef2f7 0%, #e2eaf2 42%, #d5dfea 100%);
 
     &::before,
     &::after {
@@ -788,7 +923,7 @@ const handleNavigate = (type) => {
       height: 260px;
       top: -70px;
       right: -50px;
-      background: radial-gradient(circle, rgba(64, 158, 255, 0.14) 0%, transparent 68%);
+      background: radial-gradient(circle, rgba(34, 211, 238, 0.1) 0%, transparent 68%);
     }
 
     &::after {
@@ -796,7 +931,7 @@ const handleNavigate = (type) => {
       height: 220px;
       bottom: 8%;
       left: -70px;
-      background: radial-gradient(circle, rgba(99, 126, 234, 0.1) 0%, transparent 70%);
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.08) 0%, transparent 70%);
     }
   }
 
@@ -823,7 +958,7 @@ const handleNavigate = (type) => {
   .main-title {
     font-size: 1.75rem;
     letter-spacing: 0.5px;
-    color: #1f2d3d;
+    color: #ffffff;
     margin-bottom: 8px;
   }
 
@@ -840,7 +975,7 @@ const handleNavigate = (type) => {
 
   .subtitle {
     font-size: 0.9375rem;
-    color: #7a8494;
+    color: rgba(255, 255, 255, 0.5);
     margin: 0 auto 24px;
     max-width: 280px;
     line-height: 1.5;
@@ -854,38 +989,38 @@ const handleNavigate = (type) => {
   .nav-card {
     min-height: 148px;
     padding: 18px 12px 16px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.88);
-    border: 1px solid rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow:
-      0 4px 14px rgba(31, 45, 61, 0.07),
-      0 1px 3px rgba(31, 45, 61, 0.04);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+      0 4px 14px rgba(0, 0, 0, 0.2),
+      0 1px 0 rgba(255, 255, 255, 0.05) inset;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 
     &:hover {
       transform: none;
       box-shadow:
-        0 6px 18px rgba(31, 45, 61, 0.1),
-        0 2px 4px rgba(31, 45, 61, 0.05);
+        0 6px 18px rgba(0, 0, 0, 0.25),
+        0 1px 0 rgba(255, 255, 255, 0.08) inset;
     }
 
     &:active {
       transform: scale(0.98);
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(255, 255, 255, 0.08);
     }
 
     h3 {
       font-size: 15px;
       margin: 12px 0 6px;
-      color: #1f2d3d;
+      color: #ffffff;
       line-height: 1.35;
     }
 
     p {
       font-size: 12px;
       line-height: 1.45;
-      color: #8a939d;
+      color: rgba(255, 255, 255, 0.45);
       display: -webkit-box;
       -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
@@ -898,7 +1033,6 @@ const handleNavigate = (type) => {
     height: 48px;
     font-size: 24px;
     border-radius: 14px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
 
   .nav-card:hover .card-icon {
@@ -975,6 +1109,9 @@ const handleNavigate = (type) => {
   max-width: 340px;
   border-radius: 16px;
   overflow: hidden;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px);
 
   .el-dialog__header {
     padding: 20px 20px 8px;
@@ -984,13 +1121,17 @@ const handleNavigate = (type) => {
     .el-dialog__title {
       font-size: 17px;
       font-weight: 600;
-      color: #303133;
+      color: #ffffff;
       line-height: 1.4;
     }
 
     .el-dialog__headerbtn {
       top: 14px;
       right: 14px;
+
+      .el-dialog__close {
+        color: rgba(255, 255, 255, 0.5);
+      }
     }
   }
 
@@ -1006,6 +1147,8 @@ const handleNavigate = (type) => {
       height: 40px;
       border-radius: 20px;
       font-size: 15px;
+      background: linear-gradient(135deg, #22D3EE, #8B5CF6);
+      border: none;
     }
   }
 }
@@ -1018,8 +1161,8 @@ const handleNavigate = (type) => {
     height: 56px;
     margin: 0 auto 14px;
     border-radius: 14px;
-    background: linear-gradient(145deg, #ecf5ff 0%, #d9ecff 100%);
-    color: #409eff;
+    background: linear-gradient(145deg, rgba(34, 211, 238, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%);
+    color: #22D3EE;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1029,7 +1172,7 @@ const handleNavigate = (type) => {
   .dialog-desc {
     margin: 0;
     font-size: 14px;
-    color: #606266;
+    color: rgba(255, 255, 255, 0.65);
     line-height: 1.6;
   }
 }
