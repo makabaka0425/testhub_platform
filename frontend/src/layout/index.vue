@@ -2,7 +2,7 @@
   <div class="layout">
     <el-container>
       <!-- 侧边栏 -->
-      <el-aside width="160px">
+      <el-aside width="220px">
         <div class="logo" @click="router.push('/home')" style="cursor: pointer;">
         <!-- <img :src="logoImage" alt="灵测" class="logo-img" /> -->
           <!-- logo待替换，暂留空白 -->
@@ -10,7 +10,7 @@
         <el-menu
           :default-active="$route.path"
           router
-          background-color="#F8F9FA"
+          background-color="#fff"
           text-color="#333"
           active-text-color="#1890ff"
         >
@@ -94,8 +94,8 @@
             </el-menu-item>
           </template>
 
-          <!-- Bug缺陷管理模块菜单 -->
-          <template v-else-if="currentModule === 'defects'">
+          <!-- Bug缺陷管理模块菜单（暂时隐藏） -->
+          <template v-if="false">
             <el-menu-item index="/defects/dashboard">
               <el-icon><Odometer /></el-icon>
               <span>{{ $t('menu.defectDashboard') }}</span>
@@ -244,19 +244,23 @@
               <el-menu-item index="/ai-intelligent-mode/midscene-app">
                 <span>{{ $t('menu.midsceneApp') }}</span>
               </el-menu-item>
-              <el-menu-item index="/ai-intelligent-mode/test-plans">
-                <span>{{ $t('menu.aiTestPlan') }}</span>
-              </el-menu-item>
-              <el-menu-item index="/ai-intelligent-mode/midscene-reports">
-                <span>{{ $t('menu.aiTestReport') }}</span>
-              </el-menu-item>
-              <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
-                <span>{{ $t('menu.aiScheduledTasks') }}</span>
-              </el-menu-item>
-              <el-menu-item index="/ai-intelligent-mode/notification-logs">
-                <span>{{ $t('menu.aiNotificationList') }}</span>
-              </el-menu-item>
             </el-sub-menu>
+            <el-menu-item index="/ai-intelligent-mode/test-plans">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>{{ $t('menu.aiTestPlan') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/midscene-reports">
+              <el-icon><List /></el-icon>
+              <span>{{ $t('menu.aiTestReport') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
+              <el-icon><AlarmClock /></el-icon>
+              <span>{{ $t('menu.aiScheduledTasks') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-intelligent-mode/notification-logs">
+              <el-icon><Bell /></el-icon>
+              <span>{{ $t('menu.aiNotificationList') }}</span>
+            </el-menu-item>
             <el-sub-menu index="ai-intelligent-debug" class="ai-debug-submenu">
               <template #title>
                 <el-icon><Cpu /></el-icon>
@@ -566,7 +570,7 @@ const handleCommand = (command) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #F8F9FA;
+  background-color: #fff;
   color: #333;
   border-bottom: 1px solid #edf0f2;
   flex-shrink: 0;
@@ -579,13 +583,13 @@ const handleCommand = (command) => {
 	}
 
 .el-aside {
-  background-color: #F8F9FA;
+  background-color: #fff;
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: width 0.3s ease;
-  width: 160px !important;
+  width: 220px !important;
 
   .el-menu {
     flex: 1;
@@ -673,49 +677,81 @@ const handleCommand = (command) => {
   }
 }
 
-/* AI自动化测试子菜单：修复展开箭头与文字重叠 */
-.ai-automation-submenu {
-  :deep(.el-sub-menu__title) {
-    .el-sub-menu__icon-arrow {
-      position: absolute;
-      right: 12px;
-    }
-    span {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-  :deep(.el-menu-item) {
-    padding-left: 44px !important;
+  /* 子菜单项：统一层级展示——缩进、颜色、高度与父级区分，字号一致 */
+  :deep(.el-sub-menu .el-menu-item) {
+    padding-left: 48px !important;
     height: 40px;
     line-height: 40px;
-    font-size: 13px;
-  }
-}
+    color: #666 !important;
+    position: relative;
 
-/* AI智能调试子菜单：修复展开箭头与文字重叠 */
-.ai-debug-submenu {
-  :deep(.el-sub-menu__title) {
-    .el-sub-menu__icon-arrow {
+    /* 左侧层级指示竖线 */
+    &::before {
+      content: '';
       position: absolute;
-      right: 12px;
+      left: 30px;
+      top: 8px;
+      bottom: 8px;
+      width: 1px;
+      background: #e0e0e0;
+      border-radius: 1px;
     }
+
     span {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      color: #666;
     }
   }
-  :deep(.el-menu-item) {
-    padding-left: 44px !important;
-    height: 40px;
-    line-height: 40px;
-    font-size: 13px;
+
+  /* 子菜单项悬停 */
+  :deep(.el-sub-menu .el-menu-item:hover) {
+    color: #333 !important;
+    span {
+      color: #333;
+    }
   }
-}
+
+  /* 子菜单项选中 */
+  :deep(.el-sub-menu .el-menu-item.is-active) {
+    color: #1890FF !important;
+    span {
+      color: #1890FF !important;
+    }
+    &::before {
+      background: #1890FF;
+    }
+  }
+
+  /* AI自动化测试子菜单：修复展开箭头与文字重叠 */
+  .ai-automation-submenu {
+    :deep(.el-sub-menu__title) {
+      .el-sub-menu__icon-arrow {
+        position: absolute;
+        right: 12px;
+      }
+      span {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
+
+  /* AI智能调试子菜单：修复展开箭头与文字重叠 */
+  .ai-debug-submenu {
+    :deep(.el-sub-menu__title) {
+      .el-sub-menu__icon-arrow {
+        position: absolute;
+        right: 12px;
+      }
+      span {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
 
 .el-container .el-container {
   height: 100%;
@@ -827,13 +863,13 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1920px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 }
 
 @media screen and (max-width: 1600px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-menu {
@@ -846,7 +882,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1440px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-menu {
@@ -859,7 +895,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1366px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-header {
@@ -876,7 +912,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1280px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-header {
@@ -898,7 +934,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1024px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-header {
@@ -928,7 +964,7 @@ const handleCommand = (command) => {
     left: 0;
     top: 0;
     z-index: 1000;
-    width: 160px !important;
+    width: 220px !important;
     transform: translateX(-100%);
     transition: transform 0.3s ease;
     
@@ -956,7 +992,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 480px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
   
   .el-header {
