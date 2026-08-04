@@ -1,3 +1,14 @@
+---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '7a9015ac-cdd2-44e6-a80a-db6e82037b6a'
+  PropagateID: '7a9015ac-cdd2-44e6-a80a-db6e82037b6a'
+  ReservedCode1: 'c275d056-517d-4139-8645-c0a75d36438b'
+  ReservedCode2: 'c275d056-517d-4139-8645-c0a75d36438b'
+---
+
 # 灵测 智能测试管理平台
 
 <div align="center">
@@ -684,3 +695,5 @@ SIMPLE_JWT = {
 <div align="center">
 Made with ❤️ by 大刚（公众号：测试开发实战）
 </div>
+
+> AI生成

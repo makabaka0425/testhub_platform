@@ -30,81 +30,89 @@
     </div>
 
     <!-- 筛选条件 -->
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-select
-          v-model="selectedStatus"
-          :placeholder="$t('generatedTestCases.allStatus')"
-          clearable
-          style="width: 180px;"
-          @change="onStatusChange"
-        >
-          <el-option
-            v-for="s in statusOptions"
-            :key="s.value"
-            :label="s.label"
-            :value="s.value"
+    <div class="workspace">
+      <div class="list-column">
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item>
+              <el-select
+                v-model="selectedStatus"
+                :placeholder="$t('generatedTestCases.allStatus')"
+                clearable
+                style="width: 180px;"
+                @change="onStatusChange"
+              >
+                <el-option
+                  v-for="s in statusOptions"
+                  :key="s.value"
+                  :label="s.label"
+                  :value="s.value"
+                />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- 列表 -->
+        <section class="panel list-panel">
+          <div class="panel__body xxx-table-wrapper">
+            <el-table
+              :data="tasks"
+              v-loading="isLoading"
+              @selection-change="onSelectionChange"
+              style="width: 100%"
+              height="100%"
+            >
+              <el-table-column type="selection" width="45" />
+              <el-table-column type="index" :label="$t('generatedTestCases.serialNumber')" width="60" :index="indexMethod" />
+              <el-table-column prop="task_id" :label="$t('generatedTestCases.taskId')" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="title" :label="$t('generatedTestCases.requirement')" min-width="240" show-overflow-tooltip />
+              <el-table-column :label="$t('generatedTestCases.status')" width="120" align="center">
+                <template #default="{ row }">
+                  <el-tag :type="getStatusTagType(row.status)" size="small" effect="light">
+                    {{ getStatusText(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('generatedTestCases.caseCount')" width="100" align="center">
+                <template #default="{ row }">
+                  <span class="case-count">{{ getTestCaseCount(row) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('generatedTestCases.generationTime')" width="170" align="center">
+                <template #default="{ row }">
+                  {{ formatDateTime(row.created_at) }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('generatedTestCases.actions')" width="180" fixed="right">
+                <template #default="{ row }">
+                  <el-button link class="op-btn" @click="viewTaskDetail(row)">
+                    {{ $t('generatedTestCases.viewDetail') }}
+                  </el-button>
+                  <el-button v-if="row.status === 'completed'" link class="op-btn" @click="batchAdoptTask(row)">
+                    {{ $t('generatedTestCases.batchAdopt') }}
+                  </el-button>
+                  <el-button v-if="row.status === 'completed'" link class="op-btn op-btn--danger" @click="batchDiscardTask(row)">
+                    {{ $t('generatedTestCases.batchDiscard') }}
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
+        <!-- 分页 -->
+        <div class="pagination-container">
+          <el-pagination
+            v-model:current-page="pagination.currentPage"
+            v-model:page-size="pagination.pageSize"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="pagination.total"
+            @size-change="onPageSizeChange"
+            @current-change="onPageChange"
           />
-        </el-select>
-      </div>
-
-      <!-- 列表 -->
-      <div class="table-scroll-area">
-        <el-table
-          :data="tasks"
-          v-loading="isLoading"
-          @selection-change="onSelectionChange"
-          style="width: 100%"
-          height="100%"
-        >
-          <el-table-column type="selection" width="45" />
-          <el-table-column type="index" :label="$t('generatedTestCases.serialNumber')" width="60" :index="indexMethod" />
-          <el-table-column prop="task_id" :label="$t('generatedTestCases.taskId')" min-width="160" show-overflow-tooltip />
-          <el-table-column prop="title" :label="$t('generatedTestCases.requirement')" min-width="240" show-overflow-tooltip />
-          <el-table-column :label="$t('generatedTestCases.status')" width="120" align="center">
-            <template #default="{ row }">
-              <el-tag :type="getStatusTagType(row.status)" size="small" effect="light">
-                {{ getStatusText(row.status) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column :label="$t('generatedTestCases.caseCount')" width="100" align="center">
-            <template #default="{ row }">
-              <span class="case-count">{{ getTestCaseCount(row) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="$t('generatedTestCases.generationTime')" width="170" align="center">
-            <template #default="{ row }">
-              {{ formatDateTime(row.created_at) }}
-            </template>
-          </el-table-column>
-          <el-table-column :label="$t('generatedTestCases.actions')" width="180" fixed="right">
-            <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="viewTaskDetail(row)">
-                {{ $t('generatedTestCases.viewDetail') }}
-              </el-button>
-              <el-button v-if="row.status === 'completed'" type="primary" link size="small" @click="batchAdoptTask(row)">
-                {{ $t('generatedTestCases.batchAdopt') }}
-              </el-button>
-              <el-button v-if="row.status === 'completed'" type="danger" link size="small" @click="batchDiscardTask(row)">
-                {{ $t('generatedTestCases.batchDiscard') }}
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-
-      <!-- 分页 -->
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="pagination.currentPage"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="pagination.total"
-          @size-change="onPageSizeChange"
-          @current-change="onPageChange"
-        />
+        </div>
       </div>
     </div>
 
@@ -581,62 +589,111 @@ export default {
 }
 </script>
 
-<style lang="scss" scoped>
+<style scoped lang="scss">
 .page-container {
-  height: calc(100vh - 100px);
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 0;
 }
 
 .page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
-  padding: 0 20px;
-  flex-shrink: 0;
-
-  .page-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--el-text-color-primary);
-    margin: 0;
-  }
-
-  .titlebar-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .titlebar-select {
-    width: 180px;
-  }
+  padding: 0;
 }
 
-.card-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  margin: 0 20px 20px;
-  background: #fff;
-  border-radius: 8px;
-  border: 1px solid var(--el-border-color-lighter);
-  overflow: hidden;
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
 }
 
-.filter-bar {
+.titlebar-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  gap: var(--space-3);
 }
 
-.table-scroll-area {
+.titlebar-select {
+  width: 180px;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.xxx-table-wrapper {
   flex: 1;
   overflow: hidden;
+  min-height: 0;
+}
+
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
+}
+
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
 }
 
 .case-count {
@@ -644,10 +701,13 @@ export default {
   color: var(--el-color-primary);
 }
 
-.pagination-container {
-  display: flex;
-  justify-content: flex-end;
-  padding: 12px 20px;
-  border-top: 1px solid var(--el-border-color-lighter);
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
 }
 </style>
