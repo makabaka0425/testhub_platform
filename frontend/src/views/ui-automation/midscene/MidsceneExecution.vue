@@ -228,9 +228,16 @@
                       </el-radio-group>
                     </el-form-item>
                     <el-form-item label="所属分组">
-                      <el-select v-model="drawerForm.group_id" placeholder="无分组" clearable style="width:100%">
-                        <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
-                      </el-select>
+                      <el-tree-select
+                        v-model="drawerForm.group_id"
+                        :data="groups"
+                        :props="{ children: 'children', label: 'name', value: 'id' }"
+                        placeholder="无分组"
+                        clearable
+                        check-strictly
+                        filterable
+                        style="width:100%"
+                      />
                     </el-form-item>
                     <el-form-item label="描述">
                       <el-input v-model="drawerForm.description" type="textarea" :rows="2" />
@@ -349,7 +356,13 @@
                           v-model="step.instruction"
                           placeholder="步骤描述（支持${变量名}引用）"
                           style="flex:1" size="small" @click.stop
-                        />
+                        >
+                          <template #append>
+                            <el-button size="small" @click="openVariableHelper(step, 'instruction')" title="变量助手">
+                              <el-icon><MagicStick /></el-icon>
+                            </el-button>
+                          </template>
+                        </el-input>
                         <el-input
                           v-else
                           v-model="step.instruction"
@@ -414,7 +427,13 @@
                                 <el-option label="等待" value="wait" />
                                 <el-option label="滚动" value="scroll" />
                               </el-select>
-                              <el-input v-model="step.locator_value" placeholder="定位表达式（如 #btn-submit 或 //button[text()='登录']）" style="flex:1" size="small" />
+                              <el-input v-model="step.locator_value" placeholder="定位表达式（如 #btn-submit 或 //button[text()='登录']）" style="flex:1" size="small">
+                                <template #append>
+                                  <el-button size="small" @click="openVariableHelper(step, 'locator_value')" title="变量助手">
+                                    <el-icon><MagicStick /></el-icon>
+                                  </el-button>
+                                </template>
+                              </el-input>
                             </div>
                             <div style="display:flex;gap:6px;align-items:center">
                               <span class="step-field-label">输入变量</span>
@@ -436,7 +455,13 @@
                                   <el-option label="不等于" value="not_equals" />
                                   <el-option label="存在" value="exists" />
                                 </el-select>
-                                <el-input v-model="step.assert_value" placeholder="期望值" style="flex:1" size="small" />
+                                <el-input v-model="step.assert_value" placeholder="期望值（支持${变量}）" style="flex:1" size="small">
+                                  <template #append>
+                                    <el-button size="small" @click="openVariableHelper(step, 'assert_value')" title="变量助手">
+                                      <el-icon><MagicStick /></el-icon>
+                                    </el-button>
+                                  </template>
+                                </el-input>
                               </div>
                             </template>
                             <div style="display:flex;gap:6px;align-items:center">
@@ -449,11 +474,11 @@
                         <span class="step-params-indent-delete"></span>
                       </div>
                     </div>
-                      </template>
-                    </draggable>
-                    <div style="display:flex;gap:8px;margin-top:4px">
-                      <el-button link type="primary" @click="addStepToDrawer('ai')">+ AI步骤</el-button>
-                      <el-button link type="warning" @click="addStepToDrawer('traditional')">+ 传统步骤</el-button>
+                       </template>
+                     </draggable>
+                     <div style="display:flex;gap:8px;margin-top:4px">
+                       <el-button link type="primary" @click="addStepToDrawer('ai')">+ AI步骤</el-button>
+                       <el-button link type="warning" @click="addStepToDrawer('traditional')">+ 传统步骤</el-button>
                     </div>
                   </div>
                 </el-tab-pane>
@@ -759,9 +784,16 @@
         </template>
 
         <el-form-item label="所属分组">
-          <el-select v-model="caseForm.group_id" placeholder="无分组" clearable style="width:100%">
-            <el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" />
-          </el-select>
+          <el-tree-select
+            v-model="caseForm.group_id"
+            :data="groups"
+            :props="{ children: 'children', label: 'name', value: 'id' }"
+            placeholder="无分组"
+            clearable
+            check-strictly
+            filterable
+            style="width:100%"
+          />
         </el-form-item>
 
         <el-form-item label="描述">
@@ -790,7 +822,13 @@
                   :style="{ cursor: caseForm.platform === 'app' && step.mode !== 'traditional' ? 'not-allowed' : 'pointer', opacity: caseForm.platform === 'app' && step.mode !== 'traditional' ? 0.5 : 1, marginRight: '4px' }"
                   :title="caseForm.platform === 'app' && step.mode !== 'traditional' ? 'APP端不支持传统模式' : (step.mode === 'traditional' ? '点击切换为AI模式' : '点击切换为传统模式')"
                 >{{ step.mode === 'traditional' ? '传统' : 'AI' }}</el-tag>
-                <el-input v-model="step.instruction" placeholder="步骤描述" style="flex:1" @click.stop />
+                <el-input v-model="step.instruction" placeholder="步骤描述" style="flex:1" @click.stop >
+                  <template #append>
+                    <el-button size="small" @click="openVariableHelper(step, 'instruction')" title="变量助手">
+                      <el-icon><MagicStick /></el-icon>
+                    </el-button>
+                  </template>
+                </el-input>
                 <el-button link type="danger" @click.stop="caseForm.steps.splice(idx, 1)">
                   <el-icon><Delete /></el-icon>
                 </el-button>
@@ -846,7 +884,13 @@
                         <el-option label="等待" value="wait" />
                         <el-option label="滚动" value="scroll" />
                       </el-select>
-                      <el-input v-model="step.locator_value" placeholder="定位表达式" style="flex:1" size="small" />
+                      <el-input v-model="step.locator_value" placeholder="定位表达式" style="flex:1" size="small">
+                        <template #append>
+                          <el-button size="small" @click="openVariableHelper(step, 'locator_value')" title="变量助手">
+                            <el-icon><MagicStick /></el-icon>
+                          </el-button>
+                        </template>
+                      </el-input>
                     </div>
                     <div style="display:flex;gap:6px;align-items:center">
                       <span class="step-field-label">输入变量</span>
@@ -868,7 +912,13 @@
                           <el-option label="不等于" value="not_equals" />
                           <el-option label="存在" value="exists" />
                         </el-select>
-                        <el-input v-model="step.assert_value" placeholder="期望值" style="flex:1" size="small" />
+                        <el-input v-model="step.assert_value" placeholder="期望值（支持${变量}）" style="flex:1" size="small">
+                          <template #append>
+                            <el-button size="small" @click="openVariableHelper(step, 'assert_value')" title="变量助手">
+                              <el-icon><MagicStick /></el-icon>
+                            </el-button>
+                          </template>
+                        </el-input>
                       </div>
                     </template>
                     <div style="display:flex;gap:6px;align-items:center">

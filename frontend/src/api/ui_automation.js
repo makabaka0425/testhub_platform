@@ -1912,7 +1912,7 @@ export function addAiPlanItemsBatch(planId, data) {
 
 // 移除AI测试计划项
 export function removeAiPlanItem(planId, itemId) {
-  return request({ url: `/ui-automation/ai-test-plans/${planId}/remove_item/`, method: 'delete', data: { item_id: itemId } })
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/remove_item/${itemId}/`, method: 'delete' })
 }
 
 // 更新AI测试计划项顺序

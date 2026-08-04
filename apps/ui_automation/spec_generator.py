@@ -204,6 +204,7 @@ def generate_single_case_spec(payload: Dict[str, Any], spec_path: str, env_path:
     L.append(f"test.describe('{safe_case_name}', () => {{")
     L.append(f"")
     L.append(f"  test('{safe_case_name}', async ({{ page, ai, aiQuery, aiAssert, aiWaitFor, aiTap, aiLocate, aiNumber, aiBoolean, aiString }}) => {{")
+    L.append(f"    try {{")
     if navigation_code:
         L.append(navigation_code)
     if viewport_code:
@@ -213,12 +214,14 @@ def generate_single_case_spec(payload: Dict[str, Any], spec_path: str, env_path:
     if user_agent_code:
         L.append(user_agent_code)
     L.append(f"")
-    L.append(f"    // ---- 逐步执行 ----")
+    # 步骤代码不需要额外缩进（JS语法不要求花括号内必须多缩进）
+    L.append(f"      // ---- 逐步执行 ----")
     L.append(steps_code)
-    L.append(f"")
-    L.append(f"    // ---- 附加步骤结果和变量快照 ----")
-    L.append(f"    await test.info().attach('step-results', {{ body: JSON.stringify(stepResults) }});")
-    L.append(f"    await test.info().attach('variable-snapshot', {{ body: JSON.stringify(sharedVariables) }});")
+    L.append(f"    }} finally {{")
+    L.append(f"      // ---- 附加步骤结果和变量快照（finally 确保失败时也能写入） ----")
+    L.append(f"      await test.info().attach('step-results', {{ body: JSON.stringify(stepResults) }});")
+    L.append(f"      await test.info().attach('variable-snapshot', {{ body: JSON.stringify(sharedVariables) }});")
+    L.append(f"    }}")
     L.append(f"  }});")
     L.append(f"}});")
 
@@ -323,6 +326,7 @@ def generate_shared_session_spec(cases: List[Dict[str, Any]], batch_config: Dict
     L.append(f"test.describe('共享会话 - 批次 {batch_id}', () => {{")
     L.append(f"")
     L.append(f"  test('共享会话执行', async ({{ page, ai, aiQuery, aiAssert, aiWaitFor, aiTap, aiLocate, aiNumber, aiBoolean, aiString }}) => {{")
+    L.append(f"    try {{")
     if navigation_code:
         L.append(navigation_code)
     if viewport_code:
@@ -332,10 +336,11 @@ def generate_shared_session_spec(cases: List[Dict[str, Any]], batch_config: Dict
     if login_code:
         L.append(login_code.rstrip())
     L.append(case_steps_code.rstrip())
-    L.append(f"")
-    L.append(f"    // 附加步骤结果和变量快照")
-    L.append(f"    await test.info().attach('step-results', {{ body: JSON.stringify(stepResults) }});")
-    L.append(f"    await test.info().attach('variable-snapshot', {{ body: JSON.stringify(sharedVariables) }});")
+    L.append(f"    }} finally {{")
+    L.append(f"      // 附加步骤结果和变量快照（finally 确保失败时也能写入）")
+    L.append(f"      await test.info().attach('step-results', {{ body: JSON.stringify(stepResults) }});")
+    L.append(f"      await test.info().attach('variable-snapshot', {{ body: JSON.stringify(sharedVariables) }});")
+    L.append(f"    }}")
     L.append(f"  }});")
     L.append(f"}});")
 

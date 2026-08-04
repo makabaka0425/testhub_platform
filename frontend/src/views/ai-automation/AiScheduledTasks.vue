@@ -117,8 +117,8 @@
       :close-on-click-modal="false"
       @close="resetTaskForm"
     >
-      <el-form :model="taskForm" label-width="120px">
-        <el-form-item :label="$t('aiAutomation.scheduledTask.taskName')" required>
+      <el-form ref="taskFormRef" :model="taskForm" :rules="taskFormRules" label-width="120px">
+        <el-form-item :label="$t('aiAutomation.scheduledTask.taskName')" required prop="name">
           <el-input v-model="taskForm.name" :placeholder="$t('aiAutomation.scheduledTask.taskNamePlaceholder')" />
         </el-form-item>
 
@@ -126,7 +126,7 @@
           <el-input v-model="taskForm.description" type="textarea" :placeholder="$t('aiAutomation.scheduledTask.taskDescPlaceholder')" />
         </el-form-item>
 
-        <el-form-item :label="$t('aiAutomation.scheduledTask.relatedProject')" required>
+        <el-form-item :label="$t('aiAutomation.scheduledTask.relatedProject')" required prop="project">
           <el-select v-model="taskForm.project" :placeholder="$t('aiAutomation.scheduledTask.selectProject')" @change="onProjectChange">
             <el-option
               v-for="project in projects"
@@ -137,7 +137,7 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item :label="$t('aiAutomation.scheduledTask.testPlan')" required>
+        <el-form-item :label="$t('aiAutomation.scheduledTask.testPlan')" required prop="test_plan">
           <el-select v-model="taskForm.test_plan" :placeholder="$t('aiAutomation.scheduledTask.selectPlan')" filterable :disabled="!taskForm.project">
             <el-option
               v-for="p in testPlans"
@@ -234,7 +234,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -260,6 +260,7 @@ const projects = ref([])
 const testPlans = ref([])
 const users = ref([])
 const loading = ref(false)
+const taskFormRef = ref(null)
 const submitting = ref(false)
 const showCreateDialog = ref(false)
 const editingTask = ref(null)
@@ -293,6 +294,14 @@ const taskForm = reactive({
   notification_type: '',
   notify_emails: []
 })
+
+// 表单校验规则
+const taskFormRules = {
+  name: [{ required: true, message: t('aiAutomation.scheduledTask.taskNamePlaceholder'), trigger: 'blur' }],
+  project: [{ required: true, message: t('aiAutomation.scheduledTask.selectProject'), trigger: 'change' }],
+  test_plan: [{ required: true, message: t('aiAutomation.scheduledTask.selectPlan'), trigger: 'change' }],
+  trigger_type: [{ required: true, message: '请选择触发方式', trigger: 'change' }]
+}
 
 // 文本转换
 const getTriggerTypeText = (type) => {
@@ -411,6 +420,9 @@ const resetTaskForm = () => {
     notification_type: '',
     notify_emails: []
   })
+  nextTick(() => {
+    taskFormRef.value?.clearValidate()
+  })
 }
 
 // 重置筛选
@@ -425,6 +437,14 @@ const resetFilters = () => {
 
 // 提交任务表单
 const submitTaskForm = async () => {
+  // 前端表单校验
+  if (taskFormRef.value) {
+    try {
+      await taskFormRef.value.validate()
+    } catch {
+      return  // 校验不通过，阻止提交
+    }
+  }
   submitting.value = true
   try {
     const submitData = {
@@ -466,9 +486,13 @@ const submitTaskForm = async () => {
     loadTasks()
   } catch (error) {
     console.error('Task operation failed:', error)
-    ElMessage.error(error.response?.data?.error ||
-                   error.response?.data?.detail ||
-                   (editingTask.value ? t('aiAutomation.scheduledTask.messages.updateFailed') : t('aiAutomation.scheduledTask.messages.createFailed')))
+    // 提取DRF校验错误信息
+    const errData = error.response?.data
+    const errMsg = errData?.error || errData?.detail ||
+      (errData?.non_field_errors?.join?.('')) ||
+      (errData?.test_plan?.join?.('')) ||
+      (editingTask.value ? t('aiAutomation.scheduledTask.messages.updateFailed') : t('aiAutomation.scheduledTask.messages.createFailed'))
+    ElMessage.error(errMsg)
   } finally {
     submitting.value = false
   }
