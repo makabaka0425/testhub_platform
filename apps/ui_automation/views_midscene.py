@@ -768,8 +768,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             case.save(update_fields=['last_status', 'last_result'])
             return Response({'error': '用例没有测试步骤'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 设备类型（合并配置优先）
+        # 设备类型（合并配置优先；platform=app 时自动修正为 android）
         resolved_device_type = merged_config.get('device_type') or case.device_type or ('android' if case.platform == 'app' else 'web')
+        if case.platform == 'app' and resolved_device_type == 'web':
+            resolved_device_type = 'android'
 
         payload = {
             'platform': case.platform or 'web',  # 传递平台类型
@@ -808,28 +810,51 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             'app_name_mapping': merged_config.get('app_name_mapping', {}),
         }
 
-        # ---- 通过 Playwright Test 执行（新架构）----
-        # 1. 生成 .spec.ts 文件和 .env 文件
-        # 2. subprocess 调用 npx playwright test
-        # 3. 浏览器生命周期由 Playwright Test 自动托管
-        MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
-        RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
-        os.makedirs(RESULTS_DIR, exist_ok=True)
-
         # 补充 payload 中 Django 侧的元数据
         payload['execution_id'] = execution.id
         payload['case_id'] = case.id
         payload['case_name'] = case.name
 
+        # ---- 根据设备类型选择执行引擎 ----
+        # Web 端：Playwright Test CLI（新架构，浏览器生命周期自动托管）
+        # APP/Android 端：midscene-runner.js（旧架构，有完整 AndroidAgent 支持）
+        is_app = resolved_device_type != 'web'
+
         try:
-            # 使用 spec 生成器生成 .spec.ts 和 .env
+            if is_app:
+                # ---- APP/Android 端：通过 midscene-runner.js 执行 ----
+                proc, result_file = _launch_midscene_runner_single(
+                    payload, execution.id, case.id
+                )
+                execution.logs = json.dumps({
+                    'runner_pid': proc.pid,
+                    'result_file': result_file,
+                    'architecture': 'runner',
+                })
+                execution.save(update_fields=['logs'])
+
+                return Response({
+                    'execution_id': execution.id,
+                    'task_id': f'runner-{execution.id}',
+                    'status': 'submitted',
+                    'message': '任务已提交到Midscene Runner (Android)',
+                    'runner_pid': proc.pid,
+                })
+
+            # ---- Web 端：通过 Playwright Test 执行（新架构）----
+            # 1. 生成 .spec.ts 文件和 .env 文件
+            # 2. subprocess 调用 npx playwright test
+            # 3. 浏览器生命周期由 Playwright Test 自动托管
+            MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
+            RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
+            os.makedirs(RESULTS_DIR, exist_ok=True)
+
             from .spec_generator import generate_single_case_spec
             spec_filename = f'test_execution_{execution.id}.spec.ts'
             spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
             env_path = os.path.join(RESULTS_DIR, f'.env_{execution.id}')
             generate_single_case_spec(payload, spec_path, env_path, RESULTS_DIR)
 
-            # 构造 subprocess 环境变量
             env = os.environ.copy()
             env['TESTHUB_EXECUTION_ID'] = str(execution.id)
             env['TESTHUB_TASK_ID'] = f'runner-{execution.id}'
@@ -838,14 +863,9 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
             env['TESTHUB_ENV_FILE'] = env_path
 
-            # Node.js 路径（确保使用正确版本）
             node_path = r'D:\install\nodejs'
             env['PATH'] = node_path + ';' + env.get('PATH', '')
 
-            # 启动 npx playwright test（非阻塞）
-            # 启动 npx playwright test（非阻塞）
-            # reporter 配置已在 playwright.config.ts 中统一管理，不在 CLI 重复指定
-            # Windows 上 subprocess 需要 shell=True 或使用 .cmd 后缀才能找到 npx
             npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
             proc = subprocess.Popen(
                 [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
@@ -856,7 +876,6 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 env=env,
                 shell=True,
             )
-            # 记录进程 PID（用于状态查询和取消）
             execution.logs = json.dumps({
                 'runner_pid': proc.pid,
                 'spec_path': spec_path,
@@ -887,10 +906,13 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             })
 
     # ---- 获取合并配置（全局→用例级覆盖） ----
-    def _get_merged_config(self, case):
+    @staticmethod
+    def _get_merged_config(case):
         """获取三级合并配置：全局MidsceneConfig + 用例级覆盖"""
         import copy
         device_type = case.device_type or ('android' if case.platform == 'app' else 'web')
+        if case.platform == 'app' and device_type == 'web':
+            device_type = 'android'
 
         # 获取全局配置
         global_config = MidsceneConfig.objects.filter(
@@ -996,6 +1018,53 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 'model_family': model_family,
             }
         return model_config
+
+    @staticmethod
+    def _refresh_plan_status(case):
+        """刷新关联用例的所有计划的进度和状态"""
+        try:
+            from apps.ui_automation.models import AiTestPlan, AiTestPlanItem
+            plan_items = AiTestPlanItem.objects.filter(midscene_case=case).select_related('test_plan')
+            for plan_item in plan_items:
+                plan = plan_item.test_plan
+                plan_case_ids = list(plan.plan_items.values_list('midscene_case_id', flat=True))
+
+                # 找该计划最近一次执行批次
+                latest_exec = MidsceneExecution.objects.filter(
+                    plan_execution_batch__isnull=False,
+                    case_id__in=plan_case_ids,
+                ).order_by('-id').first()
+
+                if latest_exec and latest_exec.plan_execution_batch:
+                    batch_id = latest_exec.plan_execution_batch
+                    batch_execs = MidsceneExecution.objects.filter(
+                        plan_execution_batch=batch_id,
+                        case_id__in=plan_case_ids,
+                    )
+                    passed = batch_execs.filter(status='passed').count()
+                    failed = batch_execs.filter(status='failed').count()
+                    skipped = batch_execs.filter(status='skipped').count()
+                    total_done = passed + failed + skipped
+
+                    plan.passed_count = passed
+                    plan.failed_count = failed
+                    plan.skipped_count = skipped
+
+                    if total_done < plan.total_cases:
+                        plan.execution_status = 'running'
+                    elif failed > 0:
+                        plan.execution_status = 'failed'
+                    elif skipped > 0 and passed == 0:
+                        plan.execution_status = 'skipped'
+                    else:
+                        plan.execution_status = 'passed'
+
+                    plan.save(update_fields=[
+                        'execution_status',
+                        'passed_count', 'failed_count', 'skipped_count'
+                    ])
+        except Exception as plan_err:
+            logger.error(f"刷新计划状态失败: {plan_err}")
 
     # ---- 执行结果回调（微服务调用，免认证） ----
     @action(detail=True, methods=['post'], url_path='callback', permission_classes=[AllowAny])
@@ -1106,49 +1175,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         case.save(update_fields=['last_status', 'last_result', 'updated_at'])
 
         # 刷新关联计划的进度和状态（每条用例回调后自动更新）
-        try:
-            from apps.ui_automation.models import AiTestPlan, AiTestPlanItem
-            plan_items = AiTestPlanItem.objects.filter(midscene_case=case).select_related('plan')
-            for plan_item in plan_items:
-                plan = plan_item.plan
-                plan_case_ids = list(plan.plan_items.values_list('midscene_case_id', flat=True))
-
-                # 找该计划最近一次执行批次（通过plan_items关联的case的execution记录）
-                latest_exec = MidsceneExecution.objects.filter(
-                    plan_execution_batch__isnull=False,
-                    case_id__in=plan_case_ids,
-                ).order_by('-id').first()
-
-                if latest_exec and latest_exec.plan_execution_batch:
-                    batch_id = latest_exec.plan_execution_batch
-                    batch_execs = MidsceneExecution.objects.filter(
-                        plan_execution_batch=batch_id,
-                        case_id__in=plan_case_ids,
-                    )
-                    passed = batch_execs.filter(status='passed').count()
-                    failed = batch_execs.filter(status='failed').count()
-                    skipped = batch_execs.filter(status='skipped').count()
-                    total_done = passed + failed + skipped
-
-                    plan.passed_count = passed
-                    plan.failed_count = failed
-                    plan.skipped_count = skipped
-
-                    if total_done < plan.total_cases:
-                        plan.execution_status = 'running'
-                    elif failed > 0:
-                        plan.execution_status = 'failed'
-                    elif skipped > 0 and passed == 0:
-                        plan.execution_status = 'skipped'
-                    else:
-                        plan.execution_status = 'passed'
-
-                    plan.save(update_fields=[
-                        'execution_status',
-                        'passed_count', 'failed_count', 'skipped_count'
-                    ])
-        except Exception as plan_err:
-            logger.error(f"刷新计划状态失败: {plan_err}")
+        self._refresh_plan_status(case)
 
         # 触发通知：查找关联此用例的活跃定时任务
         try:
@@ -1236,14 +1263,51 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                                     case.last_status = 'failed'
                                     case.last_result = 'Playwright进程异常退出'
                                     case.save(update_fields=['last_status', 'last_result'])
+                                # 刷新关联计划的状态
+                                if case:
+                                    self._refresh_plan_status(case)
                             return True
                     except ImportError:
                         pass
-                # 尝试从 Playwright JSON 报告读取（兜底）
+                # 尝试从 Reporter 生成的 result_{execution_id}.json 读取（优先级最高）
                 results_dir = logs_data.get('results_dir') or os.path.join(
                     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                     'midscene-service', 'midscene_run', 'results'
                 )
+                result_file = os.path.join(results_dir, f'result_{execution.id}.json')
+                if os.path.exists(result_file):
+                    try:
+                        with open(result_file, 'r', encoding='utf-8') as f:
+                            result_data = json.load(f)
+                        status = 'passed' if result_data.get('status') == 'completed' else 'failed'
+                        execution.status = status
+                        result_obj = result_data.get('result') or {}
+                        execution.step_results = result_obj.get('step_results', [])
+                        execution.error_message = result_data.get('error', '') or ''
+                        execution.finished_at = timezone.now()
+                        if execution.started_at and execution.finished_at:
+                            execution.duration = (execution.finished_at - execution.started_at).total_seconds()
+                        if not execution.report_url:
+                            execution.report_url = result_data.get('report_url', '')
+                        if not execution.report_file:
+                            execution.report_file = result_data.get('report_file', '')
+                        execution.variable_snapshot = result_data.get('variable_snapshot', {})
+                        execution.save()
+
+                        case = execution.case
+                        if case:
+                            case.last_status = status
+                            case.last_result = execution.error_message[:500]
+                            case.save(update_fields=['last_status', 'last_result', 'updated_at'])
+
+                        # 刷新关联计划的状态
+                        self._refresh_plan_status(case)
+
+                        return True
+                    except (json.JSONDecodeError, IOError) as e:
+                        logger.warning(f'读取result_{execution.id}.json失败: {e}')
+
+                # 尝试从 Playwright JSON 报告读取（兜底）
                 report_json = os.path.join(results_dir, 'report.json')
                 if os.path.exists(report_json):
                     try:
@@ -1295,6 +1359,8 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                                                     case.last_status = status
                                                     case.last_result = execution.error_message[:500]
                                                     case.save(update_fields=['last_status', 'last_result', 'updated_at'])
+                                                # 刷新关联计划的状态
+                                                self._refresh_plan_status(case)
                                                 return True
                     except (json.JSONDecodeError, IOError):
                         pass
@@ -1321,6 +1387,9 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                                     case.last_status = 'failed'
                                     case.last_result = 'Runner进程异常退出'
                                     case.save(update_fields=['last_status', 'last_result'])
+                                # 刷新关联计划的状态
+                                if case:
+                                    self._refresh_plan_status(case)
                                 return True
                         except ImportError:
                             pass  # psutil未安装，无法检测进程
@@ -1356,6 +1425,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                         case.last_status = execution.status
                         case.last_result = error_msg[:500] if error_msg else ''
                         case.save(update_fields=['last_status', 'last_result', 'updated_at'])
+
+                    # 刷新关联计划的状态
+                    if case:
+                        self._refresh_plan_status(case)
 
                     # 清理结果文件
                     try:
@@ -1727,8 +1800,10 @@ def _build_midscene_payload(case, execution_id):
     if not model_config:
         model_config = MidsceneCaseViewSet._get_legacy_model_config()
 
-    # ---- 设备类型 ----
+    # ---- 设备类型（platform=app 时自动修正为 android）----
     resolved_device_type = merged_config.get('device_type') or case.device_type or ('android' if case.platform == 'app' else 'web')
+    if case.platform == 'app' and resolved_device_type == 'web':
+        resolved_device_type = 'android'
 
     # ---- 步骤构建 ----
     steps = []
@@ -1808,6 +1883,80 @@ def _build_midscene_payload(case, execution_id):
         'app_name_mapping': merged_config.get('app_name_mapping', {}),
     }
     return payload
+
+
+# ──────────────────────────────────────────────
+# 辅助函数：通过 midscene-runner.js 执行（用于 Android/APP 端）
+# Web 端继续走 Playwright Test CLI，APP 端走旧 runner（有完整 Android 支持）
+# ──────────────────────────────────────────────
+
+_MIDSCENE_SERVICE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    'midscene-service'
+)
+_RESULTS_DIR = os.path.join(_MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
+
+
+def _launch_midscene_runner_single(payload, execution_id, case_id):
+    """
+    通过 midscene-runner.js 执行单条用例（APP/Android 端）
+
+    写入 payload 文件，subprocess 启动 node midscene-runner.js，runner 完成后回调 Django。
+    """
+    os.makedirs(_RESULTS_DIR, exist_ok=True)
+
+    # 写入 payload 文件
+    payload_file = os.path.join(_RESULTS_DIR, f'payload_{execution_id}.json')
+    result_file = os.path.join(_RESULTS_DIR, f'result_{execution_id}.json')
+    with open(payload_file, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False)
+
+    # 构造环境变量
+    env = os.environ.copy()
+    env['PATH'] = r'D:\install\nodejs' + ';' + env.get('PATH', '')
+
+    node_cmd = 'node.exe' if os.name == 'nt' else 'node'
+    proc = subprocess.Popen(
+        [node_cmd, 'midscene-runner.js', payload_file, result_file],
+        cwd=_MIDSCENE_SERVICE_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    return proc, result_file
+
+
+def _launch_midscene_runner_batch(cases_payload, batch_config, batch_id):
+    """
+    通过 midscene-runner.js 执行批次（共享会话模式，APP/Android 端）
+
+    写入 batch 配置文件，subprocess 启动 node midscene-runner.js --batch。
+    """
+    os.makedirs(_RESULTS_DIR, exist_ok=True)
+
+    batch_config_file = os.path.join(_RESULTS_DIR, f'batch_{batch_id}.json')
+    result_file = os.path.join(_RESULTS_DIR, f'result_batch_{batch_id}.json')
+
+    full_batch_config = {
+        'batch_id': batch_id,
+        'cases': cases_payload,
+        **batch_config,
+    }
+    with open(batch_config_file, 'w', encoding='utf-8') as f:
+        json.dump(full_batch_config, f, ensure_ascii=False)
+
+    env = os.environ.copy()
+    env['PATH'] = r'D:\install\nodejs' + ';' + env.get('PATH', '')
+
+    node_cmd = 'node.exe' if os.name == 'nt' else 'node'
+    proc = subprocess.Popen(
+        [node_cmd, 'midscene-runner.js', '--batch', batch_config_file, result_file],
+        cwd=_MIDSCENE_SERVICE_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    return proc, result_file
 
 
 class AiScheduledTaskViewSet(viewsets.ModelViewSet):
@@ -1910,98 +2059,142 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
             if not cases_payload:
                 return Response({'error': '没有可执行的用例'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # ---- 通过 Playwright Test 执行（新架构）----
+            # ---- 根据设备类型选择执行引擎 ----
+            first_payload = cases_payload[0]['payload']
+            is_app = first_payload.get('device_type', 'web') != 'web'
+
             try:
-                MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
-                RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
-                os.makedirs(RESULTS_DIR, exist_ok=True)
+                if is_app:
+                    # ---- APP/Android 端：通过 midscene-runner.js 执行 ----
+                    if execution_mode == 'shared_session':
+                        batch_config = {
+                            'login_config': login_config,
+                            'callback_base': 'http://localhost:8000/api/ui-automation',
+                            'execution_mode': execution_mode,
+                        }
+                        proc, result_file = _launch_midscene_runner_batch(
+                            cases_payload, batch_config, batch_id
+                        )
+                        if cases_payload:
+                            first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                            if first_exec:
+                                first_exec.logs = json.dumps({
+                                    'batch_id': batch_id,
+                                    'architecture': 'runner',
+                                    'result_file': result_file,
+                                    'runner_pid': proc.pid,
+                                })
+                                first_exec.save(update_fields=['logs'])
+                    else:
+                        for item_data in cases_payload:
+                            case_payload = item_data['payload']
+                            case_payload['execution_id'] = item_data['execution_id']
+                            case_payload['case_id'] = item_data['case_id']
+                            case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                            case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
 
-                if execution_mode == 'shared_session':
-                    from .spec_generator import generate_shared_session_spec
-                    spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
-                    spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
-                    env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
+                            proc, result_file = _launch_midscene_runner_single(
+                                case_payload, item_data['execution_id'], item_data['case_id']
+                            )
+                            exec_rec = MidsceneExecution.objects.filter(id=item_data['execution_id']).first()
+                            if exec_rec:
+                                exec_rec.logs = json.dumps({
+                                    'runner_pid': proc.pid,
+                                    'result_file': result_file,
+                                    'architecture': 'runner',
+                                })
+                                exec_rec.save(update_fields=['logs'])
 
-                    batch_config = {
-                        'batch_id': batch_id,
-                        'login_config': login_config,
-                        'callback_base': 'http://localhost:8000/api/ui-automation',
-                        'execution_mode': execution_mode,
-                    }
-                    generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
                 else:
-                    from .spec_generator import generate_single_case_spec
-                    for item_data in cases_payload:
-                        case_payload = item_data['payload']
-                        case_payload['execution_id'] = item_data['execution_id']
-                        case_payload['case_id'] = item_data['case_id']
-                        case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
-                        case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
+                    # ---- Web 端：通过 Playwright Test 执行（新架构）----
+                    MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
+                    RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
+                    os.makedirs(RESULTS_DIR, exist_ok=True)
 
-                        exec_id = item_data['execution_id']
-                        spec_filename = f'test_execution_{exec_id}.spec.ts'
+                    if execution_mode == 'shared_session':
+                        from .spec_generator import generate_shared_session_spec
+                        spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
                         spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
-                        env_path = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
-                        generate_single_case_spec(case_payload, spec_path, env_path, RESULTS_DIR)
-                    spec_filename = None
+                        env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
 
-                # 构造环境变量
-                env = os.environ.copy()
-                env['TESTHUB_EXECUTION_ID'] = str(cases_payload[0]['execution_id']) if cases_payload else '0'
-                env['TESTHUB_TASK_ID'] = f'plan-{plan.id}-{batch_id}'
-                env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{cases_payload[0]["case_id"]}/callback/' if cases_payload else ''
-                env['TESTHUB_HEADLESS'] = 'true'
-                env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
-                env['TESTHUB_ENV_FILE'] = env_path
+                        batch_config = {
+                            'batch_id': batch_id,
+                            'login_config': login_config,
+                            'callback_base': 'http://localhost:8000/api/ui-automation',
+                            'execution_mode': execution_mode,
+                        }
+                        generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+                    else:
+                        from .spec_generator import generate_single_case_spec
+                        for item_data in cases_payload:
+                            case_payload = item_data['payload']
+                            case_payload['execution_id'] = item_data['execution_id']
+                            case_payload['case_id'] = item_data['case_id']
+                            case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                            case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
 
-                node_path = r'D:\install\nodejs'
-                env['PATH'] = node_path + ';' + env.get('PATH', '')
+                            exec_id = item_data['execution_id']
+                            spec_filename = f'test_execution_{exec_id}.spec.ts'
+                            spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+                            env_path = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                            generate_single_case_spec(case_payload, spec_path, env_path, RESULTS_DIR)
+                        spec_filename = None
 
-                npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
-                if execution_mode == 'shared_session' and spec_filename:
-                    proc = subprocess.Popen(
-                        [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
-                         '--config=playwright.config.ts'],
-                        cwd=MIDSCENE_SERVICE_DIR,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        env=env,
-                        shell=True,
-                    )
-                else:
-                    for item_data in cases_payload:
-                        exec_id = item_data['execution_id']
-                        case_id = item_data['case_id']
-                        single_spec = f'test_execution_{exec_id}.spec.ts'
-                        single_env = env.copy()
-                        single_env['TESTHUB_EXECUTION_ID'] = str(exec_id)
-                        single_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
-                        single_env['TESTHUB_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
-                        subprocess.Popen(
-                            [npx_cmd, 'playwright', 'test', f'e2e/{single_spec}',
+                    env = os.environ.copy()
+                    env['TESTHUB_EXECUTION_ID'] = str(cases_payload[0]['execution_id']) if cases_payload else '0'
+                    env['TESTHUB_TASK_ID'] = f'plan-{plan.id}-{batch_id}'
+                    env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{cases_payload[0]["case_id"]}/callback/' if cases_payload else ''
+                    env['TESTHUB_HEADLESS'] = 'true'
+                    env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                    env['TESTHUB_ENV_FILE'] = env_path
+
+                    node_path = r'D:\install\nodejs'
+                    env['PATH'] = node_path + ';' + env.get('PATH', '')
+
+                    npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                    if execution_mode == 'shared_session' and spec_filename:
+                        proc = subprocess.Popen(
+                            [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
                              '--config=playwright.config.ts'],
                             cwd=MIDSCENE_SERVICE_DIR,
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
-                            env=single_env,
+                            env=env,
                             shell=True,
                         )
-                    proc = None
+                    else:
+                        for item_data in cases_payload:
+                            exec_id = item_data['execution_id']
+                            case_id = item_data['case_id']
+                            single_spec = f'test_execution_{exec_id}.spec.ts'
+                            single_env = env.copy()
+                            single_env['TESTHUB_EXECUTION_ID'] = str(exec_id)
+                            single_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
+                            single_env['TESTHUB_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                            subprocess.Popen(
+                                [npx_cmd, 'playwright', 'test', f'e2e/{single_spec}',
+                                 '--config=playwright.config.ts'],
+                                cwd=MIDSCENE_SERVICE_DIR,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                env=single_env,
+                                shell=True,
+                            )
+                        proc = None
 
-                # 记录批次信息
-                if cases_payload:
-                    first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
-                    if first_exec:
-                        log_data = {
-                            'batch_id': batch_id,
-                            'architecture': 'playwright-test',
-                            'spec_path': spec_path if execution_mode == 'shared_session' else f'e2e/test_execution_*.spec.ts',
-                            'env_path': env_path,
-                        }
-                        if proc:
-                            log_data['runner_pid'] = proc.pid
-                        first_exec.logs = json.dumps(log_data)
-                        first_exec.save(update_fields=['logs'])
+                    if cases_payload:
+                        first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                        if first_exec:
+                            log_data = {
+                                'batch_id': batch_id,
+                                'architecture': 'playwright-test',
+                                'spec_path': spec_path if execution_mode == 'shared_session' else f'e2e/test_execution_*.spec.ts',
+                                'env_path': env_path,
+                            }
+                            if proc:
+                                log_data['runner_pid'] = proc.pid
+                            first_exec.logs = json.dumps(log_data)
+                            first_exec.save(update_fields=['logs'])
 
             except Exception as batch_err:
                 # 提交失败，标记所有 execution 为失败
@@ -2014,11 +2207,11 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                 task.error_message = str(batch_err)
                 task.save()
                 return Response({
-                    'error': f'提交Playwright Test失败: {str(batch_err)}',
+                    'error': f'提交执行引擎失败: {str(batch_err)}',
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             return Response({
-                'message': '测试计划已提交到Playwright Test',
+                'message': f'测试计划已提交到{"Midscene Runner" if is_app else "Playwright Test"}',
                 'task_id': task.id,
                 'task_name': task.name,
                 'batch_id': batch_id,
@@ -2469,112 +2662,147 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
         plan.total_cases = len(cases_payload)
         plan.save(update_fields=['execution_status', 'passed_count', 'failed_count', 'skipped_count', 'total_cases'])
 
-        # ---- 通过 Playwright Test 执行（新架构）----
-        # 1. 生成 .spec.ts 文件和 .env 文件（共享会话用单spec多step模式）
-        # 2. subprocess 调用 npx playwright test
-        # 3. 浏览器生命周期由 Playwright Test 自动托管
-        MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
-        RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
-        os.makedirs(RESULTS_DIR, exist_ok=True)
+        # ---- 根据设备类型选择执行引擎 ----
+        first_payload = cases_payload[0]['payload']
+        is_app = first_payload.get('device_type', 'web') != 'web'
 
         try:
-            if execution_mode == 'shared_session':
-                # 共享会话模式：生成单 .spec.ts（多 test.step）
-                from .spec_generator import generate_shared_session_spec
-                spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
-                spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
-                env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
+            if is_app:
+                # ---- APP/Android 端：通过 midscene-runner.js 执行 ----
+                if execution_mode == 'shared_session':
+                    # 共享会话：单进程批次执行
+                    batch_config = {
+                        'login_config': login_config,
+                        'callback_base': 'http://localhost:8000/api/ui-automation',
+                        'execution_mode': execution_mode,
+                    }
+                    proc, result_file = _launch_midscene_runner_batch(
+                        cases_payload, batch_config, batch_id
+                    )
+                    if cases_payload:
+                        first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                        if first_exec:
+                            first_exec.logs = json.dumps({
+                                'batch_id': batch_id,
+                                'architecture': 'runner',
+                                'result_file': result_file,
+                                'runner_pid': proc.pid,
+                            })
+                            first_exec.save(update_fields=['logs'])
+                else:
+                    # 独立模式：逐个用例启动 runner
+                    for item_data in cases_payload:
+                        case_payload = item_data['payload']
+                        case_payload['execution_id'] = item_data['execution_id']
+                        case_payload['case_id'] = item_data['case_id']
+                        case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                        case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
 
-                batch_config = {
-                    'batch_id': batch_id,
-                    'login_config': login_config,
-                    'callback_base': 'http://localhost:8000/api/ui-automation',
-                    'execution_mode': execution_mode,
-                }
-                generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+                        proc, result_file = _launch_midscene_runner_single(
+                            case_payload, item_data['execution_id'], item_data['case_id']
+                        )
+                        exec_rec = MidsceneExecution.objects.filter(id=item_data['execution_id']).first()
+                        if exec_rec:
+                            exec_rec.logs = json.dumps({
+                                'runner_pid': proc.pid,
+                                'result_file': result_file,
+                                'architecture': 'runner',
+                            })
+                            exec_rec.save(update_fields=['logs'])
+
             else:
-                # 独立模式：每个用例独立生成 .spec.ts
-                # 逐个提交子进程执行（与旧逻辑等效）
-                from .spec_generator import generate_single_case_spec
-                for item_data in cases_payload:
-                    case_payload = item_data['payload']
-                    case_payload['execution_id'] = item_data['execution_id']
-                    case_payload['case_id'] = item_data['case_id']
-                    case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
-                    case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
+                # ---- Web 端：通过 Playwright Test 执行（新架构）----
+                MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
+                RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
+                os.makedirs(RESULTS_DIR, exist_ok=True)
 
-                    exec_id = item_data['execution_id']
-                    spec_filename = f'test_execution_{exec_id}.spec.ts'
+                if execution_mode == 'shared_session':
+                    from .spec_generator import generate_shared_session_spec
+                    spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
                     spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
-                    env_path = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
-                    generate_single_case_spec(case_payload, spec_path, env_path, RESULTS_DIR)
+                    env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
 
-                # 独立模式下逐个用例串行执行
-                spec_filename = None  # 标记独立模式
+                    batch_config = {
+                        'batch_id': batch_id,
+                        'login_config': login_config,
+                        'callback_base': 'http://localhost:8000/api/ui-automation',
+                        'execution_mode': execution_mode,
+                    }
+                    generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+                else:
+                    from .spec_generator import generate_single_case_spec
+                    for item_data in cases_payload:
+                        case_payload = item_data['payload']
+                        case_payload['execution_id'] = item_data['execution_id']
+                        case_payload['case_id'] = item_data['case_id']
+                        case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                        case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
 
-            # 构造 subprocess 环境变量
-            env = os.environ.copy()
-            env['TESTHUB_EXECUTION_ID'] = str(cases_payload[0]['execution_id']) if cases_payload else '0'
-            env['TESTHUB_TASK_ID'] = f'plan-{plan.id}-{batch_id}'
-            env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{cases_payload[0]["case_id"]}/callback/' if cases_payload else ''
-            env['TESTHUB_HEADLESS'] = 'true'
-            env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
-            env['TESTHUB_ENV_FILE'] = env_path
+                        exec_id = item_data['execution_id']
+                        spec_filename = f'test_execution_{exec_id}.spec.ts'
+                        spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+                        env_path = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                        generate_single_case_spec(case_payload, spec_path, env_path, RESULTS_DIR)
+                    spec_filename = None
 
-            # Node.js 路径
-            node_path = r'D:\install\nodejs'
-            env['PATH'] = node_path + ';' + env.get('PATH', '')
+                env = os.environ.copy()
+                env['TESTHUB_EXECUTION_ID'] = str(cases_payload[0]['execution_id']) if cases_payload else '0'
+                env['TESTHUB_TASK_ID'] = f'plan-{plan.id}-{batch_id}'
+                env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{cases_payload[0]["case_id"]}/callback/' if cases_payload else ''
+                env['TESTHUB_HEADLESS'] = 'true'
+                env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                env['TESTHUB_ENV_FILE'] = env_path
 
-            npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
-            if execution_mode == 'shared_session' and spec_filename:
-                # 共享会话：单次 playwright test 执行整个 spec
-                proc = subprocess.Popen(
-                    [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
-                     '--config=playwright.config.ts'],
-                    cwd=MIDSCENE_SERVICE_DIR,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    env=env,
-                    shell=True,
-                )
-            else:
-                # 独立模式：逐个执行每个用例的 spec
-                proc_pids = []
-                for item_data in cases_payload:
-                    exec_id = item_data['execution_id']
-                    case_id = item_data['case_id']
-                    single_spec = f'test_execution_{exec_id}.spec.ts'
-                    single_env = env.copy()
-                    single_env['TESTHUB_EXECUTION_ID'] = str(exec_id)
-                    single_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
-                    single_env['TESTHUB_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                node_path = r'D:\install\nodejs'
+                env['PATH'] = node_path + ';' + env.get('PATH', '')
 
-                    p = subprocess.Popen(
-                        [npx_cmd, 'playwright', 'test', f'e2e/{single_spec}',
+                npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                if execution_mode == 'shared_session' and spec_filename:
+                    proc = subprocess.Popen(
+                        [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
                          '--config=playwright.config.ts'],
                         cwd=MIDSCENE_SERVICE_DIR,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        env=single_env,
+                        env=env,
                         shell=True,
                     )
-                    proc_pids.append(p.pid)
-                proc = None  # 独立模式多个进程，此处简单记录
+                else:
+                    proc_pids = []
+                    for item_data in cases_payload:
+                        exec_id = item_data['execution_id']
+                        case_id = item_data['case_id']
+                        single_spec = f'test_execution_{exec_id}.spec.ts'
+                        single_env = env.copy()
+                        single_env['TESTHUB_EXECUTION_ID'] = str(exec_id)
+                        single_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
+                        single_env['TESTHUB_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
 
-            # 记录信息到第一个 execution 的 logs
-            if cases_payload:
-                first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
-                if first_exec:
-                    log_data = {
-                        'batch_id': batch_id,
-                        'architecture': 'playwright-test',
-                        'spec_path': spec_path if execution_mode == 'shared_session' else f'e2e/test_execution_*.spec.ts',
-                        'env_path': env_path,
-                    }
-                    if proc:
-                        log_data['runner_pid'] = proc.pid
-                    first_exec.logs = json.dumps(log_data)
-                    first_exec.save(update_fields=['logs'])
+                        p = subprocess.Popen(
+                            [npx_cmd, 'playwright', 'test', f'e2e/{single_spec}',
+                             '--config=playwright.config.ts'],
+                            cwd=MIDSCENE_SERVICE_DIR,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            env=single_env,
+                            shell=True,
+                        )
+                        proc_pids.append(p.pid)
+                    proc = None
+
+                if cases_payload:
+                    first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                    if first_exec:
+                        log_data = {
+                            'batch_id': batch_id,
+                            'architecture': 'playwright-test',
+                            'spec_path': spec_path if execution_mode == 'shared_session' else f'e2e/test_execution_*.spec.ts',
+                            'env_path': env_path,
+                        }
+                        if proc:
+                            log_data['runner_pid'] = proc.pid
+                        first_exec.logs = json.dumps(log_data)
+                        first_exec.save(update_fields=['logs'])
 
         except Exception as e:
             # 提交失败，把所有execution标记为failed
