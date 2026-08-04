@@ -45,6 +45,15 @@ function extractVariableValue(stepResult: any, inputVal: string): any {
   return '';
 }
 
+// 安全等待：浏览器已关闭时不抛异常（常见于页面导航/超时后浏览器被 Playwright 回收）
+async function safeWait(page: any, ms: number): Promise<void> {
+  try {
+    await page.waitForTimeout(ms);
+  } catch (_) {
+    // 浏览器/页面已关闭，忽略等待错误
+  }
+}
+
 // 失败截图
 async function captureFailureScreenshot(page: any): Promise<string | null> {
   try {
@@ -53,6 +62,72 @@ async function captureFailureScreenshot(page: any): Promise<string | null> {
   } catch (_) {
     return null;
   }
+}
+
+// ---- 每个用例执行后回调 Django ----
+// 从 stepResults 中提取该用例的步骤结果（caseStartIdx ~ 末尾），发送回调
+async function callbackForExecution(
+  executionId: number,
+  caseId: number,
+  stepResults: any[],
+  caseStartIdx: number,
+  status: string,
+  errorMsg: string,
+  sharedVariables: Record<string, any>,
+  variableSnapshot: Record<string, any>
+): Promise<void> {
+  const caseStepResults = stepResults.slice(caseStartIdx);
+  const isPassed = status === 'passed';
+  const callbackUrl = `http://localhost:8000/api/ui-automation/midscene-cases/${caseId}/callback/`;
+  const failedScreenshots = caseStepResults
+    .filter((s: any) => s.status === 'failed' && s.screenshot)
+    .map((s: any) => ({ order: s.order, screenshot: s.screenshot }));
+
+  const callbackData = {
+    task_id: process.env.TESTHUB_TASK_ID || '',
+    execution_id: executionId,
+    status: isPassed ? 'completed' : 'failed',
+    result: {
+      status: isPassed ? 'passed' : 'failed',
+      step_results: caseStepResults,
+    },
+    error: errorMsg,
+    completed_at: new Date().toISOString(),
+    failed_screenshots: failedScreenshots,
+    variable_snapshot: variableSnapshot,
+  };
+
+  // 写入结果文件
+  const fs = await import('fs');
+  const path = await import('path');
+  const resultsDir = process.env.TESTHUB_RESULTS_DIR || './midscene_run/results';
+  const resultFilePath = path.join(resultsDir, `result_${executionId}.json`);
+  try {
+    fs.writeFileSync(resultFilePath, JSON.stringify(callbackData, null, 2));
+  } catch (_) {}
+
+  // 发送 HTTP 回调
+  try {
+    const http = await import('http');
+    const body = JSON.stringify(callbackData);
+    const urlObj = new URL(callbackUrl);
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || '80',
+      path: urlObj.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 10000,
+    };
+    const req = http.request(options, (res: any) => { res.resume(); });
+    req.on('error', () => {});
+    req.on('timeout', () => { req.destroy(); });
+    req.write(body);
+    req.end();
+  } catch (_) {}
 }
 """
 
@@ -90,7 +165,7 @@ def generate_single_case_spec(payload: Dict[str, Any], spec_path: str, env_path:
     # 导航代码
     navigation_code = ''
     if url:
-        navigation_code = f"    await page.goto('{url}', {{ waitUntil: 'domcontentloaded', timeout: 30000 }});\n    await page.waitForTimeout(2000);"
+        navigation_code = f"    await page.goto('{url}', {{ waitUntil: 'domcontentloaded', timeout: 30000 }});\n    await safeWait(page, 2000);"
 
     # viewport
     viewport_code = ''
@@ -183,7 +258,7 @@ def generate_shared_session_spec(cases: List[Dict[str, Any]], batch_config: Dict
             instruction = step.get('instruction', '').replace("'", "\\'")
             if instruction:
                 login_step_lines.append(f"        await ai('{instruction}');")
-                login_step_lines.append(f"        await page.waitForTimeout({min(wait_after_action, 3000)});")
+                login_step_lines.append(f"        await safeWait(page, {min(wait_after_action, 3000)});")
         if login_step_lines:
             login_code = "    await test.step('统一登录', async () => {\n"
             login_code += '\n'.join(login_step_lines) + '\n'
@@ -204,16 +279,21 @@ def generate_shared_session_spec(cases: List[Dict[str, Any]], batch_config: Dict
 
         steps_code = _generate_steps_code(filtered_steps, 'sharedVariables', wait_after_action)
 
-        case_steps_code += f"\n    // ---- 用例 {idx + 1}/{len(cases)}: {safe_case_name} ----\n"
+        case_steps_code += f"\n    // ---- 用例 {idx + 1}/{len(cases)}: {safe_case_name} (execution_id={execution_id}, case_id={case_id}) ----\n"
+        case_steps_code += f"    const case_{execution_id}_startIdx = stepResults.length;\n"
+        case_steps_code += f"    let case_{execution_id}_status = 'passed';\n"
+        case_steps_code += f"    let case_{execution_id}_error = '';\n"
         case_steps_code += f"    await test.step('[用例{idx + 1}] {safe_case_name}', async () => {{\n"
         case_steps_code += steps_code + '\n'
-        case_steps_code += "    });\n"
+        case_steps_code += f"    }}).catch((err: any) => {{ case_{execution_id}_status = 'failed'; case_{execution_id}_error = err?.message || String(err); }});\n"
+        # 每个用例执行完后立即回调Django
+        case_steps_code += f"    await callbackForExecution({execution_id}, {case_id}, stepResults, case_{execution_id}_startIdx, case_{execution_id}_status, case_{execution_id}_error, sharedVariables, {{}});\n"
 
     # 导航
     url = first_payload.get('url', '')
     navigation_code = ''
     if url:
-        navigation_code = f"    await page.goto('{url}', {{ waitUntil: 'domcontentloaded', timeout: 30000 }});\n    await page.waitForTimeout(2000);"
+        navigation_code = f"    await page.goto('{url}', {{ waitUntil: 'domcontentloaded', timeout: 30000 }});\n    await safeWait(page, 2000);"
 
     # viewport
     viewport_code = ''
@@ -402,7 +482,7 @@ def _generate_steps_code(steps: List[Dict[str, Any]], variables_name: str, wait_
             step_lines.append(f"          default:")
             step_lines.append(f"            await locator.click({{ timeout: 60000 }}); stepResult.status = 'passed'; stepResult.message = '操作完成({action_type})';")
             step_lines.append(f"        }}{assert_code}")
-            step_lines.append(f"        await page.waitForTimeout({total_wait});{var_extract}")
+            step_lines.append(f"        await safeWait(page, {total_wait});{var_extract}")
             step_lines.append(f"      }} catch (err: any) {{")
             step_lines.append(f"        stepResult.status = 'failed'; stepResult.message = err.message;")
             step_lines.append(f"        const screenshot = await captureFailureScreenshot(page);")
@@ -441,7 +521,7 @@ def _generate_steps_code(steps: List[Dict[str, Any]], variables_name: str, wait_
             step_lines.append(f"      let stepResult: any = {{ order: {i + 1}, type: '{step_type}', mode: 'ai', instruction: '{safe_instruction}' }};")
             step_lines.append(f"      try {{")
             step_lines.append(f"        {ai_call}")
-            step_lines.append(f"        await page.waitForTimeout({total_wait});{var_extract}")
+            step_lines.append(f"        await safeWait(page, {total_wait});{var_extract}")
             step_lines.append(f"        stepResult.status = 'passed'; stepResult.message = '操作完成';")
             step_lines.append(f"      }} catch (err: any) {{")
             step_lines.append(f"        stepResult.status = 'failed'; stepResult.message = err.message;")
@@ -472,6 +552,6 @@ def _generate_ai_call_code(step_type: str) -> str:
     elif step_type == 'aiWaitFor':
         return "const result = await aiWaitFor(aiInstruction);"
     elif step_type == 'sleep':
-        return "await page.waitForTimeout(2000); const result = 'sleep 2000ms';"
+        return "await safeWait(page, 2000); const result = 'sleep 2000ms';"
     else:
         return "const result = await ai(aiInstruction);"

@@ -2125,69 +2125,80 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                         }
                         generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
                     else:
-                        # ---- per_case / shared_session 统一使用共享会话 spec ----
-                        # 关键修复：per_case 模式不再为每个用例启动独立的 Playwright Test 进程，
-                        # 避免多浏览器进程资源竞争导致失败。改为将所有用例放入同一个 spec 文件
-                        # 作为 test.step() 串行执行，只启动1次浏览器。
-                        from .spec_generator import generate_shared_session_spec
-                        spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
-                        spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
-                        env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
+                        # ---- per_case 模式：每个用例独立 spec + 独立浏览器，串行执行 ----
+                        from .spec_generator import generate_single_case_spec
+                        import threading
 
-                        # per_case 模式不传 login_config（每个用例独立，不需要统一登录）
-                        batch_config = {
-                            'batch_id': batch_id,
-                            'login_config': {} if execution_mode == 'per_case' else login_config,
-                            'callback_base': 'http://localhost:8000/api/ui-automation',
-                            'execution_mode': execution_mode,
-                        }
+                        for item_data in cases_payload:
+                            case_payload = item_data['payload']
+                            case_payload['execution_id'] = item_data['execution_id']
+                            case_payload['case_id'] = item_data['case_id']
+                            case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                            case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
 
-                        # per_case 模式需要为每个用例设置 payload 字段
-                        if execution_mode == 'per_case':
+                            exec_id = item_data['execution_id']
+                            spec_filename = f'test_execution_{exec_id}.spec.ts'
+                            spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+                            env_path = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                            generate_single_case_spec(case_payload, spec_path, env_path, RESULTS_DIR)
+
+                        # 后台线程串行执行每个用例
+                        def _serial_run_cases_now(cases_payload, plan_id, batch_id, RESULTS_DIR, MIDSCENE_SERVICE_DIR):
+                            npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                            pw_log_dir = os.path.join(RESULTS_DIR, 'logs')
+                            os.makedirs(pw_log_dir, exist_ok=True)
+                            node_path = r'D:\install\nodejs'
+
                             for item_data in cases_payload:
-                                case_payload = item_data['payload']
-                                case_payload['execution_id'] = item_data['execution_id']
-                                case_payload['case_id'] = item_data['case_id']
-                                case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
-                                case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
+                                exec_id = item_data['execution_id']
+                                case_id = item_data['case_id']
+                                single_spec = f'test_execution_{exec_id}.spec.ts'
+                                single_env = os.environ.copy()
+                                single_env['TESTHUB_EXECUTION_ID'] = str(exec_id)
+                                single_env['TESTHUB_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
+                                single_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
+                                single_env['TESTHUB_HEADLESS'] = 'false' if not item_data['payload'].get('headless', True) else 'true'
+                                single_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                                single_env['TESTHUB_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                                single_env['PATH'] = node_path + ';' + single_env.get('PATH', '')
 
-                        generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+                                single_log_path = os.path.join(pw_log_dir, f'execution_{exec_id}.log')
+                                single_log_file = open(single_log_path, 'w', encoding='utf-8')
+                                try:
+                                    proc = subprocess.Popen(
+                                        [npx_cmd, 'playwright', 'test', f'e2e/{single_spec}',
+                                         '--config=playwright.config.ts'],
+                                        cwd=MIDSCENE_SERVICE_DIR,
+                                        stdout=single_log_file,
+                                        stderr=single_log_file,
+                                        env=single_env,
+                                        shell=True,
+                                    )
+                                    proc.wait()
+                                except Exception as e:
+                                    import logging as _logging
+                                    _logging.getLogger(__name__).error(f'per_case serial execution error for exec {exec_id}: {e}')
+                                finally:
+                                    single_log_file.close()
 
-                    env = os.environ.copy()
-                    env['TESTHUB_EXECUTION_ID'] = str(cases_payload[0]['execution_id']) if cases_payload else '0'
-                    env['TESTHUB_TASK_ID'] = f'plan-{plan.id}-{batch_id}'
-                    env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{cases_payload[0]["case_id"]}/callback/' if cases_payload else ''
-                    env['TESTHUB_HEADLESS'] = 'true'
-                    env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
-                    env['TESTHUB_ENV_FILE'] = env_path
+                        serial_thread = threading.Thread(
+                            target=_serial_run_cases_now,
+                            args=(cases_payload, plan.id, batch_id, RESULTS_DIR, MIDSCENE_SERVICE_DIR),
+                            daemon=True,
+                        )
+                        serial_thread.start()
 
-                    node_path = r'D:\install\nodejs'
-                    env['PATH'] = node_path + ';' + env.get('PATH', '')
-
-                    npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
-                    # 统一使用单进程模式：所有用例在同一个 spec 文件中串行执行
-                    proc = subprocess.Popen(
-                        [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
-                         '--config=playwright.config.ts'],
-                        cwd=MIDSCENE_SERVICE_DIR,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        env=env,
-                        shell=True,
-                    )
-
-                    if cases_payload:
-                        first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
-                        if first_exec:
-                            log_data = {
-                                'batch_id': batch_id,
-                                'architecture': 'playwright-test',
-                                'spec_path': spec_path,
-                                'env_path': env_path,
-                                'runner_pid': proc.pid,
-                            }
-                            first_exec.logs = json.dumps(log_data)
-                            first_exec.save(update_fields=['logs'])
+                        if cases_payload:
+                            first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                            if first_exec:
+                                log_data = {
+                                    'batch_id': batch_id,
+                                    'architecture': 'playwright-test-serial',
+                                    'mode': 'per_case_serial',
+                                    'total_cases': len(cases_payload),
+                                }
+                                first_exec.logs = json.dumps(log_data)
+                                first_exec.save(update_fields=['logs'])
 
             except Exception as batch_err:
                 # 提交失败，标记所有 execution 为失败
@@ -2723,69 +2734,87 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
                     }
                     generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
                 else:
-                    # ---- per_case / shared_session 统一使用共享会话 spec ----
-                    # 关键修复：per_case 模式不再为每个用例启动独立的 Playwright Test 进程，
-                    # 避免多浏览器进程资源竞争导致失败。改为将所有用例放入同一个 spec 文件
-                    # 作为 test.step() 串行执行，只启动1次浏览器。
-                    from .spec_generator import generate_shared_session_spec
-                    spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
-                    spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
-                    env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
+                    # ---- per_case 模式：每个用例独立 spec + 独立浏览器，串行执行 ----
+                    # 每个用例有自己的浏览器实例，页面状态完全隔离，
+                    # 但串行启动（一个完成后再启动下一个），避免并发资源竞争。
+                    # 在后台线程中串行执行，避免阻塞 Django 请求线程。
+                    from .spec_generator import generate_single_case_spec
+                    import threading
 
-                    # per_case 模式不传 login_config（每个用例独立，不需要统一登录）
-                    batch_config = {
-                        'batch_id': batch_id,
-                        'login_config': {} if execution_mode == 'per_case' else login_config,
-                        'callback_base': 'http://localhost:8000/api/ui-automation',
-                        'execution_mode': execution_mode,
-                    }
+                    for item_data in cases_payload:
+                        case_payload = item_data['payload']
+                        case_payload['execution_id'] = item_data['execution_id']
+                        case_payload['case_id'] = item_data['case_id']
+                        case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                        case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
 
-                    # per_case 模式需要为每个用例设置 payload 字段（兼容 generate_shared_session_spec 的数据格式）
-                    if execution_mode == 'per_case':
+                        exec_id = item_data['execution_id']
+                        spec_filename = f'test_execution_{exec_id}.spec.ts'
+                        spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+                        env_path = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                        generate_single_case_spec(case_payload, spec_path, env_path, RESULTS_DIR)
+
+                    # 后台线程串行执行每个用例
+                    def _serial_run_cases(cases_payload, plan_id, batch_id, RESULTS_DIR, MIDSCENE_SERVICE_DIR):
+                        npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                        pw_log_dir = os.path.join(RESULTS_DIR, 'logs')
+                        os.makedirs(pw_log_dir, exist_ok=True)
+                        node_path = r'D:\install\nodejs'
+
                         for item_data in cases_payload:
-                            case_payload = item_data['payload']
-                            case_payload['execution_id'] = item_data['execution_id']
-                            case_payload['case_id'] = item_data['case_id']
-                            case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
-                            case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
+                            exec_id = item_data['execution_id']
+                            case_id = item_data['case_id']
+                            single_spec = f'test_execution_{exec_id}.spec.ts'
+                            single_env = os.environ.copy()
+                            single_env['TESTHUB_EXECUTION_ID'] = str(exec_id)
+                            single_env['TESTHUB_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
+                            single_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
+                            single_env['TESTHUB_HEADLESS'] = 'false' if not item_data['payload'].get('headless', True) else 'true'
+                            single_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                            single_env['TESTHUB_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                            single_env['PATH'] = node_path + ';' + single_env.get('PATH', '')
 
-                    generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+                            single_log_path = os.path.join(pw_log_dir, f'execution_{exec_id}.log')
+                            single_log_file = open(single_log_path, 'w', encoding='utf-8')
+                            try:
+                                proc = subprocess.Popen(
+                                    [npx_cmd, 'playwright', 'test', f'e2e/{single_spec}',
+                                     '--config=playwright.config.ts'],
+                                    cwd=MIDSCENE_SERVICE_DIR,
+                                    stdout=single_log_file,
+                                    stderr=single_log_file,
+                                    env=single_env,
+                                    shell=True,
+                                )
+                                # 串行等待：等当前用例的浏览器进程结束后再启动下一个
+                                proc.wait()
+                            except Exception as e:
+                                import logging as _logging
+                                _logging.getLogger(__name__).error(f'per_case serial execution error for exec {exec_id}: {e}')
+                            finally:
+                                single_log_file.close()
 
-                env = os.environ.copy()
-                env['TESTHUB_EXECUTION_ID'] = str(cases_payload[0]['execution_id']) if cases_payload else '0'
-                env['TESTHUB_TASK_ID'] = f'plan-{plan.id}-{batch_id}'
-                env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{cases_payload[0]["case_id"]}/callback/' if cases_payload else ''
-                env['TESTHUB_HEADLESS'] = 'true'
-                env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
-                env['TESTHUB_ENV_FILE'] = env_path
+                    serial_thread = threading.Thread(
+                        target=_serial_run_cases,
+                        args=(cases_payload, plan.id, batch_id, RESULTS_DIR, MIDSCENE_SERVICE_DIR),
+                        daemon=True,
+                    )
+                    serial_thread.start()
 
-                node_path = r'D:\install\nodejs'
-                env['PATH'] = node_path + ';' + env.get('PATH', '')
-
-                npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
-                # 统一使用单进程模式：所有用例在同一个 spec 文件中串行执行
-                proc = subprocess.Popen(
-                    [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
-                     '--config=playwright.config.ts'],
-                    cwd=MIDSCENE_SERVICE_DIR,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    env=env,
-                    shell=True,
-                )
-
-                if cases_payload:
-                    first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
-                    if first_exec:
-                        log_data = {
-                            'batch_id': batch_id,
-                            'architecture': 'playwright-test',
-                            'spec_path': spec_path,
-                            'env_path': env_path,
-                            'runner_pid': proc.pid,
-                        }
-                        first_exec.logs = json.dumps(log_data)
-                        first_exec.save(update_fields=['logs'])
+                    # 保存日志信息到第一条执行记录
+                    spec_filename = None
+                    proc = None
+                    if cases_payload:
+                        first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                        if first_exec:
+                            log_data = {
+                                'batch_id': batch_id,
+                                'architecture': 'playwright-test-serial',
+                                'mode': 'per_case_serial',
+                                'total_cases': len(cases_payload),
+                            }
+                            first_exec.logs = json.dumps(log_data)
+                            first_exec.save(update_fields=['logs'])
 
         except Exception as e:
             # 提交失败，把所有execution标记为failed
