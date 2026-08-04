@@ -1,4 +1,20 @@
 export default {
+  dashboard: {
+    all: '全部',
+    web: 'Web端',
+    app: 'APP端',
+    totalExec: '总执行',
+    passed: '通过',
+    failed: '失败',
+    passRate: '通过率',
+    avgDuration: '平均耗时',
+    running: '执行中',
+    execTrend: '近30天执行趋势',
+    platformDist: '平台分布',
+    topFailed: '失败最多用例 Top10',
+    caseName: '用例名称',
+    noData: '暂无数据'
+  },
   scheduledTask: {
     title: 'AI定时任务',
     newTask: '新建任务',

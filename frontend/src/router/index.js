@@ -40,6 +40,7 @@ import AiScheduledTasks from '@/views/ai-automation/AiScheduledTasks.vue'
 import AiNotificationLogs from '@/views/ai-automation/AiNotificationLogs.vue'
 import AiTestPlanList from '@/views/ai-automation/AiTestPlanList.vue'
 import AiTestPlanDetail from '@/views/ai-automation/AiTestPlanDetail.vue'
+import AiDashboard from '@/views/ai-automation/dashboard/Dashboard.vue'
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 const routes = [
@@ -349,7 +350,13 @@ const routes = [
         children: [
             {
                 path: '',
-                redirect: 'projects'
+                redirect: 'dashboard'
+            },
+            {
+                path: 'dashboard',
+                name: 'AiDashboard',
+                component: AiDashboard,
+                meta: { title: '数据看板' }
             },
             {
                 path: 'projects',

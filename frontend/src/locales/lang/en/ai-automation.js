@@ -1,4 +1,20 @@
 export default {
+  dashboard: {
+    all: 'All',
+    web: 'Web',
+    app: 'App',
+    totalExec: 'Total',
+    passed: 'Passed',
+    failed: 'Failed',
+    passRate: 'Pass Rate',
+    avgDuration: 'Avg Duration',
+    running: 'Running',
+    execTrend: '30-Day Execution Trend',
+    platformDist: 'Platform Distribution',
+    topFailed: 'Top 10 Failed Cases',
+    caseName: 'Case Name',
+    noData: 'No data'
+  },
   scheduledTask: {
     title: 'AI Scheduled Tasks',
     newTask: 'New Task',
