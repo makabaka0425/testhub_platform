@@ -2113,6 +2113,7 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
 
                     if execution_mode == 'shared_session':
                         from .spec_generator import generate_shared_session_spec
+                        import threading
                         spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
                         spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
                         env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
@@ -2124,6 +2125,59 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                             'execution_mode': execution_mode,
                         }
                         generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+
+                        # 后台线程启动 Playwright Test 执行共享会话 spec
+                        def _run_shared_session_now(cases_payload, plan_id, batch_id, spec_filename, env_path, RESULTS_DIR, MIDSCENE_SERVICE_DIR):
+                            npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                            pw_log_dir = os.path.join(RESULTS_DIR, 'logs')
+                            os.makedirs(pw_log_dir, exist_ok=True)
+                            node_path = r'D:\install\nodejs'
+
+                            shared_env = os.environ.copy()
+                            shared_env['TESTHUB_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
+                            shared_env['TESTHUB_HEADLESS'] = 'false' if not first_payload.get('headless', True) else 'true'
+                            shared_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                            shared_env['TESTHUB_ENV_FILE'] = env_path
+                            shared_env['PATH'] = node_path + ';' + shared_env.get('PATH', '')
+
+                            log_path = os.path.join(pw_log_dir, f'plan_{plan_id}_batch_{batch_id}.log')
+                            log_file = open(log_path, 'w', encoding='utf-8')
+                            try:
+                                proc = subprocess.Popen(
+                                    [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
+                                     '--config=playwright.config.ts'],
+                                    cwd=MIDSCENE_SERVICE_DIR,
+                                    stdout=log_file,
+                                    stderr=log_file,
+                                    env=shared_env,
+                                    shell=True,
+                                )
+                                proc.wait()
+                            except Exception as e:
+                                import logging as _logging
+                                _logging.getLogger(__name__).error(f'shared_session execution error for plan {plan_id}: {e}')
+                            finally:
+                                log_file.close()
+
+                        shared_thread = threading.Thread(
+                            target=_run_shared_session_now,
+                            args=(cases_payload, plan.id, batch_id, spec_filename, env_path, RESULTS_DIR, MIDSCENE_SERVICE_DIR),
+                            daemon=True,
+                        )
+                        shared_thread.start()
+
+                        # 保存日志信息到第一条执行记录
+                        if cases_payload:
+                            first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                            if first_exec:
+                                first_exec.logs = json.dumps({
+                                    'batch_id': batch_id,
+                                    'architecture': 'playwright-test-shared',
+                                    'mode': 'shared_session',
+                                    'total_cases': len(cases_payload),
+                                    'spec_file': spec_filename,
+                                })
+                                first_exec.save(update_fields=['logs'])
                     else:
                         # ---- per_case 模式：每个用例独立 spec + 独立浏览器，串行执行 ----
                         from .spec_generator import generate_single_case_spec
@@ -2722,6 +2776,7 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
 
                 if execution_mode == 'shared_session':
                     from .spec_generator import generate_shared_session_spec
+                    import threading
                     spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
                     spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
                     env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
@@ -2733,6 +2788,59 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
                         'execution_mode': execution_mode,
                     }
                     generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+
+                    # 后台线程启动 Playwright Test 执行共享会话 spec
+                    def _run_shared_session(cases_payload, plan_id, batch_id, spec_filename, env_path, RESULTS_DIR, MIDSCENE_SERVICE_DIR):
+                        npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                        pw_log_dir = os.path.join(RESULTS_DIR, 'logs')
+                        os.makedirs(pw_log_dir, exist_ok=True)
+                        node_path = r'D:\install\nodejs'
+
+                        shared_env = os.environ.copy()
+                        shared_env['TESTHUB_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
+                        shared_env['TESTHUB_HEADLESS'] = 'false' if not first_payload.get('headless', True) else 'true'
+                        shared_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                        shared_env['TESTHUB_ENV_FILE'] = env_path
+                        shared_env['PATH'] = node_path + ';' + shared_env.get('PATH', '')
+
+                        log_path = os.path.join(pw_log_dir, f'plan_{plan_id}_batch_{batch_id}.log')
+                        log_file = open(log_path, 'w', encoding='utf-8')
+                        try:
+                            proc = subprocess.Popen(
+                                [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
+                                 '--config=playwright.config.ts'],
+                                cwd=MIDSCENE_SERVICE_DIR,
+                                stdout=log_file,
+                                stderr=log_file,
+                                env=shared_env,
+                                shell=True,
+                            )
+                            proc.wait()
+                        except Exception as e:
+                            import logging as _logging
+                            _logging.getLogger(__name__).error(f'shared_session execution error for plan {plan_id}: {e}')
+                        finally:
+                            log_file.close()
+
+                    shared_thread = threading.Thread(
+                        target=_run_shared_session,
+                        args=(cases_payload, plan.id, batch_id, spec_filename, env_path, RESULTS_DIR, MIDSCENE_SERVICE_DIR),
+                        daemon=True,
+                    )
+                    shared_thread.start()
+
+                    # 保存日志信息到第一条执行记录
+                    if cases_payload:
+                        first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                        if first_exec:
+                            first_exec.logs = json.dumps({
+                                'batch_id': batch_id,
+                                'architecture': 'playwright-test-shared',
+                                'mode': 'shared_session',
+                                'total_cases': len(cases_payload),
+                                'spec_file': spec_filename,
+                            })
+                            first_exec.save(update_fields=['logs'])
                 else:
                     # ---- per_case 模式：每个用例独立 spec + 独立浏览器，串行执行 ----
                     # 每个用例有自己的浏览器实例，页面状态完全隔离，
