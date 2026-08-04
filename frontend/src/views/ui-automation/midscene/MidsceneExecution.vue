@@ -323,11 +323,19 @@
 
                 <el-tab-pane label="测试步骤" name="steps">
                   <div class="steps-editor-drawer">
-                    <div v-for="(step, idx) in drawerForm.steps" :key="idx" class="step-row-block">
-                      <!-- 主行：序号 + 模式标签 + 描述 + 删除 -->
-                      <div class="step-row-main" @click.self="toggleDrawerStep(idx)">
-                        <el-icon class="step-toggle-icon" :class="{ 'is-expanded': drawerExpandedSteps.has(idx) }" @click.stop="toggleDrawerStep(idx)"><ArrowRight /></el-icon>
-                        <span class="step-order">{{ idx + 1 }}.</span>
+                    <draggable
+                      v-model="drawerForm.steps"
+                      item-key="_uid"
+                      handle=".drag-handle"
+                      @change="onDrawerStepsReorder"
+                    >
+                      <template #item="{ element: step, index: idx }">
+                      <div class="step-row-block">
+                        <!-- 主行：拖拽手柄 + 序号 + 模式标签 + 描述 + 删除 -->
+                        <div class="step-row-main" @click.self="toggleDrawerStep(idx)">
+                          <el-icon class="drag-handle" @click.stop><Rank /></el-icon>
+                          <el-icon class="step-toggle-icon" :class="{ 'is-expanded': drawerExpandedSteps.has(idx) }" @click.stop="toggleDrawerStep(idx)"><ArrowRight /></el-icon>
+                          <span class="step-order">{{ idx + 1 }}.</span>
                         <el-tag
                           :type="step.mode === 'traditional' ? 'warning' : 'success'"
                           size="small"
@@ -354,6 +362,7 @@
                       </div>
                       <!-- 展开区 -->
                       <div v-if="drawerExpandedSteps.has(idx)" class="step-row-params">
+                        <span class="step-params-indent-drag"></span>
                         <span class="step-params-indent-toggle"></span>
                         <span class="step-params-indent-order"></span>
 
@@ -440,6 +449,8 @@
                         <span class="step-params-indent-delete"></span>
                       </div>
                     </div>
+                      </template>
+                    </draggable>
                     <div style="display:flex;gap:8px;margin-top:4px">
                       <el-button link type="primary" @click="addStepToDrawer('ai')">+ AI步骤</el-button>
                       <el-button link type="warning" @click="addStepToDrawer('traditional')">+ 传统步骤</el-button>
@@ -760,10 +771,18 @@
         <!-- 步骤编辑 -->
         <el-form-item label="测试步骤">
           <div class="steps-editor">
-            <div v-for="(step, idx) in caseForm.steps" :key="idx" class="step-row-block">
-              <div class="step-row-main" @click.self="toggleCaseStep(idx)">
-                <el-icon class="step-toggle-icon" :class="{ 'is-expanded': caseExpandedSteps.has(idx) }" @click.stop="toggleCaseStep(idx)"><ArrowRight /></el-icon>
-                <span class="step-order">{{ idx + 1 }}.</span>
+            <draggable
+              v-model="caseForm.steps"
+              item-key="_uid"
+              handle=".drag-handle"
+              @change="onCaseStepsReorder"
+            >
+              <template #item="{ element: step, index: idx }">
+              <div class="step-row-block">
+                <div class="step-row-main" @click.self="toggleCaseStep(idx)">
+                  <el-icon class="drag-handle" @click.stop><Rank /></el-icon>
+                  <el-icon class="step-toggle-icon" :class="{ 'is-expanded': caseExpandedSteps.has(idx) }" @click.stop="toggleCaseStep(idx)"><ArrowRight /></el-icon>
+                  <span class="step-order">{{ idx + 1 }}.</span>
                 <el-tag
                   :type="step.mode === 'traditional' ? 'warning' : 'success'"
                   size="small" class="step-mode-tag"
@@ -777,6 +796,7 @@
                 </el-button>
               </div>
               <div v-if="caseExpandedSteps.has(idx)" class="step-row-params">
+                <span class="step-params-indent-drag"></span>
                 <span class="step-params-indent-toggle"></span>
                 <span class="step-params-indent-order"></span>
                 <!-- AI模式 -->
@@ -860,6 +880,8 @@
                 <span class="step-params-indent-delete"></span>
               </div>
             </div>
+              </template>
+            </draggable>
             <div style="display:flex;gap:8px">
               <el-button link type="primary" @click="addStep('ai')">+ AI步骤</el-button>
               <el-button link type="warning" @click="addStep('traditional')">+ 传统步骤</el-button>
@@ -1110,8 +1132,9 @@ import { ref, reactive, onMounted, computed, watch, nextTick, onBeforeUnmount } 
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
-import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick, ArrowRight, ArrowDown, CopyDocument, PictureFilled } from '@element-plus/icons-vue'
+import { Download, Plus, VideoPlay, Delete, Loading, Check, Close, Search, CaretRight, CaretLeft, Edit, MagicStick, ArrowRight, ArrowDown, CopyDocument, PictureFilled, Rank } from '@element-plus/icons-vue'
 import ActionCell from '@/components/ActionCell.vue'
+import draggable from 'vuedraggable'
 import {
   getMidsceneGroups, getMidsceneGroupTree, createMidsceneGroup, updateMidsceneGroup, deleteMidsceneGroup, batchReorderMidsceneGroups,
   getMidsceneCases, createMidsceneCase, updateMidsceneCase, deleteMidsceneCase,
@@ -1668,6 +1691,19 @@ function toggleDrawerStep(idx) {
     drawerExpandedSteps.value.add(idx)
   }
 }
+
+function onDrawerStepsReorder() {
+  // 抽屉步骤重新排序后，重建折叠索引
+  const oldSet = new Set(drawerExpandedSteps.value)
+  drawerExpandedSteps.value.clear()
+  oldSet.forEach(() => drawerExpandedSteps.value.add(oldSet.size > 0 ? 0 : 0)) // 清除旧索引
+}
+
+function onCaseStepsReorder() {
+  // 新建用例步骤重新排序后，清除折叠索引
+  caseExpandedSteps.value.clear()
+}
+
 const caseForm = reactive({
   name: '', platform: 'web', device_type: '', description: '', group_id: null,
   url: '', headless: false, cache_strategy: 'normal', new_tab: false,
@@ -1706,10 +1742,11 @@ function openCreateDialog() {
   caseDialogVisible.value = true
 }
 
+let _stepUid = 0
 function addStep(mode = 'ai') {
   const idx = caseForm.steps.length
   caseForm.steps.push({
-    order: idx + 1, type: 'action', mode,
+    _uid: ++_stepUid, order: idx + 1, type: 'action', mode,
     instruction: '', input_value: '', output_var: '',
     locator_value: '', action_type: '', assert_type: '', assert_value: '',
     retry_count: 0
@@ -1841,7 +1878,7 @@ function openDetailDrawer(caseData) {
     ai_model_config_override: caseData.ai_model_config_override || {},
     device_config_override: caseData.device_config_override || {},
     app_name_mapping: caseData.app_name_mapping || {},
-    steps: (caseData.steps || []).map(s => ({ ...s, mode: s.mode || 'ai', input_value: s.input_value || '', output_var: s.output_var || '', locator_value: s.locator_value || '', action_type: s.action_type || '', assert_type: s.assert_type || '', assert_value: s.assert_value || '', retry_count: s.retry_count ?? 0 })),
+    steps: (caseData.steps || []).map(s => ({ ...s, _uid: ++_stepUid, mode: s.mode || 'ai', input_value: s.input_value || '', output_var: s.output_var || '', locator_value: s.locator_value || '', action_type: s.action_type || '', assert_type: s.assert_type || '', assert_value: s.assert_value || '', retry_count: s.retry_count ?? 0 })),
     output_variables: caseData.output_variables || [],
     precondition_sql: caseData.precondition_sql || '',
     postcondition_sql: caseData.postcondition_sql || '',
@@ -1885,7 +1922,7 @@ function startResize(e) {
 function addStepToDrawer(mode = 'ai') {
   const idx = drawerForm.steps.length
   drawerForm.steps.push({
-    order: idx + 1, type: 'action', mode,
+    _uid: ++_stepUid, order: idx + 1, type: 'action', mode,
     instruction: '', input_value: '', output_var: '',
     // 传统模式字段（AI模式不使用）
     locator_value: '', action_type: '', assert_type: '', assert_value: '',
@@ -2555,6 +2592,17 @@ watch(() => route.path, () => {
   user-select: none;
 }
 
+.drag-handle {
+  cursor: move;
+  color: #c0c4cc;
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.drag-handle:hover {
+  color: #606266;
+}
+
 .step-toggle-icon {
   cursor: pointer;
   transition: transform 0.2s ease;
@@ -2575,6 +2623,12 @@ watch(() => route.path, () => {
 }
 
 /* 参数行占位：和主行对应元素等宽，确保输入值/输出变量和 instruction 对齐 */
+.step-params-indent-drag {
+  flex-shrink: 0;
+  /* 和 .drag-handle 同宽 */
+  width: 14px;
+}
+
 .step-params-indent-toggle {
   flex-shrink: 0;
   /* 和 .step-toggle-icon 同宽（icon font-size 12px + 自身无额外宽度） */
