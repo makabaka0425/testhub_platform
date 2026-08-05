@@ -1,75 +1,74 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <div class="page-titlebar">
       <h1 class="page-title">{{ $t('project.projectManagement') }}</h1>
-      <el-button type="primary" @click="handleCreateProject">
-        <el-icon><Plus /></el-icon>
-        {{ $t('project.newProject') }}
-      </el-button>
+      <div class="titlebar-actions">
+        <el-button type="primary" @click="handleCreateProject">
+          <el-icon><Plus /></el-icon>
+          {{ $t('project.newProject') }}
+        </el-button>
+      </div>
     </div>
 
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
-            <el-input
-              v-model="searchText"
-              :placeholder="$t('project.searchPlaceholder')"
-              clearable
-              @input="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-col>
-          <el-col :span="4">
-            <el-select v-model="statusFilter" :placeholder="$t('project.statusFilter')" clearable @change="handleFilter">
-              <el-option :label="$t('project.active')" value="active" />
-              <el-option :label="$t('project.paused')" value="paused" />
-              <el-option :label="$t('project.completed')" value="completed" />
-              <el-option :label="$t('project.archived')" value="archived" />
-            </el-select>
-          </el-col>
-        </el-row>
-      </div>
-      
-      <el-table :data="projects" v-loading="loading" style="width: 100%">
-        <el-table-column prop="name" :label="$t('project.projectName')" min-width="200">
-          <template #default="{ row }">
-            <el-link @click="goToProject(row.id)" type="primary">
-              {{ row.name }}
-            </el-link>
-          </template>
-        </el-table-column>
-        <el-table-column prop="description" :label="$t('project.description')" min-width="300" show-overflow-tooltip />
-        <el-table-column prop="status" :label="$t('project.status')" width="100">
-          <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="owner.username" :label="$t('project.owner')" width="120" />
-        <el-table-column prop="created_at" :label="$t('project.createdAt')" width="180">
-          <template #default="{ row }">
-            {{ formatDate(row.created_at) }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('project.actions')" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="editProject(row)">{{ $t('common.edit') }}</el-button>
-            <el-button size="small" type="danger" @click="deleteProject(row)">{{ $t('common.delete') }}</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="currentPage"
-          :page-size="pageSize"
-          :total="total"
-          layout="total, prev, pager, next"
-          @current-change="handlePageChange"
-        />
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 搜索区域卡片 -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item>
+              <el-input v-model="searchText" :placeholder="$t('project.searchPlaceholder')" clearable style="width: 200px" @input="handleSearch">
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item>
+              <el-select v-model="statusFilter" :placeholder="$t('project.statusFilter')" clearable style="width: 130px" @change="handleFilter">
+                <el-option :label="$t('project.active')" value="active" />
+                <el-option :label="$t('project.paused')" value="paused" />
+                <el-option :label="$t('project.completed')" value="completed" />
+                <el-option :label="$t('project.archived')" value="archived" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- 项目列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__body project-table-wrapper">
+            <el-table :data="projects" v-loading="loading" height="100%">
+              <el-table-column prop="name" :label="$t('project.projectName')" min-width="200">
+                <template #default="{ row }">
+                  <el-link @click="goToProject(row.id)" type="primary">{{ row.name }}</el-link>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" :label="$t('project.description')" min-width="300" show-overflow-tooltip />
+              <el-table-column prop="status" :label="$t('project.status')" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="owner.username" :label="$t('project.owner')" width="100" />
+              <el-table-column prop="created_at" :label="$t('project.createdAt')" width="180" :formatter="formatDate" />
+              <el-table-column :label="$t('project.actions')" width="150" fixed="right">
+                <template #default="{ row }">
+                  <el-button link class="op-btn" @click="editProject(row)">{{ $t('common.edit') }}</el-button>
+                  <el-button link class="op-btn op-btn--danger" @click="deleteProject(row)">{{ $t('common.delete') }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="currentPage"
+              v-model:page-size="pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="total"
+              @size-change="() => { currentPage = 1; fetchProjects() }"
+              @current-change="handlePageChange"
+            />
+          </div>
+        </section>
       </div>
     </div>
     
@@ -121,6 +120,7 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Search } from '@element-plus/icons-vue'
 import api from '@/utils/api'
 import dayjs from 'dayjs'
 
@@ -216,7 +216,6 @@ const resetForm = () => {
   form.description = ''
   form.status = 'active'
   isEdit.value = false
-  // 清除表单验证错误
   if (formRef.value) {
     formRef.value.clearValidate()
   }
@@ -286,8 +285,9 @@ const getStatusText = (status) => {
   return textMap[status] || status
 }
 
-const formatDate = (dateString) => {
-  return dayjs(dateString).format('YYYY-MM-DD HH:mm')
+const formatDate = (row, column, cellValue) => {
+  if (!cellValue) return ''
+  return dayjs(cellValue).format('YYYY-MM-DD HH:mm')
 }
 
 onMounted(() => {
@@ -295,145 +295,116 @@ onMounted(() => {
 })
 </script>
 
-<style lang="scss" scoped>
-.filter-bar {
-  margin-bottom: 20px;
+<style scoped lang="scss">
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.project-table-wrapper {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
 }
 
 .pagination-container {
-  margin-top: 20px;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
 }
 
-@media screen and (max-width: 1920px) {
-  .filter-bar {
-    margin-bottom: 18px;
-  }
-  
-  .pagination-container {
-    margin-top: 18px;
-  }
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
 }
 
-@media screen and (max-width: 1600px) {
-  .filter-bar {
-    margin-bottom: 16px;
-  }
-  
-  .pagination-container {
-    margin-top: 16px;
-  }
-}
-
-@media screen and (max-width: 1440px) {
-  .filter-bar {
-    margin-bottom: 14px;
-  }
-  
-  .pagination-container {
-    margin-top: 14px;
-  }
-}
-
-@media screen and (max-width: 1366px) {
-  .filter-bar {
-    margin-bottom: 12px;
-  }
-  
-  .pagination-container {
-    margin-top: 12px;
-  }
-}
-
-@media screen and (max-width: 1280px) {
-  .filter-bar {
-    margin-bottom: 12px;
-  }
-  
-  .pagination-container {
-    margin-top: 12px;
-  }
-}
-
-@media screen and (max-width: 1024px) {
-  .filter-bar {
-    margin-bottom: 10px;
-    
-    :deep(.el-row) {
-      flex-direction: column;
-      
-      .el-col {
-        width: 100%;
-        margin-bottom: 10px;
-      }
-    }
-  }
-  
-  .pagination-container {
-    margin-top: 10px;
-    
-    :deep(.el-pagination) {
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-  }
-}
-
-@media screen and (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  
-  .filter-bar {
-    margin-bottom: 8px;
-  }
-  
-  .pagination-container {
-    margin-top: 8px;
-    
-    :deep(.el-pagination) {
-      :deep(.el-pagination__sizes),
-      :deep(.el-pagination__jump) {
-        display: none;
-      }
-    }
-  }
-  
-  :deep(.el-dialog) {
-    width: 95% !important;
-    margin: 0 auto;
-  }
-}
-
-@media screen and (max-width: 480px) {
-  .page-header {
-    :deep(.el-button) {
-      width: 100%;
-    }
-  }
-  
-  .filter-bar {
-    margin-bottom: 6px;
-  }
-  
-  .pagination-container {
-    margin-top: 6px;
-  }
-  
-  :deep(.el-table) {
-    font-size: 12px;
-    
-    .el-button {
-      padding: 5px 8px;
-      font-size: 12px;
-    }
-  }
-  
-  :deep(.el-dialog) {
-    width: 98% !important;
-  }
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
 }
 </style>

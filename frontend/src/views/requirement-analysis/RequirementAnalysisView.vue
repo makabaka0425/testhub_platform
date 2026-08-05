@@ -199,7 +199,7 @@
       </div>
 
       <!-- 右栏：输出展示（页签式三阶段） -->
-      <div class="right-panel" :style="{ width: rightPanelWidth + 'px' }">
+      <div class="right-panel">
         <!-- 页签栏 -->
         <div class="stage-tabs">
           <div
@@ -1755,7 +1755,7 @@ export default {
 .left-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: none;
   min-width: 300px;
   background: white;
   border-radius: 12px;

@@ -92,8 +92,8 @@
             <div v-for="(item, index) in planItems" :key="item.id" class="plan-item-row">
               <div class="item-index">{{ index + 1 }}</div>
               <div class="item-name">{{ item.midscene_case_name }}</div>
-              <el-tag size="small" :type="item.platform === 'web' ? '' : 'warning'" class="item-type-tag">
-                {{ item.platform === 'web' ? 'Web端' : 'APP端' }}
+              <el-tag size="small" :type="item.platform_display === 'Web端' ? '' : 'warning'" class="item-type-tag">
+                {{ item.platform_display || 'Web端' }}
               </el-tag>
               <el-button link type="danger" @click="removeItem(item)" class="remove-btn">
                 <el-icon><Close /></el-icon>

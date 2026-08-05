@@ -2,7 +2,7 @@
   <div class="layout">
     <el-container>
       <!-- 侧边栏 -->
-      <el-aside width="160px">
+      <el-aside width="220px">
         <div class="logo" @click="router.push('/home')" style="cursor: pointer;">
         <!-- <img :src="logoImage" alt="灵测" class="logo-img" /> -->
           <!-- logo待替换，暂留空白 -->
@@ -10,7 +10,7 @@
         <el-menu
           :default-active="$route.path"
           router
-          background-color="#F8F9FA"
+          background-color="#fff"
           text-color="#333"
           active-text-color="#1890ff"
         >
@@ -36,19 +36,19 @@
               <el-icon><DocumentCopy /></el-icon>
               <span>{{ $t('menu.testCases') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/reviews">
+            <el-menu-item v-if="false" index="/ai-generation/reviews">
               <el-icon><Check /></el-icon>
               <span>{{ $t('menu.reviewManagement') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/review-templates">
+            <el-menu-item v-if="false" index="/ai-generation/review-templates">
               <el-icon><Edit /></el-icon>
               <span>{{ $t('menu.reviewTemplates') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/executions">
+            <el-menu-item v-if="false" index="/ai-generation/executions">
               <el-icon><VideoPlay /></el-icon>
               <span>{{ $t('menu.testPlan') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-generation/reports">
+            <el-menu-item v-if="false" index="/ai-generation/reports">
               <el-icon><DataAnalysis /></el-icon>
               <span>{{ $t('menu.testReport') }}</span>
             </el-menu-item>
@@ -94,8 +94,8 @@
             </el-menu-item>
           </template>
 
-          <!-- Bug缺陷管理模块菜单 -->
-          <template v-else-if="currentModule === 'defects'">
+          <!-- Bug缺陷管理模块菜单（暂时隐藏） -->
+          <template v-if="false">
             <el-menu-item index="/defects/dashboard">
               <el-icon><Odometer /></el-icon>
               <span>{{ $t('menu.defectDashboard') }}</span>
@@ -225,24 +225,32 @@
 
           <!-- AI 智能模式模块菜单 -->
           <template v-else-if="currentModule === 'ai-intelligent-mode'">
+            <el-menu-item index="/ai-intelligent-mode/dashboard">
+              <el-icon><Odometer /></el-icon>
+              <span>{{ $t('menu.dashboard') }}</span>
+            </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/projects">
               <el-icon><Folder /></el-icon>
               <span>{{ $t('menu.aiProjectManagement') }}</span>
             </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/midscene-web">
-              <el-icon><Monitor /></el-icon>
-              <span>{{ $t('menu.midsceneWeb') }}</span>
-            </el-menu-item>
-            <el-menu-item index="/ai-intelligent-mode/midscene-app">
-              <el-icon><Iphone /></el-icon>
-              <span>{{ $t('menu.midsceneApp') }}</span>
-            </el-menu-item>
+            <el-sub-menu index="ai-automation" class="ai-automation-submenu" @title-click="router.push('/ai-intelligent-mode/dashboard')">
+              <template #title>
+                <el-icon><Monitor /></el-icon>
+                <span>{{ $t('menu.midsceneExecution') }}</span>
+              </template>
+              <el-menu-item index="/ai-intelligent-mode/midscene-web">
+                <span>{{ $t('menu.midsceneWeb') }}</span>
+              </el-menu-item>
+              <el-menu-item index="/ai-intelligent-mode/midscene-app">
+                <span>{{ $t('menu.midsceneApp') }}</span>
+              </el-menu-item>
+            </el-sub-menu>
             <el-menu-item index="/ai-intelligent-mode/test-plans">
-              <el-icon><Tickets /></el-icon>
+              <el-icon><DataAnalysis /></el-icon>
               <span>{{ $t('menu.aiTestPlan') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/midscene-reports">
-              <el-icon><DataAnalysis /></el-icon>
+              <el-icon><List /></el-icon>
               <span>{{ $t('menu.aiTestReport') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-intelligent-mode/scheduled-tasks">
@@ -310,6 +318,10 @@
             <el-menu-item index="/configuration/dify">
               <el-icon><ChatDotRound /></el-icon>
               <span>{{ $t('menu.difyConfig') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/configuration/midscene-config">
+              <el-icon><Coordinate /></el-icon>
+              <span>{{ $t('menu.midsceneConfig') }}</span>
             </el-menu-item>
           </template>
         </el-menu>
@@ -384,7 +396,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram, View
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus, Key, List, Histogram, View, Coordinate
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -497,6 +509,7 @@ const breadcrumbTitle = computed(() => {
     '/app-automation/reports': t('menu.testReport'),
 
     // AI 智能模式
+    '/ai-intelligent-mode/dashboard': t('menu.dashboard'),
     '/ai-intelligent-mode/projects': t('menu.aiProjectManagement'),
     '/ai-intelligent-mode/testing': t('menu.aiIntelligentTesting'),
     '/ai-intelligent-mode/cases': t('menu.aiCaseManagement'),
@@ -516,6 +529,7 @@ const breadcrumbTitle = computed(() => {
     '/configuration/ai-mode': t('menu.aiModeConfig'),
     '/configuration/scheduled-task': t('menu.scheduledTaskConfig'),
     '/configuration/dify': t('menu.difyConfig'),
+    '/configuration/midscene-config': t('menu.midsceneConfig'),
     
     '/profile': t('nav.profile')
   }
@@ -556,7 +570,7 @@ const handleCommand = (command) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #F8F9FA;
+  background-color: #fff;
   color: #333;
   border-bottom: 1px solid #edf0f2;
   flex-shrink: 0;
@@ -569,13 +583,13 @@ const handleCommand = (command) => {
 	}
 
 .el-aside {
-  background-color: #F8F9FA;
+  background-color: #fff;
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: width 0.3s ease;
-  width: 160px !important;
+  width: 220px !important;
 
   .el-menu {
     flex: 1;
@@ -663,27 +677,81 @@ const handleCommand = (command) => {
   }
 }
 
-/* AI智能调试子菜单：修复展开箭头与文字重叠 */
-.ai-debug-submenu {
-  :deep(.el-sub-menu__title) {
-    .el-sub-menu__icon-arrow {
-      position: absolute;
-      right: 12px;
-    }
-    span {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-  :deep(.el-menu-item) {
-    padding-left: 44px !important;
+  /* 子菜单项：统一层级展示——缩进、颜色、高度与父级区分，字号一致 */
+  :deep(.el-sub-menu .el-menu-item) {
+    padding-left: 48px !important;
     height: 40px;
     line-height: 40px;
-    font-size: 13px;
+    color: #666 !important;
+    position: relative;
+
+    /* 左侧层级指示竖线 */
+    &::before {
+      content: '';
+      position: absolute;
+      left: 30px;
+      top: 8px;
+      bottom: 8px;
+      width: 1px;
+      background: #e0e0e0;
+      border-radius: 1px;
+    }
+
+    span {
+      color: #666;
+    }
   }
-}
+
+  /* 子菜单项悬停 */
+  :deep(.el-sub-menu .el-menu-item:hover) {
+    color: #333 !important;
+    span {
+      color: #333;
+    }
+  }
+
+  /* 子菜单项选中 */
+  :deep(.el-sub-menu .el-menu-item.is-active) {
+    color: #1890FF !important;
+    span {
+      color: #1890FF !important;
+    }
+    &::before {
+      background: #1890FF;
+    }
+  }
+
+  /* AI自动化测试子菜单：修复展开箭头与文字重叠 */
+  .ai-automation-submenu {
+    :deep(.el-sub-menu__title) {
+      .el-sub-menu__icon-arrow {
+        position: absolute;
+        right: 12px;
+      }
+      span {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
+
+  /* AI智能调试子菜单：修复展开箭头与文字重叠 */
+  .ai-debug-submenu {
+    :deep(.el-sub-menu__title) {
+      .el-sub-menu__icon-arrow {
+        position: absolute;
+        right: 12px;
+      }
+      span {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
 
 .el-container .el-container {
   height: 100%;
@@ -795,13 +863,13 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1920px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 }
 
 @media screen and (max-width: 1600px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-menu {
@@ -814,7 +882,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1440px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-menu {
@@ -827,7 +895,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1366px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-header {
@@ -844,7 +912,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1280px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-header {
@@ -866,7 +934,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 1024px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
 
   .el-header {
@@ -896,7 +964,7 @@ const handleCommand = (command) => {
     left: 0;
     top: 0;
     z-index: 1000;
-    width: 160px !important;
+    width: 220px !important;
     transform: translateX(-100%);
     transition: transform 0.3s ease;
     
@@ -924,7 +992,7 @@ const handleCommand = (command) => {
 
 @media screen and (max-width: 480px) {
   .el-aside {
-    width: 160px !important;
+    width: 220px !important;
   }
   
   .el-header {

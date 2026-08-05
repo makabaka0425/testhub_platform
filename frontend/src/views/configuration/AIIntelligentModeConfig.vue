@@ -27,7 +27,6 @@
                   <span v-if="config.role" class="role-badge" :class="config.role">
                     {{ $t('configuration.aiMode.roles.' + config.role) || config.role }}
                   </span>
-                  <span class="model-name-badge">{{ config.model_name }}</span>
                   <span class="status-badge" :class="{ active: config.is_active }">
                     {{ config.is_active ? $t('configuration.common.enabled') : $t('configuration.common.disabled') }}
                   </span>
@@ -44,8 +43,8 @@
                 <button class="test-btn" @click="testConnection(config)" :disabled="config.testing">
                   {{ $t('configuration.aiMode.testConnection') }}
                 </button>
-                <button class="edit-btn" @click="editConfig(config)">✏️</button>
-                <button class="delete-btn" @click="deleteConfig(config.id)">🗑️</button>
+                  <button class="edit-btn" @click="editConfig(config)">{{ $t('configuration.common.edit') }}</button>
+                  <button class="delete-btn" @click="deleteConfig(config.id)">{{ $t('configuration.common.delete') }}</button>
               </div>
             </div>
 
@@ -53,6 +52,22 @@
               <div class="detail-item">
                 <label>{{ $t('configuration.aiMode.baseUrl') }}:</label>
                 <span>{{ config.base_url || $t('configuration.common.notSet') }}</span>
+              </div>
+              <div class="detail-item">
+                <label>{{ $t('configuration.aiMode.modelName') }}:</label>
+                <span>{{ config.model_name || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>{{ $t('configuration.aiMode.maxTokens') }}:</label>
+                <span>{{ config.max_tokens || '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>{{ $t('configuration.aiMode.temperature') }}:</label>
+                <span>{{ config.temperature ?? '-' }}</span>
+              </div>
+              <div class="detail-item">
+                <label>{{ $t('configuration.aiMode.topP') }}:</label>
+                <span>{{ config.top_p ?? '-' }}</span>
               </div>
               <div class="detail-item">
                 <label>{{ $t('configuration.common.createdAt') }}:</label>
@@ -672,7 +687,7 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.provider-badge, .model-name-badge, .status-badge {
+.provider-badge, .status-badge {
   padding: 4px 12px;
   border-radius: 20px;
   font-size: 0.8rem;
@@ -707,11 +722,6 @@ onMounted(() => {
 .provider-badge.other {
   background: #eceff1;
   color: #455a64;
-}
-
-.model-name-badge {
-  background: #f3e5f5;
-  color: #7b1fa2;
 }
 
 .role-badge {

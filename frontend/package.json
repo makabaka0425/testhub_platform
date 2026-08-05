@@ -14,7 +14,7 @@
     "axios": "^1.5.0",
     "curlconverter": "^4.12.0",
     "dayjs": "^1.11.9",
-    "echarts": "^5.4.3",
+    "echarts": "^5.6.0",
     "element-plus": "^2.3.9",
     "highlight.js": "^11.11.1",
     "lodash-es": "^4.17.21",

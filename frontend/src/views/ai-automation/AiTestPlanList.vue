@@ -72,6 +72,13 @@
                   </el-tag>
                 </template>
               </el-table-column>
+              <el-table-column label="执行模式" width="100">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="row.execution_mode === 'shared_session' ? 'warning' : 'info'">
+                    {{ row.execution_mode === 'shared_session' ? '共享会话' : '独立模式' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               <el-table-column label="计划项" width="80">
                 <template #default="{ row }">{{ row.plan_item_count || 0 }}</template>
               </el-table-column>
@@ -130,7 +137,7 @@
     </div>
 
     <!-- 创建/编辑计划对话框 -->
-    <el-dialog v-model="showEditDialog" :title="isEditing ? '编辑测试计划' : '新建测试计划'" width="600px" :close-on-click-modal="false">
+    <el-dialog v-model="showEditDialog" :title="isEditing ? '编辑测试计划' : '新建测试计划'" width="640px" :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="100px">
         <el-form-item label="计划名称" prop="name">
           <el-input v-model="form.name" placeholder="请输入计划名称" />
@@ -141,6 +148,28 @@
             <el-radio label="app">APP端</el-radio>
           </el-radio-group>
           <div class="mode-desc" v-if="!isEditing">选择平台后，只能添加该平台的用例</div>
+        </el-form-item>
+        <el-form-item label="执行模式" prop="execution_mode">
+          <el-radio-group v-model="form.execution_mode">
+            <el-radio label="per_case">独立模式</el-radio>
+            <el-radio label="shared_session">共享会话</el-radio>
+          </el-radio-group>
+          <div class="mode-desc">
+            <template v-if="form.execution_mode === 'per_case'">每条用例独立启动浏览器，互不影响</template>
+            <template v-else>共用一个浏览器，变量池跨用例共享，登录仅执行一次</template>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="form.execution_mode === 'shared_session'" label="登录URL">
+          <el-input v-model="form.login_config.url" placeholder="可选，登录页URL（如 https://xxx/login）" />
+        </el-form-item>
+        <el-form-item v-if="form.execution_mode === 'shared_session'" label="登录步骤">
+          <div style="width:100%">
+            <div v-for="(step, idx) in form.login_config.steps" :key="idx" style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
+              <el-input v-model="step.instruction" placeholder="如：输入用户名admin" style="flex:1" />
+              <el-button link type="danger" @click="form.login_config.steps.splice(idx, 1)">删除</el-button>
+            </div>
+            <el-button link type="primary" @click="form.login_config.steps.push({ type: 'aiAct', instruction: '' })">+ 添加登录步骤</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="计划描述" prop="description">
           <el-input v-model="form.description" type="textarea" placeholder="请输入计划描述" />
@@ -199,7 +228,8 @@ const submitting = ref(false)
 // 表单
 const formRef = ref(null)
 const form = ref({
-  name: '', description: '', platform: 'web'
+  name: '', description: '', platform: 'web', execution_mode: 'per_case',
+  login_config: { url: '', steps: [] }
 })
 const formRules = {
   name: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
@@ -314,7 +344,7 @@ function handleCurrentChange(val) {
 function handleCreate() {
   isEditing.value = false
   editingPlanId.value = null
-  form.value = { name: '', description: '', platform: 'web' }
+  form.value = { name: '', description: '', platform: 'web', execution_mode: 'per_case', login_config: { url: '', steps: [] } }
   showEditDialog.value = true
 }
 
@@ -325,7 +355,9 @@ async function editPlan(planId) {
   form.value = {
     name: found?.name || '',
     description: found?.description || '',
-    platform: found?.platform || 'web'
+    platform: found?.platform || 'web',
+    execution_mode: found?.execution_mode || 'per_case',
+    login_config: found?.login_config || { url: '', steps: [] },
   }
   showEditDialog.value = true
 }

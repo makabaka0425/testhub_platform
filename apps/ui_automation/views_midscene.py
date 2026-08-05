@@ -6,6 +6,8 @@ import os
 import json
 import time
 import logging
+import subprocess
+import tempfile
 import httpx
 from django.utils import timezone
 from django.db import transaction
@@ -19,6 +21,7 @@ from .models import (
     MidsceneGroup, MidsceneCase, MidsceneExecution, AiProject,
     AiScheduledTask, AiNotificationLog,
     AiTestPlan, AiTestPlanItem,
+    MidsceneConfig,
 )
 from .serializers import (
     AiProjectSerializer, AiProjectCreateSerializer, AiProjectUpdateSerializer,
@@ -212,15 +215,19 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
 
     def list(self, request):
         project_id = request.query_params.get('project_id')
+        platform = request.query_params.get('platform')
         qs = self.get_queryset()
         if project_id:
             qs = qs.filter(models.Q(project_id=project_id) | models.Q(project_id__isnull=True))
+        if platform:
+            qs = qs.filter(models.Q(platform=platform) | models.Q(platform__isnull=True) | models.Q(platform=''))
 
         data = []
         for g in qs.order_by('order', '-created_at'):
             data.append({
                 'id': g.id,
                 'name': g.name,
+                'platform': g.platform,
                 'project_id': g.project_id,
                 'parent_id': g.parent_id,
                 'order': g.order,
@@ -236,11 +243,12 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
 
         group = MidsceneGroup.objects.create(
             name=name,
+            platform=request.data.get('platform', 'web'),
             project_id=request.data.get('project_id') or None,
             parent_id=request.data.get('parent_id') or None,
             order=request.data.get('order', 0),
         )
-        return Response({'id': group.id, 'name': group.name}, status=status.HTTP_201_CREATED)
+        return Response({'id': group.id, 'name': group.name, 'platform': group.platform}, status=status.HTTP_201_CREATED)
 
     def update(self, request, pk=None, **kwargs):
         # 防御非法pk（如前端传入'undefined'）
@@ -279,12 +287,16 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
     def tree(self, request):
         """获取分组树形结构"""
         project_id = request.query_params.get('project_id')
+        platform = request.query_params.get('platform')
         qs = self.get_queryset()
         # 过滤指定项目 + 无项目归属的分组（兼容旧数据）
         if project_id:
             qs = qs.filter(models.Q(project_id=project_id) | models.Q(project_id__isnull=True))
+        # 过滤指定平台 + 无平台归属的分组（兼容旧数据）
+        if platform:
+            qs = qs.filter(models.Q(platform=platform) | models.Q(platform__isnull=True) | models.Q(platform=''))
         roots = qs.filter(parent__isnull=True).order_by('order', '-created_at')
-        data = self._build_tree(roots)
+        data = self._build_tree(roots, platform)
         return Response(data)
 
     @action(detail=False, methods=['post'])
@@ -307,21 +319,25 @@ class MidsceneGroupViewSet(viewsets.ModelViewSet):
             return Response({'error': f'排序保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({'status': 'ok'})
 
-    def _build_tree(self, groups):
+    def _build_tree(self, groups, platform=None):
         """递归构建树形结构"""
         result = []
         for g in groups:
             node = {
                 'id': g.id,
                 'name': g.name,
+                'platform': g.platform,
                 'parent_id': g.parent_id,
                 'order': g.order,
                 'case_count': g.cases.count(),
                 'created_at': g.created_at,
             }
-            children = MidsceneGroup.objects.filter(parent=g).order_by('order', '-created_at')
+            children_qs = MidsceneGroup.objects.filter(parent=g)
+            if platform:
+                children_qs = children_qs.filter(models.Q(platform=platform) | models.Q(platform__isnull=True) | models.Q(platform=''))
+            children = children_qs.order_by('order', '-created_at')
             if children.exists():
-                node['children'] = self._build_tree(children)
+                node['children'] = self._build_tree(children, platform)
             else:
                 node['children'] = []
             result.append(node)
@@ -354,6 +370,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             'source': case.source,
             'source_case_id': case.source_case_id,
             'platform': case.platform,
+            'device_type': case.device_type or ('android' if case.platform == 'app' else case.platform) or 'web',
+            'ai_model_config_override': case.ai_model_config_override or {},
+            'device_config_override': case.device_config_override or {},
+            'app_name_mapping': case.app_name_mapping or {},
             'steps': case.steps or [],
             # 变量与SQL
             'output_variables': case.output_variables or [],
@@ -397,7 +417,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         search = request.query_params.get('search')
 
         if project_id:
-            qs = qs.filter(project_id=project_id)
+            qs = qs.filter(Q(project_id=project_id) | Q(project_id__isnull=True))
         if group_id:
             if group_id in ('0', 'ungrouped'):
                 qs = qs.filter(group_id__isnull=True)
@@ -431,6 +451,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 project_id=request.data.get('project_id') or None,
                 source='manual',
                 platform=request.data.get('platform', 'web'),
+                device_type=request.data.get('device_type') or ('android' if request.data.get('platform') == 'app' else 'web'),
                 steps=steps,
                 # Web配置
                 url=request.data.get('url', ''),
@@ -449,6 +470,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 device_id=request.data.get('device_id', ''),
                 package_name=request.data.get('package_name', ''),
                 app_activity=request.data.get('app_activity', ''),
+                # 配置覆盖
+                ai_model_config_override=request.data.get('ai_model_config_override', {}),
+                device_config_override=request.data.get('device_config_override', {}),
+                app_name_mapping=request.data.get('app_name_mapping', {}),
                 created_by=request.user,
             )
             return Response(self._serialize_case(case), status=status.HTTP_201_CREATED)
@@ -462,13 +487,14 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             return Response({'error': '用例不存在'}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            fields = ['name', 'description', 'platform', 'steps',
+            fields = ['name', 'description', 'platform', 'device_type', 'steps',
                       'url', 'headless', 'cache_strategy', 'new_tab',
                       'user_agent', 'viewport_width', 'viewport_height',
                       'device_scale_factor', 'cookie_file',
                       'wait_for_network_idle_timeout', 'continue_on_network_idle_error',
                       'device_id', 'package_name', 'app_activity',
-                      'output_variables', 'precondition_sql', 'postcondition_sql']
+                      'output_variables', 'precondition_sql', 'postcondition_sql',
+                      'ai_model_config_override', 'device_config_override', 'app_name_mapping']
             for f in fields:
                 if f in request.data:
                     setattr(case, f, request.data[f])
@@ -497,39 +523,100 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         self.get_queryset().filter(id__in=ids).delete()
         return Response({'message': f'已删除{len(ids)}条用例'})
 
+    @action(detail=True, methods=['post'], url_path='copy')
+    def copy_case(self, request, pk=None):
+        """复制AI用例（含完整配置、步骤、变量、SQL）"""
+        case = self.get_object()
+        new_case = MidsceneCase.objects.create(
+            project=case.project,
+            name=f"{case.name}_copy",
+            description=case.description,
+            group=case.group,
+            source=case.source,
+            platform=case.platform,
+            device_type=case.device_type,
+            steps=case.steps or [],  # JSONField 深拷贝
+            url=case.url,
+            headless=case.headless,
+            cache_strategy=case.cache_strategy,
+            new_tab=case.new_tab,
+            user_agent=case.user_agent,
+            viewport_width=case.viewport_width,
+            viewport_height=case.viewport_height,
+            device_scale_factor=case.device_scale_factor,
+            cookie_file=case.cookie_file,
+            wait_for_network_idle_timeout=case.wait_for_network_idle_timeout,
+            continue_on_network_idle_error=case.continue_on_network_idle_error,
+            device_id=case.device_id,
+            package_name=case.package_name,
+            app_activity=case.app_activity,
+            ai_model_config_override=case.ai_model_config_override or {},
+            device_config_override=case.device_config_override or {},
+            app_name_mapping=case.app_name_mapping or {},
+            output_variables=case.output_variables or [],
+            precondition_sql=case.precondition_sql or '',
+            postcondition_sql=case.postcondition_sql or '',
+            created_by=request.user,
+        )
+        return Response({
+            'message': '用例已复制',
+            'id': new_case.id,
+            'name': new_case.name,
+        })
+
     # ---- 从AI生成用例导入 ----
     @action(detail=False, methods=['post'], url_path='import-ai')
     def import_ai(self, request):
         """从AI生成用例导入到Midscene"""
-        case_ids = request.data.get('case_ids', [])
+        task_id = request.data.get('task_id')
+        indices = request.data.get('indices', [])
         group_id = request.data.get('group_id')
         platform = request.data.get('platform', 'web')
         project_id = request.data.get('project_id')
 
-        if not case_ids:
+        if not task_id:
+            return Response({'error': '请指定AI任务'}, status=status.HTTP_400_BAD_REQUEST)
+        if not indices:
             return Response({'error': '请选择要导入的用例'}, status=status.HTTP_400_BAD_REQUEST)
 
-        from apps.requirement_analysis.models import GeneratedTestCase
-        ai_cases = GeneratedTestCase.objects.filter(id__in=case_ids)
-        imported = []
+        try:
+            from apps.requirement_analysis.models import TestCaseGenerationTask
+            task = TestCaseGenerationTask.objects.get(task_id=task_id)
+        except Exception:
+            return Response({'error': 'AI生成任务不存在'}, status=status.HTTP_400_BAD_REQUEST)
 
-        for ai_case in ai_cases:
-            # 将AI用例的test_steps和expected_result映射为结构化步骤
+        if task.status != 'completed' or not task.final_test_cases:
+            return Response({'error': '该任务无可用用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 复用TestCaseViewSet的解析逻辑
+        from apps.ui_automation.views import TestCaseViewSet
+        helper = TestCaseViewSet()
+        helper.request = request
+        test_cases = helper._parse_ai_test_cases(task.final_test_cases)
+
+        imported = []
+        for idx in indices:
+            if not isinstance(idx, int) or idx < 0 or idx >= len(test_cases):
+                continue
+            tc = test_cases[idx]
+            # 将AI用例的steps和expected映射为结构化步骤
             steps = []
 
             # 前置条件作为第一步
-            if ai_case.precondition and ai_case.precondition.strip():
+            precondition = tc.get('precondition', '')
+            if precondition and precondition.strip():
                 steps.append({
                     'order': len(steps) + 1,
                     'type': 'action',
-                    'instruction': ai_case.precondition.strip(),
+                    'instruction': precondition.strip(),
                 })
 
-            # 测试步骤拆分（AI生成的步骤通常以换行或数字编号分隔）
-            raw_steps = ai_case.test_steps or ''
+            # 测试步骤拆分
+            raw_steps = tc.get('steps', '') or ''
+            # 步骤可能以换行或<br>分隔
+            raw_steps = raw_steps.replace('<br>', '\n').replace('<br/>', '\n')
             step_lines = [s.strip() for s in raw_steps.split('\n') if s.strip()]
             for line in step_lines:
-                # 去掉数字前缀如 "1." "1)" "步骤1:"
                 cleaned = line
                 for prefix in ['步骤', 'Step', 'step']:
                     if cleaned.lower().startswith(prefix.lower()):
@@ -545,8 +632,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                     })
 
             # 预期结果作为断言步骤
-            if ai_case.expected_result and ai_case.expected_result.strip():
-                expected_lines = [s.strip() for s in ai_case.expected_result.split('\n') if s.strip()]
+            raw_expected = tc.get('expected', '') or ''
+            raw_expected = raw_expected.replace('<br>', '\n').replace('<br/>', '\n')
+            if raw_expected.strip():
+                expected_lines = [s.strip() for s in raw_expected.split('\n') if s.strip()]
                 for line in expected_lines:
                     cleaned = re.sub(r'^\d+[.、:：)）]\s*', '', line)
                     if cleaned:
@@ -556,13 +645,13 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                             'instruction': cleaned,
                         })
 
+            scenario = tc.get('scenario', '') or f'AI导入用例-{idx+1}'
             mc = MidsceneCase.objects.create(
-                name=ai_case.title or f'AI导入-{ai_case.case_id}',
-                description=f'从AI用例 {ai_case.case_id} 导入',
+                name=scenario,
+                description=f'从AI任务 {task_id} 导入',
                 group_id=group_id or None,
                 project_id=project_id or None,
                 source='ai_import',
-                source_case_id=ai_case.id,
                 platform=platform,
                 steps=steps,
                 created_by=request.user,
@@ -616,69 +705,23 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         case.last_status = 'running'
         case.save(update_fields=['last_status'])
 
-        # 获取模型配置
-        from apps.requirement_analysis.models import AIModelConfig
-        config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
-        if not config_obj:
-            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+        # ---- 获取合并配置（全局→用例级覆盖）----
+        merged_config = self._get_merged_config(case)
 
-        model_config = {}
-        if config_obj:
-            # 根据 model_name 推断 Midscene 认可的 model_family
-            # Midscene v1.10.8 支持的 family: qwen3-vl, qwen2.5-vl, qwen3, qwen3.5, qwen3.6,
-            # doubao-vision, doubao-seed, gemini, glm-v, auto-glm, gpt-5, kimi, kimi3, xiaomi-mimo 等
-            model_name = (config_obj.model_name or '').lower()
-            if 'qwen3.6' in model_name:
-                model_family = 'qwen3.6'
-            elif 'qwen3.5' in model_name:
-                model_family = 'qwen3.5'
-            elif 'qwen3' in model_name and 'vl' in model_name:
-                model_family = 'qwen3-vl'
-            elif 'qwen3' in model_name:
-                model_family = 'qwen3'
-            elif 'qwen2.5' in model_name and 'vl' in model_name:
-                model_family = 'qwen2.5-vl'
-            elif 'qwen' in model_name and 'vl' in model_name:
-                model_family = 'qwen2.5-vl'  # fallback
-            elif 'qwen' in model_name:
-                model_family = 'qwen3'
-            elif 'doubao-seed' in model_name or 'seed' in model_name:
-                model_family = 'doubao-seed'
-            elif 'doubao' in model_name and 'vision' in model_name:
-                model_family = 'doubao-vision'
-            elif 'doubao' in model_name:
-                model_family = 'doubao-vision'
-            elif 'gemini' in model_name:
-                model_family = 'gemini'
-            elif 'glm' in model_name and 'auto-glm' in model_name:
-                model_family = 'auto-glm'
-            elif 'glm' in model_name:
-                model_family = 'glm-v'
-            elif 'gpt' in model_name:
-                model_family = 'gpt-5'
-            elif 'kimi3' in model_name:
-                model_family = 'kimi3'
-            elif 'kimi' in model_name:
-                model_family = 'kimi'
-            elif 'mimo' in model_name or 'xiaomi' in model_name:
-                model_family = 'xiaomi-mimo'
-            else:
-                model_family = 'qwen3-vl'  # 默认fallback
+        # ---- 构建AI模型配置（用例级覆盖 > 全局配置 > 旧AIModelConfig）----
+        model_config = merged_config.get('ai_model_config', {})
+        if not model_config:
+            # 向后兼容：从旧的 AIModelConfig 获取
+            model_config = self._get_legacy_model_config()
 
-            model_config = {
-                'api_key': config_obj.api_key,
-                'base_url': config_obj.base_url,
-                'model_name': config_obj.model_name,
-                'model_family': model_family,
-            }
-
-        # 构建微服务请求：对齐 v2 /execute 接口（steps 数组格式）
+        # ---- 构建微服务请求 ----
         steps = []
         for step in (case.steps or []):
             step_type = step.get('type', 'action')
             instruction = step.get('instruction', '')
             output_var = step.get('output_var', '')
             input_value = step.get('input_value', '')
+            mode = step.get('mode', 'ai')
             # 将前端 action/assert 映射为 Midscene API 类型
             if step_type == 'assert':
                 midscene_type = 'aiAssert'
@@ -692,12 +735,28 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 instruction = resolve_variables(instruction, context_variables)
                 if input_value:
                     input_value = resolve_variables(input_value, context_variables)
-            steps.append({
+            step_payload = {
                 'type': midscene_type,
                 'instruction': instruction,
                 'input_value': input_value,
                 'output_var': output_var,
-            })
+                'mode': mode,
+            }
+            # 传统模式步骤补全字段
+            if mode == 'traditional':
+                locator_value = step.get('locator_value', '')
+                assert_value = step.get('assert_value', '')
+                # 变量替换：locator_value 和 assert_value 中的数据工厂函数和上下文变量
+                if context_variables or True:
+                    from .variable_resolver import resolve_variables
+                    locator_value = resolve_variables(locator_value, context_variables)
+                    if assert_value:
+                        assert_value = resolve_variables(assert_value, context_variables)
+                step_payload['action_type'] = step.get('action_type', 'click')
+                step_payload['locator_value'] = locator_value
+                step_payload['assert_type'] = step.get('assert_type', '')
+                step_payload['assert_value'] = assert_value
+            steps.append(step_payload)
 
         if not steps:
             execution.status = 'failed'
@@ -709,8 +768,14 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             case.save(update_fields=['last_status', 'last_result'])
             return Response({'error': '用例没有测试步骤'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # 设备类型（合并配置优先；platform=app 时自动修正为 android）
+        resolved_device_type = merged_config.get('device_type') or case.device_type or ('android' if case.platform == 'app' else 'web')
+        if case.platform == 'app' and resolved_device_type == 'web':
+            resolved_device_type = 'android'
+
         payload = {
             'platform': case.platform or 'web',  # 传递平台类型
+            'device_type': resolved_device_type,
             'url': case.url or None,
             'steps': steps,
             'headless': case.headless,
@@ -734,33 +799,97 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 'device_id': case.device_id or '',
                 'package_name': case.package_name or '',
                 'app_activity': case.app_activity or '',
-            } if case.platform == 'app' else None,
+            } if resolved_device_type != 'web' else None,
+            # 三级配置合并后的参数
+            'execution_config': merged_config.get('execution_config', {}),
+            'report_config': merged_config.get('report_config', {}),
+            'web_config': merged_config.get('web_config', {}),
+            'android_config': merged_config.get('android_config', {}),
+            'ios_config': merged_config.get('ios_config', {}),
+            'harmony_config': merged_config.get('harmony_config', {}),
+            'app_name_mapping': merged_config.get('app_name_mapping', {}),
         }
 
+        # 补充 payload 中 Django 侧的元数据
+        payload['execution_id'] = execution.id
+        payload['case_id'] = case.id
+        payload['case_name'] = case.name
+
+        # ---- 根据设备类型选择执行引擎 ----
+        # Web 端：Playwright Test CLI（新架构，浏览器生命周期自动托管）
+        # APP/Android 端：midscene-runner.js（旧架构，有完整 AndroidAgent 支持）
+        is_app = resolved_device_type != 'web'
+
         try:
-            with httpx.Client(timeout=10) as client:
-                resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute', json=payload)
-                resp.raise_for_status()
-                data = resp.json()
+            if is_app:
+                # ---- APP/Android 端：通过 midscene-runner.js 执行 ----
+                proc, result_file = _launch_midscene_runner_single(
+                    payload, execution.id, case.id
+                )
+                execution.logs = json.dumps({
+                    'runner_pid': proc.pid,
+                    'result_file': result_file,
+                    'architecture': 'runner',
+                })
+                execution.save(update_fields=['logs'])
+
+                return Response({
+                    'execution_id': execution.id,
+                    'task_id': f'runner-{execution.id}',
+                    'status': 'submitted',
+                    'message': '任务已提交到Midscene Runner (Android)',
+                    'runner_pid': proc.pid,
+                })
+
+            # ---- Web 端：通过 Playwright Test 执行（新架构）----
+            # 1. 生成 .spec.ts 文件和 .env 文件
+            # 2. subprocess 调用 npx playwright test
+            # 3. 浏览器生命周期由 Playwright Test 自动托管
+            MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
+            RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
+            os.makedirs(RESULTS_DIR, exist_ok=True)
+
+            from .spec_generator import generate_single_case_spec
+            spec_filename = f'test_execution_{execution.id}.spec.ts'
+            spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+            env_path = os.path.join(RESULTS_DIR, f'.env_{execution.id}')
+            generate_single_case_spec(payload, spec_path, env_path, RESULTS_DIR)
+
+            env = os.environ.copy()
+            env['TESTHUB_EXECUTION_ID'] = str(execution.id)
+            env['TESTHUB_TASK_ID'] = f'runner-{execution.id}'
+            env['TESTHUB_CALLBACK_URL'] = payload.get('callback_url', '')
+            env['TESTHUB_HEADLESS'] = 'true' if payload.get('headless', True) else 'false'
+            env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+            env['TESTHUB_ENV_FILE'] = env_path
+
+            node_path = r'D:\install\nodejs'
+            env['PATH'] = node_path + ';' + env.get('PATH', '')
+
+            npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+            proc = subprocess.Popen(
+                [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
+                 '--config=playwright.config.ts'],
+                cwd=MIDSCENE_SERVICE_DIR,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env,
+                shell=True,
+            )
+            execution.logs = json.dumps({
+                'runner_pid': proc.pid,
+                'spec_path': spec_path,
+                'env_path': env_path,
+                'architecture': 'playwright-test',
+            })
+            execution.save(update_fields=['logs'])
 
             return Response({
                 'execution_id': execution.id,
-                'task_id': data.get('task_id'),
+                'task_id': f'runner-{execution.id}',
                 'status': 'submitted',
-                'message': '任务已提交到Midscene微服务',
-            })
-        except httpx.ConnectError:
-            execution.status = 'failed'
-            execution.error_message = 'Midscene微服务未启动'
-            execution.finished_at = timezone.now()
-            execution.save()
-            case.last_status = 'failed'
-            case.last_result = 'Midscene微服务未启动'
-            case.save(update_fields=['last_status', 'last_result'])
-            return Response({
-                'error': 'Midscene微服务未启动，请检查 midscene-service 是否运行',
-                'execution_id': execution.id,
-                'status': 'failed',
+                'message': '任务已提交到Playwright Test',
+                'runner_pid': proc.pid,
             })
         except Exception as e:
             execution.status = 'failed'
@@ -776,6 +905,167 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 'status': 'failed',
             })
 
+    # ---- 获取合并配置（全局→用例级覆盖） ----
+    @staticmethod
+    def _get_merged_config(case):
+        """获取三级合并配置：全局MidsceneConfig + 用例级覆盖"""
+        import copy
+        device_type = case.device_type or ('android' if case.platform == 'app' else 'web')
+        if case.platform == 'app' and device_type == 'web':
+            device_type = 'android'
+
+        # 获取全局配置
+        global_config = MidsceneConfig.objects.filter(
+            is_active=True, device_type=device_type
+        ).first()
+        # 如果指定设备类型没找到，尝试项目维度
+        if not global_config and case.project_id:
+            global_config = MidsceneConfig.objects.filter(
+                is_active=True, project_id=case.project_id, device_type=device_type
+            ).first()
+        # 还没找到，取任意活跃配置
+        if not global_config:
+            global_config = MidsceneConfig.objects.filter(is_active=True).first()
+
+        merged = {
+            'device_type': device_type,
+            'ai_model_config': {},
+            'execution_config': {},
+            'report_config': {},
+            'web_config': {},
+            'android_config': {},
+            'ios_config': {},
+            'harmony_config': {},
+            'app_name_mapping': {},
+        }
+
+        # 合并全局配置
+        if global_config:
+            merged['device_type'] = device_type or global_config.device_type
+            for key in ['ai_model_config', 'execution_config', 'report_config',
+                        'web_config', 'android_config', 'ios_config', 'harmony_config',
+                        'app_name_mapping']:
+                val = getattr(global_config, key, None)
+                if val:
+                    merged[key] = copy.deepcopy(val)
+
+        # 合并用例级覆盖
+        if case.device_type:
+            merged['device_type'] = case.device_type
+        if case.ai_model_config_override:
+            _deep_merge(merged['ai_model_config'], case.ai_model_config_override)
+        if case.device_config_override:
+            device_key = _get_device_config_key(merged['device_type'])
+            if device_key:
+                _deep_merge(merged[device_key], case.device_config_override)
+        if case.app_name_mapping:
+            merged['app_name_mapping'].update(case.app_name_mapping)
+
+        return merged
+
+    @staticmethod
+    def _get_legacy_model_config():
+        """向后兼容：从旧的 AIModelConfig 获取模型配置"""
+        from apps.requirement_analysis.models import AIModelConfig
+        config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
+        if not config_obj:
+            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+
+        model_config = {}
+        if config_obj:
+            model_name = (config_obj.model_name or '').lower()
+            if 'qwen3.6' in model_name:
+                model_family = 'qwen3.6'
+            elif 'qwen3.5' in model_name:
+                model_family = 'qwen3.5'
+            elif 'qwen3' in model_name and 'vl' in model_name:
+                model_family = 'qwen3-vl'
+            elif 'qwen3' in model_name:
+                model_family = 'qwen3'
+            elif 'qwen2.5' in model_name and 'vl' in model_name:
+                model_family = 'qwen2.5-vl'
+            elif 'qwen' in model_name and 'vl' in model_name:
+                model_family = 'qwen2.5-vl'
+            elif 'qwen' in model_name:
+                model_family = 'qwen3'
+            elif 'doubao-seed' in model_name or 'seed' in model_name:
+                model_family = 'doubao-seed'
+            elif 'doubao' in model_name and 'vision' in model_name:
+                model_family = 'doubao-vision'
+            elif 'doubao' in model_name:
+                model_family = 'doubao-vision'
+            elif 'gemini' in model_name:
+                model_family = 'gemini'
+            elif 'glm' in model_name and 'auto-glm' in model_name:
+                model_family = 'auto-glm'
+            elif 'glm' in model_name:
+                model_family = 'glm-v'
+            elif 'gpt' in model_name:
+                model_family = 'gpt-5'
+            elif 'kimi3' in model_name:
+                model_family = 'kimi3'
+            elif 'kimi' in model_name:
+                model_family = 'kimi'
+            elif 'mimo' in model_name or 'xiaomi' in model_name:
+                model_family = 'xiaomi-mimo'
+            else:
+                model_family = 'qwen3-vl'
+
+            model_config = {
+                'api_key': config_obj.api_key,
+                'base_url': config_obj.base_url,
+                'model_name': config_obj.model_name,
+                'model_family': model_family,
+            }
+        return model_config
+
+    @staticmethod
+    def _refresh_plan_status(case):
+        """刷新关联用例的所有计划的进度和状态"""
+        try:
+            from apps.ui_automation.models import AiTestPlan, AiTestPlanItem
+            plan_items = AiTestPlanItem.objects.filter(midscene_case=case).select_related('test_plan')
+            for plan_item in plan_items:
+                plan = plan_item.test_plan
+                plan_case_ids = list(plan.plan_items.values_list('midscene_case_id', flat=True))
+
+                # 找该计划最近一次执行批次
+                latest_exec = MidsceneExecution.objects.filter(
+                    plan_execution_batch__isnull=False,
+                    case_id__in=plan_case_ids,
+                ).order_by('-id').first()
+
+                if latest_exec and latest_exec.plan_execution_batch:
+                    batch_id = latest_exec.plan_execution_batch
+                    batch_execs = MidsceneExecution.objects.filter(
+                        plan_execution_batch=batch_id,
+                        case_id__in=plan_case_ids,
+                    )
+                    passed = batch_execs.filter(status='passed').count()
+                    failed = batch_execs.filter(status='failed').count()
+                    skipped = batch_execs.filter(status='skipped').count()
+                    total_done = passed + failed + skipped
+
+                    plan.passed_count = passed
+                    plan.failed_count = failed
+                    plan.skipped_count = skipped
+
+                    if total_done < plan.total_cases:
+                        plan.execution_status = 'running'
+                    elif failed > 0:
+                        plan.execution_status = 'failed'
+                    elif skipped > 0 and passed == 0:
+                        plan.execution_status = 'skipped'
+                    else:
+                        plan.execution_status = 'passed'
+
+                    plan.save(update_fields=[
+                        'execution_status',
+                        'passed_count', 'failed_count', 'skipped_count'
+                    ])
+        except Exception as plan_err:
+            logger.error(f"刷新计划状态失败: {plan_err}")
+
     # ---- 执行结果回调（微服务调用，免认证） ----
     @action(detail=True, methods=['post'], url_path='callback', permission_classes=[AllowAny])
     def callback(self, request, pk=None):
@@ -790,10 +1080,27 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         error_msg = request.data.get('error') or ''
         report_url = request.data.get('report_url') or ''
         report_file = request.data.get('report_file') or ''
+        failed_screenshots = request.data.get('failed_screenshots') or []
 
         execution = MidsceneExecution.objects.filter(id=execution_id).first()
         if execution:
-            execution.status = 'passed' if task_status == 'completed' else 'failed'
+            # 防御性校验：即使 task_status 为 completed，如果 step_results 中有 failed 步骤，也应标记为 failed
+            # 这处理了共享会话模式下 test.step().catch() 吞掉错误导致 Playwright 认为 test passed 的情况
+            has_failed_steps = False
+            step_results_data = []
+            if isinstance(result_data, dict) and 'step_results' in result_data:
+                step_results_data = result_data['step_results'] or []
+                for sr in step_results_data:
+                    if isinstance(sr, dict) and sr.get('status') == 'failed':
+                        has_failed_steps = True
+                        break
+
+            if has_failed_steps:
+                effective_status = 'failed'
+            else:
+                effective_status = 'passed' if task_status == 'completed' else 'failed'
+
+            execution.status = effective_status
             # 保存步骤结果
             if isinstance(result_data, dict) and 'step_results' in result_data:
                 execution.step_results = result_data['step_results']
@@ -805,6 +1112,15 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             # 保存回放报告信息
             execution.report_url = report_url
             execution.report_file = report_file
+
+            # 保存失败步骤截图 URL 到 step_results 和 screenshot_urls
+            if failed_screenshots:
+                screenshot_map = {s['order']: s['screenshot'] for s in failed_screenshots if isinstance(s, dict) and 'order' in s and 'screenshot' in s}
+                if screenshot_map and isinstance(execution.step_results, list):
+                    for sr in execution.step_results:
+                        if isinstance(sr, dict) and sr.get('order') in screenshot_map:
+                            sr['screenshot'] = screenshot_map[sr['order']]
+                execution.screenshot_urls = list(screenshot_map.values())
 
             # ---- 提取步骤输出变量 ----
             context_variables = {}
@@ -869,60 +1185,18 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 execution.sql_results = all_sql_results
                 execution.save()
 
-        # 回写用例状态
-        case.last_status = 'passed' if task_status == 'completed' else 'failed'
+        # 回写用例状态（使用与执行记录一致的 effective_status 逻辑）
+        case.last_status = effective_status
         case.last_result = error_msg or (json.dumps(result_data, ensure_ascii=False)[:500] if result_data else '')
         case.save(update_fields=['last_status', 'last_result', 'updated_at'])
 
         # 刷新关联计划的进度和状态（每条用例回调后自动更新）
-        try:
-            from apps.ui_automation.models import AiTestPlan, AiTestPlanItem
-            plan_items = AiTestPlanItem.objects.filter(midscene_case=case).select_related('plan')
-            for plan_item in plan_items:
-                plan = plan_item.plan
-                plan_case_ids = list(plan.plan_items.values_list('midscene_case_id', flat=True))
-
-                # 找该计划最近一次执行批次（通过plan_items关联的case的execution记录）
-                latest_exec = MidsceneExecution.objects.filter(
-                    plan_execution_batch__isnull=False,
-                    case_id__in=plan_case_ids,
-                ).order_by('-id').first()
-
-                if latest_exec and latest_exec.plan_execution_batch:
-                    batch_id = latest_exec.plan_execution_batch
-                    batch_execs = MidsceneExecution.objects.filter(
-                        plan_execution_batch=batch_id,
-                        case_id__in=plan_case_ids,
-                    )
-                    passed = batch_execs.filter(status='passed').count()
-                    failed = batch_execs.filter(status='failed').count()
-                    skipped = batch_execs.filter(status='skipped').count()
-                    total_done = passed + failed + skipped
-
-                    plan.passed_count = passed
-                    plan.failed_count = failed
-                    plan.skipped_count = skipped
-
-                    if total_done < plan.total_cases:
-                        plan.execution_status = 'running'
-                    elif failed > 0:
-                        plan.execution_status = 'failed'
-                    elif skipped > 0 and passed == 0:
-                        plan.execution_status = 'skipped'
-                    else:
-                        plan.execution_status = 'passed'
-
-                    plan.save(update_fields=[
-                        'execution_status',
-                        'passed_count', 'failed_count', 'skipped_count'
-                    ])
-        except Exception as plan_err:
-            logger.error(f"刷新计划状态失败: {plan_err}")
+        self._refresh_plan_status(case)
 
         # 触发通知：查找关联此用例的活跃定时任务
         try:
             from apps.ui_automation.models import AiScheduledTask
-            success = (task_status == 'completed')
+            success = (effective_status == 'passed')
             related_tasks = AiScheduledTask.objects.filter(
                 test_plan__plan_items__midscene_case=case, status='ACTIVE'
             ).select_related('test_plan').distinct()
@@ -945,8 +1219,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
     # ---- 查询执行状态 ----
     @action(detail=False, methods=['get'], url_path='execution-status')
     def execution_status(self, request):
-        """查询Midscene执行状态（主动从微服务同步）"""
-        task_id = request.query_params.get('task_id')
+        """查询Midscene执行状态（优先从Django DB读取，running状态尝试从结果文件同步）"""
         execution_id = request.query_params.get('execution_id')
 
         execution = None
@@ -954,11 +1227,10 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             execution = MidsceneExecution.objects.filter(id=execution_id).first()
 
         if execution:
-            # 如果Django侧还是running，主动去微服务查真实状态并同步
+            # 如果Django侧还是running，尝试从结果文件同步
             if execution.status == 'running':
-                synced = self._sync_from_microservice(execution)
-                if synced:
-                    execution.refresh_from_db()
+                self._sync_from_result_file(execution)
+                execution.refresh_from_db()
 
             return Response({
                 'execution_id': execution.id,
@@ -974,51 +1246,255 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 'logs': execution.logs[:2000] if execution.logs else '',
             })
 
-        # 从微服务查
-        if task_id:
-            try:
-                with httpx.Client(timeout=10) as client:
-                    resp = client.get(f'{MIDSCENE_SERVICE_URL}/task/{task_id}')
-                    resp.raise_for_status()
-                    return Response(resp.json())
-            except Exception as e:
-                return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'error': '请提供execution_id'}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({'error': '请提供execution_id或task_id'}, status=status.HTTP_400_BAD_REQUEST)
-
-    def _sync_from_microservice(self, execution):
-        """主动从微服务同步执行状态到Django"""
+    def _sync_from_result_file(self, execution):
+        """从执行结果同步状态到Django（兼容旧runner格式和新Playwright Test格式）"""
         try:
-            # 用case_id构造微服务回调结果来查找最新task
-            with httpx.Client(timeout=5) as client:
-                resp = client.get(f'{MIDSCENE_SERVICE_URL}/tasks')
-                resp.raise_for_status()
-                tasks = resp.json()
+            logs_data = {}
+            try:
+                logs_data = json.loads(execution.logs) if execution.logs else {}
+            except (json.JSONDecodeError, TypeError):
+                pass
 
-            # 找最近完成的、与该execution时间匹配的task
-            from datetime import datetime, timedelta
-            exec_time = execution.started_at
-            matching_task = None
-            for t in tasks:
-                if t.get('status') not in ('completed', 'failed'):
-                    continue
-                try:
-                    task_time = datetime.fromisoformat(t['created_at'].replace('Z', '+00:00'))
-                    if task_time >= exec_time - timedelta(seconds=5):
-                        matching_task = t
-                        break  # tasks按时间倒序，第一个匹配的就是最新的
-                except (ValueError, KeyError):
-                    continue
+            architecture = logs_data.get('architecture', 'runner')
 
-            if not matching_task:
+            if architecture == 'playwright-test':
+                # ---- 新架构：Playwright Test ----
+                # Playwright Test 的结果通过 Reporter 回调 Django（见 callback 方法）
+                # 此处只检查进程是否仍在运行
+                runner_pid = logs_data.get('runner_pid')
+                if runner_pid:
+                    try:
+                        import psutil
+                        if not psutil.pid_exists(runner_pid):
+                            # 进程已退出，但 Django 尚未被回调 → 检查是否有结果
+                            if execution.status == 'running':
+                                execution.status = 'failed'
+                                execution.error_message = 'Playwright Test进程已退出但未收到回调'
+                                execution.finished_at = timezone.now()
+                                execution.save()
+                                case = execution.case
+                                if case:
+                                    case.last_status = 'failed'
+                                    case.last_result = 'Playwright进程异常退出'
+                                    case.save(update_fields=['last_status', 'last_result'])
+                                # 刷新关联计划的状态
+                                if case:
+                                    self._refresh_plan_status(case)
+                            return True
+                    except ImportError:
+                        pass
+                # 尝试从 Reporter 生成的 result_{execution_id}.json 读取（优先级最高）
+                results_dir = logs_data.get('results_dir') or os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                    'midscene-service', 'midscene_run', 'results'
+                )
+                result_file = os.path.join(results_dir, f'result_{execution.id}.json')
+                if os.path.exists(result_file):
+                    try:
+                        with open(result_file, 'r', encoding='utf-8') as f:
+                            result_data = json.load(f)
+                        status = 'passed' if result_data.get('status') == 'completed' else 'failed'
+                        execution.status = status
+                        result_obj = result_data.get('result') or {}
+                        execution.step_results = result_obj.get('step_results', [])
+                        execution.error_message = result_data.get('error', '') or ''
+                        execution.finished_at = timezone.now()
+                        if execution.started_at and execution.finished_at:
+                            execution.duration = (execution.finished_at - execution.started_at).total_seconds()
+                        if not execution.report_url:
+                            execution.report_url = result_data.get('report_url', '')
+                        if not execution.report_file:
+                            execution.report_file = result_data.get('report_file', '')
+                        execution.variable_snapshot = result_data.get('variable_snapshot', {})
+                        execution.save()
+
+                        case = execution.case
+                        if case:
+                            case.last_status = status
+                            case.last_result = execution.error_message[:500]
+                            case.save(update_fields=['last_status', 'last_result', 'updated_at'])
+
+                        # 刷新关联计划的状态
+                        self._refresh_plan_status(case)
+
+                        return True
+                    except (json.JSONDecodeError, IOError) as e:
+                        logger.warning(f'读取result_{execution.id}.json失败: {e}')
+
+                # 尝试从 Playwright JSON 报告读取（兜底）
+                report_json = os.path.join(results_dir, 'report.json')
+                if os.path.exists(report_json):
+                    try:
+                        with open(report_json, 'r', encoding='utf-8') as f:
+                            report_data = json.load(f)
+                        # Playwright JSON 报告格式：{ suites: [...], config: {...} }
+                        # 提取第一个 test 的结果
+                        if report_data.get('suites'):
+                            for suite in report_data['suites']:
+                                for spec in suite.get('specs', []):
+                                    for test_entry in spec.get('tests', []):
+                                        for test_result in test_entry.get('results', []):
+                                            if test_result.get('status') in ('passed', 'failed'):
+                                                status = 'passed' if test_result['status'] == 'passed' else 'failed'
+                                                execution.status = status
+                                                execution.error_message = test_result.get('error', {}).get('message', '') if status == 'failed' else ''
+                                                execution.finished_at = timezone.now()
+                                                if execution.started_at and execution.finished_at:
+                                                    execution.duration = (execution.finished_at - execution.started_at).total_seconds()
+                                                # 兜底：扫描 Midscene 报告目录，查找最近生成的回放报告
+                                                if not execution.report_url:
+                                                    try:
+                                                        midscene_report_dir = os.path.join(
+                                                            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                                            'midscene-service', 'midscene_run', 'report'
+                                                        )
+                                                        if os.path.isdir(midscene_report_dir):
+                                                            report_files = [
+                                                                f for f in os.listdir(midscene_report_dir)
+                                                                if f.endswith('.html')
+                                                            ]
+                                                            # 按修改时间排序，取最新的
+                                                            report_files.sort(
+                                                                key=lambda f: os.path.getmtime(os.path.join(midscene_report_dir, f)),
+                                                                reverse=True
+                                                            )
+                                                            five_min_ago = time.time() - 300
+                                                            for rf in report_files:
+                                                                rf_path = os.path.join(midscene_report_dir, rf)
+                                                                if os.path.getmtime(rf_path) >= five_min_ago:
+                                                                    execution.report_url = f'http://localhost:8001/report/{rf}'
+                                                                    execution.report_file = rf_path
+                                                                    break
+                                                    except Exception:
+                                                        pass
+                                                execution.save()
+                                                case = execution.case
+                                                if case:
+                                                    case.last_status = status
+                                                    case.last_result = execution.error_message[:500]
+                                                    case.save(update_fields=['last_status', 'last_result', 'updated_at'])
+                                                # 刷新关联计划的状态
+                                                self._refresh_plan_status(case)
+                                                return True
+                    except (json.JSONDecodeError, IOError):
+                        pass
                 return False
 
-            # 获取完整task详情
-            task_id = matching_task['task_id']
+            else:
+                # ---- 旧架构：midscene-runner.js ----
+                result_file = logs_data.get('result_file')
+                runner_pid = logs_data.get('runner_pid')
+
+                if not result_file or not os.path.exists(result_file):
+                    # 检查进程是否还在运行
+                    if runner_pid:
+                        try:
+                            import psutil
+                            if not psutil.pid_exists(runner_pid):
+                                # 进程已退出但没有结果文件 → 失败
+                                execution.status = 'failed'
+                                execution.error_message = 'Runner进程已退出但未生成结果文件'
+                                execution.finished_at = timezone.now()
+                                execution.save()
+                                case = execution.case
+                                if case:
+                                    case.last_status = 'failed'
+                                    case.last_result = 'Runner进程异常退出'
+                                    case.save(update_fields=['last_status', 'last_result'])
+                                # 刷新关联计划的状态
+                                if case:
+                                    self._refresh_plan_status(case)
+                                return True
+                        except ImportError:
+                            pass  # psutil未安装，无法检测进程
+                    return False
+
+                # 读取结果文件
+                try:
+                    with open(result_file, 'r', encoding='utf-8') as f:
+                        result_data = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    return False
+
+                # 单用例模式的结果文件
+                if 'step_results' in (result_data.get('result') or {}):
+                    status = result_data.get('status', 'failed')
+                    result = result_data.get('result', {})
+                    error_msg = result_data.get('error', '')
+
+                    execution.status = 'passed' if status == 'passed' else 'failed'
+                    execution.step_results = result.get('step_results', [])
+                    execution.error_message = error_msg or ''
+                    execution.finished_at = timezone.now()
+                    if execution.started_at and execution.finished_at:
+                        execution.duration = (execution.finished_at - execution.started_at).total_seconds()
+                    execution.report_url = result_data.get('report_url', '')
+                    execution.report_file = result_data.get('report_file', '')
+                    execution.logs = json.dumps(result_data.get('logs', []), ensure_ascii=False)
+                    execution.variable_snapshot = self._extract_variables(result)
+                    execution.save()
+
+                    case = execution.case
+                    if case:
+                        case.last_status = execution.status
+                        case.last_result = error_msg[:500] if error_msg else ''
+                        case.save(update_fields=['last_status', 'last_result', 'updated_at'])
+
+                    # 刷新关联计划的状态
+                    if case:
+                        self._refresh_plan_status(case)
+
+                    # 清理结果文件
+                    try:
+                        os.remove(result_file)
+                    except:
+                        pass
+                    # 清理payload文件
+                    payload_file = result_file.replace('result_', 'payload_')
+                    try:
+                        if os.path.exists(payload_file):
+                            os.remove(payload_file)
+                    except:
+                        pass
+
+                    return True
+
+                # 批次模式的结果文件 — 每条用例的结果已通过回调处理
+                elif 'results' in result_data:
+                    # 批次汇总结果，各用例已通过回调Django更新
+                    # 清理结果文件
+                    try:
+                        os.remove(result_file)
+                    except:
+                        pass
+                    return True
+
         except Exception as e:
-            logger.error(f'同步微服务状态失败: {e}')
+            logger.error(f'同步结果文件失败: {e}')
 
         return False
+
+    @staticmethod
+    def _extract_variables(result_data):
+        """从步骤结果中提取变量"""
+        context_variables = {}
+        if isinstance(result_data, dict) and 'step_results' in result_data:
+            for step_result in result_data['step_results']:
+                if isinstance(step_result, dict) and step_result.get('output_var'):
+                    var_name = step_result['output_var']
+                    var_value = None
+                    if step_result.get('data') is not None:
+                        var_value = step_result['data']
+                    elif step_result.get('input_value'):
+                        var_value = step_result['input_value']
+                    elif step_result.get('message'):
+                        var_value = step_result['message']
+                    else:
+                        var_value = ''
+                    context_variables[var_name] = var_value
+        return context_variables
 
     @staticmethod
     def _execute_midscene_sql(project_obj, sql_source, sql_label, context_variables=None, execution=None):
@@ -1106,51 +1582,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
             results.append({'type': sql_type, 'sql': resolved_sql[:200], 'success': False, 'rows_affected': 0, 'error': str(e)})
             raise
 
-            # 获取完整task详情
-            task_id = matching_task['task_id']
-            with httpx.Client(timeout=5) as client:
-                resp = client.get(f'{MIDSCENE_SERVICE_URL}/task/{task_id}')
-                resp.raise_for_status()
-                task_data = resp.json()
-
-            if task_data.get('status') in ('completed', 'failed'):
-                # 同步状态到Django
-                execution.status = 'passed' if task_data['status'] == 'completed' else 'failed'
-                execution.error_message = task_data.get('error') or ''
-                execution.finished_at = timezone.now()
-
-                result = task_data.get('result') or {}
-                if isinstance(result, dict) and 'step_results' in result:
-                    execution.step_results = result['step_results']
-                execution.logs = json.dumps(task_data.get('logs') or [], ensure_ascii=False)
-
-                if execution.started_at and execution.finished_at:
-                    execution.duration = (execution.finished_at - execution.started_at).total_seconds()
-
-                report_url = task_data.get('report_url') or ''
-                execution.report_url = report_url
-                execution.report_file = ''
-                if report_url and '/report/' in report_url:
-                    report_filename = report_url.split('/report/')[-1]
-                    execution.report_file = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)),
-                        '..', '..', 'midscene-service', 'midscene_run', 'report', report_filename
-                    )
-
-                execution.save()
-
-                # 更新用例状态
-                case = execution.case
-                if case:
-                    case.last_status = execution.status
-                    case.last_result = execution.error_message or json.dumps(result, ensure_ascii=False)[:500] if result else ''
-                    case.save(update_fields=['last_status', 'last_result', 'updated_at'])
-
-                return True
-        except Exception as e:
-            logger.error(f'同步微服务状态失败: {e}')
-
-        return False
+        return results
 
 
 # ============================================================================
@@ -1207,6 +1639,7 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
                 'started_at': e.started_at,
                 'finished_at': e.finished_at,
                 'step_results': e.step_results,
+                'screenshot_urls': e.screenshot_urls,
                 'executed_by': e.executed_by.username if e.executed_by else None,
             })
         return Response({'results': data, 'count': total, 'page': page, 'page_size': page_size})
@@ -1234,6 +1667,137 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
             'sql_results': execution.sql_results or [],
         })
 
+    @action(detail=False, methods=['get'], url_path='statistics')
+    def statistics(self, request):
+        """执行统计：总体概览 + 近30天趋势"""
+        try:
+            from django.db.models import Count, Avg
+            from django.utils import timezone as tz
+            import datetime
+
+            project_id = request.query_params.get('project_id')
+            platform = request.query_params.get('platform')
+            qs = self.get_queryset()
+            if project_id:
+                qs = qs.filter(case__project_id=project_id)
+            if platform:
+                qs = qs.filter(case__platform=platform)
+
+            # 总体统计
+            total = qs.count()
+            passed = qs.filter(status='passed').count()
+            failed = qs.filter(status='failed').count()
+            running = qs.filter(status='running').count()
+            avg_duration = qs.exclude(duration__isnull=True).aggregate(avg=Avg('duration'))['avg']
+
+            # 近30天趋势（按天聚合）
+            today = tz.now().date()
+            trend = []
+            for offset in range(29, -1, -1):
+                day = today - datetime.timedelta(days=offset)
+                day_qs = qs.filter(started_at__date=day)
+                day_total = day_qs.count()
+                day_passed = day_qs.filter(status='passed').count()
+                day_failed = day_qs.filter(status='failed').count()
+                trend.append({
+                    'date': day.strftime('%Y-%m-%d'),
+                    'total': day_total,
+                    'passed': day_passed,
+                    'failed': day_failed,
+                })
+
+            # 用例维度：通过率最低的Top10
+            case_stats = (
+                qs.values('case_id', 'case__name')
+                .annotate(
+                    exec_count=Count('id'),
+                    pass_count=Count('id', filter=Q(status='passed')),
+                    fail_count=Count('id', filter=Q(status='failed')),
+                )
+                .order_by('-fail_count')[:10]
+            )
+            top_failed = [
+                {
+                    'case_id': s['case_id'],
+                    'case_name': s['case__name'],
+                    'total': s['exec_count'],
+                    'passed': s['pass_count'],
+                    'failed': s['fail_count'],
+                    'pass_rate': round(s['pass_count'] / s['exec_count'] * 100, 1) if s['exec_count'] else 0,
+                }
+                for s in case_stats
+            ]
+
+            return Response({
+                'total': total,
+                'passed': passed,
+                'failed': failed,
+                'running': running,
+                'pass_rate': round(passed / total * 100, 1) if total else 0,
+                'avg_duration': round(avg_duration, 1) if avg_duration else 0,
+                'trend': trend,
+                'top_failed': top_failed,
+            })
+        except Exception as e:
+            logger.exception(f'获取执行统计失败: {e}')
+            return Response({
+                'total': 0, 'passed': 0, 'failed': 0, 'running': 0,
+                'pass_rate': 0, 'avg_duration': 0, 'trend': [], 'top_failed': [],
+            })
+
+
+    @action(detail=False, methods=['post'], url_path='visual-compare')
+    def visual_compare(self, request):
+        """中转：截图对比（调用Midscene微服务 /visual-compare）"""
+        import httpx
+        try:
+            with httpx.Client(timeout=30) as client:
+                resp = client.post(
+                    f'{MIDSCENE_SERVICE_URL}/visual-compare',
+                    json=request.data,
+                )
+                resp.raise_for_status()
+                return Response(resp.json())
+        except httpx.ConnectError:
+            return Response({'error': 'Midscene微服务未启动'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            return Response({'error': f'截图对比失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='baseline/save')
+    def save_baseline(self, request):
+        """中转：保存基线截图（调用Midscene微服务 /baseline/save）"""
+        import httpx
+        try:
+            with httpx.Client(timeout=15) as client:
+                resp = client.post(
+                    f'{MIDSCENE_SERVICE_URL}/baseline/save',
+                    json=request.data,
+                )
+                resp.raise_for_status()
+                return Response(resp.json())
+        except httpx.ConnectError:
+            return Response({'error': 'Midscene微服务未启动'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            return Response({'error': f'基线保存失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='baseline/list')
+    def list_baselines(self, request):
+        """中转：查询用例基线列表（调用Midscene微服务 /baseline/list）"""
+        import httpx
+        try:
+            case_id = request.query_params.get('case_id')
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(
+                    f'{MIDSCENE_SERVICE_URL}/baseline/list',
+                    params={'case_id': case_id},
+                )
+                resp.raise_for_status()
+                return Response(resp.json())
+        except httpx.ConnectError:
+            return Response({'error': 'Midscene微服务未启动'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            return Response({'error': f'基线查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 # ──────────────────────────────────────────────
 # AI 自动化定时任务
@@ -1242,77 +1806,67 @@ class MidsceneExecutionViewSet(viewsets.ModelViewSet):
 def _build_midscene_payload(case, execution_id):
     """
     构建 Midscene 微服务执行 payload（复用 run_case 的逻辑）
+    使用三级配置合并：全局MidsceneConfig → 用例级覆盖 → 旧AIModelConfig兜底
     """
-    # 获取模型配置
-    from apps.requirement_analysis.models import AIModelConfig
-    config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
-    if not config_obj:
-        config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+    # ---- 获取合并配置 ----
+    merged_config = MidsceneCaseViewSet._get_merged_config(case)
 
-    model_config = {}
-    if config_obj:
-        model_name = (config_obj.model_name or '').lower()
-        if 'qwen3.6' in model_name:
-            model_family = 'qwen3.6'
-        elif 'qwen3.5' in model_name:
-            model_family = 'qwen3.5'
-        elif 'qwen3' in model_name and 'vl' in model_name:
-            model_family = 'qwen3-vl'
-        elif 'qwen3' in model_name:
-            model_family = 'qwen3'
-        elif 'qwen2.5' in model_name and 'vl' in model_name:
-            model_family = 'qwen2.5-vl'
-        elif 'qwen' in model_name and 'vl' in model_name:
-            model_family = 'qwen2.5-vl'
-        elif 'qwen' in model_name:
-            model_family = 'qwen3'
-        elif 'doubao-seed' in model_name or 'seed' in model_name:
-            model_family = 'doubao-seed'
-        elif 'doubao' in model_name and 'vision' in model_name:
-            model_family = 'doubao-vision'
-        elif 'doubao' in model_name:
-            model_family = 'doubao-vision'
-        elif 'gemini' in model_name:
-            model_family = 'gemini'
-        elif 'glm' in model_name and 'auto-glm' in model_name:
-            model_family = 'auto-glm'
-        elif 'glm' in model_name:
-            model_family = 'glm-v'
-        elif 'gpt' in model_name:
-            model_family = 'gpt-5'
-        elif 'kimi3' in model_name:
-            model_family = 'kimi3'
-        elif 'kimi' in model_name:
-            model_family = 'kimi'
-        elif 'mimo' in model_name or 'xiaomi' in model_name:
-            model_family = 'xiaomi-mimo'
-        else:
-            model_family = 'qwen3-vl'
+    # ---- AI模型配置 ----
+    model_config = merged_config.get('ai_model_config', {})
+    if not model_config:
+        model_config = MidsceneCaseViewSet._get_legacy_model_config()
 
-        model_config = {
-            'api_key': config_obj.api_key,
-            'base_url': config_obj.base_url,
-            'model_name': config_obj.model_name,
-            'model_family': model_family,
-        }
+    # ---- 设备类型（platform=app 时自动修正为 android）----
+    resolved_device_type = merged_config.get('device_type') or case.device_type or ('android' if case.platform == 'app' else 'web')
+    if case.platform == 'app' and resolved_device_type == 'web':
+        resolved_device_type = 'android'
 
+    # ---- 步骤构建 ----
     steps = []
+    # 初始化变量池（用于步骤间变量传递和数据工厂函数解析）
+    context_variables = {}
     for step in (case.steps or []):
         step_type = step.get('type', 'action')
         instruction = step.get('instruction', '')
+        output_var = step.get('output_var', '')
+        input_value = step.get('input_value', '')
+        mode = step.get('mode', 'ai')
         if step_type == 'assert':
             midscene_type = 'aiAssert'
         elif step_type == 'action':
             midscene_type = 'aiAct'
         else:
             midscene_type = step_type
-        steps.append({
+        # 变量替换：替换 instruction、input_value 中的 ${变量名} 和数据工厂函数
+        # 注意：数据工厂函数（如 ${random_phone()}）在 Python 端解析；
+        #       步骤输出变量（${varName}）引用同一用例内前面步骤的输出，也在 Python 端尽量替换；
+        #       无法在 Python 端替换的运行时变量由 JS 端的 sharedVariables 处理
+        from .variable_resolver import resolve_variables
+        instruction = resolve_variables(instruction, context_variables)
+        if input_value:
+            input_value = resolve_variables(input_value, context_variables)
+        step_payload = {
             'type': midscene_type,
             'instruction': instruction,
-        })
+            'input_value': input_value,
+            'output_var': output_var,
+            'mode': mode,
+        }
+        if mode == 'traditional':
+            locator_value = step.get('locator_value', '')
+            assert_value = step.get('assert_value', '')
+            locator_value = resolve_variables(locator_value, context_variables)
+            if assert_value:
+                assert_value = resolve_variables(assert_value, context_variables)
+            step_payload['action_type'] = step.get('action_type', 'click')
+            step_payload['locator_value'] = locator_value
+            step_payload['assert_type'] = step.get('assert_type', '')
+            step_payload['assert_value'] = assert_value
+        steps.append(step_payload)
 
     payload = {
         'platform': case.platform or 'web',
+        'device_type': resolved_device_type,
         'url': case.url or None,
         'steps': steps,
         'headless': case.headless,
@@ -1334,9 +1888,91 @@ def _build_midscene_payload(case, execution_id):
             'device_id': case.device_id or '',
             'package_name': case.package_name or '',
             'app_activity': case.app_activity or '',
-        } if case.platform == 'app' else None,
+        } if resolved_device_type != 'web' else None,
+        # 三级配置合并后的参数
+        'execution_config': merged_config.get('execution_config', {}),
+        'report_config': merged_config.get('report_config', {}),
+        'web_config': merged_config.get('web_config', {}),
+        'android_config': merged_config.get('android_config', {}),
+        'ios_config': merged_config.get('ios_config', {}),
+        'harmony_config': merged_config.get('harmony_config', {}),
+        'app_name_mapping': merged_config.get('app_name_mapping', {}),
     }
     return payload
+
+
+# ──────────────────────────────────────────────
+# 辅助函数：通过 midscene-runner.js 执行（用于 Android/APP 端）
+# Web 端继续走 Playwright Test CLI，APP 端走旧 runner（有完整 Android 支持）
+# ──────────────────────────────────────────────
+
+_MIDSCENE_SERVICE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    'midscene-service'
+)
+_RESULTS_DIR = os.path.join(_MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
+
+
+def _launch_midscene_runner_single(payload, execution_id, case_id):
+    """
+    通过 midscene-runner.js 执行单条用例（APP/Android 端）
+
+    写入 payload 文件，subprocess 启动 node midscene-runner.js，runner 完成后回调 Django。
+    """
+    os.makedirs(_RESULTS_DIR, exist_ok=True)
+
+    # 写入 payload 文件
+    payload_file = os.path.join(_RESULTS_DIR, f'payload_{execution_id}.json')
+    result_file = os.path.join(_RESULTS_DIR, f'result_{execution_id}.json')
+    with open(payload_file, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False)
+
+    # 构造环境变量
+    env = os.environ.copy()
+    env['PATH'] = r'D:\install\nodejs' + ';' + env.get('PATH', '')
+
+    node_cmd = 'node.exe' if os.name == 'nt' else 'node'
+    proc = subprocess.Popen(
+        [node_cmd, 'midscene-runner.js', payload_file, result_file],
+        cwd=_MIDSCENE_SERVICE_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    return proc, result_file
+
+
+def _launch_midscene_runner_batch(cases_payload, batch_config, batch_id):
+    """
+    通过 midscene-runner.js 执行批次（共享会话模式，APP/Android 端）
+
+    写入 batch 配置文件，subprocess 启动 node midscene-runner.js --batch。
+    """
+    os.makedirs(_RESULTS_DIR, exist_ok=True)
+
+    batch_config_file = os.path.join(_RESULTS_DIR, f'batch_{batch_id}.json')
+    result_file = os.path.join(_RESULTS_DIR, f'result_batch_{batch_id}.json')
+
+    full_batch_config = {
+        'batch_id': batch_id,
+        'cases': cases_payload,
+        **batch_config,
+    }
+    with open(batch_config_file, 'w', encoding='utf-8') as f:
+        json.dump(full_batch_config, f, ensure_ascii=False)
+
+    env = os.environ.copy()
+    env['PATH'] = r'D:\install\nodejs' + ';' + env.get('PATH', '')
+
+    node_cmd = 'node.exe' if os.name == 'nt' else 'node'
+    proc = subprocess.Popen(
+        [node_cmd, 'midscene-runner.js', '--batch', batch_config_file, result_file],
+        cwd=_MIDSCENE_SERVICE_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    return proc, result_file
 
 
 class AiScheduledTaskViewSet(viewsets.ModelViewSet):
@@ -1389,7 +2025,7 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='run-now')
     def run_now(self, request, pk=None):
-        """立即运行任务 — POST 到 Midscene 微服务，异步回调更新结果"""
+        """立即运行任务 — 通过 /execute-batch 统一提交到 Midscene 微服务，避免并发资源失控"""
         task = self.get_object()
 
         try:
@@ -1408,50 +2044,286 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
             task.next_run_time = task.calculate_next_run()
             task.save()
 
-            # 逐个执行计划中的用例
-            execution_ids = []
-            first_execution = None
+            # 生成执行批次ID
+            import uuid
+            batch_id = str(uuid.uuid4())
+            execution_mode = plan.execution_mode or 'per_case'
+            login_config = plan.login_config or {}
+
+            # 为每个用例创建 execution 记录和 payload
+            cases_payload = []
             for item in items:
                 case = item.midscene_case
+                if not case:
+                    continue
                 execution = MidsceneExecution.objects.create(
                     case=case,
                     status='running',
                     executed_by=task.created_by,
+                    plan_execution_batch=batch_id,
                 )
                 case.last_status = 'running'
                 case.save(update_fields=['last_status'])
-                if not first_execution:
-                    first_execution = execution
-                execution_ids.append(execution.id)
 
                 payload = _build_midscene_payload(case, execution.id)
-                try:
-                    with httpx.Client(timeout=10) as client:
-                        resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute', json=payload)
-                        resp.raise_for_status()
-                except httpx.ConnectError:
-                    execution.status = 'failed'
-                    execution.error_message = 'Midscene微服务未启动'
-                    execution.finished_at = timezone.now()
-                    execution.save()
-                    case.last_status = 'failed'
-                    case.last_result = 'Midscene微服务未启动'
-                    case.save(update_fields=['last_status', 'last_result'])
+                cases_payload.append({
+                    'payload': payload,
+                    'execution_id': execution.id,
+                    'case_id': case.id,
+                })
 
-                    task.failed_runs += 1
-                    task.last_result = {'status': 'failed', 'message': 'Midscene微服务未启动'}
-                    task.error_message = 'Midscene微服务未启动'
-                    task.save()
+            if not cases_payload:
+                return Response({'error': '没有可执行的用例'}, status=status.HTTP_400_BAD_REQUEST)
 
-                    return Response({
-                        'error': 'Midscene微服务未启动，请检查 midscene-service 是否运行',
-                    }, status=status.HTTP_400_BAD_REQUEST)
+            # ---- 根据设备类型选择执行引擎 ----
+            first_payload = cases_payload[0]['payload']
+            is_app = first_payload.get('device_type', 'web') != 'web'
+
+            try:
+                if is_app:
+                    # ---- APP/Android 端：通过 midscene-runner.js 执行 ----
+                    if execution_mode == 'shared_session':
+                        batch_config = {
+                            'login_config': login_config,
+                            'callback_base': 'http://localhost:8000/api/ui-automation',
+                            'execution_mode': execution_mode,
+                        }
+                        proc, result_file = _launch_midscene_runner_batch(
+                            cases_payload, batch_config, batch_id
+                        )
+                        if cases_payload:
+                            first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                            if first_exec:
+                                first_exec.logs = json.dumps({
+                                    'batch_id': batch_id,
+                                    'architecture': 'runner',
+                                    'result_file': result_file,
+                                    'runner_pid': proc.pid,
+                                })
+                                first_exec.save(update_fields=['logs'])
+                    else:
+                        for item_data in cases_payload:
+                            case_payload = item_data['payload']
+                            case_payload['execution_id'] = item_data['execution_id']
+                            case_payload['case_id'] = item_data['case_id']
+                            case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                            case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
+
+                            proc, result_file = _launch_midscene_runner_single(
+                                case_payload, item_data['execution_id'], item_data['case_id']
+                            )
+                            exec_rec = MidsceneExecution.objects.filter(id=item_data['execution_id']).first()
+                            if exec_rec:
+                                exec_rec.logs = json.dumps({
+                                    'runner_pid': proc.pid,
+                                    'result_file': result_file,
+                                    'architecture': 'runner',
+                                })
+                                exec_rec.save(update_fields=['logs'])
+
+                else:
+                    # ---- Web 端：通过 Playwright Test 执行（新架构）----
+                    MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
+                    RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
+                    os.makedirs(RESULTS_DIR, exist_ok=True)
+
+                    if execution_mode == 'shared_session':
+                        from .spec_generator import generate_shared_session_spec
+                        import threading
+                        spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
+                        spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+                        env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
+
+                        batch_config = {
+                            'batch_id': batch_id,
+                            'login_config': login_config,
+                            'callback_base': 'http://localhost:8000/api/ui-automation',
+                            'execution_mode': execution_mode,
+                        }
+                        generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+
+                        # 后台线程启动 Playwright Test 执行共享会话 spec
+                        def _run_shared_session_now(cases_payload, plan_id, batch_id, spec_filename, env_path, RESULTS_DIR, MIDSCENE_SERVICE_DIR):
+                            npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                            pw_log_dir = os.path.join(RESULTS_DIR, 'logs')
+                            os.makedirs(pw_log_dir, exist_ok=True)
+                            node_path = r'D:\install\nodejs'
+
+                            shared_env = os.environ.copy()
+                            shared_env['TESTHUB_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
+                            shared_env['TESTHUB_HEADLESS'] = 'false' if not first_payload.get('headless', True) else 'true'
+                            shared_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                            shared_env['TESTHUB_ENV_FILE'] = env_path
+                            shared_env['PATH'] = node_path + ';' + shared_env.get('PATH', '')
+                            # 共享会话模式：设置第一个用例的 execution_id 和 callback_url
+                            first_exec_id = cases_payload[0]['execution_id'] if cases_payload else 0
+                            first_case_id = cases_payload[0]['case_id'] if cases_payload else 0
+                            shared_env['TESTHUB_EXECUTION_ID'] = str(first_exec_id)
+                            shared_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{first_case_id}/callback/'
+
+                            log_path = os.path.join(pw_log_dir, f'plan_{plan_id}_batch_{batch_id}.log')
+                            log_file = open(log_path, 'w', encoding='utf-8')
+                            try:
+                                proc = subprocess.Popen(
+                                    [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
+                                     '--config=playwright.config.ts'],
+                                    cwd=MIDSCENE_SERVICE_DIR,
+                                    stdout=log_file,
+                                    stderr=log_file,
+                                    env=shared_env,
+                                    shell=True,
+                                )
+                                proc.wait()
+                            except Exception as e:
+                                import logging as _logging
+                                _logging.getLogger(__name__).error(f'shared_session execution error for plan {plan_id}: {e}')
+                            finally:
+                                log_file.close()
+                                # ---- 兜底：Playwright 进程结束后，把该批次还卡在 running 的 execution 标记为 failed ----
+                                try:
+                                    from django.utils import timezone as _tz
+                                    _batch_exec_ids = [cp['execution_id'] for cp in cases_payload]
+                                    _stuck = MidsceneExecution.objects.filter(id__in=_batch_exec_ids, status='running')
+                                    for _se in _stuck:
+                                        _se.status = 'failed'
+                                        _se.error_message = 'Playwright 进程已结束但未收到回调'
+                                        _se.finished_at = _tz.now()
+                                        if _se.started_at and _se.finished_at:
+                                            _se.duration = (_se.finished_at - _se.started_at).total_seconds()
+                                        _se.save(update_fields=['status', 'error_message', 'finished_at', 'duration'])
+                                        _sc = _se.case
+                                        if _sc:
+                                            _sc.last_status = 'failed'
+                                            _sc.last_result = 'Playwright 进程已结束但未收到回调'
+                                            _sc.save(update_fields=['last_status', 'last_result', 'updated_at'])
+                                    # 刷新计划状态
+                                    _plan = AiTestPlan.objects.filter(id=plan_id).first()
+                                    if _plan:
+                                        _p = MidsceneExecution.objects.filter(id__in=_batch_exec_ids, status='passed').count()
+                                        _f = MidsceneExecution.objects.filter(id__in=_batch_exec_ids).exclude(status='running').exclude(status='passed').count()
+                                        _plan.passed_count = _p
+                                        _plan.failed_count = _f
+                                        _plan.execution_status = 'failed' if _f > 0 else ('passed' if _p == _plan.total_cases else 'failed')
+                                        _plan.save(update_fields=['execution_status', 'passed_count', 'failed_count'])
+                                except Exception as _e:
+                                    import logging as _logging
+                                    _logging.getLogger(__name__).error(f'shared_session cleanup error for plan {plan_id}: {_e}')
+
+                        shared_thread = threading.Thread(
+                            target=_run_shared_session_now,
+                            args=(cases_payload, plan.id, batch_id, spec_filename, env_path, RESULTS_DIR, MIDSCENE_SERVICE_DIR),
+                            daemon=True,
+                        )
+                        shared_thread.start()
+
+                        # 保存日志信息到第一条执行记录
+                        if cases_payload:
+                            first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                            if first_exec:
+                                first_exec.logs = json.dumps({
+                                    'batch_id': batch_id,
+                                    'architecture': 'playwright-test-shared',
+                                    'mode': 'shared_session',
+                                    'total_cases': len(cases_payload),
+                                    'spec_file': spec_filename,
+                                })
+                                first_exec.save(update_fields=['logs'])
+                    else:
+                        # ---- per_case 模式：每个用例独立 spec + 独立浏览器，串行执行 ----
+                        from .spec_generator import generate_single_case_spec
+                        import threading
+
+                        for item_data in cases_payload:
+                            case_payload = item_data['payload']
+                            case_payload['execution_id'] = item_data['execution_id']
+                            case_payload['case_id'] = item_data['case_id']
+                            case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                            case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
+
+                            exec_id = item_data['execution_id']
+                            spec_filename = f'test_execution_{exec_id}.spec.ts'
+                            spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+                            env_path = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                            generate_single_case_spec(case_payload, spec_path, env_path, RESULTS_DIR)
+
+                        # 后台线程串行执行每个用例
+                        def _serial_run_cases_now(cases_payload, plan_id, batch_id, RESULTS_DIR, MIDSCENE_SERVICE_DIR):
+                            npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                            pw_log_dir = os.path.join(RESULTS_DIR, 'logs')
+                            os.makedirs(pw_log_dir, exist_ok=True)
+                            node_path = r'D:\install\nodejs'
+
+                            for item_data in cases_payload:
+                                exec_id = item_data['execution_id']
+                                case_id = item_data['case_id']
+                                single_spec = f'test_execution_{exec_id}.spec.ts'
+                                single_env = os.environ.copy()
+                                single_env['TESTHUB_EXECUTION_ID'] = str(exec_id)
+                                single_env['TESTHUB_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
+                                single_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
+                                single_env['TESTHUB_HEADLESS'] = 'false' if not item_data['payload'].get('headless', True) else 'true'
+                                single_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                                single_env['TESTHUB_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                                single_env['PATH'] = node_path + ';' + single_env.get('PATH', '')
+
+                                single_log_path = os.path.join(pw_log_dir, f'execution_{exec_id}.log')
+                                single_log_file = open(single_log_path, 'w', encoding='utf-8')
+                                try:
+                                    proc = subprocess.Popen(
+                                        [npx_cmd, 'playwright', 'test', f'e2e/{single_spec}',
+                                         '--config=playwright.config.ts'],
+                                        cwd=MIDSCENE_SERVICE_DIR,
+                                        stdout=single_log_file,
+                                        stderr=single_log_file,
+                                        env=single_env,
+                                        shell=True,
+                                    )
+                                    proc.wait()
+                                except Exception as e:
+                                    import logging as _logging
+                                    _logging.getLogger(__name__).error(f'per_case serial execution error for exec {exec_id}: {e}')
+                                finally:
+                                    single_log_file.close()
+
+                        serial_thread = threading.Thread(
+                            target=_serial_run_cases_now,
+                            args=(cases_payload, plan.id, batch_id, RESULTS_DIR, MIDSCENE_SERVICE_DIR),
+                            daemon=True,
+                        )
+                        serial_thread.start()
+
+                        if cases_payload:
+                            first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                            if first_exec:
+                                log_data = {
+                                    'batch_id': batch_id,
+                                    'architecture': 'playwright-test-serial',
+                                    'mode': 'per_case_serial',
+                                    'total_cases': len(cases_payload),
+                                }
+                                first_exec.logs = json.dumps(log_data)
+                                first_exec.save(update_fields=['logs'])
+
+            except Exception as batch_err:
+                # 提交失败，标记所有 execution 为失败
+                for item_data in cases_payload:
+                    MidsceneExecution.objects.filter(id=item_data['execution_id']).update(
+                        status='failed', error_message=f'提交Playwright Test失败: {str(batch_err)}', finished_at=timezone.now()
+                    )
+                task.failed_runs += 1
+                task.last_result = {'status': 'failed', 'message': str(batch_err)}
+                task.error_message = str(batch_err)
+                task.save()
+                return Response({
+                    'error': f'提交执行引擎失败: {str(batch_err)}',
+                }, status=status.HTTP_400_BAD_REQUEST)
 
             return Response({
-                'message': '测试计划已提交到Midscene微服务',
+                'message': f'测试计划已提交到{"Midscene Runner" if is_app else "Playwright Test"}',
                 'task_id': task.id,
                 'task_name': task.name,
-                'execution_ids': execution_ids,
+                'batch_id': batch_id,
+                'execution_mode': execution_mode,
                 'plan_name': plan.name,
                 'status': 'submitted',
             }, status=status.HTTP_200_OK)
@@ -1861,6 +2733,10 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
         import uuid
         batch_id = str(uuid.uuid4())
 
+        # 执行模式
+        execution_mode = plan.execution_mode or 'per_case'
+        login_config = plan.login_config or {}
+
         # 为每个用例创建execution记录和payload
         cases_payload = []
         for item in items:
@@ -1894,29 +2770,260 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
         plan.total_cases = len(cases_payload)
         plan.save(update_fields=['execution_status', 'passed_count', 'failed_count', 'skipped_count', 'total_cases'])
 
-        # 一次提交所有用例到微服务 /execute-batch
+        # ---- 根据设备类型选择执行引擎 ----
+        first_payload = cases_payload[0]['payload']
+        is_app = first_payload.get('device_type', 'web') != 'web'
+
         try:
-            import httpx
-            with httpx.Client(timeout=15) as client:
-                resp = client.post(f'{MIDSCENE_SERVICE_URL}/execute-batch', json={
-                    'cases': cases_payload,
-                    'plan_id': plan.id,
-                    'callback_base': f'http://localhost:8000/api/ui-automation',
-                }, timeout=15)
-                resp.raise_for_status()
+            if is_app:
+                # ---- APP/Android 端：通过 midscene-runner.js 执行 ----
+                if execution_mode == 'shared_session':
+                    # 共享会话：单进程批次执行
+                    batch_config = {
+                        'login_config': login_config,
+                        'callback_base': 'http://localhost:8000/api/ui-automation',
+                        'execution_mode': execution_mode,
+                    }
+                    proc, result_file = _launch_midscene_runner_batch(
+                        cases_payload, batch_config, batch_id
+                    )
+                    if cases_payload:
+                        first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                        if first_exec:
+                            first_exec.logs = json.dumps({
+                                'batch_id': batch_id,
+                                'architecture': 'runner',
+                                'result_file': result_file,
+                                'runner_pid': proc.pid,
+                            })
+                            first_exec.save(update_fields=['logs'])
+                else:
+                    # 独立模式：逐个用例启动 runner
+                    for item_data in cases_payload:
+                        case_payload = item_data['payload']
+                        case_payload['execution_id'] = item_data['execution_id']
+                        case_payload['case_id'] = item_data['case_id']
+                        case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                        case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
+
+                        proc, result_file = _launch_midscene_runner_single(
+                            case_payload, item_data['execution_id'], item_data['case_id']
+                        )
+                        exec_rec = MidsceneExecution.objects.filter(id=item_data['execution_id']).first()
+                        if exec_rec:
+                            exec_rec.logs = json.dumps({
+                                'runner_pid': proc.pid,
+                                'result_file': result_file,
+                                'architecture': 'runner',
+                            })
+                            exec_rec.save(update_fields=['logs'])
+
+            else:
+                # ---- Web 端：通过 Playwright Test 执行（新架构）----
+                MIDSCENE_SERVICE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'midscene-service')
+                RESULTS_DIR = os.path.join(MIDSCENE_SERVICE_DIR, 'midscene_run', 'results')
+                os.makedirs(RESULTS_DIR, exist_ok=True)
+
+                if execution_mode == 'shared_session':
+                    from .spec_generator import generate_shared_session_spec
+                    import threading
+                    spec_filename = f'test_plan_{plan.id}_batch_{batch_id}.spec.ts'
+                    spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+                    env_path = os.path.join(RESULTS_DIR, f'.env_plan_{plan.id}')
+
+                    batch_config = {
+                        'batch_id': batch_id,
+                        'login_config': login_config,
+                        'callback_base': 'http://localhost:8000/api/ui-automation',
+                        'execution_mode': execution_mode,
+                    }
+                    generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
+
+                    # 后台线程启动 Playwright Test 执行共享会话 spec
+                    def _run_shared_session(cases_payload, plan_id, batch_id, spec_filename, env_path, RESULTS_DIR, MIDSCENE_SERVICE_DIR):
+                        npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                        pw_log_dir = os.path.join(RESULTS_DIR, 'logs')
+                        os.makedirs(pw_log_dir, exist_ok=True)
+                        node_path = r'D:\install\nodejs'
+
+                        shared_env = os.environ.copy()
+                        shared_env['TESTHUB_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
+                        shared_env['TESTHUB_HEADLESS'] = 'false' if not first_payload.get('headless', True) else 'true'
+                        shared_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                        shared_env['TESTHUB_ENV_FILE'] = env_path
+                        shared_env['PATH'] = node_path + ';' + shared_env.get('PATH', '')
+                        # 共享会话模式：设置第一个用例的 execution_id 和 callback_url，
+                        # 让 DjangoCallbackReporter 能正确回调（Reporter 只回调一次，
+                        # 每个用例的独立回调由 spec 中的 callbackForExecution 处理）
+                        first_exec_id = cases_payload[0]['execution_id'] if cases_payload else 0
+                        first_case_id = cases_payload[0]['case_id'] if cases_payload else 0
+                        shared_env['TESTHUB_EXECUTION_ID'] = str(first_exec_id)
+                        shared_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{first_case_id}/callback/'
+
+                        log_path = os.path.join(pw_log_dir, f'plan_{plan_id}_batch_{batch_id}.log')
+                        log_file = open(log_path, 'w', encoding='utf-8')
+                        try:
+                            proc = subprocess.Popen(
+                                [npx_cmd, 'playwright', 'test', f'e2e/{spec_filename}',
+                                 '--config=playwright.config.ts'],
+                                cwd=MIDSCENE_SERVICE_DIR,
+                                stdout=log_file,
+                                stderr=log_file,
+                                env=shared_env,
+                                shell=True,
+                            )
+                            proc.wait()
+                        except Exception as e:
+                            import logging as _logging
+                            _logging.getLogger(__name__).error(f'shared_session execution error for plan {plan_id}: {e}')
+                        finally:
+                            log_file.close()
+                            # ---- 兜底：Playwright 进程结束后，把该批次还卡在 running 的 execution 标记为 failed ----
+                            try:
+                                from django.utils import timezone as _tz
+                                _batch_exec_ids = [cp['execution_id'] for cp in cases_payload]
+                                _stuck = MidsceneExecution.objects.filter(id__in=_batch_exec_ids, status='running')
+                                for _se in _stuck:
+                                    _se.status = 'failed'
+                                    _se.error_message = 'Playwright 进程已结束但未收到回调'
+                                    _se.finished_at = _tz.now()
+                                    if _se.started_at and _se.finished_at:
+                                        _se.duration = (_se.finished_at - _se.started_at).total_seconds()
+                                    _se.save(update_fields=['status', 'error_message', 'finished_at', 'duration'])
+                                    _sc = _se.case
+                                    if _sc:
+                                        _sc.last_status = 'failed'
+                                        _sc.last_result = 'Playwright 进程已结束但未收到回调'
+                                        _sc.save(update_fields=['last_status', 'last_result', 'updated_at'])
+                                # 刷新计划状态
+                                _plan = AiTestPlan.objects.filter(id=plan_id).first()
+                                if _plan:
+                                    _p = MidsceneExecution.objects.filter(id__in=_batch_exec_ids, status='passed').count()
+                                    _f = MidsceneExecution.objects.filter(id__in=_batch_exec_ids).exclude(status='running').exclude(status='passed').count()
+                                    _plan.passed_count = _p
+                                    _plan.failed_count = _f
+                                    _plan.execution_status = 'failed' if _f > 0 else ('passed' if _p == _plan.total_cases else 'failed')
+                                    _plan.save(update_fields=['execution_status', 'passed_count', 'failed_count'])
+                            except Exception as _e:
+                                import logging as _logging
+                                _logging.getLogger(__name__).error(f'shared_session cleanup error for plan {plan_id}: {_e}')
+
+                    shared_thread = threading.Thread(
+                        target=_run_shared_session,
+                        args=(cases_payload, plan.id, batch_id, spec_filename, env_path, RESULTS_DIR, MIDSCENE_SERVICE_DIR),
+                        daemon=True,
+                    )
+                    shared_thread.start()
+
+                    # 保存日志信息到第一条执行记录
+                    if cases_payload:
+                        first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                        if first_exec:
+                            first_exec.logs = json.dumps({
+                                'batch_id': batch_id,
+                                'architecture': 'playwright-test-shared',
+                                'mode': 'shared_session',
+                                'total_cases': len(cases_payload),
+                                'spec_file': spec_filename,
+                            })
+                            first_exec.save(update_fields=['logs'])
+                else:
+                    # ---- per_case 模式：每个用例独立 spec + 独立浏览器，串行执行 ----
+                    # 每个用例有自己的浏览器实例，页面状态完全隔离，
+                    # 但串行启动（一个完成后再启动下一个），避免并发资源竞争。
+                    # 在后台线程中串行执行，避免阻塞 Django 请求线程。
+                    from .spec_generator import generate_single_case_spec
+                    import threading
+
+                    for item_data in cases_payload:
+                        case_payload = item_data['payload']
+                        case_payload['execution_id'] = item_data['execution_id']
+                        case_payload['case_id'] = item_data['case_id']
+                        case_obj = MidsceneCase.objects.filter(id=item_data['case_id']).first()
+                        case_payload['case_name'] = case_obj.name if case_obj else f'case_{item_data["case_id"]}'
+
+                        exec_id = item_data['execution_id']
+                        spec_filename = f'test_execution_{exec_id}.spec.ts'
+                        spec_path = os.path.join(MIDSCENE_SERVICE_DIR, 'e2e', spec_filename)
+                        env_path = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                        generate_single_case_spec(case_payload, spec_path, env_path, RESULTS_DIR)
+
+                    # 后台线程串行执行每个用例
+                    def _serial_run_cases(cases_payload, plan_id, batch_id, RESULTS_DIR, MIDSCENE_SERVICE_DIR):
+                        npx_cmd = 'npx.cmd' if os.name == 'nt' else 'npx'
+                        pw_log_dir = os.path.join(RESULTS_DIR, 'logs')
+                        os.makedirs(pw_log_dir, exist_ok=True)
+                        node_path = r'D:\install\nodejs'
+
+                        for item_data in cases_payload:
+                            exec_id = item_data['execution_id']
+                            case_id = item_data['case_id']
+                            single_spec = f'test_execution_{exec_id}.spec.ts'
+                            single_env = os.environ.copy()
+                            single_env['TESTHUB_EXECUTION_ID'] = str(exec_id)
+                            single_env['TESTHUB_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
+                            single_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
+                            single_env['TESTHUB_HEADLESS'] = 'false' if not item_data['payload'].get('headless', True) else 'true'
+                            single_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
+                            single_env['TESTHUB_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
+                            single_env['PATH'] = node_path + ';' + single_env.get('PATH', '')
+
+                            single_log_path = os.path.join(pw_log_dir, f'execution_{exec_id}.log')
+                            single_log_file = open(single_log_path, 'w', encoding='utf-8')
+                            try:
+                                proc = subprocess.Popen(
+                                    [npx_cmd, 'playwright', 'test', f'e2e/{single_spec}',
+                                     '--config=playwright.config.ts'],
+                                    cwd=MIDSCENE_SERVICE_DIR,
+                                    stdout=single_log_file,
+                                    stderr=single_log_file,
+                                    env=single_env,
+                                    shell=True,
+                                )
+                                # 串行等待：等当前用例的浏览器进程结束后再启动下一个
+                                proc.wait()
+                            except Exception as e:
+                                import logging as _logging
+                                _logging.getLogger(__name__).error(f'per_case serial execution error for exec {exec_id}: {e}')
+                            finally:
+                                single_log_file.close()
+
+                    serial_thread = threading.Thread(
+                        target=_serial_run_cases,
+                        args=(cases_payload, plan.id, batch_id, RESULTS_DIR, MIDSCENE_SERVICE_DIR),
+                        daemon=True,
+                    )
+                    serial_thread.start()
+
+                    # 保存日志信息到第一条执行记录
+                    spec_filename = None
+                    proc = None
+                    if cases_payload:
+                        first_exec = MidsceneExecution.objects.filter(id=cases_payload[0]['execution_id']).first()
+                        if first_exec:
+                            log_data = {
+                                'batch_id': batch_id,
+                                'architecture': 'playwright-test-serial',
+                                'mode': 'per_case_serial',
+                                'total_cases': len(cases_payload),
+                            }
+                            first_exec.logs = json.dumps(log_data)
+                            first_exec.save(update_fields=['logs'])
+
         except Exception as e:
             # 提交失败，把所有execution标记为failed
             for item_data in cases_payload:
                 MidsceneExecution.objects.filter(id=item_data['execution_id']).update(
-                    status='failed', error_message=f'提交微服务失败: {str(e)}', finished_at=timezone.now()
+                    status='failed', error_message=f'提交Playwright Test失败: {str(e)}', finished_at=timezone.now()
                 )
             plan.execution_status = 'failed'
             plan.save(update_fields=['execution_status'])
-            return Response({'error': f'提交微服务失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': f'提交失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({
             'message': '计划已提交执行',
             'execution_status': 'running',
+            'execution_mode': execution_mode,
             'total_cases': plan.total_cases,
             'batch_id': batch_id,
         })
@@ -1925,3 +3032,192 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
         """更新计划的用例计数"""
         plan.total_cases = plan.plan_items.count()
         plan.save(update_fields=['total_cases'])
+
+
+# ============================================================================
+# Midscene配置中心
+# ============================================================================
+
+class MidsceneConfigViewSet(viewsets.ModelViewSet):
+    """Midscene全局配置管理 - 三级配置体系的顶层"""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return MidsceneConfig.objects.select_related('project', 'created_by')
+
+    def _serialize_config(self, config):
+        """序列化单条配置"""
+        return {
+            'id': config.id,
+            'name': config.name,
+            'project_id': config.project_id,
+            'device_type': config.device_type,
+            'is_active': config.is_active,
+            'ai_model_config': config.ai_model_config or {},
+            'execution_config': config.execution_config or {},
+            'report_config': config.report_config or {},
+            'web_config': config.web_config or {},
+            'android_config': config.android_config or {},
+            'ios_config': config.ios_config or {},
+            'harmony_config': config.harmony_config or {},
+            'app_name_mapping': config.app_name_mapping or {},
+            'created_by': config.created_by_id,
+            'created_by_name': config.created_by.username if config.created_by else None,
+            'created_at': config.created_at,
+            'updated_at': config.updated_at,
+        }
+
+    def list(self, request):
+        qs = self.get_queryset()
+        project_id = request.query_params.get('project_id')
+        device_type = request.query_params.get('device_type')
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        if device_type:
+            qs = qs.filter(device_type=device_type)
+        configs = qs.order_by('-created_at')
+        return Response([self._serialize_config(c) for c in configs])
+
+    def retrieve(self, request, pk=None):
+        config = self.get_queryset().filter(pk=pk).first()
+        if not config:
+            return Response({'error': '配置不存在'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self._serialize_config(config))
+
+    def create(self, request):
+        try:
+            config = MidsceneConfig.objects.create(
+                name=request.data.get('name', ''),
+                project_id=request.data.get('project_id') or None,
+                device_type=request.data.get('device_type', 'web'),
+                is_active=request.data.get('is_active', True),
+                ai_model_config=request.data.get('ai_model_config', {}),
+                execution_config=request.data.get('execution_config', {}),
+                report_config=request.data.get('report_config', {}),
+                web_config=request.data.get('web_config', {}),
+                android_config=request.data.get('android_config', {}),
+                ios_config=request.data.get('ios_config', {}),
+                harmony_config=request.data.get('harmony_config', {}),
+                app_name_mapping=request.data.get('app_name_mapping', {}),
+                created_by=request.user,
+            )
+            return Response(self._serialize_config(config), status=status.HTTP_201_CREATED)
+        except Exception as e:
+            logger.exception('创建Midscene配置失败')
+            return Response({'error': f'创建失败: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, pk=None, **kwargs):
+        config = self.get_queryset().filter(pk=pk).first()
+        if not config:
+            return Response({'error': '配置不存在'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            fields = ['name', 'device_type', 'is_active',
+                      'ai_model_config', 'execution_config', 'report_config',
+                      'web_config', 'android_config', 'ios_config', 'harmony_config',
+                      'app_name_mapping']
+            for f in fields:
+                if f in request.data:
+                    setattr(config, f, request.data[f])
+            if 'project_id' in request.data:
+                config.project_id = request.data['project_id'] or None
+            config.save()
+            return Response(self._serialize_config(config))
+        except Exception as e:
+            logger.exception(f'更新Midscene配置失败 config_id={pk}')
+            return Response({'error': f'更新失败: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, pk=None):
+        return self.update(request, pk)
+
+    def destroy(self, request, pk=None):
+        config = self.get_queryset().filter(pk=pk).first()
+        if not config:
+            return Response({'error': '配置不存在'}, status=status.HTTP_404_NOT_FOUND)
+        config.delete()
+        return Response({'message': '删除成功'}, status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['post'], url_path='merged')
+    def merged_config(self, request):
+        """
+        配置合并API - 合并全局+用例级配置，返回最终生效配置
+
+        请求体: {
+            "case_id": 1,           // 可选，传了则合并用例级覆盖
+            "project_id": 1,        // 可选，筛选全局配置
+            "device_type": "web"    // 可选，筛选设备类型
+        }
+        """
+        import copy
+        case_id = request.data.get('case_id')
+        project_id = request.data.get('project_id')
+        device_type = request.data.get('device_type')
+
+        # 1. 获取全局配置
+        global_qs = MidsceneConfig.objects.filter(is_active=True)
+        if project_id:
+            global_qs = global_qs.filter(project_id=project_id)
+        if device_type:
+            global_qs = global_qs.filter(device_type=device_type)
+        global_config = global_qs.first()
+
+        merged = {
+            'device_type': device_type or 'web',
+            'ai_model_config': {},
+            'execution_config': {},
+            'report_config': {},
+            'web_config': {},
+            'android_config': {},
+            'ios_config': {},
+            'harmony_config': {},
+            'app_name_mapping': {},
+        }
+
+        # 合并全局配置
+        if global_config:
+            merged['device_type'] = device_type or global_config.device_type
+            for key in ['ai_model_config', 'execution_config', 'report_config',
+                        'web_config', 'android_config', 'ios_config', 'harmony_config',
+                        'app_name_mapping']:
+                val = getattr(global_config, key, None)
+                if val:
+                    merged[key] = copy.deepcopy(val)
+
+        # 2. 合并用例级覆盖
+        if case_id:
+            case = MidsceneCase.objects.filter(pk=case_id).first()
+            if case:
+                if case.device_type:
+                    merged['device_type'] = case.device_type
+                # AI模型覆盖（深度合并）
+                if case.ai_model_config_override:
+                    _deep_merge(merged['ai_model_config'], case.ai_model_config_override)
+                # 设备配置覆盖（根据device_type选择对应字段覆盖）
+                if case.device_config_override:
+                    device_key = _get_device_config_key(merged['device_type'])
+                    if device_key:
+                        _deep_merge(merged[device_key], case.device_config_override)
+                # App名称映射覆盖
+                if case.app_name_mapping:
+                    merged['app_name_mapping'].update(case.app_name_mapping)
+
+        return Response(merged)
+
+
+def _deep_merge(base, override):
+    """深度合并字典：override中的值覆盖base中的同名键"""
+    for key, value in override.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+
+
+def _get_device_config_key(device_type):
+    """根据device_type返回对应的配置字段名"""
+    mapping = {
+        'web': 'web_config',
+        'android': 'android_config',
+        'ios': 'ios_config',
+        'harmony': 'harmony_config',
+    }
+    return mapping.get(device_type)

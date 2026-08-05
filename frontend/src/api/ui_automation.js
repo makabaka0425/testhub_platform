@@ -1744,6 +1744,9 @@ export function importAIToMidscene(data) {
 export function runMidsceneCase(id) {
   return request({ url: `/ui-automation/midscene-cases/${id}/run/`, method: 'post', timeout: 30000 })
 }
+export function copyMidsceneCase(id) {
+  return request({ url: `/ui-automation/midscene-cases/${id}/copy/`, method: 'post' })
+}
 export function getMidsceneExecutionStatus(params) {
   return request({ url: '/ui-automation/midscene-cases/execution-status/', method: 'get', params })
 }
@@ -1758,6 +1761,22 @@ export function getMidsceneExecutionDetail(id) {
 export function deleteMidsceneExecution(id) {
   return request({ url: `/ui-automation/midscene-executions/${id}/`, method: 'delete' })
 }
+export function getMidsceneStatistics(params) {
+  return request({ url: '/ui-automation/midscene-executions/statistics/', method: 'get', params })
+}
+
+// ---- 视觉回归 ----
+export function midsceneVisualCompare(data) {
+  return request({ url: '/ui-automation/midscene/visual-compare/', method: 'post', data })
+}
+
+export function midsceneSaveBaseline(data) {
+  return request({ url: '/ui-automation/midscene/baseline/save/', method: 'post', data })
+}
+
+export function midsceneListBaselines(params) {
+  return request({ url: '/ui-automation/midscene/baseline/list/', method: 'get', params })
+}
 
 // ---- 微服务状态 ----
 export function midsceneHealthCheck() {
@@ -1765,6 +1784,32 @@ export function midsceneHealthCheck() {
 }
 export function midsceneModelConfig() {
   return request({ url: '/ui-automation/midscene/model-config/', method: 'get' })
+}
+
+// ==================== Midscene全局配置 API ====================
+
+export function getMidsceneConfigs(params) {
+  return request({ url: '/ui-automation/midscene-configs/', method: 'get', params })
+}
+
+export function getMidsceneConfig(id) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'get' })
+}
+
+export function createMidsceneConfig(data) {
+  return request({ url: '/ui-automation/midscene-configs/', method: 'post', data })
+}
+
+export function updateMidsceneConfig(id, data) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'patch', data })
+}
+
+export function deleteMidsceneConfig(id) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'delete' })
+}
+
+export function getMergedMidsceneConfig(data) {
+  return request({ url: '/ui-automation/midscene-configs/merged/', method: 'post', data })
 }
 
 // ==================== AI自动化定时任务相关API ====================
@@ -1867,7 +1912,7 @@ export function addAiPlanItemsBatch(planId, data) {
 
 // 移除AI测试计划项
 export function removeAiPlanItem(planId, itemId) {
-  return request({ url: `/ui-automation/ai-test-plans/${planId}/remove_item/`, method: 'delete', data: { item_id: itemId } })
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/remove_item/${itemId}/`, method: 'delete' })
 }
 
 // 更新AI测试计划项顺序

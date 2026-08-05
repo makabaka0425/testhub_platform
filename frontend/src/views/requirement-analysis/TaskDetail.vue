@@ -8,16 +8,16 @@
           <span class="task-status" :class="task.status">{{ getStatusText(task.status) }}</span>
         </div>
       </div>
-      <div class="header-actions">
-        <button
-          v-if="testCases.length > 0"
-          class="export-btn"
-          @click="exportToExcel"
-          :disabled="isExporting">
-          <span v-if="isExporting">{{ $t('taskDetail.exporting') }}</span>
-          <span v-else>{{ $t('taskDetail.exportBtn') }}</span>
-        </button>
-      </div>
+        <div class="header-actions">
+          <button
+            v-if="testCases.length > 0"
+            class="action-primary-btn"
+            @click="exportToExcel"
+            :disabled="isExporting">
+            <span v-if="isExporting">{{ $t('taskDetail.exporting') }}</span>
+            <span v-else>{{ $t('taskDetail.exportBtn') }}</span>
+          </button>
+        </div>
     </div>
 
     <!-- 需求描述折叠卡片 -->
@@ -35,8 +35,7 @@
               {{ task.requirement_text }}
             </div>
             <div class="requirement-actions">
-              <el-button size="small" @click="copyRequirementText">
-                <el-icon><DocumentCopy /></el-icon>
+              <el-button size="small" type="primary" @click="copyRequirementText">
                 {{ $t('taskDetail.copyRequirement') }}
               </el-button>
             </div>
@@ -71,13 +70,13 @@
         </div>
         <div class="batch-buttons">
           <button
-            class="batch-adopt-btn"
+            class="action-primary-btn"
             :disabled="selectedCases.length === 0"
             @click="batchAdopt">
             {{ $t('taskDetail.batchAdopt', { count: selectedCases.length }) }}
           </button>
           <button
-            class="batch-discard-btn"
+            class="action-primary-btn"
             :disabled="selectedCases.length === 0"
             @click="batchDiscard">
             {{ $t('taskDetail.batchDiscard', { count: selectedCases.length }) }}
@@ -126,9 +125,9 @@
             </div>
             <div class="body-cell">
               <div class="action-buttons">
-                <button class="view-btn" @click="viewCaseDetail(testCase, index)">{{ $t('taskDetail.viewDetail') }}</button>
-                <button class="adopt-btn" @click="adoptSingleCase(testCase, index)">{{ $t('taskDetail.adopt') }}</button>
-                <button class="discard-btn" @click="discardSingleCase(testCase, index)">{{ $t('taskDetail.discard') }}</button>
+                <button class="op-btn" @click="viewCaseDetail(testCase, index)">{{ $t('taskDetail.viewDetail') }}</button>
+                <button class="op-btn" @click="adoptSingleCase(testCase, index)">{{ $t('taskDetail.adopt') }}</button>
+                <button class="op-btn op-btn--danger" @click="discardSingleCase(testCase, index)">{{ $t('taskDetail.discard') }}</button>
               </div>
             </div>
           </div>
@@ -235,17 +234,17 @@
         <!-- 底部操作栏 -->
         <div class="modal-footer">
           <template v-if="!isEditing">
-            <button class="action-btn edit-btn" @click="startEdit">
-              <span>{{ $t('taskDetail.btnEdit') }}</span>
+            <button class="action-primary-btn" @click="startEdit">
+              {{ $t('taskDetail.btnEdit') }}
             </button>
-            <button class="action-btn close-btn-footer" @click="closeCaseDetail">{{ $t('taskDetail.btnClose') }}</button>
+            <button class="action-default-btn" @click="closeCaseDetail">{{ $t('taskDetail.btnClose') }}</button>
           </template>
           <template v-else>
-            <button class="action-btn save-btn" @click="saveEdit" :disabled="isSaving">
+            <button class="action-primary-btn" @click="saveEdit" :disabled="isSaving">
               <span v-if="isSaving">{{ $t('taskDetail.btnSaveing') }}</span>
               <span v-else>{{ $t('taskDetail.btnSave') }}</span>
             </button>
-            <button class="action-btn cancel-btn" @click="cancelEdit" :disabled="isSaving">{{ $t('taskDetail.btnCancel') }}</button>
+            <button class="action-default-btn" @click="cancelEdit" :disabled="isSaving">{{ $t('taskDetail.btnCancel') }}</button>
           </template>
         </div>
       </div>
@@ -258,7 +257,6 @@
 <script>
 import api from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DocumentCopy } from '@element-plus/icons-vue'
 import * as XLSX from 'xlsx'
 
 export default {
@@ -1120,8 +1118,9 @@ export default {
   gap: 10px;
 }
 
-.export-btn {
-  background: #27ae60;
+/* 统一蓝色主按钮 */
+.action-primary-btn {
+  background: var(--el-color-primary, #409eff);
   color: white;
   border: none;
   padding: 10px 20px;
@@ -1132,12 +1131,12 @@ export default {
   white-space: nowrap;
 }
 
-.export-btn:hover:not(:disabled) {
-  background: #229954;
+.action-primary-btn:hover:not(:disabled) {
+  background: var(--el-color-primary-light-3, #66b1ff);
 }
 
-.export-btn:disabled {
-  background: #bdc3c7;
+.action-primary-btn:disabled {
+  background: #c0c4cc;
   cursor: not-allowed;
 }
 
@@ -1175,37 +1174,7 @@ export default {
   gap: 10px;
 }
 
-.batch-adopt-btn, .batch-discard-btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-}
-
-.batch-adopt-btn {
-  background: #27ae60;
-  color: white;
-}
-
-.batch-adopt-btn:hover:not(:disabled) {
-  background: #229954;
-}
-
-.batch-discard-btn {
-  background: #e74c3c;
-  color: white;
-}
-
-.batch-discard-btn:hover:not(:disabled) {
-  background: #c0392b;
-}
-
-.batch-adopt-btn:disabled, .batch-discard-btn:disabled {
-  background: #bdc3c7;
-  cursor: not-allowed;
-}
+/* 批量操作按钮复用统一蓝色主按钮样式 */
 
 .testcases-table {
   background: white;
@@ -1236,7 +1205,7 @@ export default {
 .header-cell, .body-cell {
   padding: 16px 8px;
   display: flex;
-  align-items: flex-start; /* 改为顶部对齐，避免内容被裁剪 */
+  align-items: flex-start;
   border-right: 1px solid #eee;
   word-break: break-word;
   min-height: 60px;
@@ -1315,40 +1284,38 @@ export default {
   flex-wrap: wrap;
 }
 
-.view-btn, .adopt-btn, .discard-btn {
-  padding: 4px 8px;
+/* 操作列按钮 - 无背景色链接样式 */
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px 30px;
+  border-top: 1px solid #eee;
+  background: #f9f9f9;
+  border-radius: 0 0 12px 12px;
+}
+
+/* 操作列按钮 - 无背景色链接样式 */
+.op-btn {
+  background: none;
   border: none;
-  border-radius: 4px;
+  padding: 4px 6px;
   cursor: pointer;
   font-size: 0.8rem;
-  transition: all 0.2s ease;
+  color: var(--el-color-primary, #409eff);
+  transition: color 0.2s ease;
 }
 
-.view-btn {
-  background: #3498db;
-  color: white;
+.op-btn:hover {
+  color: var(--el-color-primary-light-3, #66b1ff);
 }
 
-.view-btn:hover {
-  background: #2980b9;
+.op-btn--danger {
+  color: var(--el-color-danger, #f56c6c);
 }
 
-.adopt-btn {
-  background: #27ae60;
-  color: white;
-}
-
-.adopt-btn:hover {
-  background: #229954;
-}
-
-.discard-btn {
-  background: #e74c3c;
-  color: white;
-}
-
-.discard-btn:hover {
-  background: #c0392b;
+.op-btn--danger:hover {
+  color: #f78989;
 }
 
 .pagination-section {
@@ -1511,69 +1478,21 @@ export default {
   }
 }
 
-/* 底部操作栏 */
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 20px 30px;
-  border-top: 1px solid #eee;
-  background: #f9f9f9;
-  border-radius: 0 0 12px 12px;
-}
-
-.action-btn {
-  padding: 10px 20px;
+/* 弹窗底部按钮 */
+.action-default-btn {
+  background: #e4e7ed;
+  color: #606266;
   border: none;
+  padding: 10px 20px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
   transition: all 0.3s;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
-.edit-btn {
-  background: #409eff;
-  color: white;
-}
-
-.edit-btn:hover {
-  background: #66b1ff;
-}
-
-.save-btn {
-  background: #67c23a;
-  color: white;
-}
-
-.save-btn:hover:not(:disabled) {
-  background: #85ce61;
-}
-
-.save-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.cancel-btn {
-  background: #909399;
-  color: white;
-}
-
-.cancel-btn:hover:not(:disabled) {
-  background: #a6a9ad;
-}
-
-.close-btn-footer {
-  background: #e4e7ed;
-  color: #606266;
-}
-
-.close-btn-footer:hover {
-  background: #ecf5ff;
+.action-default-btn:hover:not(:disabled) {
+  background: #d3d6db;
 }
 </style>
 

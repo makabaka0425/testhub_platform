@@ -1,26 +1,23 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <div class="page-titlebar">
       <h1 class="page-title">{{ $t('testcase.title') }}</h1>
-      <div class="header-actions">
+      <div class="titlebar-actions">
         <el-button
           v-if="selectedTestCases.length > 0"
           type="danger"
+          plain
           @click="batchDeleteTestCases"
           :disabled="isDeleting">
-          <el-icon><Delete /></el-icon>
           {{ $t('testcase.batchDelete') }} ({{ selectedTestCases.length }})
         </el-button>
         <el-button type="success" @click="exportToExcel">
-          <el-icon><Download /></el-icon>
           {{ $t('testcase.exportExcel') }}
         </el-button>
         <el-button @click="downloadImportTemplate">
-          <el-icon><Download /></el-icon>
           {{ $t('testcase.downloadImportTemplate') }}
         </el-button>
         <el-button type="warning" @click="openImportDialog">
-          <el-icon><Upload /></el-icon>
           {{ $t('testcase.importCases') }}
         </el-button>
         <el-button @click="goToImportRecords">
@@ -32,120 +29,124 @@
         </el-button>
       </div>
     </div>
-    
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-row :gutter="20">
-          <el-col :span="5">
-            <el-input
-              v-model="searchText"
-              :placeholder="$t('testcase.searchPlaceholder')"
-              clearable
-              @input="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-col>
-          <el-col :span="4">
-            <el-select v-model="projectFilter" :placeholder="$t('testcase.relatedProject')" clearable @change="handleFilter">
-              <el-option
-                v-for="project in projects"
-                :key="project.id"
-                :label="project.name"
-                :value="project.id"
-              />
-            </el-select>
-          </el-col>
-          <el-col :span="3">
-            <el-select v-model="priorityFilter" :placeholder="$t('testcase.priorityFilter')" clearable @change="handleFilter">
-              <el-option :label="$t('testcase.low')" value="low" />
-              <el-option :label="$t('testcase.medium')" value="medium" />
-              <el-option :label="$t('testcase.high')" value="high" />
-              <el-option :label="$t('testcase.critical')" value="critical" />
-            </el-select>
-          </el-col>
-        </el-row>
-      </div>
-      
-      <div class="table-container">
-        <el-table 
-          :data="testcases" 
-          v-loading="loading" 
-          style="width: 100%"
-          height="100%"
-          @selection-change="handleSelectionChange">
-          <el-table-column type="selection" width="55" />
-          <el-table-column type="index" :label="$t('testcase.serialNumber')" width="80" :index="getSerialNumber" />
-          <el-table-column prop="title" :label="$t('testcase.caseTitle')" min-width="250">
-            <template #default="{ row }">
-              <el-link @click="goToTestCase(row.id)" type="primary">
-                {{ row.title }}
-              </el-link>
-            </template>
-          </el-table-column>
-          <el-table-column prop="project.name" :label="$t('testcase.relatedProject')" width="150">
-            <template #default="{ row }">
-              {{ row.project?.name || '-' }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="versions" :label="$t('testcase.relatedVersions')" width="200">
-            <template #default="{ row }">
-              <div v-if="row.versions && row.versions.length > 0" class="version-tags">
-                <el-tag 
-                  v-for="version in row.versions.slice(0, 2)" 
-                  :key="version.id" 
-                  size="small" 
-                  :type="version.is_baseline ? 'warning' : 'info'"
-                  class="version-tag"
-                >
-                  {{ version.name }}
-                </el-tag>
-                <el-tooltip v-if="row.versions.length > 2" :content="getVersionsTooltip(row.versions)">
-                  <el-tag size="small" type="info" class="version-tag">
-                    +{{ row.versions.length - 2 }}
-                  </el-tag>
-                </el-tooltip>
-              </div>
-              <span v-else class="no-version">{{ $t('testcase.noVersion') }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="priority" :label="$t('testcase.priority')" width="100">
-            <template #default="{ row }">
-              <el-tag :class="`priority-tag ${row.priority}`">{{ getPriorityText(row.priority) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="test_type" :label="$t('testcase.testType')" width="120">
-            <template #default="{ row }">
-              {{ getTypeText(row.test_type) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="author.username" :label="$t('testcase.author')" width="120" />
-          <el-table-column prop="created_at" :label="$t('testcase.createdAt')" width="180">
-            <template #default="{ row }">
-              {{ formatDate(row.created_at) }}
-            </template>
-          </el-table-column>
-          <el-table-column :label="$t('project.actions')" width="150" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" @click="editTestCase(row)">{{ $t('common.edit') }}</el-button>
-              <el-button size="small" type="danger" @click="deleteTestCase(row)">{{ $t('common.delete') }}</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-      
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :page-sizes="[15, 25, 35, 50, 100]"
-          :total="total"
-          layout="total, sizes, prev, pager, next"
-          @current-change="handlePageChange"
-          @size-change="handleSizeChange"
-        />
+
+    <div class="workspace">
+      <div class="list-column">
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item>
+              <el-input
+                v-model="searchText"
+                :placeholder="$t('testcase.searchPlaceholder')"
+                clearable
+                @input="handleSearch"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+            <el-form-item>
+              <el-select v-model="projectFilter" :placeholder="$t('testcase.relatedProject')" clearable @change="handleFilter">
+                <el-option
+                  v-for="project in projects"
+                  :key="project.id"
+                  :label="project.name"
+                  :value="project.id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-select v-model="priorityFilter" :placeholder="$t('testcase.priorityFilter')" clearable @change="handleFilter">
+                <el-option :label="$t('testcase.low')" value="low" />
+                <el-option :label="$t('testcase.medium')" value="medium" />
+                <el-option :label="$t('testcase.high')" value="high" />
+                <el-option :label="$t('testcase.critical')" value="critical" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <section class="panel list-panel">
+          <div class="panel__body testcase-table-wrapper">
+            <el-table
+              :data="testcases"
+              v-loading="loading"
+              style="width: 100%"
+              height="100%"
+              @selection-change="handleSelectionChange">
+              <el-table-column type="selection" width="55" />
+              <el-table-column type="index" :label="$t('testcase.serialNumber')" width="80" :index="getSerialNumber" />
+              <el-table-column prop="title" :label="$t('testcase.caseTitle')" min-width="250">
+                <template #default="{ row }">
+                  <el-link @click="goToTestCase(row.id)" type="primary">
+                    {{ row.title }}
+                  </el-link>
+                </template>
+              </el-table-column>
+              <el-table-column prop="project.name" :label="$t('testcase.relatedProject')" width="150">
+                <template #default="{ row }">
+                  {{ row.project?.name || '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="versions" :label="$t('testcase.relatedVersions')" width="200">
+                <template #default="{ row }">
+                  <div v-if="row.versions && row.versions.length > 0" class="version-tags">
+                    <el-tag
+                      v-for="version in row.versions.slice(0, 2)"
+                      :key="version.id"
+                      size="small"
+                      :type="version.is_baseline ? 'warning' : 'info'"
+                      class="version-tag"
+                    >
+                      {{ version.name }}
+                    </el-tag>
+                    <el-tooltip v-if="row.versions.length > 2" :content="getVersionsTooltip(row.versions)">
+                      <el-tag size="small" type="info" class="version-tag">
+                        +{{ row.versions.length - 2 }}
+                      </el-tag>
+                    </el-tooltip>
+                  </div>
+                  <span v-else class="no-version">{{ $t('testcase.noVersion') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="priority" :label="$t('testcase.priority')" width="100">
+                <template #default="{ row }">
+                  <el-tag :class="`priority-tag ${row.priority}`">{{ getPriorityText(row.priority) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="test_type" :label="$t('testcase.testType')" width="120">
+                <template #default="{ row }">
+                  {{ getTypeText(row.test_type) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="author.username" :label="$t('testcase.author')" width="120" />
+              <el-table-column prop="created_at" :label="$t('testcase.createdAt')" width="180">
+                <template #default="{ row }">
+                  {{ formatDate(row.created_at) }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('project.actions')" width="150" fixed="right">
+                <template #default="{ row }">
+                  <el-button link class="op-btn" @click="goToTestCase(row.id)">{{ $t('common.view') || '查看' }}</el-button>
+                  <el-button link class="op-btn op-btn--danger" @click="deleteTestCase(row)">{{ $t('common.delete') }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="currentPage"
+              v-model:page-size="pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="total"
+              @size-change="() => { currentPage = 1; fetchTestCases() }"
+              @current-change="handlePageChange"
+            />
+          </div>
+        </section>
       </div>
     </div>
 
@@ -221,7 +222,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Download, Delete, Upload } from '@element-plus/icons-vue'
+import { Plus, Search, Upload } from '@element-plus/icons-vue'
 import api from '@/utils/api'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
@@ -646,86 +647,107 @@ onMounted(() => {
 })
 </script>
 
-<style lang="scss" scoped>
+<style scoped lang="scss">
 .page-container {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  padding: 0;
-  box-sizing: border-box;
   overflow: hidden;
+  padding: 0;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+.page-titlebar {
+  height: 64px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
 }
 
 .page-title {
-  margin: 0;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
-  color: #303133;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
 }
 
-.header-actions {
+.titlebar-actions {
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
 }
 
-.card-container {
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  flex: 1;
-  overflow: hidden;
-  background: #fff;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  gap: var(--space-4);
 }
 
-.filter-bar {
-  padding: 20px;
-  border-bottom: 1px solid #ebeef5;
-  flex-shrink: 0;
+.list-column .filter-bar {
+  margin-bottom: 0;
 }
 
-.table-container {
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.testcase-table-wrapper {
   flex: 1;
   overflow: hidden;
-  padding: 0 20px;
-  
-  :deep(.el-table) {
-    height: 100% !important;
-  }
-  
-  :deep(.el-table__body-wrapper) {
-    overflow-y: auto !important;
-  }
+  min-height: 0;
+}
+
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
 }
 
 .pagination-container {
-  padding: 20px;
-  border-top: 1px solid #ebeef5;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
   flex-shrink: 0;
-}
-
-.import-alert {
-  margin-bottom: 20px;
-}
-
-.import-upload {
-  width: 100%;
-
-  :deep(.el-upload),
-  :deep(.el-upload-dragger) {
-    width: 100%;
-  }
+  background: var(--gray-0);
 }
 
 .priority-tag {
@@ -739,10 +761,7 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  
-  .version-tag {
-    margin: 0;
-  }
+  .version-tag { margin: 0; }
 }
 
 .no-version {
@@ -751,39 +770,15 @@ onMounted(() => {
   font-style: italic;
 }
 
-@media (max-width: 1200px) {
-  .page-container {
-    height: auto;
-    min-height: calc(100vh - 100px);
-    overflow-y: auto;
-  }
-  
-  .card-container {
-    min-height: 600px;
-  }
-  
-  .table-container {
-    min-height: 400px;
-  }
+.import-alert {
+  margin-bottom: 20px;
 }
 
-@media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 15px;
-  }
-  
-  .header-actions {
+.import-upload {
+  width: 100%;
+  :deep(.el-upload),
+  :deep(.el-upload-dragger) {
     width: 100%;
-  }
-  
-  .filter-bar {
-    padding: 15px;
-  }
-  
-  .pagination-container {
-    padding: 15px;
   }
 }
 
@@ -795,9 +790,16 @@ onMounted(() => {
   padding: 15px;
   background-color: #f5f7fa;
   border-radius: 4px;
+  p { margin: 5px 0; }
+}
 
-  p {
-    margin: 5px 0;
-  }
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
 }
 </style>
