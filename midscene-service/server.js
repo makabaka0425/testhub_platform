@@ -378,18 +378,24 @@ app.post('/visual-compare', async (req, res) => {
   }
 
   try {
-    // 下载两张图片
+    // 获取图片Buffer：支持 data:image/png;base64,... 格式和 HTTP URL
     const fetch = require('node-fetch');
-    const [baselineRes, currentRes] = await Promise.all([
-      fetch(baseline),
-      fetch(current),
-    ]);
-    if (!baselineRes.ok || !currentRes.ok) {
-      return res.status(400).json({ error: '无法获取截图文件' });
+    async function getImageBuffer(url) {
+      if (url.startsWith('data:')) {
+        // data:image/png;base64,xxxxx
+        const base64Match = url.match(/^data:image\/[^;]+;base64,(.+)$/);
+        if (!base64Match) throw new Error('无效的 data URL 格式');
+        return Buffer.from(base64Match[1], 'base64');
+      }
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`无法获取截图文件: HTTP ${resp.status}`);
+      return await resp.buffer();
     }
 
-    const baselineBuf = await baselineRes.buffer();
-    const currentBuf = await currentRes.buffer();
+    const [baselineBuf, currentBuf] = await Promise.all([
+      getImageBuffer(baseline),
+      getImageBuffer(current),
+    ]);
 
     // 解析 PNG
     const imgA = PNG.sync.read(baselineBuf);
