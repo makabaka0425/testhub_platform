@@ -97,9 +97,35 @@ async function callbackForExecution(
     variable_snapshot: variableSnapshot,
   };
 
-  // 写入结果文件
+  // 导入 fs/path（提前导入，供后续报告扫描和结果文件写入使用）
   const fs = await import('fs');
   const path = await import('path');
+
+  // ---- 查找 Midscene Reporter 生成的回放报告 ----
+  // 扫描 MIDSCENE_RUN_DIR/report/ 目录，找到最近5分钟内生成的 .html 报告文件
+  try {
+    const midsceneRunDir = process.env.MIDSCENE_RUN_DIR || path.join(__dirname, '..', 'midscene_run');
+    const reportDir = path.join(midsceneRunDir, 'report');
+    if (fs.existsSync(reportDir)) {
+      const files = fs.readdirSync(reportDir)
+        .filter((f: string) => f.endsWith('.html'))
+        .map((f: string) => {
+          const fp = path.join(reportDir, f);
+          return { name: f, path: fp, mtime: fs.statSync(fp).mtimeMs };
+        })
+        .sort((a: any, b: any) => b.mtime - a.mtime);
+      const fiveMinutesAgo = Date.now() - 300000;
+      for (const f of files) {
+        if (f.mtime >= fiveMinutesAgo) {
+          (callbackData as any).report_file = f.path;
+          (callbackData as any).report_url = `http://localhost:8001/report/${f.name}`;
+          break;
+        }
+      }
+    }
+  } catch (_: any) {}
+
+  // 写入结果文件
   const resultsDir = process.env.TESTHUB_RESULTS_DIR || './midscene_run/results';
   const resultFilePath = path.join(resultsDir, `result_${executionId}.json`);
   try {
@@ -290,7 +316,7 @@ def generate_shared_session_spec(cases: List[Dict[str, Any]], batch_config: Dict
         case_steps_code += steps_code + '\n'
         case_steps_code += f"    }}).catch((err: any) => {{ case_{execution_id}_status = 'failed'; case_{execution_id}_error = err?.message || String(err); }});\n"
         # 每个用例执行完后立即回调Django
-        case_steps_code += f"    await callbackForExecution({execution_id}, {case_id}, stepResults, case_{execution_id}_startIdx, case_{execution_id}_status, case_{execution_id}_error, sharedVariables, {{}});\n"
+        case_steps_code += f"    await callbackForExecution({execution_id}, {case_id}, stepResults, case_{execution_id}_startIdx, case_{execution_id}_status, case_{execution_id}_error, sharedVariables, JSON.parse(JSON.stringify(sharedVariables)));\n"
 
     # 导航
     url = first_payload.get('url', '')

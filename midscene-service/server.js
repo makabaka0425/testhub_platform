@@ -46,7 +46,7 @@ function getAndroidModules() {
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 const PORT = 8001;
 
@@ -430,26 +430,41 @@ app.post('/visual-compare', async (req, res) => {
  * body: { case_id: 123, screenshot_url: "http://localhost:8001/screenshots/xxx.png" }
  */
 app.post('/baseline/save', async (req, res) => {
-  const { case_id, screenshot_url } = req.body;
-  if (!case_id || !screenshot_url) {
-    return res.status(400).json({ error: '需要提供 case_id 和 screenshot_url' });
+  const { case_id, screenshot_url, screenshot_base64 } = req.body;
+  if (!case_id || (!screenshot_url && !screenshot_base64)) {
+    return res.status(400).json({ error: '需要提供 case_id 和 screenshot_url 或 screenshot_base64' });
   }
 
   try {
-    const fetch = require('node-fetch');
-    const imgRes = await fetch(screenshot_url);
-    if (!imgRes.ok) {
-      return res.status(400).json({ error: '无法获取截图文件' });
-    }
-    const buf = await imgRes.buffer();
-
     const caseDir = path.join(BASELINE_DIR, String(case_id));
     if (!fs.existsSync(caseDir)) {
       fs.mkdirSync(caseDir, { recursive: true });
     }
     const fileName = `baseline_${Date.now()}.png`;
     const filePath = path.join(caseDir, fileName);
-    fs.writeFileSync(filePath, buf);
+
+    if (screenshot_base64) {
+      // 直接接收 base64 数据（格式: data:image/png;base64,xxxx 或纯 base64）
+      const base64Data = screenshot_base64.includes(',')
+        ? screenshot_base64.split(',')[1]
+        : screenshot_base64;
+      const buf = Buffer.from(base64Data, 'base64');
+      fs.writeFileSync(filePath, buf);
+    } else if (screenshot_url.startsWith('data:')) {
+      // screenshot_url 是 data URL
+      const base64Data = screenshot_url.split(',')[1];
+      const buf = Buffer.from(base64Data, 'base64');
+      fs.writeFileSync(filePath, buf);
+    } else {
+      // HTTP URL：fetch 下载
+      const fetch = require('node-fetch');
+      const imgRes = await fetch(screenshot_url);
+      if (!imgRes.ok) {
+        return res.status(400).json({ error: '无法获取截图文件' });
+      }
+      const buf = await imgRes.buffer();
+      fs.writeFileSync(filePath, buf);
+    }
 
     res.json({
       message: '基线已保存',

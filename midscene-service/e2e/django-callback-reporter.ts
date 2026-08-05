@@ -32,10 +32,6 @@ class DjangoCallbackReporter implements Reporter {
   }
 
   onTestEnd(testCase: TestCase, result: TestResult) {
-    const isPassed = result.status === 'passed';
-    const status = isPassed ? 'completed' : 'failed';
-    const error = result.error?.message || '';
-
     // 提取步骤结果（从 attachments）
     let stepResults: any[] = [];
     for (const attachment of result.attachments) {
@@ -56,6 +52,14 @@ class DjangoCallbackReporter implements Reporter {
         } catch (_) {}
       }
     }
+
+    // 状态判断：Playwright result.status + step_results 双重校验
+    // 共享会话模式下 test.step().catch() 会吞掉错误，导致 Playwright 认为 test passed
+    // 但 step_results 中有 failed 步骤，此时应标记为 failed
+    const hasFailedStep = stepResults.some((s: any) => s.status === 'failed');
+    const isPassed = result.status === 'passed' && !hasFailedStep;
+    const status = isPassed ? 'completed' : 'failed';
+    const error = result.error?.message || (hasFailedStep ? '存在失败的步骤' : '');
 
     // 提取变量快照（从 attachments）
     let variableSnapshot: Record<string, any> = {};

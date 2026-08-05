@@ -1084,7 +1084,23 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
 
         execution = MidsceneExecution.objects.filter(id=execution_id).first()
         if execution:
-            execution.status = 'passed' if task_status == 'completed' else 'failed'
+            # 防御性校验：即使 task_status 为 completed，如果 step_results 中有 failed 步骤，也应标记为 failed
+            # 这处理了共享会话模式下 test.step().catch() 吞掉错误导致 Playwright 认为 test passed 的情况
+            has_failed_steps = False
+            step_results_data = []
+            if isinstance(result_data, dict) and 'step_results' in result_data:
+                step_results_data = result_data['step_results'] or []
+                for sr in step_results_data:
+                    if isinstance(sr, dict) and sr.get('status') == 'failed':
+                        has_failed_steps = True
+                        break
+
+            if has_failed_steps:
+                effective_status = 'failed'
+            else:
+                effective_status = 'passed' if task_status == 'completed' else 'failed'
+
+            execution.status = effective_status
             # 保存步骤结果
             if isinstance(result_data, dict) and 'step_results' in result_data:
                 execution.step_results = result_data['step_results']
@@ -1169,8 +1185,8 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 execution.sql_results = all_sql_results
                 execution.save()
 
-        # 回写用例状态
-        case.last_status = 'passed' if task_status == 'completed' else 'failed'
+        # 回写用例状态（使用与执行记录一致的 effective_status 逻辑）
+        case.last_status = effective_status
         case.last_result = error_msg or (json.dumps(result_data, ensure_ascii=False)[:500] if result_data else '')
         case.save(update_fields=['last_status', 'last_result', 'updated_at'])
 
@@ -1180,7 +1196,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
         # 触发通知：查找关联此用例的活跃定时任务
         try:
             from apps.ui_automation.models import AiScheduledTask
-            success = (task_status == 'completed')
+            success = (effective_status == 'passed')
             related_tasks = AiScheduledTask.objects.filter(
                 test_plan__plan_items__midscene_case=case, status='ACTIVE'
             ).select_related('test_plan').distinct()
@@ -2139,6 +2155,11 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                             shared_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
                             shared_env['TESTHUB_ENV_FILE'] = env_path
                             shared_env['PATH'] = node_path + ';' + shared_env.get('PATH', '')
+                            # 共享会话模式：设置第一个用例的 execution_id 和 callback_url
+                            first_exec_id = cases_payload[0]['execution_id'] if cases_payload else 0
+                            first_case_id = cases_payload[0]['case_id'] if cases_payload else 0
+                            shared_env['TESTHUB_EXECUTION_ID'] = str(first_exec_id)
+                            shared_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{first_case_id}/callback/'
 
                             log_path = os.path.join(pw_log_dir, f'plan_{plan_id}_batch_{batch_id}.log')
                             log_file = open(log_path, 'w', encoding='utf-8')
@@ -2158,6 +2179,35 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                                 _logging.getLogger(__name__).error(f'shared_session execution error for plan {plan_id}: {e}')
                             finally:
                                 log_file.close()
+                                # ---- 兜底：Playwright 进程结束后，把该批次还卡在 running 的 execution 标记为 failed ----
+                                try:
+                                    from django.utils import timezone as _tz
+                                    _batch_exec_ids = [cp['execution_id'] for cp in cases_payload]
+                                    _stuck = MidsceneExecution.objects.filter(id__in=_batch_exec_ids, status='running')
+                                    for _se in _stuck:
+                                        _se.status = 'failed'
+                                        _se.error_message = 'Playwright 进程已结束但未收到回调'
+                                        _se.finished_at = _tz.now()
+                                        if _se.started_at and _se.finished_at:
+                                            _se.duration = (_se.finished_at - _se.started_at).total_seconds()
+                                        _se.save(update_fields=['status', 'error_message', 'finished_at', 'duration'])
+                                        _sc = _se.case
+                                        if _sc:
+                                            _sc.last_status = 'failed'
+                                            _sc.last_result = 'Playwright 进程已结束但未收到回调'
+                                            _sc.save(update_fields=['last_status', 'last_result', 'updated_at'])
+                                    # 刷新计划状态
+                                    _plan = AiTestPlan.objects.filter(id=plan_id).first()
+                                    if _plan:
+                                        _p = MidsceneExecution.objects.filter(id__in=_batch_exec_ids, status='passed').count()
+                                        _f = MidsceneExecution.objects.filter(id__in=_batch_exec_ids).exclude(status='running').exclude(status='passed').count()
+                                        _plan.passed_count = _p
+                                        _plan.failed_count = _f
+                                        _plan.execution_status = 'failed' if _f > 0 else ('passed' if _p == _plan.total_cases else 'failed')
+                                        _plan.save(update_fields=['execution_status', 'passed_count', 'failed_count'])
+                                except Exception as _e:
+                                    import logging as _logging
+                                    _logging.getLogger(__name__).error(f'shared_session cleanup error for plan {plan_id}: {_e}')
 
                         shared_thread = threading.Thread(
                             target=_run_shared_session_now,
@@ -2802,6 +2852,13 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
                         shared_env['TESTHUB_RESULTS_DIR'] = RESULTS_DIR
                         shared_env['TESTHUB_ENV_FILE'] = env_path
                         shared_env['PATH'] = node_path + ';' + shared_env.get('PATH', '')
+                        # 共享会话模式：设置第一个用例的 execution_id 和 callback_url，
+                        # 让 DjangoCallbackReporter 能正确回调（Reporter 只回调一次，
+                        # 每个用例的独立回调由 spec 中的 callbackForExecution 处理）
+                        first_exec_id = cases_payload[0]['execution_id'] if cases_payload else 0
+                        first_case_id = cases_payload[0]['case_id'] if cases_payload else 0
+                        shared_env['TESTHUB_EXECUTION_ID'] = str(first_exec_id)
+                        shared_env['TESTHUB_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{first_case_id}/callback/'
 
                         log_path = os.path.join(pw_log_dir, f'plan_{plan_id}_batch_{batch_id}.log')
                         log_file = open(log_path, 'w', encoding='utf-8')
@@ -2821,6 +2878,35 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
                             _logging.getLogger(__name__).error(f'shared_session execution error for plan {plan_id}: {e}')
                         finally:
                             log_file.close()
+                            # ---- 兜底：Playwright 进程结束后，把该批次还卡在 running 的 execution 标记为 failed ----
+                            try:
+                                from django.utils import timezone as _tz
+                                _batch_exec_ids = [cp['execution_id'] for cp in cases_payload]
+                                _stuck = MidsceneExecution.objects.filter(id__in=_batch_exec_ids, status='running')
+                                for _se in _stuck:
+                                    _se.status = 'failed'
+                                    _se.error_message = 'Playwright 进程已结束但未收到回调'
+                                    _se.finished_at = _tz.now()
+                                    if _se.started_at and _se.finished_at:
+                                        _se.duration = (_se.finished_at - _se.started_at).total_seconds()
+                                    _se.save(update_fields=['status', 'error_message', 'finished_at', 'duration'])
+                                    _sc = _se.case
+                                    if _sc:
+                                        _sc.last_status = 'failed'
+                                        _sc.last_result = 'Playwright 进程已结束但未收到回调'
+                                        _sc.save(update_fields=['last_status', 'last_result', 'updated_at'])
+                                # 刷新计划状态
+                                _plan = AiTestPlan.objects.filter(id=plan_id).first()
+                                if _plan:
+                                    _p = MidsceneExecution.objects.filter(id__in=_batch_exec_ids, status='passed').count()
+                                    _f = MidsceneExecution.objects.filter(id__in=_batch_exec_ids).exclude(status='running').exclude(status='passed').count()
+                                    _plan.passed_count = _p
+                                    _plan.failed_count = _f
+                                    _plan.execution_status = 'failed' if _f > 0 else ('passed' if _p == _plan.total_cases else 'failed')
+                                    _plan.save(update_fields=['execution_status', 'passed_count', 'failed_count'])
+                            except Exception as _e:
+                                import logging as _logging
+                                _logging.getLogger(__name__).error(f'shared_session cleanup error for plan {plan_id}: {_e}')
 
                     shared_thread = threading.Thread(
                         target=_run_shared_session,

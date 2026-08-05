@@ -604,13 +604,14 @@
 
                 <!-- 执行历史 -->
                 <el-tab-pane label="执行历史" name="history">
+                  <div class="history-tab-content">
                   <div v-if="caseHistoryLoading" style="text-align:center;padding:40px">
                     <el-icon class="is-loading" style="font-size:24px"><Loading /></el-icon>
                     <div style="margin-top:8px">加载中...</div>
                   </div>
                   <div v-else-if="caseHistoryList.length === 0" style="color:#999;text-align:center;padding:40px">暂无执行记录</div>
-                  <el-table v-else :data="caseHistoryList" size="small" stripe max-height="400">
-                    <el-table-column prop="started_at" label="执行时间" width="160" align="center">
+                  <el-table v-else :data="caseHistoryList" size="small" stripe height="100%">
+                    <el-table-column prop="started_at" label="执行时间" min-width="160">
                       <template #default="{ row }">
                         {{ formatDateTime(row.started_at) }}
                       </template>
@@ -631,6 +632,7 @@
                       </template>
                     </el-table-column>
                   </el-table>
+                  </div>
                 </el-tab-pane>
 
               </el-tabs>
@@ -1098,10 +1100,12 @@
           </div>
           <el-radio-group v-else v-model="selectedBaselineUrl" style="display:flex;flex-direction:column;gap:8px">
             <el-radio v-for="b in baselineList" :key="b.url" :value="b.url" style="display:flex;align-items:center;gap:8px">
-              <el-image :src="b.url" fit="contain" class="vc-thumb" />
+              <el-image :src="b.url" fit="contain" class="vc-thumb" :preview-src-list="[b.url]" preview-teleported />
               <span style="font-size:12px;color:#606266">{{ formatBaselineTime(b.saved_at) }}</span>
             </el-radio>
           </el-radio-group>
+          <!-- 选中基线的大图预览 -->
+          <el-image v-if="selectedBaselineUrl" :src="selectedBaselineUrl" fit="contain" class="vc-baseline-img" :preview-src-list="[selectedBaselineUrl]" preview-teleported />
         </div>
         <!-- 当前截图 -->
         <div class="vc-section">
@@ -2604,6 +2608,19 @@ watch(() => route.path, () => {
   max-width: 500px;
 }
 
+/* 执行历史 tab - 撑满抽屉高度 */
+.history-tab-content {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 160px);
+  min-height: 200px;
+}
+
+.history-tab-content .el-table {
+  flex: 1;
+  min-height: 0;
+}
+
 /* 抽屉内步骤编辑器 */
 .steps-editor-drawer {
   padding: 4px 0;
@@ -2800,6 +2817,14 @@ watch(() => route.path, () => {
   border: 1px solid #ebeef5;
   border-radius: 4px;
   vertical-align: middle;
+}
+
+.vc-baseline-img {
+  width: 100%;
+  max-height: 180px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  margin-top: 8px;
 }
 
 .vc-current-img {
