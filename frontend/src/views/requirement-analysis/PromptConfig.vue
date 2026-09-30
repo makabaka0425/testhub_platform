@@ -67,7 +67,7 @@
         </div>
 
         <div v-if="configs.length === 0" class="empty-state">
-          <div class="empty-icon">📝</div>
+          <el-icon :size="64" color="#bbb"><Document /></el-icon>
           <h3>{{ $t('promptConfig.noConfigs') }}</h3>
           <p>{{ $t('promptConfig.emptyHint') }}</p>
           <div class="empty-actions">
@@ -242,9 +242,11 @@
 <script>
 import api from '@/utils/api'
 import { ElMessage } from 'element-plus'
+import { Document } from '@element-plus/icons-vue'
 
 export default {
   name: 'PromptConfig',
+  components: { Document },
   data() {
     return {
       configs: [],
@@ -580,7 +582,7 @@ export default {
 }
 
 .load-defaults-btn {
-  background: #9b59b6;
+  background: #1890ff;
   color: white;
   border: none;
   padding: 12px 24px;
@@ -591,11 +593,11 @@ export default {
 }
 
 .load-defaults-btn:hover {
-  background: #8e44ad;
+  background: #096dd9;
 }
 
 .add-config-btn {
-  background: #27ae60;
+  background: #1890ff;
   color: white;
   border: none;
   padding: 12px 24px;
@@ -606,7 +608,7 @@ export default {
 }
 
 .add-config-btn:hover {
-  background: #219a52;
+  background: #096dd9;
 }
 
 .configs-grid {
@@ -691,30 +693,30 @@ export default {
 }
 
 .preview-btn {
-  background: #3498db;
+  background: #1890ff;
   color: white;
 }
 
 .preview-btn:hover {
-  background: #2980b9;
+  background: #096dd9;
 }
 
 .edit-btn {
-  background: #f39c12;
+  background: #1890ff;
   color: white;
 }
 
 .edit-btn:hover {
-  background: #e67e22;
+  background: #096dd9;
 }
 
 .delete-btn {
-  background: #e74c3c;
+  background: #ff4d4f;
   color: white;
 }
 
 .delete-btn:hover {
-  background: #c0392b;
+  background: #d9363e;
 }
 
 .config-details {
@@ -773,7 +775,6 @@ export default {
 }
 
 .empty-icon {
-  font-size: 4rem;
   margin-bottom: 20px;
 }
 
@@ -791,7 +792,7 @@ export default {
 }
 
 .add-first-config-btn, .load-defaults-first-btn {
-  background: #3498db;
+  background: #1890ff;
   color: white;
   border: none;
   padding: 15px 30px;
@@ -801,16 +802,9 @@ export default {
   transition: background 0.3s ease;
 }
 
-.add-first-config-btn:hover {
-  background: #2980b9;
-}
-
-.load-defaults-first-btn {
-  background: #9b59b6;
-}
-
+.add-first-config-btn:hover,
 .load-defaults-first-btn:hover {
-  background: #8e44ad;
+  background: #096dd9;
 }
 
 .config-modal, .preview-modal, .defaults-modal {

@@ -97,6 +97,9 @@ export default {
     baseUrl: 'Base URL',
     baseUrlPlaceholder: '可选，例如: https://api.openai.com/v1',
     baseUrlHint: '选择提供商后会自动填充对应的API地址，您可以根据需要修改',
+    maxTokens: '最大Token数',
+    temperature: '温度参数',
+    topP: 'Top P参数',
     enableConfig: '启用此配置',
     enableConfigHint: '启用后，其他已启用的配置将自动禁用',
     testConnection: '测试连接',
@@ -113,9 +116,16 @@ export default {
       anthropic: 'Anthropic',
       google_gemini: 'Google Gemini',
       deepseek: 'DeepSeek',
+      qwen: '通义千问 (Qwen)',
       siliconflow: '硅基流动 (SiliconFlow)',
       zhipu: '智谱',
       other: '其他 (Other)'
+    },
+    role: '角色',
+    selectRole: '请选择角色',
+    roles: {
+      browser_use_text: 'Browser Use - 文本模式',
+      midscene_web: 'Midscene - Web视觉模式'
     },
     messages: {
       loadFailed: '加载配置失败',
@@ -194,8 +204,10 @@ export default {
       other: '其他'
     },
     roles: {
-      writer: '测试用例编写专家',
-      reviewer: '测试评审专家'
+      writer: 'Test Case Writer',
+      reviewer: 'Test Reviewer',
+      browser_use_text: 'Browser Use - Text Mode',
+      midscene_web: 'Midscene - Web Vision Mode'
     },
     messages: {
       loadFailed: '加载配置失败',

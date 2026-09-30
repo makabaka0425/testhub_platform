@@ -200,10 +200,11 @@ from apps.requirement_analysis.models import AIModelConfig
 
 class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
     """
-    AI智能模式配置视图集 (Browser-use) - 使用ModelViewSet支持标准CRUD
+    AI智能模式配置视图集 (Browser-use / Midscene) - 使用ModelViewSet支持标准CRUD
     """
     permission_classes = [IsAuthenticated]
-    queryset = AIModelConfig.objects.filter(role='browser_use_text')
+    # 查询所有智能模式相关的角色（Browser-use 和 Midscene）
+    queryset = AIModelConfig.objects.filter(role__in=['browser_use_text', 'midscene_web'])
 
     def list(self, request):
         """
@@ -214,6 +215,7 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
             'id': config.id,
             'name': config.name,
             'model_type': config.model_type,
+            'role': config.role,
             'model_name': config.model_name,
             'base_url': config.base_url,
             'is_active': config.is_active,
@@ -231,7 +233,7 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
         user = request.user
 
         # 验证必填字段
-        required_fields = ['name', 'model_type', 'model_name', 'api_key']
+        required_fields = ['name', 'model_type', 'model_name', 'api_key', 'role']
         for field in required_fields:
             if not data.get(field):
                 return Response(
@@ -239,15 +241,23 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # 如果创建时启用，先禁用其他所有配置
+        role = data['role']
+        # 只允许智能模式相关的角色
+        if role not in ('browser_use_text', 'midscene_web'):
+            return Response(
+                {'error': f'Invalid role: {role}. Must be browser_use_text or midscene_web'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 如果创建时启用，先禁用同角色的其他所有配置
         if data.get('is_active', True):
-            self.queryset.filter(is_active=True).update(is_active=False)
+            AIModelConfig.objects.filter(role=role, is_active=True).update(is_active=False)
 
         # 创建新配置
         config = AIModelConfig.objects.create(
             name=data['name'],
             model_type=data['model_type'],
-            role='browser_use_text',
+            role=role,
             model_name=data['model_name'],
             api_key=data['api_key'],
             base_url=data.get('base_url', ''),
@@ -259,6 +269,7 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
             'id': config.id,
             'name': config.name,
             'model_type': config.model_type,
+            'role': config.role,
             'model_name': config.model_name,
             'base_url': config.base_url,
             'is_active': config.is_active,
@@ -295,14 +306,15 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
             config = self.queryset.get(pk=pk)
             data = request.data
 
-            # 如果启用此配置，先禁用其他所有配置
+            # 如果启用此配置，先禁用同角色的其他所有配置
             new_is_active = data.get('is_active', config.is_active)
+            current_role = data.get('role', config.role)
             disabled_config_names = []
             if new_is_active:
-                # 查找将被禁用的配置
-                active_configs = self.queryset.exclude(pk=pk).filter(is_active=True)
+                # 查找同角色中将被禁用的配置
+                active_configs = AIModelConfig.objects.filter(role=current_role).exclude(pk=pk).filter(is_active=True)
                 disabled_config_names = [c.name for c in active_configs]
-                # 先禁用其他所有配置（不包括当前配置），避免唯一约束冲突
+                # 先禁用同角色的其他配置
                 active_configs.update(is_active=False)
 
             # 更新字段
@@ -310,6 +322,8 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
                 config.name = data['name']
             if 'model_type' in data:
                 config.model_type = data['model_type']
+            if 'role' in data and data['role'] in ('browser_use_text', 'midscene_web'):
+                config.role = data['role']
             if 'model_name' in data:
                 config.model_name = data['model_name']
             if 'api_key' in data and data['api_key']:
@@ -325,6 +339,7 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
                 'id': config.id,
                 'name': config.name,
                 'model_type': config.model_type,
+                'role': config.role,
                 'model_name': config.model_name,
                 'base_url': config.base_url,
                 'is_active': config.is_active,

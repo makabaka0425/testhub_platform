@@ -97,6 +97,9 @@ export default {
     baseUrl: 'Base URL',
     baseUrlPlaceholder: 'Optional, e.g., https://api.openai.com/v1',
     baseUrlHint: 'Auto-filled based on provider selection, you can modify as needed',
+    maxTokens: 'Max Tokens',
+    temperature: 'Temperature',
+    topP: 'Top P',
     enableConfig: 'Enable this config',
     enableConfigHint: 'When enabled, other active configs will be automatically disabled',
     testConnection: 'Test Connection',
@@ -113,9 +116,16 @@ export default {
       anthropic: 'Anthropic',
       google_gemini: 'Google Gemini',
       deepseek: 'DeepSeek',
+      qwen: 'Qwen',
       siliconflow: 'SiliconFlow',
       zhipu: 'Zhipu AI',
       other: 'Other'
+    },
+    role: 'Role',
+    selectRole: 'Select Role',
+    roles: {
+      browser_use_text: 'Browser Use - Text Mode',
+      midscene_web: 'Midscene - Web Vision Mode'
     },
     messages: {
       loadFailed: 'Failed to load configurations',
@@ -195,7 +205,9 @@ export default {
     },
     roles: {
       writer: 'Test Case Writer',
-      reviewer: 'Test Reviewer'
+      reviewer: 'Test Reviewer',
+      browser_use_text: 'Browser Use - Text Mode',
+      midscene_web: 'Midscene - Web Vision Mode'
     },
     messages: {
       loadFailed: 'Failed to load configurations',

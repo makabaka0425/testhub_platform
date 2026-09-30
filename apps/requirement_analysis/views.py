@@ -2113,7 +2113,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                             f"SSE stream loop #{loop_count}: task_status={task.status}, progress={task.progress}%, buffer_len={len(task.stream_buffer) if task.stream_buffer else 0}")
 
                     # 检查任务是否已完成或失败
-                    if task.status in ['completed', 'failed', 'cancelled']:
+                    if task.status in ['completed', 'failed', 'cancelled', 'reviewed', 'review_failed']:
                         logger.info(f"SSE任务结束: status={task.status}")
                         # 发送最终状态
                         final_status = json.dumps({'type': 'status', 'status': task.status, 'progress': task.progress},
@@ -2178,7 +2178,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                                 has_sent_data = True
 
                     # 如果是评审阶段，发送评审内容
-                    if task.status == 'reviewing' and task.review_feedback:
+                    if task.status in ['reviewing', 'reviewed'] and task.review_feedback:
                         review_feedback = task.review_feedback
                         if review_feedback:
                             # 计算评审内容的增量
@@ -2461,6 +2461,215 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=True, methods=['post'], url_path='start_review')
+    def start_review(self, request, task_id=None):
+        """启动AI评审（生成完成后由前端手动触发）"""
+        try:
+            task = self.get_object()
+
+            if task.status not in ('completed', 'review_failed'):
+                return Response(
+                    {'error': f'只能对已完成的任务启动评审，当前状态：{task.status}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if not task.generated_test_cases:
+                return Response(
+                    {'error': '没有生成的测试用例可以评审'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 获取评审模型和提示词配置
+            from .models import AIModelConfig, PromptConfig
+            reviewer_model = AIModelConfig.objects.filter(
+                role='reviewer', is_active=True
+            ).first()
+            reviewer_prompt = PromptConfig.objects.filter(
+                prompt_type='reviewer', is_active=True
+            ).first()
+
+            if not reviewer_model or not reviewer_prompt:
+                return Response(
+                    {'error': '未配置评审模型或评审提示词，无法启动评审'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            task.reviewer_model_config = reviewer_model
+            task.reviewer_prompt_config = reviewer_prompt
+            task.status = 'reviewing'
+            task.progress = 70
+            task.review_feedback = ''
+            task.save()
+
+            # 在新线程中只执行评审（不自动改进）
+            def run_review():
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    logger.info(f"手动启动评审: 任务 {task.task_id}")
+
+                    # 流式评审回调：实时写入 review_feedback，让 SSE 能增量推送
+                    review_buffer = []
+
+                    def save_review_buffer(content):
+                        """同步保存评审内容到数据库"""
+                        task.review_feedback = content
+                        task.save(update_fields=['review_feedback'])
+
+                    async_save_review = sync_to_async(save_review_buffer)
+
+                    async def review_stream_callback(chunk):
+                        """流式评审回调"""
+                        review_buffer.append(chunk)
+                        current_length = sum(len(c) for c in review_buffer)
+                        # 每100字符保存一次
+                        if current_length % 100 < 20 or len(chunk) > 50:
+                            try:
+                                content = ''.join(review_buffer)
+                                await async_save_review(content)
+                            except Exception as save_error:
+                                logger.warning(f"保存评审内容失败: {save_error}")
+
+                    # 调用评审（429重试在review_test_cases_stream内部处理）
+                    review_result = loop.run_until_complete(
+                        AIModelService.review_test_cases_stream(
+                            task, task.generated_test_cases, callback=review_stream_callback
+                        )
+                    )
+
+                    if review_result is None:
+                        raise Exception("评审返回空结果")
+
+                    # 保存最终评审内容
+                    if review_buffer:
+                        task.review_feedback = ''.join(review_buffer)
+                    else:
+                        task.review_feedback = review_result
+                    task.status = 'reviewed'
+                    task.progress = 80
+                    task.error_message = ''
+                    task.save()
+                    logger.info(f"评审完成: 任务 {task.task_id}")
+
+                except Exception as e:
+                    error_str = str(e)
+                    logger.error(f"评审失败: {e}")
+                    task.status = 'review_failed'
+                    # 区分429额度不足和其他错误
+                    if '429' in error_str:
+                        task.error_message = 'API调用额度不足(429)，请检查模型配置的API Key余额，或更换为有额度的模型'
+                    else:
+                        task.error_message = f'评审执行失败: {error_str}'
+                    task.save()
+                finally:
+                    loop.close()
+
+            import threading
+            thread = threading.Thread(target=run_review)
+            thread.daemon = True
+            thread.start()
+
+            return Response({'status': 'reviewing', 'task_id': task.task_id})
+
+        except Exception as e:
+            return Response(
+                {'error': f'启动评审失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'], url_path='start_revise')
+    def start_revise(self, request, task_id=None):
+        """基于评审结果重新生成用例（由前端手动触发）"""
+        try:
+            task = self.get_object()
+
+            if task.status not in ('completed', 'reviewed'):
+                return Response(
+                    {'error': '只能对已完成或已评审的任务启动改进'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if not task.review_feedback:
+                return Response(
+                    {'error': '没有评审意见，无法启动改进'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            task.status = 'revising'
+            task.progress = 85
+            task.final_test_cases = ''
+            task.save()
+
+            def run_revise():
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    logger.info(f"手动启动改进: 任务 {task.task_id}")
+
+                    # 流式改进回调：实时写入 final_test_cases，让 SSE 能增量推送
+                    def save_final_buffer(content):
+                        """同步保存最终用例内容到数据库"""
+                        task.final_test_cases = content
+                        task.save(update_fields=['final_test_cases'])
+
+                    async_save_final = sync_to_async(save_final_buffer)
+
+                    async def final_stream_callback(chunk):
+                        """流式改进回调"""
+                        task.final_test_cases = (task.final_test_cases or '') + chunk
+                        current_length = len(task.final_test_cases)
+                        if current_length % 100 < 20 or len(chunk) > 50:
+                            try:
+                                await async_save_final(task.final_test_cases)
+                            except Exception as save_error:
+                                logger.warning(f"保存最终用例失败: {save_error}")
+
+                    final_cases = loop.run_until_complete(
+                        AIModelService.revise_test_cases_based_on_review(
+                            task, task.generated_test_cases, task.review_feedback,
+                            callback=final_stream_callback
+                        )
+                    )
+
+                    if final_cases:
+                        sorted_cases = AIModelService.sort_test_cases_by_id(final_cases)
+                        task.final_test_cases = AIModelService.renumber_test_cases(sorted_cases)
+                    else:
+                        if not task.final_test_cases:
+                            task.final_test_cases = task.generated_test_cases
+
+                    task.status = 'completed'
+                    task.progress = 100
+                    task.error_message = ''
+                    task.save()
+                    logger.info(f"改进完成: 任务 {task.task_id}")
+
+                except Exception as e:
+                    logger.error(f"改进失败: {e}")
+                    task.status = 'completed'
+                    task.progress = 100
+                    task.error_message = f'改进执行失败: {str(e)}'
+                    if not task.final_test_cases:
+                        task.final_test_cases = task.generated_test_cases
+                    task.save()
+                finally:
+                    loop.close()
+
+            import threading
+            thread = threading.Thread(target=run_revise)
+            thread.daemon = True
+            thread.start()
+
+            return Response({'status': 'revising', 'task_id': task.task_id})
+
+        except Exception as e:
+            return Response(
+                {'error': f'启动改进失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=True, methods=['post'], url_path='batch_adopt')
     def batch_adopt(self, request, task_id=None):
         """批量采纳任务的所有测试用例"""
@@ -2658,6 +2867,164 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
             logger.error(f"批量采纳选中测试用例时出错: {e}")
             return Response(
                 {'error': f'批量采纳失败: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'], url_path='import-to-ui-automation')
+    def import_to_ui_automation(self, request, task_id=None):
+        """将AI生成的测试用例导入到UI自动化模块（描述型步骤）"""
+        try:
+            task = self.get_object()
+
+            if task.status != 'completed':
+                return Response(
+                    {'error': '只能导入已完成的任务中的测试用例'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if not task.final_test_cases:
+                return Response(
+                    {'error': '没有可导入的测试用例'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 获取目标UI项目ID和可选的分组ID
+            ui_project_id = request.data.get('ui_project_id')
+            ui_group_id = request.data.get('ui_group_id', None)
+            # 可选：只导入选中的用例
+            selected_indices = request.data.get('selected_indices', None)
+
+            if not ui_project_id:
+                return Response(
+                    {'error': '请指定目标UI项目'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            from apps.ui_automation.models import UiProject, TestCase as UiTestCase, TestCaseStep, TestCaseGroup
+            from apps.projects.models import Project
+
+            # 验证UI项目存在
+            try:
+                ui_project = UiProject.objects.get(id=ui_project_id)
+            except UiProject.DoesNotExist:
+                return Response(
+                    {'error': f'UI项目(id={ui_project_id})不存在'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 验证分组（如果指定了）
+            ui_group = None
+            if ui_group_id:
+                try:
+                    ui_group = TestCaseGroup.objects.get(id=ui_group_id, project_id=ui_project_id)
+                except TestCaseGroup.DoesNotExist:
+                    return Response(
+                        {'error': f'分组(id={ui_group_id})不存在'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # 解析AI测试用例
+            test_cases = self._parse_test_cases_content(task.final_test_cases)
+            if not test_cases:
+                return Response(
+                    {'error': '无法解析测试用例内容'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 如果指定了选中索引，只导入这些
+            if selected_indices is not None:
+                selected_indices = set(selected_indices)
+                test_cases = [tc for i, tc in enumerate(test_cases) if i in selected_indices]
+
+            if not test_cases:
+                return Response(
+                    {'error': '没有选中的测试用例可导入'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 优先级映射: P0->high, P1->high, P2->medium, P3->low
+            def map_priority(p_val):
+                p = (p_val or '').upper().strip()
+                if p in ('P0', 'P1', '高', 'HIGH', 'CRITICAL'):
+                    return 'high'
+                elif p in ('P2', '中', 'MEDIUM'):
+                    return 'medium'
+                else:
+                    return 'low'
+
+            imported_count = 0
+            imported_details = []
+
+            for idx, case_data in enumerate(test_cases):
+                scenario = case_data.get('scenario', '测试用例')
+                precondition = case_data.get('precondition', '')
+                steps_text = case_data.get('steps', '')
+                expected = case_data.get('expected', '')
+                priority = map_priority(case_data.get('priority', ''))
+
+                # 创建UI自动化用例
+                ui_case = UiTestCase.objects.create(
+                    name=scenario[:200],
+                    description=f"由AI生成用例导入\n\n前置条件: {precondition}\n\n预期结果: {expected}",
+                    project=ui_project,
+                    group=ui_group,
+                    status='normal',
+                    priority=priority,
+                    created_by=task.created_by,
+                )
+
+                # 解析步骤文本，按行拆分为描述型步骤
+                step_lines = []
+                if steps_text:
+                    import re
+                    # 支持多种步骤分隔格式：数字编号、换行、分号
+                    raw_lines = [l.strip() for l in re.split(r'[\n]', steps_text) if l.strip()]
+                    for line in raw_lines:
+                        # 去除开头的编号 (如 "1."、"1)"、"1、"、"步骤1:"等)
+                        cleaned = re.sub(r'^(\d+[\.\)、：:]|步骤\s*\d+[\.\)：:]?)\s*', '', line).strip()
+                        if cleaned:
+                            step_lines.append(cleaned)
+
+                # 如果没有解析出步骤，把整个steps_text作为一条描述
+                if not step_lines and steps_text.strip():
+                    step_lines = [steps_text.strip()]
+
+                # 如果预期结果不为空，作为最后一步的断言描述
+                if expected.strip():
+                    step_lines.append(f'断言: {expected.strip()}')
+
+                # 创建描述型步骤
+                for step_idx, step_desc in enumerate(step_lines, start=1):
+                    # 判断是否是断言步骤
+                    is_assert = step_desc.startswith('断言:')
+                    TestCaseStep.objects.create(
+                        test_case=ui_case,
+                        step_number=step_idx,
+                        action_type='assert' if is_assert else 'wait',  # 描述型步骤用wait占位，待人工编排
+                        element=None,
+                        input_value='',
+                        description=step_desc,
+                        assert_type='textContains' if is_assert else '',
+                        assert_value=step_desc.replace('断言:', '').strip() if is_assert else '',
+                    )
+
+                imported_count += 1
+                imported_details.append({
+                    'name': scenario[:80],
+                    'steps_count': len(step_lines),
+                })
+
+            return Response({
+                'message': f'成功导入 {imported_count} 条用例到UI自动化项目 "{ui_project.name}"',
+                'imported_count': imported_count,
+                'ui_project_name': ui_project.name,
+                'details': imported_details,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"导入AI用例到UI自动化失败: {e}", exc_info=True)
+            return Response(
+                {'error': f'导入失败: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

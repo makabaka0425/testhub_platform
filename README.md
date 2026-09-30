@@ -1,4 +1,15 @@
-# 灵测 L-Test 智能测试管理平台
+---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '7a9015ac-cdd2-44e6-a80a-db6e82037b6a'
+  PropagateID: '7a9015ac-cdd2-44e6-a80a-db6e82037b6a'
+  ReservedCode1: 'c275d056-517d-4139-8645-c0a75d36438b'
+  ReservedCode2: 'c275d056-517d-4139-8645-c0a75d36438b'
+---
+
+# 灵测 智能测试管理平台
 
 <div align="center">
 
@@ -13,7 +24,7 @@
 
 ## 📖 项目简介
 
-灵测 L-Test 是一个功能强大的智能测试管理平台，集成了 **AI 需求分析**、**测试用例管理**、**API 测试**、**UI 自动化测试** 等多个模块，旨在提升测试效率和质量。平台采用 Django + Vue3 技术栈，提供现代化的用户界面和丰富的功能特性。
+灵测 是一个功能强大的智能测试管理平台，集成了 **AI 需求分析**、**测试用例管理**、**API 测试**、**UI 自动化测试** 等多个模块，旨在提升测试效率和质量。平台采用 Django + Vue3 技术栈，提供现代化的用户界面和丰富的功能特性。
 
 ## ✨ 核心特性
 
@@ -684,3 +695,5 @@ SIMPLE_JWT = {
 <div align="center">
 Made with ❤️ by 大刚（公众号：测试开发实战）
 </div>
+
+> AI生成

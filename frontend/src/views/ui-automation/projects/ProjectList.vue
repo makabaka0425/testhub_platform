@@ -756,7 +756,9 @@ const handleEdit = async () => {
       base_url: baseUrl,
       // 格式化日期为YYYY-MM-DD格式
       start_date: formatDateToISO(editForm.start_date),
-      end_date: formatDateToISO(editForm.end_date)
+      end_date: formatDateToISO(editForm.end_date),
+      // 整数字段：空字符串需转为null，否则Django校验失败
+      target_db_port: editForm.target_db_port || null
     }
     
     await updateUiProject(currentEditId.value, projectData)
@@ -764,7 +766,7 @@ const handleEdit = async () => {
     showEditDialog.value = false
     loadProjects()
   } catch (error) {
-    ElMessage.error(error.response?.data?.base_url?.[0] || error.response?.data?.detail || '项目更新失败')
+    ElMessage.error(error.response?.data?.base_url?.[0] || error.response?.data?.target_db_port?.[0] || error.response?.data?.detail || '项目更新失败')
     console.error('更新项目失败:', error)
   }
 }

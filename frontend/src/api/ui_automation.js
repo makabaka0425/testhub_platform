@@ -1203,6 +1203,42 @@ export function batchRunTestCases(data) {
   })
 }
 
+// 导入测试用例 - 从AI生成任务导入
+export function importCasesFromAITask(data) {
+  return request({
+    url: '/ui-automation/test-cases/import-cases/',
+    method: 'post',
+    data
+  })
+}
+
+// 导入测试用例 - 从文件上传
+export function importCasesFromFile(formData) {
+  return request({
+    url: '/ui-automation/test-cases/import-cases/',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+// 获取AI生成任务列表（用于导入选择）
+export function getAITaskList() {
+  return request({
+    url: '/ui-automation/test-cases/ai-task-list/',
+    method: 'get'
+  })
+}
+
+// 获取AI生成任务的用例列表
+export function getAITaskCases(taskId) {
+  return request({
+    url: '/ui-automation/test-cases/ai-task-cases/',
+    method: 'get',
+    params: { task_id: taskId }
+  })
+}
+
 // 操作记录相关API
 
 // 获取操作记录列表
@@ -1631,4 +1667,260 @@ export function getPlanExecutionBatches(planId) {
     method: 'get',
     params: { plan_id: planId }
   })
+}
+
+// ===================== AI自动化项目管理 =====================
+
+export function getAiProjects(params) {
+  return request({ url: '/ui-automation/ai-projects/', method: 'get', params })
+}
+export function createAiProject(data) {
+  return request({ url: '/ui-automation/ai-projects/', method: 'post', data })
+}
+export function getAiProjectDetail(id) {
+  return request({ url: `/ui-automation/ai-projects/${id}/`, method: 'get' })
+}
+export function updateAiProject(id, data) {
+  return request({ url: `/ui-automation/ai-projects/${id}/`, method: 'patch', data })
+}
+export function deleteAiProject(id) {
+  return request({ url: `/ui-automation/ai-projects/${id}/`, method: 'delete' })
+}
+
+// 测试AI项目数据库连接（无需项目ID，直接传配置）
+export function aiTestDbConnection(data) {
+  return request({
+    url: `/ui-automation/ai-projects/test-db-connection/`,
+    method: 'post',
+    data,
+    timeout: 15000
+  })
+}
+
+// ===================== Midscene AI视觉自动化 =====================
+
+// ---- 分组 ----
+export function getMidsceneGroups(params) {
+  return request({ url: '/ui-automation/midscene-groups/', method: 'get', params })
+}
+export function getMidsceneGroupTree(params) {
+  return request({ url: '/ui-automation/midscene-groups/tree/', method: 'get', params })
+}
+export function createMidsceneGroup(data) {
+  return request({ url: '/ui-automation/midscene-groups/', method: 'post', data })
+}
+export function updateMidsceneGroup(id, data) {
+  return request({ url: `/ui-automation/midscene-groups/${id}/`, method: 'patch', data })
+}
+export function deleteMidsceneGroup(id) {
+  return request({ url: `/ui-automation/midscene-groups/${id}/`, method: 'delete' })
+}
+export function batchReorderMidsceneGroups(data) {
+  return request({ url: '/ui-automation/midscene-groups/batch_reorder/', method: 'post', data })
+}
+
+// ---- 用例 ----
+export function getMidsceneCases(params) {
+  return request({ url: '/ui-automation/midscene-cases/', method: 'get', params })
+}
+export function getMidsceneCase(id) {
+  return request({ url: `/ui-automation/midscene-cases/${id}/`, method: 'get' })
+}
+export function createMidsceneCase(data) {
+  return request({ url: '/ui-automation/midscene-cases/', method: 'post', data })
+}
+export function updateMidsceneCase(id, data) {
+  return request({ url: `/ui-automation/midscene-cases/${id}/`, method: 'patch', data })
+}
+export function deleteMidsceneCase(id) {
+  return request({ url: `/ui-automation/midscene-cases/${id}/`, method: 'delete' })
+}
+export function batchDeleteMidsceneCases(data) {
+  return request({ url: '/ui-automation/midscene-cases/batch-delete/', method: 'post', data })
+}
+export function importAIToMidscene(data) {
+  return request({ url: '/ui-automation/midscene-cases/import-ai/', method: 'post', data })
+}
+export function runMidsceneCase(id) {
+  return request({ url: `/ui-automation/midscene-cases/${id}/run/`, method: 'post', timeout: 30000 })
+}
+export function copyMidsceneCase(id) {
+  return request({ url: `/ui-automation/midscene-cases/${id}/copy/`, method: 'post' })
+}
+export function getMidsceneExecutionStatus(params) {
+  return request({ url: '/ui-automation/midscene-cases/execution-status/', method: 'get', params })
+}
+
+// ---- 执行记录 ----
+export function getMidsceneExecutions(params) {
+  return request({ url: '/ui-automation/midscene-executions/', method: 'get', params })
+}
+export function getMidsceneExecutionDetail(id) {
+  return request({ url: `/ui-automation/midscene-executions/${id}/`, method: 'get' })
+}
+export function deleteMidsceneExecution(id) {
+  return request({ url: `/ui-automation/midscene-executions/${id}/`, method: 'delete' })
+}
+export function getMidsceneStatistics(params) {
+  return request({ url: '/ui-automation/midscene-executions/statistics/', method: 'get', params })
+}
+
+// ---- 视觉回归 ----
+export function midsceneVisualCompare(data) {
+  return request({ url: '/ui-automation/midscene/visual-compare/', method: 'post', data })
+}
+
+export function midsceneSaveBaseline(data) {
+  return request({ url: '/ui-automation/midscene/baseline/save/', method: 'post', data })
+}
+
+export function midsceneListBaselines(params) {
+  return request({ url: '/ui-automation/midscene/baseline/list/', method: 'get', params })
+}
+
+// ---- 微服务状态 ----
+export function midsceneHealthCheck() {
+  return request({ url: '/ui-automation/midscene/health/', method: 'get', timeout: 5000 })
+}
+export function midsceneModelConfig() {
+  return request({ url: '/ui-automation/midscene/model-config/', method: 'get' })
+}
+
+// ==================== Midscene全局配置 API ====================
+
+export function getMidsceneConfigs(params) {
+  return request({ url: '/ui-automation/midscene-configs/', method: 'get', params })
+}
+
+export function getMidsceneConfig(id) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'get' })
+}
+
+export function createMidsceneConfig(data) {
+  return request({ url: '/ui-automation/midscene-configs/', method: 'post', data })
+}
+
+export function updateMidsceneConfig(id, data) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'patch', data })
+}
+
+export function deleteMidsceneConfig(id) {
+  return request({ url: `/ui-automation/midscene-configs/${id}/`, method: 'delete' })
+}
+
+export function getMergedMidsceneConfig(data) {
+  return request({ url: '/ui-automation/midscene-configs/merged/', method: 'post', data })
+}
+
+// ==================== AI自动化定时任务相关API ====================
+
+// 获取AI定时任务列表
+export function getAiScheduledTasks(params) {
+  return request({ url: '/ui-automation/ai-scheduled-tasks/', method: 'get', params })
+}
+
+// 创建AI定时任务
+export function createAiScheduledTask(data) {
+  return request({ url: '/ui-automation/ai-scheduled-tasks/', method: 'post', data })
+}
+
+// 更新AI定时任务
+export function updateAiScheduledTask(id, data) {
+  return request({ url: `/ui-automation/ai-scheduled-tasks/${id}/`, method: 'patch', data })
+}
+
+// 删除AI定时任务
+export function deleteAiScheduledTask(id) {
+  return request({ url: `/ui-automation/ai-scheduled-tasks/${id}/`, method: 'delete' })
+}
+
+// 暂停AI定时任务
+export function pauseAiScheduledTask(id) {
+  return request({ url: `/ui-automation/ai-scheduled-tasks/${id}/pause/`, method: 'post' })
+}
+
+// 恢复AI定时任务
+export function resumeAiScheduledTask(id) {
+  return request({ url: `/ui-automation/ai-scheduled-tasks/${id}/resume/`, method: 'post' })
+}
+
+// 立即运行AI定时任务
+export function runAiScheduledTask(id) {
+  return request({ url: `/ui-automation/ai-scheduled-tasks/${id}/run-now/`, method: 'post', timeout: 30000 })
+}
+
+// ==================== AI自动化通知日志相关API ====================
+
+// 获取AI通知日志列表
+export function getAiNotificationLogs(params) {
+  return request({ url: '/ui-automation/ai-notification-logs/', method: 'get', params })
+}
+
+// 重试AI通知
+export function retryAiNotificationLog(id) {
+  return request({ url: `/ui-automation/ai-notification-logs/${id}/retry/`, method: 'post' })
+}
+
+// 获取Midscene用例列表 - 已在上方声明，此处不再重复
+
+// 获取AI模块用户列表（复用API测试模块用户接口）
+export function getAiUsers(params) {
+  return request({ url: '/api-testing/users/', method: 'get', params })
+}
+
+// ==================== AI自动化测试计划相关API ====================
+
+// 获取AI测试计划列表
+export function getAiTestPlans(params) {
+  return request({ url: '/ui-automation/ai-test-plans/', method: 'get', params })
+}
+
+// 获取AI测试计划详情
+export function getAiTestPlan(id) {
+  return request({ url: `/ui-automation/ai-test-plans/${id}/`, method: 'get' })
+}
+
+// 创建AI测试计划
+export function createAiTestPlan(data) {
+  return request({ url: '/ui-automation/ai-test-plans/', method: 'post', data })
+}
+
+// 更新AI测试计划
+export function updateAiTestPlan(id, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${id}/`, method: 'patch', data })
+}
+
+// 删除AI测试计划
+export function deleteAiTestPlan(id) {
+  return request({ url: `/ui-automation/ai-test-plans/${id}/`, method: 'delete' })
+}
+
+// 获取AI测试计划项列表
+export function getAiPlanItems(planId) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/plan_items/`, method: 'get' })
+}
+
+// 添加AI测试计划项
+export function addAiPlanItem(planId, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/add_item/`, method: 'post', data })
+}
+
+// 批量添加AI测试计划项
+export function addAiPlanItemsBatch(planId, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/add_items_batch/`, method: 'post', data })
+}
+
+// 移除AI测试计划项
+export function removeAiPlanItem(planId, itemId) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/remove_item/${itemId}/`, method: 'delete' })
+}
+
+// 更新AI测试计划项顺序
+export function updateAiPlanItemOrder(planId, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/update_item_order/`, method: 'post', data })
+}
+
+// 执行AI测试计划
+export function runAiTestPlan(planId, data) {
+  return request({ url: `/ui-automation/ai-test-plans/${planId}/run_plan/`, method: 'post', data, timeout: 60000 })
 }

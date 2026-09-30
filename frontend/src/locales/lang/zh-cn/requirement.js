@@ -1,7 +1,7 @@
 export default {
   requirementAnalysis: {
     // Page
-    title: '智能测试用例生成',
+    title: 'AI生成 测试用例',
     subtitle: '基于需求描述或文档，AI将直接为您生成高质量的测试用例',
 
     // Output Mode
@@ -23,8 +23,8 @@ export default {
     selectProject: '请选择项目',
     charCount: '{count}/2000',
     generating: '🔄 生成中...',
-    generateBtn: '🚀 生成测试用例',
-    generateButton: '🚀 生成测试用例',
+    generateBtn: '生成测试用例',
+    generateButton: '生成测试用例',
 
     // Document Upload
     uploadTitle: '📄 上传需求文档',
@@ -156,26 +156,31 @@ export default {
     // Filters
     statusFilter: '状态筛选:',
     allStatus: '全部状态',
-    pending: '需求分析中',
-    generating: '用例编写中',
-    reviewing: '用例评审中',
+    selectProject: '选择项目',
+    pending: '等待中',
+    generating: '生成中',
+    reviewing: '评审中',
     completed: '已完成',
     failed: '失败',
 
     // Status Display
-    statusPending: '需求分析中',
-    statusGenerating: '用例编写中',
-    statusReviewing: '用例评审中',
+    statusPending: '等待中',
+    statusGenerating: '生成中',
+    statusReviewing: '评审中',
+    statusRevising: '改进中',
     statusCompleted: '已完成',
     statusFailed: '失败',
+    statusCancelled: '已取消',
+    statusReviewed: '已评审',
+    statusReviewFailed: '评审失败',
     statusDraft: '草稿',
     statusActive: '激活',
 
     // Actions
-    batchDelete: '🗑️ 批量删除({count})',
-    deleting: '🗑️ 删除中...',
-    refresh: '🔄 刷新',
-    loading: '🔄 加载中...',
+    batchDelete: '批量删除({count})',
+    deleting: '删除中...',
+    refresh: '刷新',
+    loading: '加载中...',
 
     // Stats
     totalTasks: '任务总数',
@@ -316,20 +321,20 @@ export default {
   },
   promptConfig: {
     // Page
-    title: '📝 提示词配置',
+    title: '提示词配置',
     subtitle: '配置用于测试用例编写和评审的AI提示词',
 
     // Section
     configListTitle: '提示词配置列表',
-    loadDefaults: '📂 加载默认提示词',
+    loadDefaults: '加载默认提示词',
     addConfig: '➕ 添加配置',
 
     // Config Card
     enabled: '启用',
     disabled: '禁用',
-    preview: '👁️ 预览',
-    edit: '✏️ 编辑',
-    delete: '🗑️ 删除',
+    preview: '预览',
+    edit: '编辑',
+    delete: '删除',
 
     // Config Details
     contentPreview: '提示词内容预览:',
@@ -394,8 +399,8 @@ export default {
     noConfigs: '暂无提示词配置',
     noConfigsHint: '请添加提示词配置以自定义AI的行为和输出格式',
     emptyHint: '请添加提示词配置以自定义AI的行为和输出格式',
-    addFirstConfig: '➕ 添加第一个配置',
-    loadDefaultsFirst: '📂 加载默认提示词',
+    addFirstConfig: '添加第一个配置',
+    loadDefaultsFirst: '加载默认提示词',
 
     // Messages
     nameRequired: '请输入配置名称',
@@ -504,11 +509,11 @@ export default {
     // 页面头部
     title: '任务详情',
     taskId: '任务ID',
-    exportBtn: '💾 导出Excel',
-    exporting: '💾 导出中...',
+    exportBtn: '导出Excel',
+    exporting: '导出中...',
 
     // 需求描述折叠卡片
-    requirementTitle: '📋 需求描述',
+    requirementTitle: '需求描述',
     requirementHint: '（点击展开查看完整内容）',
     copyRequirement: '复制需求描述',
 
@@ -522,8 +527,8 @@ export default {
     // 批量操作
     selectAll: '全选',
     selectedCount: '已选择 {count} 条用例',
-    batchAdopt: '✅ 一键采纳 ({count})',
-    batchDiscard: '❌ 一键弃用 ({count})',
+    batchAdopt: '一键采纳 ({count})',
+    batchDiscard: '一键弃用 ({count})',
 
     // 表格头部
     tableSelect: '选择',
@@ -536,9 +541,9 @@ export default {
     tableActions: '操作',
 
     // 表格操作按钮
-    viewDetail: '📖 查看详情',
-    adopt: '✅ 采纳',
-    discard: '❌ 弃用',
+    viewDetail: '查看详情',
+    adopt: '采纳',
+    discard: '弃用',
 
     // 空状态
     emptyTitle: '暂无测试用例数据',

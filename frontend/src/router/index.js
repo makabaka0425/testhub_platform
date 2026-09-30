@@ -33,6 +33,14 @@ import UiNotificationLogs from '@/views/ui-automation/notification/NotificationL
 import UiAITesting from '@/views/ui-automation/ai/AITesting.vue'
 import UiAICaseList from '@/views/ui-automation/ai/AICaseList.vue'
 import UiAIExecutionRecords from '@/views/ui-automation/ai/AIExecutionRecords.vue'
+import UiMidsceneExecution from '@/views/ui-automation/midscene/MidsceneExecution.vue'
+import UiMidsceneTestReport from '@/views/ui-automation/midscene/MidsceneTestReport.vue'
+import AiProjectList from '@/views/ui-automation/ai-projects/AiProjectList.vue'
+import AiScheduledTasks from '@/views/ai-automation/AiScheduledTasks.vue'
+import AiNotificationLogs from '@/views/ai-automation/AiNotificationLogs.vue'
+import AiTestPlanList from '@/views/ai-automation/AiTestPlanList.vue'
+import AiTestPlanDetail from '@/views/ai-automation/AiTestPlanDetail.vue'
+import AiDashboard from '@/views/ai-automation/dashboard/Dashboard.vue'
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 const routes = [
@@ -342,7 +350,19 @@ const routes = [
         children: [
             {
                 path: '',
-                redirect: 'testing'
+                redirect: 'dashboard'
+            },
+            {
+                path: 'dashboard',
+                name: 'AiDashboard',
+                component: AiDashboard,
+                meta: { title: '数据看板' }
+            },
+            {
+                path: 'projects',
+                name: 'AiProjectList',
+                component: AiProjectList,
+                meta: { title: '项目管理' }
             },
             {
                 path: 'testing',
@@ -358,6 +378,48 @@ const routes = [
                 path: 'execution-records',
                 name: 'AIExecutionRecords',
                 component: UiAIExecutionRecords
+            },
+            {
+                path: 'midscene-web',
+                name: 'MidsceneWeb',
+                component: UiMidsceneExecution,
+                meta: { title: 'Web端自动化', platform: 'web' }
+            },
+            {
+                path: 'midscene-app',
+                name: 'MidsceneApp',
+                component: UiMidsceneExecution,
+                meta: { title: 'APP端自动化', platform: 'app' }
+            },
+            {
+                path: 'midscene-reports',
+                name: 'MidsceneTestReport',
+                component: UiMidsceneTestReport,
+                meta: { title: 'AI测试报告' }
+            },
+            {
+                path: 'test-plans',
+                name: 'AiTestPlans',
+                component: AiTestPlanList,
+                meta: { title: 'AI测试计划' }
+            },
+            {
+                path: 'test-plans/:id',
+                name: 'AiTestPlanDetail',
+                component: AiTestPlanDetail,
+                meta: { title: '计划详情' }
+            },
+            {
+                path: 'scheduled-tasks',
+                name: 'AiScheduledTasks',
+                component: AiScheduledTasks,
+                meta: { title: 'AI定时任务' }
+            },
+            {
+                path: 'notification-logs',
+                name: 'AiNotificationLogs',
+                component: AiNotificationLogs,
+                meta: { title: 'AI通知列表' }
             }
         ]
     },
@@ -460,6 +522,11 @@ const routes = [
                         path: 'dify',
                         name: 'DifyConfig',
                         component: () => import('@/views/configuration/DifyConfig.vue')
+                    },
+                    {
+                        path: 'midscene-config',
+                        name: 'ConfigMidscene',
+                        component: () => import('@/views/configuration/MidsceneConfig.vue')
                     }
                 ]
             }

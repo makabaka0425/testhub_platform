@@ -1,14 +1,9 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <div class="page-titlebar">
       <h1 class="page-title">{{ $t('version.title') }}</h1>
-      <div class="header-actions">
-        <el-button
-          v-if="selectedVersions.length > 0"
-          type="danger"
-          @click="batchDeleteVersions"
-          :disabled="isDeleting">
-          <el-icon><Delete /></el-icon>
+      <div class="titlebar-actions">
+        <el-button v-if="selectedVersions.length > 0" type="danger" plain @click="batchDeleteVersions" :disabled="isDeleting">
           {{ $t('version.batchDelete') }} ({{ selectedVersions.length }})
         </el-button>
         <el-button type="primary" @click="createVersion">
@@ -18,104 +13,84 @@
       </div>
     </div>
 
-    <div class="card-container">
-      <div class="filter-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
-            <el-input
-              v-model="searchText"
-              :placeholder="$t('version.searchPlaceholder')"
-              clearable
-              @input="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-col>
-          <el-col :span="4">
-            <el-select v-model="projectFilter" :placeholder="$t('version.relatedProject')" clearable @change="handleFilter">
-              <el-option
-                v-for="project in projects"
-                :key="project.id"
-                :label="project.name"
-                :value="project.id"
-              />
-            </el-select>
-          </el-col>
-          <el-col :span="3">
-            <el-select v-model="baselineFilter" :placeholder="$t('version.versionType')" clearable @change="handleFilter">
-              <el-option :label="$t('version.baselineVersion')" :value="true" />
-              <el-option :label="$t('version.normalVersion')" :value="false" />
-            </el-select>
-          </el-col>
-        </el-row>
-      </div>
-      
-      <el-table
-        :data="versions"
-        v-loading="loading"
-        style="width: 100%"
-        @selection-change="handleSelectionChange">
-        <el-table-column type="selection" width="55" />
-        <el-table-column type="index" :label="$t('version.serialNumber')" width="80" :index="getSerialNumber" />
-        <el-table-column prop="name" :label="$t('version.versionName')" min-width="100">
-          <template #default="{ row }">
-            <div class="version-name">
-              <span>{{ row.name }}</span>
-              <el-tag v-if="row.is_baseline" type="warning" size="small" class="baseline-tag">{{ $t('version.baseline') }}</el-tag>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="projects" :label="$t('version.relatedProject')" width="300">
-          <template #default="{ row }">
-            <div v-if="row.projects && row.projects.length > 0" class="project-tags">
-              <el-tag
-                v-for="project in row.projects.slice(0, 2)"
-                :key="project.id"
-                size="small"
-                type="primary"
-                class="project-tag"
-              >
-                {{ project.name }}
-              </el-tag>
-              <el-tooltip v-if="row.projects.length > 2" :content="getProjectsTooltip(row.projects)">
-                <el-tag size="small" type="info" class="project-tag">
-                  +{{ row.projects.length - 2 }}
-                </el-tag>
-              </el-tooltip>
-            </div>
-            <span v-else class="no-project">{{ $t('version.noProject') }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="description" :label="$t('version.description')" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="testcases_count" :label="$t('version.testCaseCount')" width="100">
-          <template #default="{ row }">
-            <el-tag type="info" size="small">{{ row.testcases_count }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_by.username" :label="$t('version.creator')" width="120" />
-        <el-table-column prop="created_at" :label="$t('version.createdAt')" width="180">
-          <template #default="{ row }">
-            {{ formatDate(row.created_at) }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('project.actions')" width="150" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="editVersion(row)">{{ $t('common.edit') }}</el-button>
-            <el-button size="small" type="danger" @click="deleteVersion(row)">{{ $t('common.delete') }}</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      
-      <div class="pagination-container">
-        <el-pagination
-          v-model:current-page="currentPage"
-          :page-size="pageSize"
-          :total="total"
-          layout="total, prev, pager, next"
-          @current-change="handlePageChange"
-        />
+    <div class="workspace">
+      <div class="list-column">
+        <!-- 搜索区域卡片 -->
+        <div class="filter-bar">
+          <el-form :inline="true">
+            <el-form-item>
+              <el-input v-model="searchText" :placeholder="$t('version.searchPlaceholder')" clearable style="width: 200px" @input="handleSearch">
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+            </el-form-item>
+            <el-form-item>
+              <el-select v-model="projectFilter" :placeholder="$t('version.relatedProject')" clearable style="width: 180px" @change="handleFilter">
+                <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-select v-model="baselineFilter" :placeholder="$t('version.versionType')" clearable style="width: 130px" @change="handleFilter">
+                <el-option :label="$t('version.baselineVersion')" :value="true" />
+                <el-option :label="$t('version.normalVersion')" :value="false" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- 版本列表面板 -->
+        <section class="panel list-panel">
+          <div class="panel__body version-table-wrapper">
+            <el-table :data="versions" v-loading="loading" height="100%" @selection-change="handleSelectionChange">
+              <el-table-column type="selection" width="45" />
+              <el-table-column type="index" :label="$t('version.serialNumber')" width="60" :index="getSerialNumber" />
+              <el-table-column prop="name" :label="$t('version.versionName')" min-width="100">
+                <template #default="{ row }">
+                  <div class="version-name">
+                    <span>{{ row.name }}</span>
+                    <el-tag v-if="row.is_baseline" type="warning" size="small" class="baseline-tag">{{ $t('version.baseline') }}</el-tag>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column prop="projects" :label="$t('version.relatedProject')" min-width="250">
+                <template #default="{ row }">
+                  <div v-if="row.projects && row.projects.length > 0" class="project-tags">
+                    <el-tag v-for="project in row.projects.slice(0, 2)" :key="project.id" size="small" type="primary" class="project-tag">{{ project.name }}</el-tag>
+                    <el-tooltip v-if="row.projects.length > 2" :content="getProjectsTooltip(row.projects)">
+                      <el-tag size="small" type="info" class="project-tag">+{{ row.projects.length - 2 }}</el-tag>
+                    </el-tooltip>
+                  </div>
+                  <span v-else class="no-project">{{ $t('version.noProject') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" :label="$t('version.description')" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="testcases_count" :label="$t('version.testCaseCount')" width="100">
+                <template #default="{ row }">
+                  <el-tag type="info" size="small">{{ row.testcases_count }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="created_by.username" :label="$t('version.creator')" width="100" />
+              <el-table-column prop="created_at" :label="$t('version.createdAt')" width="180" :formatter="formatDate" />
+              <el-table-column :label="$t('project.actions')" width="150" fixed="right">
+                <template #default="{ row }">
+                  <el-button link class="op-btn" @click="editVersion(row)">{{ $t('common.edit') }}</el-button>
+                  <el-button link class="op-btn op-btn--danger" @click="deleteVersion(row)">{{ $t('common.delete') }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="currentPage"
+              v-model:page-size="pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              layout="total, sizes, prev, pager, next, jumper"
+              :total="total"
+              @size-change="() => { currentPage = 1; fetchVersions() }"
+              @current-change="handlePageChange"
+            />
+          </div>
+        </section>
       </div>
     </div>
     
@@ -173,7 +148,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Delete } from '@element-plus/icons-vue'
+import { Plus, Search } from '@element-plus/icons-vue'
 import api from '@/utils/api'
 import dayjs from 'dayjs'
 
@@ -388,8 +363,8 @@ const resetVersionForm = () => {
   editingVersionId.value = null
 }
 
-const formatDate = (dateString) => {
-  return dayjs(dateString).format('YYYY-MM-DD HH:mm')
+const formatDate = (row, column, cellValue) => {
+  return dayjs(cellValue).format('YYYY-MM-DD HH:mm')
 }
 
 const getProjectsTooltip = (projects) => {
@@ -402,45 +377,136 @@ onMounted(() => {
 })
 </script>
 
-<style lang="scss" scoped>
-.filter-bar {
-  margin-bottom: 20px;
+<style scoped lang="scss">
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.page-titlebar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--gray-900);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.list-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list-column .filter-bar {
+  margin-bottom: 0;
+}
+
+.list-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-panel .panel__body {
+  padding: 0;
+}
+
+.version-table-wrapper {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.list-panel :deep(.el-table) {
+  --el-table-border-color: var(--gray-200);
+  --el-table-header-bg-color: var(--gray-50);
+  --el-table-tr-bg-color: var(--gray-0);
+}
+
+.list-panel :deep(.el-table th.el-table__cell) {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.list-panel :deep(.el-table .el-table__cell) {
+  padding: 4px 0;
+}
+
+.list-panel :deep(.el-table .el-table__body tr) {
+  height: 40px;
+}
+
+.list-panel :deep(.el-table .el-table__body tr:hover > td.el-table__cell) {
+  background: var(--gray-50) !important;
 }
 
 .pagination-container {
-  margin-top: 20px;
   display: flex;
-  justify-content: center;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-100);
+  flex-shrink: 0;
+  background: var(--gray-0);
 }
 
 .version-name {
   display: flex;
   align-items: center;
   gap: 8px;
-  
-  .baseline-tag {
-    font-size: 12px;
-  }
+  .baseline-tag { font-size: 12px; }
 }
 
 .project-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  
-  .project-tag {
-    margin: 0;
-  }
+  .project-tag { margin: 0; }
 }
 
 .no-project {
   color: #909399;
   font-size: 12px;
   font-style: italic;
+}
+
+.op-btn {
+  --el-button-text-color: var(--brand-500, #4f8cff);
+  padding: 2px 4px !important;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.op-btn--danger {
+  --el-button-text-color: #f56c6c;
 }
 </style>

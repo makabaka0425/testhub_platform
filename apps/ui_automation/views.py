@@ -11,6 +11,7 @@ from django.db import models, transaction
 from django.utils import timezone
 import logging
 import json
+import os
 import re
 import random
 import time
@@ -7863,6 +7864,333 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
         return Response({'results': results})
 
+    @action(detail=False, methods=['post'], url_path='import-cases')
+    def import_cases(self, request):
+        """导入测试用例 - 支持从AI生成任务导入或从文件上传导入"""
+        import_type = request.data.get('import_type')  # 'ai_task' or 'file'
+        project_id = request.data.get('project_id')
+        group_id = request.data.get('group_id', None)
+
+        if not project_id:
+            return Response({'error': '请指定目标项目'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 验证项目存在
+        try:
+            project = UiProject.objects.get(id=project_id)
+        except UiProject.DoesNotExist:
+            return Response({'error': f'项目(id={project_id})不存在'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 验证分组
+        group = None
+        if group_id:
+            try:
+                group = TestCaseGroup.objects.get(id=group_id, project_id=project_id)
+            except TestCaseGroup.DoesNotExist:
+                return Response({'error': f'分组(id={group_id})不存在'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if import_type == 'ai_task':
+            return self._import_from_ai_task(request, project, group)
+        elif import_type == 'file':
+            return self._import_from_file(request, project, group)
+        else:
+            return Response({'error': '不支持的导入类型，请使用 ai_task 或 file'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def _import_from_ai_task(self, request, project, group):
+        """从AI生成任务导入用例"""
+        ai_task_id = request.data.get('ai_task_id')
+        selected_indices = request.data.get('selected_indices', None)
+
+        if not ai_task_id:
+            return Response({'error': '请指定AI生成任务ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from apps.requirement_analysis.models import TestCaseGenerationTask
+            ai_task = TestCaseGenerationTask.objects.get(task_id=ai_task_id)
+        except Exception:
+            return Response({'error': f'AI生成任务不存在'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if ai_task.status != 'completed':
+            return Response({'error': '只能导入已完成的AI生成任务中的用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not ai_task.final_test_cases:
+            return Response({'error': '该AI生成任务没有可导入的测试用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 解析AI测试用例
+        test_cases = self._parse_ai_test_cases(ai_task.final_test_cases)
+        if not test_cases:
+            return Response({'error': '无法解析AI测试用例内容'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if selected_indices is not None:
+            selected_set = set(selected_indices)
+            test_cases = [tc for i, tc in enumerate(test_cases) if i in selected_set]
+
+        if not test_cases:
+            return Response({'error': '没有选中的测试用例可导入'}, status=status.HTTP_400_BAD_REQUEST)
+
+        imported_count = self._create_imported_cases(test_cases, project, group, request.user)
+
+        return Response({
+            'message': f'成功从AI生成任务导入 {imported_count} 条用例',
+            'imported_count': imported_count,
+        }, status=status.HTTP_200_OK)
+
+    def _import_from_file(self, request, project, group):
+        """从上传的Excel/CSV文件导入用例"""
+        uploaded_file = request.FILES.get('file')
+        if not uploaded_file:
+            return Response({'error': '请上传文件'}, status=status.HTTP_400_BAD_REQUEST)
+
+        filename = uploaded_file.name.lower()
+        try:
+            import openpyxl
+            import csv
+            import io
+
+            rows = []
+
+            if filename.endswith('.xlsx') or filename.endswith('.xls'):
+                wb = openpyxl.load_workbook(uploaded_file)
+                ws = wb.active
+                for row in ws.iter_rows(values_only=True):
+                    rows.append([str(c) if c is not None else '' for c in row])
+            elif filename.endswith('.csv'):
+                content = uploaded_file.read().decode('utf-8-sig')
+                reader = csv.reader(io.StringIO(content))
+                for row in reader:
+                    rows.append(row)
+            else:
+                return Response({'error': '不支持的文件格式，请上传 .xlsx / .xls / .csv 文件'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if len(rows) < 2:
+                return Response({'error': '文件内容为空或缺少数据行'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 解析表头
+            headers = [h.lower().strip() for h in rows[0]]
+
+            test_cases = []
+            for row in rows[1:]:
+                if not any(cell.strip() for cell in row):
+                    continue
+                case = {}
+                for i, header in enumerate(headers):
+                    value = row[i].strip() if i < len(row) else ''
+                    if any(kw in header for kw in ['场景', '标题', '名称', 'title', 'scenario']):
+                        case['scenario'] = value
+                    elif any(kw in header for kw in ['前置', '前提', 'precondition']):
+                        case['precondition'] = value
+                    elif any(kw in header for kw in ['步骤', 'step']):
+                        case['steps'] = value
+                    elif any(kw in header for kw in ['预期', '结果', 'expected', 'result']):
+                        case['expected'] = value
+                    elif any(kw in header for kw in ['优先级', 'priority']):
+                        case['priority'] = value
+                if case.get('scenario') or case.get('steps'):
+                    test_cases.append(case)
+
+            if not test_cases:
+                return Response({'error': '未能从文件中解析出测试用例，请检查表头是否包含：场景/名称、步骤、预期结果等'}, status=status.HTTP_400_BAD_REQUEST)
+
+            imported_count = self._create_imported_cases(test_cases, project, group, request.user)
+
+            return Response({
+                'message': f'成功从文件导入 {imported_count} 条用例',
+                'imported_count': imported_count,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"文件导入失败: {e}", exc_info=True)
+            return Response({'error': f'文件导入失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _parse_ai_test_cases(self, content):
+        """解析AI生成的测试用例内容"""
+        if not content:
+            return []
+        clean = re.sub(r'\*\*([^*]+)\*\*', r'\1', content)
+        if '|' in clean:
+            return self._parse_ai_table_format(clean)
+        return self._parse_ai_text_format(clean)
+
+    def _parse_ai_table_format(self, content):
+        """解析表格格式的AI测试用例"""
+        lines = [l.strip() for l in content.split('\n') if l.strip()]
+        test_cases = []
+        table_data = []
+        for line in lines:
+            if '|' in line and not line.startswith('|-'):
+                temp = "___PIPE___"
+                processed = line.replace(r'\|', temp)
+                if processed.startswith('|'):
+                    processed = processed[1:]
+                if processed.endswith('|'):
+                    processed = processed[:-1]
+                cells = [c.replace(temp, '|').replace('&#124;', '|').strip() for c in processed.split('|')]
+                if len(cells) > 1:
+                    table_data.append(cells)
+        if len(table_data) < 2:
+            return []
+        headers = [h.lower() for h in table_data[0]]
+        for row in table_data[1:]:
+            if len(row) < len(headers):
+                continue
+            tc = {}
+            for i, h in enumerate(headers):
+                v = row[i] if i < len(row) else ''
+                if any(k in h for k in ['场景', '标题', '名称', 'title', 'scenario', '测试目标']):
+                    tc['scenario'] = v
+                elif any(k in h for k in ['前置', '前提', 'precondition']):
+                    tc['precondition'] = v
+                elif any(k in h for k in ['步骤', 'step']):
+                    tc['steps'] = v
+                elif any(k in h for k in ['预期', '结果', 'expected', 'result']):
+                    tc['expected'] = v
+                elif any(k in h for k in ['优先级', 'priority']):
+                    tc['priority'] = v
+            if tc.get('scenario') or tc.get('steps'):
+                test_cases.append(tc)
+        return test_cases
+
+    def _parse_ai_text_format(self, content):
+        """解析结构化文本格式的AI测试用例"""
+        test_cases = []
+        blocks = re.split(r'\n(?=(?:测试用例|用例|TC-|#\d+|##?\s))', content)
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            tc = {}
+            lines = block.split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                m = re.match(r'(?:测试用例|用例|TC)[\s:：]*\d*[\s:：]*(.*)', line)
+                if m and m.group(1).strip():
+                    tc['scenario'] = m.group(1).strip()
+                    continue
+                if any(k in line.lower() for k in ['前置', '前提']):
+                    tc['precondition'] = re.sub(r'^.*?[:：]\s*', '', line).strip()
+                elif any(k in line.lower() for k in ['步骤', '操作']):
+                    tc['steps'] = re.sub(r'^.*?[:：]\s*', '', line).strip()
+                elif any(k in line.lower() for k in ['预期', '结果']):
+                    tc['expected'] = re.sub(r'^.*?[:：]\s*', '', line).strip()
+                elif any(k in line.lower() for k in ['优先级', 'priority']):
+                    tc['priority'] = re.sub(r'^.*?[:：]\s*', '', line).strip()
+            if tc.get('scenario') or tc.get('steps'):
+                test_cases.append(tc)
+        return test_cases if test_cases else [{'scenario': content[:200], 'steps': content}]
+
+    def _create_imported_cases(self, test_cases, project, group, user):
+        """将解析出的用例数据创建为UI自动化用例"""
+        def map_priority(p_val):
+            p = (p_val or '').upper().strip()
+            if p in ('P0', 'P1', '高', 'HIGH', 'CRITICAL'):
+                return 'high'
+            elif p in ('P2', '中', 'MEDIUM'):
+                return 'medium'
+            else:
+                return 'low'
+
+        imported_count = 0
+        for case_data in test_cases:
+            scenario = case_data.get('scenario', '测试用例')
+            precondition = case_data.get('precondition', '')
+            steps_text = case_data.get('steps', '')
+            expected = case_data.get('expected', '')
+            priority = map_priority(case_data.get('priority', ''))
+
+            ui_case = TestCase.objects.create(
+                name=scenario[:200],
+                description=f"导入用例\n\n前置条件: {precondition}\n\n预期结果: {expected}",
+                project=project,
+                group=group,
+                status='normal',
+                priority=priority,
+                created_by=user,
+            )
+
+            step_lines = []
+            if steps_text:
+                raw_lines = [l.strip() for l in re.split(r'[\n]', steps_text) if l.strip()]
+                for line in raw_lines:
+                    cleaned = re.sub(r'^(\d+[\.\)、：:]|步骤\s*\d+[\.\）：:]?)\s*', '', line).strip()
+                    if cleaned:
+                        step_lines.append(cleaned)
+
+            if not step_lines and steps_text.strip():
+                step_lines = [steps_text.strip()]
+
+            if expected.strip():
+                step_lines.append(f'断言: {expected.strip()}')
+
+            for step_idx, step_desc in enumerate(step_lines, start=1):
+                is_assert = step_desc.startswith('断言:')
+                TestCaseStep.objects.create(
+                    test_case=ui_case,
+                    step_number=step_idx,
+                    action_type='assert' if is_assert else 'wait',
+                    element=None,
+                    input_value='',
+                    description=step_desc,
+                    assert_type='textContains' if is_assert else '',
+                    assert_value=step_desc.replace('断言:', '').strip() if is_assert else '',
+                )
+
+            imported_count += 1
+
+        return imported_count
+
+    @action(detail=False, methods=['get'], url_path='ai-task-list')
+    def ai_task_list(self, request):
+        """获取AI生成任务列表（已完成且有用例的），用于导入选择"""
+        try:
+            from apps.requirement_analysis.models import TestCaseGenerationTask
+            tasks = TestCaseGenerationTask.objects.filter(
+                status='completed'
+            ).exclude(
+                final_test_cases__isnull=True
+            ).exclude(
+                final_test_cases=''
+            ).order_by('-created_at')[:50]
+
+            data = [{
+                'task_id': str(t.task_id),
+                'title': t.title or f'任务-{str(t.task_id)[:8]}',
+                'created_at': t.created_at.strftime('%Y-%m-%d %H:%M'),
+                'case_count': len(self._parse_ai_test_cases(t.final_test_cases)) if t.final_test_cases else 0,
+            } for t in tasks]
+
+            return Response(data)
+        except Exception as e:
+            logger.error(f"获取AI任务列表失败: {e}")
+            return Response([])
+
+    @action(detail=False, methods=['get'], url_path='ai-task-cases')
+    def ai_task_cases(self, request):
+        """获取指定AI生成任务的用例列表，用于导入前选择"""
+        task_id = request.query_params.get('task_id')
+        if not task_id:
+            return Response({'error': '请指定task_id'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from apps.requirement_analysis.models import TestCaseGenerationTask
+            task = TestCaseGenerationTask.objects.get(task_id=task_id)
+        except Exception:
+            return Response({'error': 'AI生成任务不存在'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if task.status != 'completed' or not task.final_test_cases:
+            return Response({'error': '该任务无可用用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        test_cases = self._parse_ai_test_cases(task.final_test_cases)
+        data = [{
+            'index': i,
+            'scenario': tc.get('scenario', ''),
+            'priority': tc.get('priority', 'P2'),
+            'steps': tc.get('steps', ''),
+            'expected': tc.get('expected', ''),
+        } for i, tc in enumerate(test_cases)]
+
+        return Response(data)
+
     def perform_destroy(self, instance):
         # 记录操作（在删除前记录）
         log_operation('delete', 'test_case', instance.id, instance.name, self.request.user)
@@ -8562,7 +8890,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
     def _send_email_notification(self, task, success):
         """发送邮件通知"""
         try:
-            from django.core.mail import send_mail
+            import smtplib
+            from email.mime.text import MIMEText
             from django.conf import settings
 
             logger.info("=== 开始发送邮件通知 ===")
@@ -8579,9 +8908,39 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                 logger.warning("没有找到任何邮件收件人")
                 return
 
+            # 优先从数据库读取邮箱配置
+            email_config = None
+            try:
+                from apps.core.models import UnifiedNotificationConfig
+                email_config = UnifiedNotificationConfig.objects.filter(
+                    config_type='email', is_active=True
+                ).first()
+            except Exception as e:
+                logger.warning(f"从数据库读取邮箱配置失败: {e}")
+
+            if email_config and email_config.email_smtp_host:
+                smtp_host = email_config.email_smtp_host
+                smtp_port = email_config.email_smtp_port or 465
+                use_ssl = email_config.email_use_ssl
+                use_tls = email_config.email_use_tls
+                smtp_user = email_config.email_host_user
+                smtp_password = email_config.email_host_password
+                from_email = email_config.email_from or email_config.email_host_user
+                logger.info(f"使用数据库邮箱配置: {smtp_host}:{smtp_port}")
+            else:
+                # 回退到 settings 配置
+                smtp_host = settings.EMAIL_HOST
+                smtp_port = settings.EMAIL_PORT
+                use_ssl = settings.EMAIL_USE_SSL
+                use_tls = settings.EMAIL_USE_TLS
+                smtp_user = settings.EMAIL_HOST_USER
+                smtp_password = settings.EMAIL_HOST_PASSWORD
+                from_email = settings.DEFAULT_FROM_EMAIL
+                logger.info(f"使用settings邮箱配置: {smtp_host}:{smtp_port}")
+
             # 准备邮件内容
             status_text = '成功' if success else '失败'
-            task_type_text = '测试套件执行' if task.task_type == 'TEST_SUITE' else '测试用例执行'
+            task_type_text = '测试计划执行'
 
             subject = f"UI自动化定时任务执行{status_text}: {task.name}"
 
@@ -8607,18 +8966,31 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
 {task.error_message if task.error_message else '无错误信息'}
             """
 
-            # 发送邮件
-            from_email = settings.DEFAULT_FROM_EMAIL
+            # 使用 smtplib 直接发送，绕过 Django EmailBackend
+            msg = MIMEText(message, 'plain', 'utf-8')
+            msg['From'] = from_email
+            msg['To'] = ', '.join(recipients)
+            msg['Subject'] = subject
+
             logger.info(f"准备发送邮件，发件人: {from_email}, 收件人: {recipients}")
 
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=from_email,
-                recipient_list=recipients,
-                fail_silently=False,
-            )
-            logger.info("邮件发送成功")
+            try:
+                if use_ssl:
+                    server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+                else:
+                    server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+                    if use_tls:
+                        server.starttls()
+
+                if smtp_user and smtp_password:
+                    server.login(smtp_user, smtp_password)
+
+                server.sendmail(from_email, recipients, msg.as_string())
+                server.quit()
+                logger.info("邮件发送成功")
+            except Exception as e:
+                logger.error(f"SMTP连接发送失败: {e}")
+                raise
 
             # 记录通知日志
             UiNotificationLog.objects.create(
@@ -8645,7 +9017,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                     task_type=task.task_type,
                     notification_type='task_execution',
                     sender_name='系统邮件通知',
-                    sender_email=settings.DEFAULT_FROM_EMAIL,
+                    sender_email=from_email if 'from_email' in dir() else '',
                     recipient_info=[{'email': email} for email in recipients] if recipients else [],
                     notification_content=f"发送邮件通知失败: {str(e)}",
                     status='failed',
@@ -9157,6 +9529,158 @@ def is_infrastructure_failure(error_message: str) -> bool:
         'service unavailable',
     ]
     return any(marker in message for marker in infra_markers)
+
+
+# ============================================================================
+# Midscene 微服务对接
+# ============================================================================
+
+MIDSCENE_SERVICE_URL = os.environ.get('MIDSCENE_SERVICE_URL', 'http://localhost:8001')
+
+
+class MidsceneExecutionViewSet(viewsets.ViewSet):
+    """Midscene AI视觉自动化执行"""
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['post'], url_path='run')
+    def run_task(self, request):
+        """提交Midscene任务到微服务执行"""
+        import httpx
+
+        task_type = request.data.get('task_type', 'aiAct')
+        instruction = request.data.get('instruction', '')
+        url = request.data.get('url', '')
+        headless = request.data.get('headless', False)
+        project_id = request.data.get('project_id')
+
+        if not instruction:
+            return Response({'error': '请提供执行指令'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 获取Midscene模型配置（优先midscene_web角色，fallback到browser_use_text角色）
+        from apps.requirement_analysis.models import AIModelConfig
+        config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
+        if not config_obj:
+            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+
+        model_config = {}
+        if config_obj:
+            model_config = {
+                'api_key': config_obj.api_key,
+                'base_url': config_obj.base_url,
+                'model_name': config_obj.model_name,
+                'model_family': config_obj.model_type,
+            }
+
+        # 构建请求
+        payload = {
+            'task_type': task_type,
+            'instruction': instruction,
+            'url': url or None,
+            'headless': headless,
+            'model_config': model_config,
+            'timeout': 60000,
+        }
+
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.post(
+                    f'{MIDSCENE_SERVICE_URL}/execute',
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+            # 记录执行记录
+            if project_id:
+                try:
+                    project = UiProject.objects.get(id=project_id)
+                    AICase.objects.create(
+                        name=f'Midscene: {instruction[:80]}',
+                        task_description=instruction,
+                        project=project,
+                        status='pending',
+                        created_by=request.user,
+                    )
+                except Exception:
+                    pass
+
+            return Response({
+                'task_id': data.get('task_id'),
+                'status': 'submitted',
+                'message': '任务已提交到Midscene微服务',
+            })
+
+        except httpx.ConnectError:
+            return Response(
+                {'error': 'Midscene微服务未启动，请检查 midscene-service 是否运行在端口 8001'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except Exception as e:
+            logger.error(f"Midscene执行提交失败: {e}", exc_info=True)
+            return Response({'error': f'提交失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='task-status')
+    def task_status(self, request):
+        """查询Midscene任务状态"""
+        import httpx
+
+        task_id = request.query_params.get('task_id')
+        if not task_id:
+            return Response({'error': '请提供task_id'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(f'{MIDSCENE_SERVICE_URL}/task/{task_id}')
+                resp.raise_for_status()
+                data = resp.json()
+
+            return Response(data)
+        except httpx.ConnectError:
+            return Response(
+                {'error': 'Midscene微服务未启动'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except Exception as e:
+            return Response({'error': f'查询失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='health')
+    def health_check(self, request):
+        """检查Midscene微服务健康状态"""
+        import httpx
+
+        try:
+            with httpx.Client(timeout=5) as client:
+                resp = client.get(f'{MIDSCENE_SERVICE_URL}/health')
+                resp.raise_for_status()
+                return Response(resp.json())
+        except Exception:
+            return Response({
+                'status': 'offline',
+                'service': 'midscene-service',
+                'message': 'Midscene微服务未启动',
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    @action(detail=False, methods=['get'], url_path='model-config')
+    def get_model_config(self, request):
+        """获取Midscene模型配置（优先midscene_web角色，fallback到browser_use_text角色）"""
+        from apps.requirement_analysis.models import AIModelConfig
+        config_obj = AIModelConfig.objects.filter(role='midscene_web', is_active=True).first()
+        source = 'midscene_web'
+        if not config_obj:
+            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+            source = 'browser_use_text'
+        if not config_obj:
+            return Response({'configured': False, 'message': '未配置Midscene模型，请在配置中心添加AI智能模式配置'})
+
+        return Response({
+            'configured': True,
+            'is_active': config_obj.is_active,
+            'model_type': config_obj.model_type,
+            'model_name': config_obj.model_name,
+            'base_url': config_obj.base_url,
+            'name': config_obj.name,
+            'source': source,
+        })
 
 
 class AIExecutionRecordViewSet(viewsets.ModelViewSet):
@@ -9709,11 +10233,42 @@ class UiDashboardViewSet(viewsets.ViewSet):
         test_case_execution_count = TestCaseExecution.objects.filter(project_id__in=project_ids).count()
         total_execution_count = execution_count + test_case_execution_count
 
+        # 测试计划统计
+        from .models import UiTestPlan
+        plan_count = UiTestPlan.objects.filter(project_id__in=project_ids).count()
+        plan_passed = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='passed').count()
+        plan_failed = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='failed').count()
+        plan_running = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status='running').count()
+        plan_pending = UiTestPlan.objects.filter(project_id__in=project_ids, execution_status__in=['pending', 'not_executed']).count()
+
+        # 最近执行的测试计划（最多5条）
+        recent_plans = UiTestPlan.objects.filter(project_id__in=project_ids).exclude(
+            execution_status__in=['not_executed', 'pending']
+        ).select_related('project').order_by('-updated_at')[:5]
+        recent_plan_list = []
+        for p in recent_plans:
+            recent_plan_list.append({
+                'id': p.id,
+                'name': p.name,
+                'project_name': p.project.name if p.project else '',
+                'execution_status': p.execution_status,
+                'passed_count': p.passed_count,
+                'failed_count': p.failed_count,
+                'total_count': p.total_cases,
+                'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+            })
+
         return Response({
             'project_count': project_count,
             'test_case_count': test_case_count,
             'suite_count': suite_test_case_count,
-            'execution_count': total_execution_count
+            'execution_count': total_execution_count,
+            'plan_count': plan_count,
+            'plan_passed': plan_passed,
+            'plan_failed': plan_failed,
+            'plan_running': plan_running,
+            'plan_pending': plan_pending,
+            'recent_plans': recent_plan_list,
         })
 
 
