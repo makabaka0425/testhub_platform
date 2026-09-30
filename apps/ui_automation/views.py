@@ -7002,6 +7002,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             # 详细错误信息列表
             detailed_errors = []
             execution_result = {'status': 'passed', 'error_message': None}
+            # 单用例执行共享同一个变量池，供执行线程、后置 SQL 和结果快照使用。
+            context_variables = {}
 
             # 根据引擎类型选择执行方式
             if engine_type == 'selenium':
@@ -7055,9 +7057,6 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                 execution_result['status'] = 'failed'
                                 execution_result['error_message'] = "导航到测试页面失败"
                                 return False
-
-                        # 用例级变量表，存储步骤输出变量
-                        context_variables = {}
 
                         if steps_data:
                             execution_logs.append("========== 执行测试步骤 ==========")
@@ -7218,9 +7217,6 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
                     async def run_test():
                         """异步执行测试"""
-                        # 用例级变量表，存储步骤输出变量
-                        context_variables = {}
-
                         # 执行后置条件SQL的通用函数（定义在try之前，确保finally块中始终可访问）
                         def execute_cleanup_sql(sql_source, sql_label, logs_list, project_obj, variables, results_list):
                             """执行清理SQL，可复用于主用例和前置条件用例的后置清理
@@ -7383,6 +7379,39 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                                 execution_logs.append(f"  ✗ 前置步骤 {psi} 异常: {str(e)}")
                                                 break
 
+                                        if pre_passed:
+                                            # 登录按钮点击成功只表示点击动作完成，SPA 的鉴权请求和路由跳转
+                                            # 仍可能在后台进行。等待页面稳定后再开始主用例。
+                                            try:
+                                                await engine.page.wait_for_load_state('load', timeout=10000)
+                                            except Exception:
+                                                pass
+                                            try:
+                                                await engine.page.wait_for_load_state('networkidle', timeout=5000)
+                                            except Exception:
+                                                pass
+                                            await engine.page.wait_for_timeout(1500)
+
+                                            current_url = engine.page.url
+                                            from urllib.parse import urlparse
+                                            current_path = urlparse(current_url).path.lower().rstrip('/')
+                                            if current_path.endswith('/login'):
+                                                # 部分登录接口响应较慢，再等待一次登录路由真正离开。
+                                                try:
+                                                    await engine.page.wait_for_function(
+                                                        "() => !window.location.pathname.toLowerCase().replace(/\\/$/, '').endsWith('/login')",
+                                                        timeout=10000
+                                                    )
+                                                    current_url = engine.page.url
+                                                except Exception:
+                                                    pre_passed = False
+                                                    execution_logs.append(
+                                                        f"  ✗ 前置登录步骤已执行，但页面仍停留在登录页: {current_url}"
+                                                    )
+
+                                            if pre_passed:
+                                                execution_logs.append(f"  ✓ 前置用例完成后的页面: {current_url}")
+
                                         if not pre_passed:
                                             execution_result['status'] = 'skipped'
                                             execution_result['error_message'] = f"前置用例「{pre_case_name}」执行失败"
@@ -7401,7 +7430,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                                         execution_logs.append(f"✓ 前置用例「{pre_case_name}」执行通过")
                                     execution_logs.append("")
 
-                                    execution_logs.append("✓ 前置条件执行完毕")
+                                    # 给连续前置用例或主用例预留 SPA 组件渲染时间。
+                                    await engine.page.wait_for_timeout(2000)
+                                    execution_logs.append(f"✓ 前置条件执行完毕，当前页面: {engine.page.url}")
 
                                 # 执行前置数据SQL（在登录和前置条件之后，主用例步骤之前）
                                 # 这样可以引用前置用例的输出变量

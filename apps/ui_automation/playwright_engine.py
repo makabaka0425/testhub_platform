@@ -327,15 +327,13 @@ class PlaywrightTestEngine:
                 else:
                     timeout_ms = 30000  # 默认30秒（页面导航可能较慢）
 
-                # 拼接完整URL：优先使用项目base_url，否则从当前页面URL提取origin
+                # 拼接完整URL：相对路径始终基于项目配置，避免协议或路径前缀漂移。
                 from urllib.parse import urlparse, urljoin
-                if self.base_url:
-                    # base_url 可能是 https://xxx.com/app 这种带路径前缀的
-                    # target_path 是 /system/user 这种相对路径
-                    # 需要拼接为 https://xxx.com/app/system/user
-                    base = self.base_url.rstrip('/')
-                    path = target_path.lstrip('/')
-                    target_url = f"{base}/{path}"
+                target_parsed = urlparse(target_path)
+                if target_parsed.scheme and target_parsed.netloc:
+                    target_url = target_path
+                elif self.base_url:
+                    target_url = urljoin(f"{self.base_url.rstrip('/')}/", target_path.lstrip('/'))
                 else:
                     # 回退：从当前页面提取origin
                     current_url = self.page.url
@@ -344,10 +342,14 @@ class PlaywrightTestEngine:
                     target_url = urljoin(base_url + '/', target_path.lstrip('/'))
 
                 await self.page.goto(target_url, wait_until='domcontentloaded', timeout=timeout_ms)
+                # domcontentloaded 早于 SPA 路由守卫和组件渲染完成，短暂等待后记录最终地址。
+                await self.page.wait_for_timeout(1000)
+                actual_url = self.page.url
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 路由跳转成功\n"
                 log += f"  - 目标路径: {target_path}\n"
                 log += f"  - 完整URL: {target_url}\n"
+                log += f"  - 最终URL: {actual_url}\n"
                 log += f"  - 执行时间: {execution_time}秒"
                 return True, log, None
 
@@ -1515,7 +1517,21 @@ class PlaywrightTestEngine:
             # 使用 domcontentloaded 等待页面加载完成（SPA应用通常有长连接/轮询，networkidle会等满超时）
             await self.page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
-            log = f"✓ 成功导航到: {url}"
+            # 项目配置为 HTTPS 时，确保登录和后续用例始终使用同一个安全 origin。
+            # 某些全新浏览器上下文会被目标 SPA 的匿名路由降级到同主机 HTTP；
+            # 若继续登录，登录态只会保存在 HTTP origin，主用例回到 HTTPS 后会失效。
+            from urllib.parse import urlparse
+            requested = urlparse(url)
+            actual = urlparse(self.page.url)
+            if (
+                requested.scheme == 'https'
+                and actual.scheme == 'http'
+                and requested.hostname == actual.hostname
+            ):
+                secure_url = actual._replace(scheme='https').geturl()
+                await self.page.goto(secure_url, wait_until='domcontentloaded', timeout=30000)
+
+            log = f"✓ 成功导航到: {self.page.url}"
             return True, log
         except Exception as e:
             log = f"✗ 导航失败: {url}\n  - 错误: {str(e)}"
