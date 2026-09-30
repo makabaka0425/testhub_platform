@@ -18,6 +18,7 @@ AIGC:
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/Django-4.2-green.svg)](https://www.djangoproject.com/)
 [![Vue](https://img.shields.io/badge/Vue-3.3-brightgreen.svg)](https://vuejs.org/)
+[![CI](https://github.com/makabaka0425/testhub_platform/actions/workflows/ci.yml/badge.svg)](https://github.com/makabaka0425/testhub_platform/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-GPL_v3-blue.svg)](LICENSE)
 
 </div>
@@ -220,7 +221,7 @@ lingce_ltest_platform/
 ### 环境要求
 
 - **Python**: 推荐Python3.12,其他版本可能会存在兼容性问题
-- **Node.js**: 18+(开发环境必须安装Node.js用于构建前端项目,生产可不安装)
+- **Node.js**: 22 LTS（开发环境必须安装Node.js用于构建前端项目，生产可不安装）
 - **MySQL**: 8.0+(必须安装MySQL客户端，用于执行数据库迁移等操作)
 - **Java**: 17+ (可选,用于运行浏览器驱动、Allure 报告生成等，否则会生成报告失败)
 - **Redis**: 6.0+ (可选,用于APP自动化测试相关)
