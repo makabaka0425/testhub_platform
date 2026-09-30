@@ -46,7 +46,8 @@ from .views import (
     AllureReportViewSet
 )
 from .views_config import EnvironmentConfigViewSet, AIIntelligentModeConfigViewSet
-from .views_midscene import MidsceneGroupViewSet, MidsceneCaseViewSet, MidsceneExecutionViewSet, AiProjectViewSet, AiScheduledTaskViewSet, AiNotificationLogViewSet, AiTestPlanViewSet, MidsceneConfigViewSet
+from .views import MidsceneExecutionViewSet as MidsceneServiceViewSet
+from .views_midscene import MidsceneGroupViewSet, MidsceneCaseViewSet, MidsceneExecutionViewSet as MidsceneRecordViewSet, AiProjectViewSet, AiScheduledTaskViewSet, AiNotificationLogViewSet, AiTestPlanViewSet, MidsceneConfigViewSet
 
 router = DefaultRouter()
 router.register(r'dashboard', UiDashboardViewSet, basename='dashboard')
@@ -77,10 +78,10 @@ router.register(r'ai-projects', AiProjectViewSet, basename='ai-projects')
 router.register(r'ai-scheduled-tasks', AiScheduledTaskViewSet, basename='ai-scheduled-tasks')
 router.register(r'ai-notification-logs', AiNotificationLogViewSet, basename='ai-notification-logs')
 router.register(r'ai-test-plans', AiTestPlanViewSet, basename='ai-test-plans')
-router.register(r'midscene', MidsceneExecutionViewSet, basename='midscene')
+router.register(r'midscene', MidsceneServiceViewSet, basename='midscene')
 router.register(r'midscene-groups', MidsceneGroupViewSet, basename='midscene-groups')
 router.register(r'midscene-cases', MidsceneCaseViewSet, basename='midscene-cases')
-router.register(r'midscene-executions', MidsceneExecutionViewSet, basename='midscene-executions')
+router.register(r'midscene-executions', MidsceneRecordViewSet, basename='midscene-executions')
 router.register(r'midscene-configs', MidsceneConfigViewSet, basename='midscene-configs')
 
 

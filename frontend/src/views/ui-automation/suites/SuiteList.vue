@@ -187,7 +187,7 @@
         <el-table ref="suiteCasesTableRef" :data="filteredSuiteCases" height="100%" @selection-change="handleCaseSelectionChange" row-key="id">
           <el-table-column type="selection" width="45" />
           <el-table-column label="#" width="50" align="center">
-            <template #default="{ $index }">
+            <template #default>
               <span class="drag-handle"><el-icon style="cursor: grab"><Rank /></el-icon></span>
             </template>
           </el-table-column>

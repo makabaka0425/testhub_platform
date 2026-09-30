@@ -1435,11 +1435,6 @@ export default {
       }
     },
 
-    // 格式化Markdown为HTML（简化版 - 保留兼容）
-    formatMarkdown(content) {
-      return this.renderMarkdown(content)
-    },
-
     formatDateTime(dateTimeString) {
       if (!dateTimeString) return '';
       const date = new Date(dateTimeString);
@@ -1449,51 +1444,6 @@ export default {
       const hours = String(date.getHours()).padStart(2, '0');
       const minutes = String(date.getMinutes()).padStart(2, '0');
       return `${year}-${month}-${day} ${hours}:${minutes}`;
-    },
-
-    // 格式化Markdown为HTML（简化版）
-    formatMarkdown(content) {
-      if (!content) return '';
-
-      // 先去除"新增"标记，在markdown转换之前处理
-      // 这样可以避免markdown转换后无法匹配的问题
-      let html = content
-          .replace(/\*\*新增\*\*-/g, '')  // **新增**-xxx -> xxx (保留xxx的原有格式)
-          .replace(/新增-/g, '');  // 新增-xxx -> xxx (保留xxx的原有格式)
-
-      // 转义HTML特殊字符
-      html = html
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-
-      // 转换Markdown语法
-      // 标题 #
-      html = html.replace(/^#{6}\s+(.+)$/gm, '<h6>$1</h6>');
-      html = html.replace(/^#{5}\s+(.+)$/gm, '<h5>$1</h5>');
-      html = html.replace(/^#{4}\s+(.+)$/gm, '<h4>$1</h4>');
-      html = html.replace(/^#{3}\s+(.+)$/gm, '<h3>$1</h3>');
-      html = html.replace(/^#{2}\s+(.+)$/gm, '<h2>$1</h2>');
-      html = html.replace(/^#{1}\s+(.+)$/gm, '<h1>$1</h1>');
-
-      // 粗体 **text** 或 __text__
-      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
-
-      // 斜体 *text* 或 _text_
-      html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-      html = html.replace(/_(.+?)_/g, '<em>$1</em>');
-
-      // 代码块 ```code```
-      html = html.replace(/```([\s\S]+?)```/g, '<pre><code>$1</code></pre>');
-
-      // 行内代码 `code`
-      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-      // 换行符转换为<br>
-      html = html.replace(/\n/g, '<br>');
-
-      return html;
     },
 
     // 将HTML的<br>标签转换为换行符（用于Excel导出）

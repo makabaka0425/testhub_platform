@@ -6,7 +6,18 @@
 
 ## 当前功能
 
-### 1. 统一定时任务调度器
+### 1. 初始化默认数据
+
+**命令**: `python manage.py bootstrap`
+
+**功能**: 统一初始化 UI 自动化定位策略和 APP 自动化组件包。该命令可以重复执行。
+
+```bash
+python manage.py bootstrap
+python manage.py bootstrap --overwrite-components
+```
+
+### 2. 统一定时任务调度器
 
 **命令**: `python manage.py run_all_scheduled_tasks`
 
@@ -16,7 +27,7 @@
 - API 测试模块 (`apps.api_testing.models.ScheduledTask`)
 - UI 自动化模块 (`apps.ui_automation.models.UiScheduledTask`)
 
-### 2. 初始化元素定位策略
+### 3. 初始化元素定位策略
 
 **命令**: `python manage.py init_locator_strategies`
 
@@ -26,7 +37,7 @@
 - 通用策略：ID, CSS, XPath, name, class, tag
 - Playwright 专用策略：text, placeholder, role, label, title, test-id
 
-### 3. 下载 WebDriver 驱动
+### 4. 下载 WebDriver 驱动
 
 **命令**: `python manage.py download_webdrivers`
 

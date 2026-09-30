@@ -46,7 +46,7 @@
             @node-contextmenu="onGroupRightClick"
             @node-drop="onGroupNodeDrop"
           >
-            <template #default="{ node, data }">
+            <template #default="{ data }">
               <span class="group-tree-node">
                 <span class="group-tree-label">{{ data.name }}</span>
                 <span v-if="data.case_count !== undefined" class="group-count">{{ data.case_count }}</span>

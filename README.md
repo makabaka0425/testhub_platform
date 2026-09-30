@@ -231,7 +231,7 @@ lingce_ltest_platform/
 1. **克隆项目**
 ```bash
 git clone <repository-url>
-cd lingce_ltest_platform
+cd testhub_platform
 ```
 
 2. **创建虚拟环境**
@@ -262,55 +262,39 @@ mysql -u root -p
 CREATE DATABASE lingce_ltest CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 EXIT;
 
-# 创建 migrations 目录（如果不存在）
-mkdir -p apps/testcases/migrations
-echo "# This file is intentionally left empty" > apps/testcases/migrations/__init__.py
-
 # 执行迁移
-python manage.py makemigrations
 python manage.py migrate
+
+# 初始化定位策略和 APP 自动化组件库（可重复执行）
+python manage.py bootstrap
 
 # 创建超级用户
 python manage.py createsuperuser
 ```
 
-6. **初始化UI自动化测试定位策略**
-```bash
-# 根目录执行
-python manage.py init_locator_strategies
-```
-7. **初始化app自动化组件库**
-```bash
-# 根目录执行
-python manage.py load_component_pack
-```
-
-8. **启动定时任务**
+6. **启动定时任务**
 ```bash
 # 启动统一任务调度器(同时管理API和UI模块)
 python manage.py run_all_scheduled_tasks
 ```
 
-9. **启动服务**
+7. **启动服务**
 ```bash
 # 启动 Django 开发服务器
 python manage.py runserver
 ```
-10. **启动Celery服务**
+8. **启动Celery服务**
 ```bash
 # 启动 Celery 开发服务(可选，用于处理APP自动化任务)
 celery -A backend worker -l info
 ```
 
-### 数据工厂模块初始化
+### 数据库迁移说明
 
-数据工厂模块需要创建数据库表：
-
-```bash
-# 创建数据工厂表
-python manage.py makemigrations data_factory
-python manage.py migrate data_factory
-```
+- 仓库已经包含完整 migration，新安装只需执行 `python manage.py migrate`，不要在部署时运行 `makemigrations`。
+- `ANALYTICS_ENABLED=True` 时，执行 `python manage.py migrate` 会同时安装 analytics 表。
+- 从没有正式 migration 的旧版本升级时，请先完整备份数据库，并在测试环境验证；不要直接在生产库执行基线迁移。
+- `python manage.py bootstrap` 只写入非敏感默认数据，可以安全地重复执行。使用 `--overwrite-components` 可同步更新组件定义。
 
 **详细使用说明**：请查看 [数据工厂使用说明.md](./docs/数据工厂使用说明.md) 获取完整的功能介绍、使用技巧和最佳实践。
 
@@ -329,6 +313,8 @@ npm install
 npm run dev
 ```
 
+开发端口由根目录 `.env` 中的 `FRONTEND_DEV_PORT` 控制，默认端口为 `3001`。
+
 3. **构建生产版本**
 ```bash
 npm run build
@@ -336,7 +322,7 @@ npm run build
 
 ### 访问应用
 
-- **前端**: http://localhost:3000
+- **前端**: http://localhost:3001
 - **后端 API**: http://localhost:8000
 - **API 文档**: http://localhost:8000/api/docs/
 - **Admin 后台**: http://localhost:8000/admin/
@@ -361,6 +347,12 @@ npm run build
 `core` 模块是跨模块的通用功能模块，提供全局共享的管理命令和统一配置管理。
 
 **管理命令**:
+- `bootstrap`: 初始化项目所需的非敏感默认数据
+  - 初始化 UI 自动化定位策略
+  - 导入 APP 自动化组件包
+  - 支持重复执行，不会生成重复数据
+  - 使用 `--overwrite-components` 同步更新组件定义
+
 - `run_all_scheduled_tasks`: 统一定时任务调度器
   - 同时调度 API 测试和 UI 自动化模块的定时任务
   - 支持自定义检查间隔（默认60秒）

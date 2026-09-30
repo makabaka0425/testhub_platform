@@ -242,8 +242,8 @@ if DEBUG:
     # 优先使用环境变量配置的地址，确保服务器IP优先级最高
     CORS_ALLOWED_ORIGINS = [
         *parsed_cors_origins,  # 环境变量配置的地址优先
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
     ]
@@ -289,7 +289,7 @@ else:
 # CSRF Settings
 CSRF_TRUSTED_ORIGINS = config(
     'CSRF_TRUSTED_ORIGINS',
-    default='http://localhost:3000,http://127.0.0.1:3000',
+    default='http://localhost:3001,http://127.0.0.1:3001',
     cast=parse_csv,
 )
 
@@ -437,7 +437,7 @@ SIMPLEUI_LOGIN_PARTICLES = True
 # # 自定义首页图标 首页图标,支持element-ui和fontawesome的图标，参考https://fontawesome.com/icons图标
 # SIMPLEUI_HOME_ICON = 'fa fa-gauge'
 # 设置simpleui 点击首页图标跳转的地址
-SIMPLEUI_INDEX = 'http://localhost:3000'
+SIMPLEUI_INDEX = 'http://localhost:3001'
 # 自定义后台的Logo
 SIMPLEUI_LOGO = 'https://static.djangoproject.com/img/favicon.6dbf28c0650e.ico'
 # 是否显示首页信息

@@ -63,7 +63,7 @@
             <el-table :data="tasks" v-loading="loading" height="100%">
               <el-table-column prop="name" :label="$t('uiAutomation.scheduledTask.taskName')" min-width="200" />
               <el-table-column prop="task_type" :label="$t('uiAutomation.scheduledTask.taskType')" width="120">
-                <template #default="scope">
+                <template #default>
                   <el-tag type="primary">
                     测试计划
                   </el-tag>

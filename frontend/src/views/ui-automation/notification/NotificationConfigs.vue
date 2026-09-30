@@ -246,7 +246,6 @@
 </template>
 
 <script>
-import {Setting} from '@element-plus/icons-vue'
 import {ref, reactive, onMounted} from 'vue'
 import {ElMessage} from 'element-plus'
 import {
@@ -259,9 +258,6 @@ import { useI18n } from 'vue-i18n'
 
 export default {
   name: 'NotificationConfigs',
-  components: {
-    Setting
-  },
   setup() {
     const { t } = useI18n()
 
