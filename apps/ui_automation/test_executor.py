@@ -5,6 +5,7 @@ UI自动化测试执行服务
 import time
 import json
 from datetime import datetime
+from urllib.parse import urljoin, urlparse
 from django.utils import timezone
 from django.db import connection
 from playwright.sync_api import sync_playwright
@@ -30,6 +31,70 @@ class TestExecutor:
         self.results = []
         self.context_variables = {}  # 用例级变量表，存储步骤输出变量
         self._protected_vars = set()  # 套件模式下已定义的变量名（首次定义受保护，不可覆盖）
+
+    def _build_project_url(self, target):
+        """基于项目基础 URL 拼接路由，并保留基础路径前缀。"""
+        target = (target or '').strip()
+        parsed_target = urlparse(target)
+        if parsed_target.scheme and parsed_target.netloc:
+            return target
+
+        base_url = getattr(self.test_suite.project, 'base_url', '').strip()
+        if not base_url:
+            raise Exception('项目未设置基础URL，无法拼接相对路径')
+        return urljoin(f"{base_url.rstrip('/')}/", target.lstrip('/'))
+
+    def _goto_playwright(self, url, timeout=30000):
+        """导航并保持项目配置的 HTTPS origin，避免共享登录态跨协议丢失。"""
+        self.current_page.goto(url, wait_until='domcontentloaded', timeout=timeout)
+
+        requested = urlparse(url)
+        actual = urlparse(self.current_page.url)
+        if (
+            requested.scheme == 'https'
+            and actual.scheme == 'http'
+            and requested.hostname == actual.hostname
+        ):
+            secure_url = actual._replace(scheme='https').geturl()
+            self.current_page.goto(secure_url, wait_until='domcontentloaded', timeout=timeout)
+
+        # domcontentloaded 早于 SPA 路由守卫完成，等待守卫决定最终路由。
+        self.current_page.wait_for_timeout(1000)
+        return self.current_page.url
+
+    @staticmethod
+    def _is_login_url(url):
+        return urlparse(url).path.lower().rstrip('/').endswith('/login')
+
+    @staticmethod
+    def _is_login_case(case_data):
+        name = str(case_data.get('name', '')).lower()
+        if '登录' in name or 'login' in name:
+            return True
+        for step in case_data.get('steps', []):
+            element = step.get('element') or {}
+            locator = str(element.get('locator_value', '')).lower()
+            element_name = str(element.get('name', '')).lower()
+            if 'password' in locator or '密码' in element_name:
+                return True
+        return False
+
+    def _wait_for_login_completion(self, timeout=10000):
+        """等待登录 SPA 完成跳转；必要时刷新以应用已经写入的鉴权状态。"""
+        if not self._is_login_url(self.current_page.url):
+            return True
+
+        try:
+            self.current_page.wait_for_function(
+                "() => !window.location.pathname.toLowerCase().replace(/\\/$/, '').endsWith('/login')",
+                timeout=timeout,
+            )
+        except Exception:
+            # 部分 SPA 已写入 token，但不会主动离开登录路由，刷新后路由守卫才会生效。
+            self.current_page.reload(wait_until='domcontentloaded', timeout=30000)
+            self.current_page.wait_for_timeout(1500)
+
+        return not self._is_login_url(self.current_page.url)
 
     def create_execution_record(self):
         """创建测试执行记录"""
@@ -568,8 +633,8 @@ class TestExecutor:
                     if base_url:
                         print(f"[共享会话] 导航到项目基础URL: {base_url}")
                         try:
-                            self.current_page.goto(base_url, wait_until='domcontentloaded', timeout=30000)
-                            print(f"[共享会话] 页面加载完成")
+                            final_url = self._goto_playwright(base_url)
+                            print(f"[共享会话] 页面加载完成，当前URL: {final_url}")
                         except Exception as e:
                             print(f"[共享会话] 导航失败: {str(e)}")
 
@@ -648,6 +713,18 @@ class TestExecutor:
                             case_result = self.execute_test_case_playwright_no_db(
                                 case_data, suite_context_variables, defer_postcondition=True
                             )
+
+                            if case_result['status'] == 'passed' and self._is_login_case(case_data):
+                                print(f"[共享会话] 等待登录用例完成路由跳转...")
+                                if self._wait_for_login_completion():
+                                    print(f"[共享会话] 登录状态已就绪，当前URL: {self.current_page.url}")
+                                else:
+                                    case_result['status'] = 'failed'
+                                    case_result['error'] = (
+                                        f"登录步骤已执行，但页面仍停留在登录页: {self.current_page.url}"
+                                    )
+                                    print(f"[共享会话] {case_result['error']}")
+
                             self.results.append(case_result)
                             print(f"✓ 用例执行完成，状态: {case_result['status']}")
                             print(f"[变量共享] 用例执行后套件变量: {dict(suite_context_variables)}")
@@ -805,11 +882,10 @@ class TestExecutor:
                                 import platform
                                 is_linux = platform.system() == 'Linux'
 
-                                self.current_page.goto(self.test_suite.project.base_url, wait_until='domcontentloaded',
-                                                       timeout=30000)
+                                final_url = self._goto_playwright(self.test_suite.project.base_url)
 
                                 print(
-                                    f"✓ 成功导航到: {self.test_suite.project.base_url}")
+                                    f"✓ 成功导航到: {final_url}")
                             except Exception as e:
                                 print(f"✗ 导航失败: {str(e)}")
                                 # 导航失败，记录错误并继续下一个用例
@@ -1047,8 +1123,8 @@ class TestExecutor:
                 base_url = self.test_suite.project.base_url
                 if base_url:
                     try:
-                        self.current_page.goto(base_url, wait_until='domcontentloaded', timeout=30000)
-                        print(f"[执行后动作] 新页面已导航到: {base_url}")
+                        final_url = self._goto_playwright(base_url)
+                        print(f"[执行后动作] 新页面已导航到: {final_url}")
                     except Exception as e:
                         print(f"[执行后动作] 导航失败: {str(e)}")
 
@@ -1117,8 +1193,8 @@ class TestExecutor:
             start_url = login_config.login_url or self.test_suite.project.base_url
             if start_url:
                 print(f"[登录] 正在导航到登录页: {start_url}")
-                self.current_page.goto(start_url, wait_until='domcontentloaded', timeout=30000)
-                print(f"[登录] 登录页加载完成")
+                final_url = self._goto_playwright(start_url)
+                print(f"[登录] 登录页加载完成，当前URL: {final_url}")
 
             print(f"[登录] 执行登录用例「{test_case.name}」({len(login_case_data['steps'])}个步骤)")
 
@@ -1134,6 +1210,9 @@ class TestExecutor:
                     self.current_page.wait_for_load_state('domcontentloaded', timeout=10000)
                 except Exception as e:
                     print(f"[登录] 等待domcontentloaded超时，继续执行: {str(e)}")
+                if not self._wait_for_login_completion():
+                    print(f"[登录] 登录后仍停留在登录页: {self.current_page.url}")
+                    return False
                 print(f"[登录] 登录完成，当前页面URL: {self.current_page.url}")
                 print(f"[登录] 当前页面标题: {self.current_page.title()}")
                 return True
@@ -2480,20 +2559,10 @@ class TestExecutor:
                     uri = step_data.get('input_value', '').strip()
                     if not uri:
                         raise Exception('路由跳转需要输入目标路径（input_value）')
-                    # 判断是完整URL还是相对路径
-                    if uri.startswith('http://') or uri.startswith('https://'):
-                        full_url = uri
-                    else:
-                        base_url = getattr(self.test_suite.project, 'base_url', '').rstrip('/')
-                        if not base_url:
-                            raise Exception('项目未设置基础URL，无法拼接相对路径')
-                        # 确保相对路径以 / 开头
-                        if not uri.startswith('/'):
-                            uri = '/' + uri
-                        full_url = base_url + uri
+                    full_url = self._build_project_url(uri)
                     print(f"[路由跳转] 导航到: {full_url}")
-                    self.current_page.goto(full_url, wait_until='domcontentloaded', timeout=30000)
-                    print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
+                    final_url = self._goto_playwright(full_url)
+                    print(f"[路由跳转] 页面加载完成，当前URL: {final_url}")
                     step_result['success'] = True
 
                 else:
@@ -2607,19 +2676,10 @@ class TestExecutor:
                     uri = step_data.get('input_value', '').strip()
                     if not uri:
                         raise Exception('路由跳转需要输入目标路径（input_value）')
-                    # 判断是完整URL还是相对路径
-                    if uri.startswith('http://') or uri.startswith('https://'):
-                        full_url = uri
-                    else:
-                        base_url = getattr(self.test_suite.project, 'base_url', '').rstrip('/')
-                        if not base_url:
-                            raise Exception('项目未设置基础URL，无法拼接相对路径')
-                        if not uri.startswith('/'):
-                            uri = '/' + uri
-                        full_url = base_url + uri
+                    full_url = self._build_project_url(uri)
                     print(f"[路由跳转] 导航到: {full_url}")
-                    self.current_page.goto(full_url, wait_until='domcontentloaded', timeout=30000)
-                    print(f"[路由跳转] 页面加载完成，当前URL: {self.current_page.url}")
+                    final_url = self._goto_playwright(full_url)
+                    print(f"[路由跳转] 页面加载完成，当前URL: {final_url}")
                     step_result['success'] = True
 
                 elif step_data['action_type'] == 'assert':
