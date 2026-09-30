@@ -1,244 +1,318 @@
 <template>
-  <div class="login-container">
-    <!-- 左侧展示区域 -->
-    <div class="showcase-section">
-      <div class="showcase-content">
-        <!-- Logo和标题 -->
-        <div class="brand-header">
-          <div class="logo-wrapper">
-            <div class="logo-icon">
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <h1 class="brand-title">TestHub</h1>
-          </div>
-          <p class="brand-subtitle">AI-Powered Testing Platform</p>
-        </div>
-
-        <!-- 特性展示 -->
-        <div class="features-grid">
-          <div class="feature-card" v-for="(feature, index) in features" :key="index">
-            <div class="feature-icon" :style="{ backgroundColor: feature.color }">
-              <component :is="feature.icon" />
-            </div>
-            <div class="feature-content">
-              <h3>{{ feature.title }}</h3>
-              <p>{{ feature.description }}</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- AI能力展示 -->
-        <div class="ai-capabilities">
-          <div class="capability-badge">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span>{{ $t('auth.aiCaseGeneration') }}</span>
-          </div>
-          <div class="capability-badge">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
-              <path d="M12 6V12L16 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-            <span>{{ $t('auth.aiIntelligentTesting') }}</span>
-          </div>
-          <div class="capability-badge">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
-              <path d="M3 9H21" stroke="currentColor" stroke-width="2"/>
-              <path d="M9 21V9" stroke="currentColor" stroke-width="2"/>
-            </svg>
-            <span>{{ $t('auth.automatedExecution') }}</span>
-          </div>
-          <div class="capability-badge">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
-              <path d="M12 6V12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <path d="M12 12L16 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <path d="M12 12L8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <path d="M12 12L16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <path d="M12 12L8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-            <span>{{ $t('auth.scheduledTasks') }}</span>
-          </div>
-        </div>
+  <div class="login-page">
+    <!-- ══════ 左侧 6/10 品牌展示区（亮色简洁商务风·原型 1:1） ══════ -->
+    <section class="panel">
+      <!-- 几何网格 + 圆环装饰 -->
+      <div class="grid-bg"></div>
+      <div class="rings">
+        <span class="ring ring-1"></span>
+        <span class="ring ring-2"></span>
+        <span class="ring ring-3"></span>
       </div>
 
-      <!-- 装饰元素 -->
-      <div class="floating-shapes">
-        <!-- 语言切换 -->
-        <div class="language-switcher">
-          <el-dropdown @command="handleLanguageChange" class="language-dropdown">
-            <span class="el-dropdown-link">
-              <span class="language-icon">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
-              <span class="language-text">{{ currentLanguage === 'zh-cn' ? $t('auth.languageZhCN') : $t('auth.languageEn') }}</span>
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </span>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">
-                  <span class="dropdown-flag">🇨🇳</span> {{ $t('auth.languageZhCN') }}
-                </el-dropdown-item>
-                <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">
-                  <span class="dropdown-flag">🇺🇸</span> English
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+      <!-- 顶部品牌 + 语言切换 -->
+      <header class="brand">
+        <div class="mark">灵</div>
+        <div class="nm">
+          {{ t('auth.brandName') }}
+          <small>{{ t('auth.brandSubname') }}</small>
         </div>
-        <div class="shape shape-1"></div>
-        <div class="shape shape-2"></div>
-        <div class="shape shape-3"></div>
-        <div class="shape shape-4"></div>
-      </div>
-    </div>
+        <el-dropdown class="lang-sw" @command="handleLanguageChange" trigger="click">
+          <span class="lang-trigger">
+            <span class="lang-flag">{{ currentLanguage === 'zh-cn' ? '🇨🇳' : '🇺🇸' }}</span>
+            <span class="lang-name">{{ currentLanguage === 'zh-cn' ? t('auth.languageZhCN') : t('auth.languageEn') }}</span>
+            <el-icon class="caret"><ArrowDown /></el-icon>
+          </span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="zh-cn" :disabled="currentLanguage === 'zh-cn'">{{ t('auth.languageZhCN') }}</el-dropdown-item>
+              <el-dropdown-item command="en" :disabled="currentLanguage === 'en'">{{ t('auth.languageEn') }}</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </header>
 
-    <!-- 右侧登录表单 -->
-    <div class="login-section">
-      <div class="login-form-wrapper">
-        <div class="form-header">
-          <h2>{{ $t('auth.welcomeBack') }}</h2>
-          <p>{{ $t('auth.loginSubtitle') }}</p>
+      <!-- Hero 文案 -->
+      <section class="hero">
+        <span class="badge">
+          {{ t('auth.badge') }}
+        </span>
+        <h1>
+          {{ t('auth.heroLine1') }}<br />
+          <span class="grad">{{ t('auth.heroLine2') }}</span>
+        </h1>
+        <p class="sub">{{ t('auth.heroSub') }}</p>
+      </section>
+
+      <!-- 4 张能力卡（2×2，带统计） -->
+      <section class="cards">
+        <div class="card">
+          <div class="ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+          </div>
+          <h3>{{ t('auth.f1Title') }}</h3>
+          <p>{{ t('auth.f1Desc') }}</p>
+          <div class="stat">
+            {{ t('auth.f1Stat') }} <b>{{ t('auth.f1StatValue') }}</b> {{ t('auth.f1StatUnit') }}
+            <span class="up">{{ t('auth.f1Trend') }}</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" />
+            </svg>
+          </div>
+          <h3>{{ t('auth.f2Title') }}</h3>
+          <p>{{ t('auth.f2Desc') }}</p>
+          <div class="stat">
+            {{ t('auth.f2Stat') }} <b>{{ t('auth.f2StatValue') }}</b> {{ t('auth.f2StatUnit') }}
+            <span class="up">{{ t('auth.f2Trend') }}</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+          </div>
+          <h3>{{ t('auth.f3Title') }}</h3>
+          <p>{{ t('auth.f3Desc') }}</p>
+          <div class="stat">
+            {{ t('auth.f3Stat') }} <b>{{ t('auth.f3StatValue') }}</b> {{ t('auth.f3StatUnit') }}
+          </div>
+        </div>
+        <div class="card">
+          <div class="ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3v18h18" />
+              <path d="M7 15l4-5 4 3 5-7" />
+            </svg>
+          </div>
+          <h3>{{ t('auth.f4Title') }}</h3>
+          <p>{{ t('auth.f4Desc') }}</p>
+          <div class="stat">
+            {{ t('auth.f4Stat') }} <b>{{ t('auth.f4StatValue') }}</b>
+            <span class="up">{{ t('auth.f4Trend') }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 底部核心能力 tag + 版本号 -->
+      <footer class="dock">
+        <div class="lab">{{ t('auth.capabilitiesLabel') }}</div>
+        <div class="tags">
+          <span v-for="cap in capabilityList" :key="cap" class="tag">
+            {{ cap }}
+          </span>
+        </div>
+        <div class="cp">{{ t('auth.version') }}</div>
+      </footer>
+    </section>
+
+    <!-- ══════ 右侧 4/10 登录表单区 ══════ -->
+    <section class="form-panel">
+      <div class="card-login">
+        <div class="form-head">
+          <div class="hello">{{ t('auth.welcomeBack') }} 👋</div>
+          <div class="sub">
+            {{ t('auth.loginSubtitle') }}
+            <router-link to="/register" class="reg">{{ t('auth.signUp') }}</router-link>
+          </div>
         </div>
 
-        <!-- 登录模式切换 -->
-        <div class="mode-tabs">
+        <!-- 登录方式 tab -->
+        <div class="tabs" role="tablist">
           <button
             type="button"
-            class="mode-tab"
+            class="active"
             :class="{ active: loginMode === 'password' }"
             @click="loginMode = 'password'"
-          >
-            密码登录
-          </button>
+            role="tab"
+          >{{ t('auth.passwordLogin') }}</button>
           <button
             type="button"
-            class="mode-tab"
             :class="{ active: loginMode === 'sms' }"
             @click="loginMode = 'sms'; refreshCaptcha()"
-          >
-            短信登录
-          </button>
+            role="tab"
+          >{{ t('auth.smsLogin') }}</button>
         </div>
 
-        <el-form
-          ref="formRef"
-          :model="form"
-          :rules="rules"
-          @submit.prevent="handleLogin"
-          class="login-form"
-        >
+        <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleLogin" class="login-form" hide-required-asterisk>
           <!-- 密码登录 -->
           <template v-if="loginMode === 'password'">
-            <el-form-item prop="username">
-              <el-input
-                v-model="form.username"
-                :placeholder="$t('auth.usernamePlaceholder')"
-                size="large"
-                :prefix-icon="User"
-              />
-            </el-form-item>
-
-            <el-form-item prop="password">
-              <el-input
-                v-model="form.password"
-                type="password"
-                :placeholder="$t('auth.passwordPlaceholder')"
-                size="large"
-                :prefix-icon="Lock"
-                show-password
-                @keyup.enter="handleLogin"
-              />
-            </el-form-item>
+            <div class="field">
+              <label>{{ t('auth.accountLabel') }}</label>
+              <div class="ctrl">
+                <span class="pre">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M4 21c0-4 3.6-6 8-6s8 2 8 6" />
+                  </svg>
+                </span>
+                <input
+                  v-model="form.username"
+                  type="text"
+                  :placeholder="t('auth.accountPlaceholder')"
+                  autocomplete="username"
+                  @keyup.enter="handleLogin"
+                />
+              </div>
+            </div>
+            <div class="field">
+              <label>{{ t('auth.passwordLabel') }}</label>
+              <div class="ctrl">
+                <span class="pre">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="10" width="16" height="11" rx="2" />
+                    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                  </svg>
+                </span>
+                <input
+                  v-model="form.password"
+                  :type="showPwd ? 'text' : 'password'"
+                  :placeholder="t('auth.passwordPlaceholder')"
+                  autocomplete="current-password"
+                  @keyup.enter="handleLogin"
+                />
+                <button type="button" class="eye" :class="{ on: showPwd }" @click="showPwd = !showPwd">
+                  <svg v-if="!showPwd" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 3l18 18" />
+                    <path d="M10.6 10.6a3 3 0 0 0 4.2 4.2" />
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 8 10 8a13.5 13.5 0 0 1-1.7 2.6" />
+                    <path d="M6.1 6.1A13.5 13.5 0 0 0 2 12s3.5 7 10 7a9.1 9.1 0 0 0 5.4-1.7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="row2">
+              <label class="chk">
+                <input type="checkbox" v-model="rememberMe" />
+                <span class="box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                </span>
+                {{ t('auth.rememberMe') }}
+              </label>
+              <a href="javascript:void(0)" class="forget" @click.prevent="onForgot">{{ t('auth.forgotPassword') }}</a>
+            </div>
           </template>
 
           <!-- 短信登录 -->
-          <template v-if="loginMode === 'sms'">
-            <el-form-item prop="phone">
-              <el-input
-                v-model="form.phone"
-                placeholder="请输入手机号"
-                size="large"
-                :prefix-icon="Phone"
-                maxlength="11"
-              />
-            </el-form-item>
-
-            <!-- 图形验证码 -->
-            <el-row :gutter="12">
-              <el-col :span="14">
-                <el-form-item prop="captcha_code">
-                  <el-input
-                    v-model="form.captcha_code"
-                    placeholder="图形验证码"
-                    size="large"
-                    maxlength="4"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :span="10">
+          <template v-else>
+            <div class="field">
+              <label>{{ t('auth.phoneLabel') }}</label>
+              <div class="ctrl">
+                <span class="pre">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="7" y="2" width="10" height="20" rx="2.5" />
+                    <path d="M11 18h2" />
+                  </svg>
+                </span>
+                <input
+                  v-model="form.phone"
+                  type="tel"
+                  :placeholder="t('auth.phonePlaceholder')"
+                  autocomplete="tel"
+                  maxlength="11"
+                  @keyup.enter="handleLogin"
+                />
+              </div>
+            </div>
+            <div class="field">
+              <label>{{ t('auth.captchaLabel') }}</label>
+              <div class="ctrl code">
+                <span class="pre">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="3" />
+                    <path d="M8 12h.01M12 12h.01M16 12h.01" />
+                  </svg>
+                </span>
+                <input
+                  v-model="form.captcha_code"
+                  type="text"
+                  :placeholder="t('auth.captchaLabel')"
+                  inputmode="numeric"
+                  maxlength="4"
+                />
                 <img
+                  v-if="captchaImage"
                   :src="captchaImage"
-                  alt="验证码"
+                  alt="captcha"
                   class="captcha-img"
                   @click="refreshCaptcha"
-                  title="点击刷新验证码"
+                  :title="t('auth.captchaLabel')"
                 />
-              </el-col>
-            </el-row>
-
-            <!-- 短信验证码 -->
-            <el-form-item prop="verify_code">
-              <el-input
-                v-model="form.verify_code"
-                placeholder="短信验证码"
-                size="large"
-                maxlength="6"
-              >
-                <template #append>
-                  <el-button
-                    :disabled="smsCountdown > 0 || !form.phone || !form.captcha_code"
-                    :loading="sendingSms"
-                    @click="sendVerifyCode"
-                    style="min-width: 110px"
-                  >
-                    {{ smsCountdown > 0 ? `${smsCountdown}s后重试` : '发送验证码' }}
-                  </el-button>
-                </template>
-              </el-input>
-            </el-form-item>
+              </div>
+            </div>
+            <div class="field">
+              <label>{{ t('auth.smsCodeLabel') }}</label>
+              <div class="ctrl code">
+                <span class="pre">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="3" />
+                    <path d="M8 12h.01M12 12h.01M16 12h.01" />
+                  </svg>
+                </span>
+                <input
+                  v-model="form.verify_code"
+                  type="text"
+                  :placeholder="t('auth.smsCodeLabel')"
+                  inputmode="numeric"
+                  maxlength="6"
+                  @keyup.enter="handleLogin"
+                />
+                <button
+                  type="button"
+                  class="send-btn"
+                  :disabled="smsCountdown > 0 || !form.phone || !form.captcha_code"
+                  @click="sendVerifyCode"
+                >
+                  <span v-if="sendingSms" class="sms-spinner"></span>
+                  <template v-else-if="smsCountdown > 0">{{ smsCountdown }}{{ t('auth.smsResend') }}</template>
+                  <template v-else>{{ t('auth.smsSend') }}</template>
+                </button>
+              </div>
+            </div>
+            <div class="row2" style="justify-content: flex-end">
+              <label class="chk">
+                <input type="checkbox" v-model="rememberMe" />
+                <span class="box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                </span>
+                {{ t('auth.rememberMe') }}
+              </label>
+            </div>
           </template>
 
-          <el-form-item>
-            <el-button
-              type="primary"
-              size="large"
-              :loading="loading"
-              @click="handleLogin"
-              class="login-button"
-            >
-              <span v-if="!loading">{{ $t('auth.login') }}</span>
-              <span v-else>{{ $t('auth.loggingIn') }}</span>
-            </el-button>
-          </el-form-item>
+          <!-- 登录按钮 -->
+          <button type="submit" class="btn-login" :class="{ loading }" @click.prevent="handleLogin">
+            <span class="spinner"></span>
+            {{ loading ? t('auth.loggingIn') : t('auth.login') }}
+          </button>
 
-          <div class="form-footer">
-            <router-link to="/register" class="register-link">
-              {{ $t('auth.noAccount') }}<span>{{ $t('auth.signUpNow') }}</span>
-            </router-link>
+          <!-- 协议 -->
+          <div class="foot">
+            {{ t('auth.agreementPrefix') }}
+            <a href="javascript:void(0)" @click.prevent="ElMessage.info('《用户协议》v2.4')">{{ t('auth.agreementTerms') }}</a>
+            {{ t('auth.agreementAnd') }}
+            <a href="javascript:void(0)" @click.prevent="ElMessage.info('《隐私政策》v2.4')">{{ t('auth.agreementPrivacy') }}</a>
           </div>
         </el-form>
-
-        <!-- 底部信息 -->
-        <div class="bottom-info">
-          <p>{{ $t('auth.copyright') }}</p>
-        </div>
       </div>
-    </div>
+    </section>
   </div>
 </template>
 
@@ -247,7 +321,7 @@ import { ref, reactive, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { User, Lock, Phone, Document, MagicStick, Connection, TrendCharts, ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
 import api from '@/utils/api'
@@ -259,20 +333,31 @@ const { t } = useI18n()
 
 // 当前语言
 const currentLanguage = computed(() => appStore.language)
-
-// 语言切换（无刷新）
 const handleLanguageChange = (lang) => {
   appStore.setLanguage(lang)
 }
+
+// 能力标签（核心能力）
+const capabilityList = computed(() => [
+  t('auth.cap1'),
+  t('auth.cap2'),
+  t('auth.cap3'),
+  t('auth.cap4')
+])
+
 const formRef = ref()
 const loading = ref(false)
 const loginMode = ref('password')
 
-// 图形验证码相关
+// 密码显示切换 + 记住我
+const showPwd = ref(false)
+const rememberMe = ref(true)
+
+// 图形验证码
 const captchaImage = ref('')
 const captchaToken = ref('')
 
-// 短信验证码相关
+// 短信验证码
 const sendingSms = ref(false)
 const smsCountdown = ref(0)
 let countdownTimer = null
@@ -288,9 +373,9 @@ const form = reactive({
 
 const validatePhone = (rule, value, callback) => {
   if (!value) {
-    callback(new Error('请输入手机号'))
+    callback(new Error(t('auth.phoneInvalid')))
   } else if (!/^1[3-9]\d{9}$/.test(value)) {
-    callback(new Error('手机号格式不正确'))
+    callback(new Error(t('auth.phoneInvalid')))
   } else {
     callback()
   }
@@ -308,40 +393,17 @@ const rules = {
     { required: true, validator: validatePhone, trigger: 'blur' }
   ],
   captcha_code: [
-    { required: true, message: '请输入图形验证码', trigger: 'blur' }
+    { required: true, message: computed(() => t('auth.captchaRequired')), trigger: 'blur' }
   ],
   verify_code: [
-    { required: true, message: '请输入短信验证码', trigger: 'blur' }
+    { required: true, message: computed(() => t('auth.smsCodeRequired')), trigger: 'blur' }
   ]
 }
 
-// 特性数据
-const features = computed(() => [
-  {
-    icon: Document,
-    title: t('auth.aiCaseGeneration'),
-    description: t('auth.aiCaseGenerationDesc'),
-    color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-  },
-  {
-    icon: MagicStick,
-    title: t('auth.aiIntelligentTesting'),
-    description: t('auth.aiIntelligentTestingDesc'),
-    color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
-  },
-  {
-    icon: Connection,
-    title: t('auth.multiTypeTesting'),
-    description: t('auth.multiTypeTestingDesc'),
-    color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
-  },
-  {
-    icon: TrendCharts,
-    title: t('auth.dataAnalysis'),
-    description: t('auth.dataAnalysisDesc'),
-    color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
-  }
-])
+// 忘记密码提示
+const onForgot = () => {
+  ElMessage.info(t('auth.forgotPasswordToast'))
+}
 
 // 获取图形验证码
 const refreshCaptcha = async () => {
@@ -358,11 +420,11 @@ const refreshCaptcha = async () => {
 // 发送短信验证码
 const sendVerifyCode = async () => {
   if (!form.phone) {
-    ElMessage.warning('请先输入手机号')
+    ElMessage.warning(t('auth.phoneInvalid'))
     return
   }
   if (!form.captcha_code) {
-    ElMessage.warning('请先输入图形验证码')
+    ElMessage.warning(t('auth.captchaRequired'))
     return
   }
 
@@ -375,8 +437,7 @@ const sendVerifyCode = async () => {
       mode: 'login'
     })
     form.verify_code_token = response.data.verify_code_token
-    ElMessage.success('验证码已发送')
-    // 开始 60 秒倒计时
+    ElMessage.success(t('auth.smsSent'))
     smsCountdown.value = 60
     countdownTimer = setInterval(() => {
       smsCountdown.value--
@@ -386,7 +447,7 @@ const sendVerifyCode = async () => {
       }
     }, 1000)
   } catch (error) {
-    const errMsg = error.response?.data?.error || '验证码发送失败'
+    const errMsg = error.response?.data?.error || t('auth.smsSendFailed')
     ElMessage.error(errMsg)
     refreshCaptcha()
   } finally {
@@ -397,7 +458,6 @@ const sendVerifyCode = async () => {
 const handleLogin = async () => {
   if (!formRef.value) return
 
-  // 短信模式：校验手机号、图形验证码、短信验证码
   if (loginMode.value === 'sms') {
     await formRef.value.validate(async (valid) => {
       if (valid) {
@@ -421,7 +481,6 @@ const handleLogin = async () => {
     return
   }
 
-  // 密码模式
   await formRef.value.validate(async (valid) => {
     if (valid) {
       loading.value = true
@@ -447,483 +506,591 @@ onUnmounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.login-container {
-  height: 100vh;
+/* ═══════════ 亮色简洁商务风 · 1:1 还原原型 ═══════════ */
+.login-page {
   display: flex;
-  background: #f5f7fa;
+  min-height: 100vh;
+  width: 100%;
+  background: #f5f8fd;
   overflow: hidden;
+  --blue: #2f6bff;
+  --blue-h: #2455d6;
+  --blue-deep: #1d47c0;
+  --blue-50: #eef4ff;
+  --blue-100: #dbe7ff;
+  --blue-200: #c2d6ff;
+  --ink-0: #f5f8fd;
+  --ink-2: #e6eef8;
+  --tx-1: #16233f;
+  --tx-2: #5a6b8c;
+  --tx-3: #8ea0bd;
+  --tx-line: #e2e9f4;
+  --green: #12a06b;
+  --red: #e5484d;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+  --sh-sm: 0 1px 2px rgba(22, 41, 80, 0.05), 0 4px 14px rgba(22, 41, 80, 0.05);
+  --sh-md: 0 6px 24px rgba(22, 41, 80, 0.08), 0 2px 6px rgba(22, 41, 80, 0.05);
+  --grad-brand: linear-gradient(135deg, #3b82f6, #2f6bff 55%, #5a7cff);
 }
 
-.dropdown-flag {
-  font-size: 16px;
-  margin-right: 6px;
-}
-
-/* 左侧展示区域 */
-.showcase-section {
-  flex: 1;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+/* ─────────── 左侧 60% 品牌区 ─────────── */
+.panel {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: 0 0 60%;
+  max-width: none;
+  padding: 56px 72px 40px;
   overflow: hidden;
-  padding: 60px;
-
-  .showcase-content {
-    position: relative;
-    z-index: 2;
-    width: 100%;
-    max-width: 600px;
-    color: white;
-  }
-
-  .brand-header {
-    margin-bottom: 60px;
-    animation: fadeInDown 0.8s ease-out;
-
-    .logo-wrapper {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      margin-bottom: 16px;
-
-      .logo-icon {
-        width: 60px;
-        height: 60px;
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        backdrop-filter: blur(10px);
-
-        svg {
-          width: 32px;
-          height: 32px;
-          color: white;
-        }
-      }
-
-      .brand-title {
-        font-size: 42px;
-        font-weight: 700;
-        margin: 0;
-        color: white;
-        letter-spacing: -1px;
-      }
-    }
-
-    .brand-subtitle {
-      font-size: 18px;
-      opacity: 0.9;
-      margin: 0;
-      font-weight: 300;
-      letter-spacing: 1px;
-    }
-  }
-
-  .features-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-    margin-bottom: 60px;
-
-    .feature-card {
-      background: rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(10px);
-      border-radius: 16px;
-      padding: 24px;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      transition: all 0.3s ease;
-      animation: fadeInUp 0.8s ease-out;
-      animation-delay: calc(var(--index) * 0.1s);
-
-      &:hover {
-        transform: translateY(-5px);
-        background: rgba(255, 255, 255, 0.15);
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-      }
-
-      .feature-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 16px;
-
-        :deep(svg) {
-          width: 24px;
-          height: 24px;
-          color: white;
-        }
-      }
-
-      .feature-content {
-        h3 {
-          font-size: 16px;
-          font-weight: 600;
-          margin: 0 0 8px 0;
-          color: white;
-        }
-
-        p {
-          font-size: 13px;
-          margin: 0;
-          opacity: 0.8;
-          line-height: 1.5;
-        }
-      }
-    }
-  }
-
-  .ai-capabilities {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    animation: fadeInUp 1s ease-out;
-
-    .capability-badge {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: rgba(255, 255, 255, 0.15);
-      backdrop-filter: blur(10px);
-      padding: 10px 20px;
-      border-radius: 50px;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      font-size: 14px;
-      font-weight: 500;
-
-      svg {
-        width: 18px;
-        height: 18px;
-      }
-    }
-  }
-
-  .floating-shapes {
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(1200px 700px at -10% -10%, rgba(47, 107, 255, 0.14), transparent 55%),
+    radial-gradient(900px 600px at 110% 115%, rgba(90, 124, 255, 0.12), transparent 55%),
+    linear-gradient(160deg, #f8fbff 0%, #eef4ff 55%, #e7efff 100%);
+  &::before {
+    content: '';
     position: absolute;
-    width: 100%;
-    height: 100%;
-    top: 0;
-    left: 0;
-    z-index: 1;
+    top: -120px; right: -120px;
+    width: 360px; height: 360px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(47, 107, 255, 0.18), transparent 70%);
+  }
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 8%; left: -90px;
+    width: 300px; height: 300px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.14), transparent 70%);
+  }
+}
 
-    .language-switcher {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      z-index: 10;
+/* 几何网格 */
+.grid-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(to right, var(--blue-100) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--blue-100) 1px, transparent 1px);
+  background-size: 52px 52px;
+  mask-image: radial-gradient(ellipse at 30% 30%, #000 20%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse at 30% 30%, #000 20%, transparent 70%);
+}
 
-      .language-dropdown {
-        .el-dropdown-link {
-          display: flex;
-          align-items: center;
-          cursor: pointer;
-          color: white;
-          background: rgba(255, 255, 255, 0.15);
-          backdrop-filter: blur(10px);
-          padding: 8px 16px;
-          border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          transition: all 0.3s ease;
-          outline: none;
+/* 圆环 */
+.rings {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  .ring {
+    position: absolute;
+    border: 1px solid rgba(47, 107, 255, 0.16);
+    border-radius: 50%;
+    &.ring-1 { width: 520px; height: 520px; top: -160px; right: -160px; }
+    &.ring-2 { width: 340px; height: 340px; top: -40px; right: -40px; border-color: rgba(47, 107, 255, 0.22); }
+    &.ring-3 { width: 180px; height: 180px; top: 120px; right: -60px; border-color: rgba(47, 107, 255, 0.18); }
+  }
+}
 
-          &:focus {
-            outline: none;
-          }
-
-          .language-icon {
-            font-size: 16px;
-            margin-right: 6px;
-            line-height: 1;
-          }
-
-          .language-text {
-            font-size: 14px;
-            margin-right: 4px;
-          }
-
-          &:hover {
-            background: rgba(255, 255, 255, 0.25);
-          }
-        }
-      }
+/* 品牌头部 */
+.brand {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  .mark {
+    width: 38px; height: 38px;
+    border-radius: 11px;
+    background: var(--grad-brand);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    font-weight: 800;
+    font-size: 19px;
+    box-shadow: 0 8px 20px rgba(47, 107, 255, 0.35);
+  }
+  .nm {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: #10244d;
+    small {
+      font-weight: 500;
+      color: var(--tx-2);
+      font-size: 12.5px;
+      margin-left: 6px;
+      letter-spacing: 0;
     }
-
-    .shape {
-      position: absolute;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.1);
-      animation: float 20s infinite;
-
-      &.shape-1 {
-        width: 300px;
-        height: 300px;
-        top: -100px;
-        left: -100px;
-        animation-delay: 0s;
+  }
+  .lang-sw {
+    margin-left: auto;
+    :deep(.lang-trigger) {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--tx-2);
+      padding: 6px 11px;
+      border: 1px solid var(--tx-line);
+      border-radius: var(--r-pill);
+      background: rgba(255, 255, 255, 0.7);
+      cursor: pointer;
+      transition: all 0.15s;
+      &:hover {
+        border-color: var(--blue-200);
+        color: var(--blue);
       }
-
-      &.shape-2 {
-        width: 200px;
-        height: 200px;
-        bottom: -50px;
-        right: -50px;
-        animation-delay: 5s;
-      }
-
-      &.shape-3 {
-        width: 150px;
-        height: 150px;
-        top: 50%;
-        right: 20%;
-        animation-delay: 10s;
-      }
-
-      &.shape-4 {
-        width: 100px;
-        height: 100px;
-        bottom: 30%;
-        left: 30%;
-        animation-delay: 15s;
-      }
+      .lang-flag { font-size: 14px; line-height: 1; }
+      .caret { font-size: 11px; }
     }
   }
 }
 
-/* 右侧登录表单 */
-.login-section {
-  width: 500px;
+/* Hero */
+.hero {
+  position: relative;
+  z-index: 2;
+  margin-top: 9vh;
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 13px;
+    border-radius: var(--r-pill);
+    background: rgba(47, 107, 255, 0.1);
+    border: 1px solid var(--blue-100);
+    font-size: 12px;
+    color: var(--blue);
+    font-weight: 600;
+    margin-bottom: 22px;
+  }
+  h1 {
+    font-size: clamp(34px, 3.6vw, 50px);
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: #10244d;
+    margin: 0;
+    .grad {
+      background: var(--grad-brand);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+  }
+  .sub {
+    font-size: 15.5px;
+    color: var(--tx-2);
+    line-height: 1.8;
+    margin: 16px 0 0;
+    max-width: 460px;
+  }
+}
+
+/* 能力卡 2×2 */
+.cards {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 44px;
+}
+.card {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--tx-line);
+  border-radius: var(--r-lg);
+  padding: 18px 18px 16px;
+  backdrop-filter: blur(8px);
+  transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s;
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--sh-md);
+    border-color: var(--blue-200);
+  }
+  .ic {
+    width: 34px; height: 34px;
+    border-radius: 9px;
+    background: var(--blue-50);
+    color: var(--blue);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+    svg { width: 19px; height: 19px; }
+  }
+  h3 {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #10244d;
+    margin: 0;
+  }
+  p {
+    font-size: 12.3px;
+    color: var(--tx-2);
+    line-height: 1.65;
+    margin: 6px 0 0;
+  }
+  .stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 11px;
+    font-size: 11.5px;
+    color: var(--tx-3);
+    b {
+      color: var(--blue);
+      font-size: 13px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+    }
+    .up { color: var(--green); margin-left: 2px; }
+  }
+}
+
+/* 底部 tag 区 */
+.dock {
+  position: relative;
+  z-index: 2;
+  margin-top: auto;
+  padding-top: 40px;
+  .lab {
+    font-size: 11.5px;
+    color: var(--tx-3);
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+  }
+  .tags {
+    display: flex;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: var(--r-pill);
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid var(--tx-line);
+    font-size: 12.5px;
+    color: var(--tx-2);
+    font-weight: 500;
+  }
+  .cp {
+    margin-top: 22px;
+    font-size: 11.5px;
+    color: var(--tx-3);
+  }
+}
+
+/* ─────────── 右侧 40% 登录区 ─────────── */
+.form-panel {
+  flex: 0 0 40%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: white;
-  padding: 60px;
-  position: relative;
-
-  .login-form-wrapper {
-    width: 100%;
-    max-width: 400px;
+  padding: 48px 40px;
+  background: var(--ink-0);
+}
+.card-login {
+  width: 100%;
+  max-width: 424px;
+}
+.form-head {
+  .hello {
+    font-size: 26px;
+    font-weight: 800;
+    color: #10244d;
+    letter-spacing: -0.01em;
   }
-
-  .form-header {
-    text-align: center;
-    margin-bottom: 24px;
-    animation: fadeIn 0.8s ease-out;
-
-    h2 {
-      font-size: 28px;
-      font-weight: 700;
-      color: #303133;
-      margin: 0 0 12px 0;
-    }
-
-    p {
-      font-size: 14px;
-      color: #909399;
-      margin: 0;
-      line-height: 1.6;
-    }
-  }
-
-  .mode-tabs {
-    display: flex;
-    background: #f0f2f5;
-    border-radius: 8px;
-    padding: 4px;
-    margin-bottom: 24px;
-
-    .mode-tab {
-      flex: 1;
-      padding: 8px 16px;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      color: #909399;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      background: transparent;
-
-      &.active {
-        background: white;
-        color: #667eea;
-        font-weight: 600;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-      }
-
-      &:hover:not(.active) {
-        color: #606266;
-      }
-    }
-  }
-
-  .captcha-img {
-    width: 100%;
-    height: 40px;
-    border-radius: 4px;
-    cursor: pointer;
-    border: 1px solid #dcdfe6;
-  }
-
-  .login-form {
-    :deep(.el-input__wrapper) {
-      padding: 8px 16px;
-      box-shadow: 0 0 0 1px #dcdfe6 inset;
-      transition: all 0.3s ease;
-
-      &:hover {
-        box-shadow: 0 0 0 1px #c0c4cc inset;
-      }
-
-      &.is-focus {
-        box-shadow: 0 0 0 1px #667eea inset;
-      }
-    }
-
-    :deep(.el-form-item) {
-      margin-bottom: 24px;
-    }
-
-    .login-button {
-      width: 100%;
-      height: 48px;
-      font-size: 16px;
+  .sub {
+    font-size: 13.5px;
+    color: var(--tx-2);
+    margin-top: 6px;
+    .reg {
+      color: var(--blue);
       font-weight: 600;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border: none;
-      transition: all 0.3s ease;
-
-      &:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-      }
-
-      &:active {
-        transform: translateY(0);
-      }
-    }
-  }
-
-  .form-footer {
-    text-align: center;
-    margin-top: 24px;
-
-    .register-link {
-      color: #909399;
+      margin-left: 4px;
       text-decoration: none;
-      font-size: 14px;
-      transition: all 0.3s ease;
-
-      span {
-        color: #667eea;
-        font-weight: 600;
-      }
-
-      &:hover {
-        color: #667eea;
-      }
-    }
-  }
-
-  .bottom-info {
-    margin-top: 60px;
-    text-align: center;
-
-    p {
-      font-size: 12px;
-      color: #c0c4cc;
-      margin: 0;
+      &:hover { text-decoration: underline; }
     }
   }
 }
 
-/* 动画 */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes float {
-  0%, 100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
-  25% {
-    transform: translate(30px, -30px) rotate(90deg);
-  }
-  50% {
-    transform: translate(-20px, 20px) rotate(180deg);
-  }
-  75% {
-    transform: translate(20px, 10px) rotate(270deg);
-  }
-}
-
-/* 响应式设计 */
-@media (max-width: 1200px) {
-  .showcase-section {
-    padding: 40px;
-
-    .features-grid {
-      grid-template-columns: 1fr;
+/* tab */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 26px 0 22px;
+  background: var(--ink-2);
+  padding: 4px;
+  border-radius: var(--r-md);
+  width: 100%;
+  button {
+    flex: 1;
+    height: 38px;
+    border: 0;
+    background: transparent;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--tx-2);
+    transition: all 0.18s;
+    cursor: pointer;
+    &.active {
+      background: #fff;
+      color: var(--blue);
+      box-shadow: var(--sh-sm);
     }
   }
 }
 
-@media (max-width: 768px) {
-  .login-container {
-    flex-direction: column;
+/* 表单字段 */
+.field {
+  margin-bottom: 16px;
+  label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--tx-1);
+    margin-bottom: 7px;
   }
-
-  .showcase-section {
-    min-height: 50vh;
-    padding: 30px;
-
-    .brand-header {
-      margin-bottom: 30px;
-
-      .logo-wrapper .brand-title {
-        font-size: 32px;
-      }
-    }
-
-    .features-grid {
-      display: none;
-    }
+}
+.ctrl {
+  position: relative;
+  .pre {
+    position: absolute;
+    left: 13px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--tx-3);
+    display: flex;
+    pointer-events: none;
+    svg { width: 17px; height: 17px; }
   }
-
-  .login-section {
+  input {
     width: 100%;
-    padding: 30px;
+    height: 44px;
+    padding: 0 42px;
+    border: 1px solid var(--tx-line);
+    border-radius: var(--r-md);
+    background: #fff;
+    color: var(--tx-1);
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    &::placeholder { color: var(--tx-3); }
+    &:focus {
+      outline: none;
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(47, 107, 255, 0.13);
+    }
   }
+  .eye {
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--tx-3);
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+    cursor: pointer;
+    &:hover { color: var(--blue); }
+    svg { width: 18px; height: 18px; }
+  }
+  .send-btn {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 34px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--blue-50);
+    color: var(--blue);
+    font-size: 12.5px;
+    font-weight: 600;
+    transition: all 0.15s;
+    white-space: nowrap;
+    cursor: pointer;
+    &:not(:disabled):hover {
+      background: var(--blue-100);
+      color: var(--blue-h);
+    }
+    &:disabled {
+      color: var(--tx-3);
+      background: var(--ink-2);
+      cursor: not-allowed;
+    }
+    .sms-spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid var(--blue-100);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+    }
+  }
+}
+
+/* 图形验证码 + 短信码：右侧附加按钮 */
+.code {
+  input {
+    padding-right: 118px;
+  }
+  .captcha-img {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 34px;
+    width: 100px;
+    border-radius: 8px;
+    border: 1px solid var(--tx-line);
+    object-fit: cover;
+    cursor: pointer;
+    background: #fff;
+  }
+}
+
+.row2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4px 0 20px;
+}
+
+.chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--tx-2);
+  user-select: none;
+  input { display: none; }
+  .box {
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    border: 1.5px solid var(--tx-line);
+    background: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    svg { width: 11px; height: 11px; color: #fff; opacity: 0; transform: scale(0.5); transition: all 0.15s; }
+  }
+  input:checked + .box {
+    background: var(--blue);
+    border-color: var(--blue);
+    svg { opacity: 1; transform: scale(1); }
+  }
+}
+
+.forget {
+  font-size: 12.5px;
+  color: var(--tx-2);
+  font-weight: 500;
+  text-decoration: none;
+  &:hover { color: var(--blue); }
+}
+
+/* 登录按钮 */
+.btn-login {
+  width: 100%;
+  height: 46px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--grad-brand);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  box-shadow: 0 8px 22px rgba(47, 107, 255, 0.32);
+  transition: all 0.18s;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px rgba(47, 107, 255, 0.4);
+    filter: brightness(1.03);
+  }
+  &:active { transform: translateY(0); }
+  &::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -60%;
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    transform: skewX(-20deg);
+    animation: btn-sheen 2.8s infinite;
+  }
+  @keyframes btn-sheen {
+    0% { left: -60%; }
+    60%, 100% { left: 130%; }
+  }
+  &.loading {
+    pointer-events: none;
+    opacity: 0.85;
+    .spinner { display: inline-block; }
+  }
+  .spinner {
+    display: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: -3px;
+    margin-right: 8px;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+}
+
+/* 底部协议 */
+.foot {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  margin-top: 34px;
+  font-size: 12px;
+  color: var(--tx-3);
+  a {
+    color: var(--tx-3);
+    text-decoration: none;
+    &:hover { color: var(--blue); }
+  }
+}
+
+/* ─────────── 响应式 ─────────── */
+@media (max-width: 1180px) {
+  .panel { padding: 48px 48px 32px; }
+  .cards { gap: 12px; }
+}
+@media (max-width: 960px) {
+  .login-page { flex-direction: column; overflow-y: auto; }
+  .panel { flex-basis: 100%; padding: 32px 24px; }
+  .hero { margin-top: 40px; }
+  .form-panel { flex: none; padding: 36px 20px; }
 }
 </style>
