@@ -167,7 +167,6 @@
       <div class="suite-info-bar">
         <span class="info-item"><label>执行模式：</label>{{ currentSuite.execution_mode === 'shared_session' ? '共享会话' : '用例独立' }}</span>
         <span class="info-item" v-if="currentSuite.execution_mode === 'shared_session'"><label>登录配置：</label>{{ currentSuite.login_config_name || '未配置' }}</span>
-        <span class="info-item" v-if="currentSuite.execution_mode === 'shared_session'"><label>执行后动作：</label>{{ currentSuite.default_post_action_display || '保持并刷新' }}</span>
         <span class="info-item"><label>描述：</label>{{ currentSuite.description || '无' }}</span>
       </div>
 
@@ -240,16 +239,6 @@
               <span v-else style="color: var(--gray-400)">-</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="currentSuite.execution_mode === 'shared_session'" label="执行后动作" width="150" align="center">
-            <template #default="{ row }">
-              <el-select v-model="row.post_action" size="small" placeholder="默认" clearable style="width: 120px" @change="handlePostActionChange(row)">
-                <el-option label="默认" value="" />
-                <el-option label="保持并刷新" value="refresh_page" />
-                <el-option label="关闭页面" value="close_page" />
-                <el-option label="维持当前状态" value="keep_state" />
-              </el-select>
-            </template>
-          </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
               <div class="op-btns">
@@ -282,14 +271,6 @@
           <el-select v-model="editForm.login_config" placeholder="请选择登录配置" clearable filterable style="width: 100%">
             <el-option v-for="cfg in loginConfigs" :key="cfg.id" :label="cfg.name" :value="cfg.id" />
           </el-select>
-        </el-form-item>
-        <el-form-item v-if="editForm.execution_mode === 'shared_session'" label="执行后动作" prop="default_post_action">
-          <el-select v-model="editForm.default_post_action" placeholder="请选择默认执行后动作" style="width: 100%">
-            <el-option label="保持并刷新" value="refresh_page" />
-            <el-option label="关闭页面" value="close_page" />
-            <el-option label="维持当前状态" value="keep_state" />
-          </el-select>
-          <div class="mode-tip">用例执行完后的默认页面操作，用例级可单独覆盖</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -600,7 +581,7 @@ import {
   removeTestCaseFromTestSuite, removeTestCasesFromTestSuite,
   updateTestCaseOrder, runTestSuite, getLoginConfigs, getTestCaseGroupTree,
   batchUpdateTestSuites, getSuiteExecutionRecords, getTestCaseExecutionDetail,
-  updateTestCasePostAction, getSuiteVariableFlow
+  getSuiteVariableFlow
 } from '@/api/ui_automation'
 
 // ==================== 通用数据 ====================
@@ -790,13 +771,13 @@ const isEditing = ref(false)
 const editingSuiteId = ref(null)
 const saving = ref(false)
 const editFormRef = ref(null)
-const editForm = reactive({ name: '', description: '', execution_mode: 'per_case', login_config: null, default_post_action: 'refresh_page' })
+const editForm = reactive({ name: '', description: '', execution_mode: 'per_case', login_config: null })
 const editFormRules = { name: [{ required: true, message: '请输入套件名称', trigger: 'blur' }] }
 
 const handleNewSuite = async () => {
   isEditing.value = false
   editingSuiteId.value = null
-  Object.assign(editForm, { name: '', description: '', execution_mode: 'per_case', login_config: null, default_post_action: 'refresh_page' })
+  Object.assign(editForm, { name: '', description: '', execution_mode: 'per_case', login_config: null })
   await loadLoginConfigs()
   showEditDialog.value = true
 }
@@ -808,8 +789,7 @@ const editSuiteInfo = async (row) => {
     name: row.name,
     description: row.description || '',
     execution_mode: row.execution_mode || 'per_case',
-    login_config: row.login_config || null,
-    default_post_action: row.default_post_action || 'refresh_page'
+    login_config: row.login_config || null
   })
   await loadLoginConfigs()
   showEditDialog.value = true
@@ -827,8 +807,7 @@ const saveSuiteInfo = async () => {
       name: editForm.name,
       description: editForm.description,
       execution_mode: editForm.execution_mode,
-      login_config: editForm.execution_mode === 'shared_session' ? editForm.login_config : null,
-      default_post_action: editForm.execution_mode === 'shared_session' ? editForm.default_post_action : 'refresh_page'
+      login_config: editForm.execution_mode === 'shared_session' ? editForm.login_config : null
     }
     if (isEditing.value) {
       await updateTestSuite(editingSuiteId.value, data)
@@ -973,17 +952,6 @@ const batchRemoveCases = async () => {
     selectedCaseIds.value = []
     await loadSuiteCases()
   } catch (e) { if (e !== 'cancel') console.error(e) }
-}
-
-// ==================== 执行后动作 ====================
-const handlePostActionChange = async (row) => {
-  try {
-    await updateTestCasePostAction(currentSuite.value.id, row.id, row.post_action || '')
-    ElMessage.success('执行后动作已更新')
-  } catch (e) {
-    console.error(e)
-    ElMessage.error('更新失败')
-  }
 }
 
 // ==================== 关联用例弹窗 ====================

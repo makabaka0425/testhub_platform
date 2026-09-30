@@ -187,11 +187,10 @@ class TestSuiteScriptSerializer(serializers.ModelSerializer):
 class TestSuiteTestCaseSerializer(serializers.ModelSerializer):
     test_case = serializers.SerializerMethodField()
     test_case_id = serializers.IntegerField(write_only=True)
-    post_action_display = serializers.CharField(source='get_post_action_display', read_only=True, default='')
 
     class Meta:
         model = TestSuiteTestCase
-        fields = ('id', 'test_case', 'test_case_id', 'order', 'post_action', 'post_action_display')
+        fields = ('id', 'test_case', 'test_case_id', 'order')
 
     def get_test_case(self, obj):
         """获取测试用例信息"""
@@ -299,7 +298,6 @@ class TestSuiteSerializer(serializers.ModelSerializer):
     test_case_count = serializers.SerializerMethodField()
     login_config_name = serializers.CharField(source='login_config.name', read_only=True, default='')
     execution_mode_display = serializers.CharField(source='get_execution_mode_display', read_only=True)
-    default_post_action_display = serializers.CharField(source='get_default_post_action_display', read_only=True, default='')
     has_cleanup_steps = serializers.SerializerMethodField()
     last_execution_time = serializers.SerializerMethodField()
 
@@ -331,14 +329,14 @@ class TestSuiteSerializer(serializers.ModelSerializer):
 class TestSuiteCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSuite
-        fields = ('id', 'project', 'name', 'description', 'login_config', 'execution_mode', 'cleanup_sql', 'default_post_action')
+        fields = ('id', 'project', 'name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
         read_only_fields = ('id',)
 
 
 class TestSuiteUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestSuite
-        fields = ('name', 'description', 'login_config', 'execution_mode', 'cleanup_sql', 'default_post_action')
+        fields = ('name', 'description', 'login_config', 'execution_mode', 'cleanup_sql')
 
 
 class TestSuiteWithScriptsSerializer(serializers.ModelSerializer):
