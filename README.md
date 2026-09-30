@@ -1,4 +1,4 @@
-# TestHub 智能测试管理平台
+# 灵测 L-Test 智能测试管理平台
 
 <div align="center">
 
@@ -13,7 +13,7 @@
 
 ## 📖 项目简介
 
-TestHub 是一个功能强大的智能测试管理平台，集成了 **AI 需求分析**、**测试用例管理**、**API 测试**、**UI 自动化测试** 等多个模块，旨在提升测试效率和质量。平台采用 Django + Vue3 技术栈，提供现代化的用户界面和丰富的功能特性。
+灵测 L-Test 是一个功能强大的智能测试管理平台，集成了 **AI 需求分析**、**测试用例管理**、**API 测试**、**UI 自动化测试** 等多个模块，旨在提升测试效率和质量。平台采用 Django + Vue3 技术栈，提供现代化的用户界面和丰富的功能特性。
 
 ## ✨ 核心特性
 
@@ -147,7 +147,7 @@ TestHub 是一个功能强大的智能测试管理平台，集成了 **AI 需求
 ## 📁 项目结构
 
 ```
-testhub_platform/
+lingce_ltest_platform/
 ├── apps/                           # Django 应用模块
 │   ├── users/                      # 用户管理
 │   ├── projects/                   # 项目管理
@@ -220,7 +220,7 @@ testhub_platform/
 1. **克隆项目**
 ```bash
 git clone <repository-url>
-cd testhub_platform
+cd lingce_ltest_platform
 ```
 
 2. **创建虚拟环境**
@@ -248,7 +248,7 @@ cp .env.example .env
 ```bash
 # 创建数据库
 mysql -u root -p
-CREATE DATABASE testhub CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE lingce_ltest CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 EXIT;
 
 # 创建 migrations 目录（如果不存在）

@@ -13,7 +13,7 @@ function parseEnvBoolean(value) {
 }
 
 const ANALYTICS_ENABLED = parseEnvBoolean(import.meta.env.VITE_ANALYTICS_ENABLED)
-const SESSION_STORAGE_KEY = 'testhub_analytics_session_id'
+const SESSION_STORAGE_KEY = 'lingce_ltest_analytics_session_id'
 
 function getSessionId() {
   if (typeof window === 'undefined') {

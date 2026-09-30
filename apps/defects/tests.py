@@ -16,7 +16,7 @@ class DefectApiTests(APITestCase):
         self.developer = User.objects.create_user(username='developer', password='pass123456')
         self.viewer = User.objects.create_user(username='viewer', password='pass123456')
         self.other_user = User.objects.create_user(username='other', password='pass123456')
-        self.project = Project.objects.create(name='TestHub', owner=self.tester)
+        self.project = Project.objects.create(name='灵测 L-Test', owner=self.tester)
         ProjectMember.objects.create(project=self.project, user=self.developer, role='developer')
         ProjectMember.objects.create(project=self.project, user=self.viewer, role='viewer')
         self.version = Version.objects.create(name='v1.0', created_by=self.tester)

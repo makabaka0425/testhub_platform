@@ -1,6 +1,6 @@
 # 🚀 APP自动化测试 - 快速开始指南
 
-本指南帮助你快速上手 TestHub 的 APP 自动化测试功能。
+本指南帮助你快速上手 灵测 L-Test 的 APP 自动化测试功能。
 
 ---
 
@@ -36,7 +36,7 @@ adb version
 
 ```bash
 # 激活虚拟环境
-E:\python_venv\testhub\Scripts\activate.bat  # Windows
+E:\python_venv\lingce_ltest\Scripts\activate.bat  # Windows
 
 # 安装依赖
 pip install airtest>=1.3.0

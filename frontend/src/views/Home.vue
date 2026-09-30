@@ -192,7 +192,7 @@ const currentLanguage = computed(() => appStore.language)
 const isMobile = ref(false)
 const mobileTipDismissed = ref(false)
 const MOBILE_BREAKPOINT = 768
-const MOBILE_TIP_STORAGE_KEY = 'testhub_home_mobile_tip_seen'
+const MOBILE_TIP_STORAGE_KEY = 'lingce_ltest_home_mobile_tip_seen'
 
 const dismissMobileTip = () => {
   mobileTipDismissed.value = true

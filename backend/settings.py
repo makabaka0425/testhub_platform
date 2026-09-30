@@ -113,7 +113,7 @@ ASGI_APPLICATION = 'backend.asgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': config('DB_NAME', default='testhub'),
+        'NAME': config('DB_NAME', default='lingce_ltest'),
         'USER': config('DB_USER', default='root'),
         'PASSWORD': config('DB_PASSWORD', default=''),  # 移除硬编码默认密码
         'HOST': config('DB_HOST', default='127.0.0.1'),
@@ -295,7 +295,7 @@ CSRF_TRUSTED_ORIGINS = config(
 
 # Spectacular Settings
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'TestHub API',
+    'TITLE': '灵测 L-Test API',
     'DESCRIPTION': 'Test Case Management Platform API',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,

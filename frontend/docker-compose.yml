@@ -6,15 +6,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: testhub_frontend
+    container_name: lingce_ltest_frontend
     restart: always
     ports:
       - "80:80"
     environment:
       - NODE_ENV=production
     networks:
-      - testhub_network
+      - lingce_ltest_network
 
 networks:
-  testhub_network:
+  lingce_ltest_network:
     driver: bridge

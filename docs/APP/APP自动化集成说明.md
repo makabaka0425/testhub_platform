@@ -347,7 +347,7 @@ sudo apt-get install android-tools-adb
 
 ```bash
 # 激活虚拟环境
-E:\python_venv\testhub\Scripts\activate.bat  # Windows
+E:\python_venv\lingce_ltest\Scripts\activate.bat  # Windows
 
 # 安装新依赖
 pip install airtest>=1.3.0
@@ -446,7 +446,7 @@ POST /api/app-automation/test-cases/1/execute/
 **需要迁移的文件**:
 ```
 D:\smart_ai_test\backend\apps\ui_test\utils\ui_flow_runner.py
-→ d:\testhub_platform\apps\app_automation\runners\ui_flow_runner.py
+→ d:\lingce_ltest_platform\apps\app_automation\runners\ui_flow_runner.py
 ```
 
 **核心功能**:
@@ -463,7 +463,7 @@ D:\smart_ai_test\backend\apps\ui_test\utils\ui_flow_runner.py
 **需要迁移的文件**:
 ```
 D:\smart_ai_test\backend\apps\ui_test\utils\airtest_base.py
-→ d:\testhub_platform\apps\app_automation\utils\airtest_base.py
+→ d:\lingce_ltest_platform\apps\app_automation\utils\airtest_base.py
 ```
 
 **核心功能**:
@@ -479,7 +479,7 @@ D:\smart_ai_test\backend\apps\ui_test\utils\airtest_base.py
 **需要迁移的文件**:
 ```
 D:\smart_ai_test\backend\apps\ui_test\executors\test_executor.py
-→ d:\testhub_platform\apps\app_automation\executors\test_executor.py
+→ d:\lingce_ltest_platform\apps\app_automation\executors\test_executor.py
 ```
 
 **核心功能**:
@@ -589,7 +589,7 @@ def execute_app_test_task(execution_id):
 mysql -u root -p
 
 # 查看表
-USE testhub;
+USE lingce_ltest;
 SHOW TABLES LIKE 'app_%';
 
 # 应该看到 8 个表
@@ -672,6 +672,6 @@ graph TD
 
 ---
 
-**集成人员**: TestHub Team  
+**集成人员**: 灵测 L-Test Team
 **最后更新**: 2026-02-04  
 **版本**: v1.0.0 - Phase 1 + Phase 2

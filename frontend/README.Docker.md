@@ -1,4 +1,4 @@
-# TestHub 前端 Docker 部署指南
+# 灵测 L-Test 前端 Docker 部署指南
 
 ## 📋 目录
 
@@ -117,14 +117,14 @@ services:
   frontend:
     environment:
       - VITE_API_BASE_URL=http://localhost:8000
-      - VITE_APP_TITLE=TestHub
+      - VITE_APP_TITLE=灵测 L-Test
 ```
 
 或创建 `.env` 文件：
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8000
-VITE_APP_TITLE=TestHub
+VITE_APP_TITLE=灵测 L-Test
 ```
 
 ## 常用命令
@@ -201,16 +201,16 @@ docker compose -f docker compose.dev.yml logs -f
 
 ```bash
 # 进入容器
-docker exec -it testhub_frontend sh
+docker exec -it lingce_ltest_frontend sh
 
 # 查看容器日志
-docker logs -f testhub_frontend
+docker logs -f lingce_ltest_frontend
 
 # 查看容器资源使用
-docker stats testhub_frontend
+docker stats lingce_ltest_frontend
 
 # 删除容器
-docker rm -f testhub_frontend
+docker rm -f lingce_ltest_frontend
 
 # 删除镜像
 docker rmi frontend_frontend
@@ -335,10 +335,10 @@ docker compose up -d -p 8080:80
 docker compose ps
 
 # 检查 Nginx 配置
-docker exec testhub_frontend nginx -t
+docker exec lingce_ltest_frontend nginx -t
 
 # 查看 Nginx 日志
-docker exec testhub_frontend cat /var/log/nginx/error.log
+docker exec lingce_ltest_frontend cat /var/log/nginx/error.log
 ```
 
 ### 4. 开发环境代码不更新
@@ -480,7 +480,7 @@ docker images | grep frontend
 
 **A**: 
 ```bash
-docker exec -it testhub_frontend sh
+docker exec -it lingce_ltest_frontend sh
 ```
 
 ### Q: 如何配置反向代理？

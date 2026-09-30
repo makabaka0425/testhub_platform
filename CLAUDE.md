@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TestHub is an AI-driven test management platform built with Django 4.2 (backend) + Vue 3 (frontend). It provides test case management, API testing, UI automation testing, APP (mobile) automation testing, test data generation (data factory), user behavior analytics, AI-powered requirement analysis, and test case generation capabilities.
+灵测 L-Test is an AI-driven test management platform built with Django 4.2 (backend) + Vue 3 (frontend). It provides test case management, API testing, UI automation testing, APP (mobile) automation testing, test data generation (data factory), user behavior analytics, AI-powered requirement analysis, and test case generation capabilities.
 
 ## Common Commands
 
 ```bash
 # Activate the virtual environment (Windows PowerShell)
-d:\testhub_platform\venv\Scripts\Activate.ps1
+d:\lingce_ltest_platform\venv\Scripts\Activate.ps1
 # Activate the virtual environment (macOS/Linux)
 source .venv/bin/activate
 ```

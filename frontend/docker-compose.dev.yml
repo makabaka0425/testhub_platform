@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: testhub_frontend_dev
+    container_name: lingce_ltest_frontend_dev
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -16,8 +16,8 @@ services:
     environment:
       - NODE_ENV=development
     networks:
-      - testhub_network
+      - lingce_ltest_network
 
 networks:
-  testhub_network:
+  lingce_ltest_network:
     driver: bridge

@@ -499,7 +499,7 @@ class DefectViewSet(viewsets.ModelViewSet):
         width, height = A4
         y = height - 50
         pdf.setFont(font_name, 16)
-        pdf.drawString(50, y, 'TestHub 缺陷测试报告')
+        pdf.drawString(50, y, '灵测 L-Test 缺陷测试报告')
         y -= 36
         pdf.setFont(font_name, 11)
         summary_lines = [
