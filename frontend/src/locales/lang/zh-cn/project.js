@@ -80,6 +80,8 @@ export default {
     },
 
     // Title
+    brandName: '灵测 L-Test',
+    titleSuffix: '智能测试平台',
     title: '灵测 L-Test 测试平台',
     subtitle: '一站式智能化测试解决方案',
 
