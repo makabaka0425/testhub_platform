@@ -78,7 +78,11 @@ async function callbackForExecution(
 ): Promise<void> {
   const caseStepResults = stepResults.slice(caseStartIdx);
   const isPassed = status === 'passed';
-  const callbackUrl = `http://localhost:8000/api/ui-automation/midscene-cases/${caseId}/callback/`;
+  const configuredCallbackUrl = process.env.LINGCE_LTEST_CALLBACK_URL || '';
+  const callbackBaseUrl = configuredCallbackUrl
+    ? new URL(configuredCallbackUrl).origin
+    : 'http://localhost:8000';
+  const callbackUrl = `${callbackBaseUrl}/api/ui-automation/midscene-cases/${caseId}/callback/`;
   const failedScreenshots = caseStepResults
     .filter((s: any) => s.status === 'failed' && s.screenshot)
     .map((s: any) => ({ order: s.order, screenshot: s.screenshot }));

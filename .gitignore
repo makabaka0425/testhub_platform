@@ -66,6 +66,14 @@ frontend/.DS_Store
 frontend/*.log
 frontend/dist/
 
+# 本地服务日志
+/*.log
+
+# Midscene 运行时生成文件（可能包含用例中的敏感输入）
+midscene-service/e2e/test_execution_*.spec.ts
+midscene-service/e2e/test_plan_*.spec.ts
+midscene-service/test-results/
+
 # Docker
 Dockerfile*
 docker-compose*.yml

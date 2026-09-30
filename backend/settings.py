@@ -52,6 +52,11 @@ REGISTRATION_STATS_VISIBLE_USERNAMES = config(
 )
 APP_USE_HTTPS = config('APP_USE_HTTPS', default=not DEBUG, cast=bool)
 TRUST_PROXY_SSL_HEADER = config('TRUST_PROXY_SSL_HEADER', default=APP_USE_HTTPS, cast=bool)
+BACKEND_PORT = config('BACKEND_PORT', default=8000, cast=int)
+BACKEND_BASE_URL = config(
+    'BACKEND_BASE_URL',
+    default=f'http://localhost:{BACKEND_PORT}',
+).rstrip('/')
 
 LOCAL_APPS = [
     'apps.users',

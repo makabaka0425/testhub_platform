@@ -9,6 +9,7 @@ import logging
 import subprocess
 import tempfile
 import httpx
+from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q
@@ -37,6 +38,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 logger = logging.getLogger(__name__)
 
 MIDSCENE_SERVICE_URL = os.environ.get('MIDSCENE_SERVICE_URL', 'http://localhost:8001')
+BACKEND_BASE_URL = os.environ.get(
+    'BACKEND_BASE_URL',
+    settings.BACKEND_BASE_URL,
+).rstrip('/')
 
 
 # ============================================================================
@@ -784,7 +789,7 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                 'height': case.viewport_height or 768,
             },
             'model_config': model_config,
-            'callback_url': f'http://localhost:8000/api/ui-automation/midscene-cases/{case.id}/callback/',
+            'callback_url': f'{BACKEND_BASE_URL}/api/ui-automation/midscene-cases/{case.id}/callback/',
             'execution_id': execution.id,
             # Web高级配置
             'user_agent': case.user_agent or None,
@@ -1261,30 +1266,6 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
 
             if architecture == 'playwright-test':
                 # ---- 新架构：Playwright Test ----
-                # Playwright Test 的结果通过 Reporter 回调 Django（见 callback 方法）
-                # 此处只检查进程是否仍在运行
-                runner_pid = logs_data.get('runner_pid')
-                if runner_pid:
-                    try:
-                        import psutil
-                        if not psutil.pid_exists(runner_pid):
-                            # 进程已退出，但 Django 尚未被回调 → 检查是否有结果
-                            if execution.status == 'running':
-                                execution.status = 'failed'
-                                execution.error_message = 'Playwright Test进程已退出但未收到回调'
-                                execution.finished_at = timezone.now()
-                                execution.save()
-                                case = execution.case
-                                if case:
-                                    case.last_status = 'failed'
-                                    case.last_result = 'Playwright进程异常退出'
-                                    case.save(update_fields=['last_status', 'last_result'])
-                                # 刷新关联计划的状态
-                                if case:
-                                    self._refresh_plan_status(case)
-                            return True
-                    except ImportError:
-                        pass
                 # 尝试从 Reporter 生成的 result_{execution_id}.json 读取（优先级最高）
                 results_dir = logs_data.get('results_dir') or os.path.join(
                     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -1322,6 +1303,27 @@ class MidsceneCaseViewSet(viewsets.ModelViewSet):
                         return True
                     except (json.JSONDecodeError, IOError) as e:
                         logger.warning(f'读取result_{execution.id}.json失败: {e}')
+
+                # Reporter 回调失败时，只有在确认没有结果文件后才使用进程状态兜底。
+                runner_pid = logs_data.get('runner_pid')
+                if runner_pid:
+                    try:
+                        import psutil
+                        if not psutil.pid_exists(runner_pid):
+                            if execution.status == 'running':
+                                execution.status = 'failed'
+                                execution.error_message = 'Playwright Test进程已退出且未生成执行结果'
+                                execution.finished_at = timezone.now()
+                                execution.save()
+                                case = execution.case
+                                if case:
+                                    case.last_status = 'failed'
+                                    case.last_result = 'Playwright进程异常退出'
+                                    case.save(update_fields=['last_status', 'last_result'])
+                                    self._refresh_plan_status(case)
+                            return True
+                    except ImportError:
+                        pass
 
                 # 尝试从 Playwright JSON 报告读取（兜底）
                 report_json = os.path.join(results_dir, 'report.json')
@@ -1875,7 +1877,7 @@ def _build_midscene_payload(case, execution_id):
             'height': case.viewport_height or 768,
         },
         'model_config': model_config,
-        'callback_url': f'http://localhost:8000/api/ui-automation/midscene-cases/{case.id}/callback/',
+        'callback_url': f'{BACKEND_BASE_URL}/api/ui-automation/midscene-cases/{case.id}/callback/',
         'execution_id': execution_id,
         'user_agent': case.user_agent or None,
         'device_scale_factor': case.device_scale_factor or None,
@@ -2085,7 +2087,7 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                     if execution_mode == 'shared_session':
                         batch_config = {
                             'login_config': login_config,
-                            'callback_base': 'http://localhost:8000/api/ui-automation',
+                            'callback_base': f'{BACKEND_BASE_URL}/api/ui-automation',
                             'execution_mode': execution_mode,
                         }
                         proc, result_file = _launch_midscene_runner_batch(
@@ -2137,7 +2139,7 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                         batch_config = {
                             'batch_id': batch_id,
                             'login_config': login_config,
-                            'callback_base': 'http://localhost:8000/api/ui-automation',
+                            'callback_base': f'{BACKEND_BASE_URL}/api/ui-automation',
                             'execution_mode': execution_mode,
                         }
                         generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
@@ -2159,7 +2161,7 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                             first_exec_id = cases_payload[0]['execution_id'] if cases_payload else 0
                             first_case_id = cases_payload[0]['case_id'] if cases_payload else 0
                             shared_env['LINGCE_LTEST_EXECUTION_ID'] = str(first_exec_id)
-                            shared_env['LINGCE_LTEST_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{first_case_id}/callback/'
+                            shared_env['LINGCE_LTEST_CALLBACK_URL'] = f'{BACKEND_BASE_URL}/api/ui-automation/midscene-cases/{first_case_id}/callback/'
 
                             log_path = os.path.join(pw_log_dir, f'plan_{plan_id}_batch_{batch_id}.log')
                             log_file = open(log_path, 'w', encoding='utf-8')
@@ -2260,7 +2262,7 @@ class AiScheduledTaskViewSet(viewsets.ModelViewSet):
                                 single_env = os.environ.copy()
                                 single_env['LINGCE_LTEST_EXECUTION_ID'] = str(exec_id)
                                 single_env['LINGCE_LTEST_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
-                                single_env['LINGCE_LTEST_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
+                                single_env['LINGCE_LTEST_CALLBACK_URL'] = f'{BACKEND_BASE_URL}/api/ui-automation/midscene-cases/{case_id}/callback/'
                                 single_env['LINGCE_LTEST_HEADLESS'] = 'false' if not item_data['payload'].get('headless', True) else 'true'
                                 single_env['LINGCE_LTEST_RESULTS_DIR'] = RESULTS_DIR
                                 single_env['LINGCE_LTEST_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')
@@ -2781,7 +2783,7 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
                     # 共享会话：单进程批次执行
                     batch_config = {
                         'login_config': login_config,
-                        'callback_base': 'http://localhost:8000/api/ui-automation',
+                        'callback_base': f'{BACKEND_BASE_URL}/api/ui-automation',
                         'execution_mode': execution_mode,
                     }
                     proc, result_file = _launch_midscene_runner_batch(
@@ -2834,7 +2836,7 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
                     batch_config = {
                         'batch_id': batch_id,
                         'login_config': login_config,
-                        'callback_base': 'http://localhost:8000/api/ui-automation',
+                        'callback_base': f'{BACKEND_BASE_URL}/api/ui-automation',
                         'execution_mode': execution_mode,
                     }
                     generate_shared_session_spec(cases_payload, batch_config, spec_path, env_path, RESULTS_DIR)
@@ -2858,7 +2860,7 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
                         first_exec_id = cases_payload[0]['execution_id'] if cases_payload else 0
                         first_case_id = cases_payload[0]['case_id'] if cases_payload else 0
                         shared_env['LINGCE_LTEST_EXECUTION_ID'] = str(first_exec_id)
-                        shared_env['LINGCE_LTEST_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{first_case_id}/callback/'
+                        shared_env['LINGCE_LTEST_CALLBACK_URL'] = f'{BACKEND_BASE_URL}/api/ui-automation/midscene-cases/{first_case_id}/callback/'
 
                         log_path = os.path.join(pw_log_dir, f'plan_{plan_id}_batch_{batch_id}.log')
                         log_file = open(log_path, 'w', encoding='utf-8')
@@ -2962,7 +2964,7 @@ class AiTestPlanViewSet(viewsets.ModelViewSet):
                             single_env = os.environ.copy()
                             single_env['LINGCE_LTEST_EXECUTION_ID'] = str(exec_id)
                             single_env['LINGCE_LTEST_TASK_ID'] = f'plan-{plan_id}-{batch_id}'
-                            single_env['LINGCE_LTEST_CALLBACK_URL'] = f'http://localhost:8000/api/ui-automation/midscene-cases/{case_id}/callback/'
+                            single_env['LINGCE_LTEST_CALLBACK_URL'] = f'{BACKEND_BASE_URL}/api/ui-automation/midscene-cases/{case_id}/callback/'
                             single_env['LINGCE_LTEST_HEADLESS'] = 'false' if not item_data['payload'].get('headless', True) else 'true'
                             single_env['LINGCE_LTEST_RESULTS_DIR'] = RESULTS_DIR
                             single_env['LINGCE_LTEST_ENV_FILE'] = os.path.join(RESULTS_DIR, f'.env_{exec_id}')

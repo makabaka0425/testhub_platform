@@ -4,7 +4,7 @@ import { resolve } from 'path'
 
 const projectRoot = resolve(__dirname, '..')
 
-const createConfig = (port) => ({
+const createConfig = (port, backendPort) => ({
   envDir: projectRoot,
   plugins: [vue()],
   resolve: {
@@ -40,34 +40,34 @@ const createConfig = (port) => ({
     },
     proxy: {
       '^/api/': {
-        target: 'http://127.0.0.1:8000',
+        target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true,
         secure: false,
       },
       '^/media/': {
-        target: 'http://127.0.0.1:8000',
+        target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true,
         secure: false,
       },
       '^/app-automation-templates/': {
-        target: 'http://127.0.0.1:8000',
+        target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true,
         secure: false,
       },
       '^/app-automation-reports/': {
-        target: 'http://127.0.0.1:8000',
+        target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true,
         secure: false,
       },
       '^/ui-automation/allure-report-static/': {
-        target: 'http://127.0.0.1:8000',
+        target: `http://127.0.0.1:${backendPort}`,
         changeOrigin: true,
         rewrite: (path) =>
           path.replace(/^\/ui-automation/, '/api/ui-automation'),
         secure: false,
       },
       '^/ws/': {
-        target: 'ws://127.0.0.1:8000',
+        target: `ws://127.0.0.1:${backendPort}`,
         ws: true,
         changeOrigin: true,
         configure: (proxy) => {
@@ -85,6 +85,8 @@ const createConfig = (port) => ({
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, projectRoot, '')
   const configuredPort = Number.parseInt(env.FRONTEND_DEV_PORT || '3001', 10)
+  const configuredBackendPort = Number.parseInt(env.BACKEND_PORT || '8000', 10)
+  const backendPort = Number.isNaN(configuredBackendPort) ? 8000 : configuredBackendPort
 
-  return createConfig(Number.isNaN(configuredPort) ? 3001 : configuredPort)
+  return createConfig(Number.isNaN(configuredPort) ? 3001 : configuredPort, backendPort)
 })
