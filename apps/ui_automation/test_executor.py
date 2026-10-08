@@ -4734,6 +4734,33 @@ class TestExecutor:
                     pre_case_sql_info['precondition_sql'] = pre_result['precondition_sql']
                 return False, msg, [], [pre_case_sql_info]
 
+            if pre_result and self._is_login_case(case_data):
+                print(f"[前置条件] 等待登录用例完成路由跳转...")
+                login_ready = self._wait_for_login_completion()
+                if not login_ready:
+                    # 登录请求偶发未生效时，重新进入项目登录页并完整重试一次。
+                    # 重试有明确上限，避免凭据错误时无限提交。
+                    print(f"[前置条件] 登录未完成，重新加载登录页并重试一次...")
+                    retry_url = self._build_project_url('')
+                    self._goto_playwright(retry_url)
+                    retry_result = self.execute_test_case_playwright_no_db(
+                        case_data, defer_postcondition=True
+                    )
+                    if retry_result['status'] == 'passed':
+                        pre_result = retry_result
+                        login_ready = self._wait_for_login_completion()
+                    else:
+                        msg = f"前置登录重试失败: {retry_result.get('error', '未知错误')}"
+                        print(f"[前置条件] {msg}")
+                        return False, msg, [], [{'case_name': precondition_case.name}]
+
+                if login_ready:
+                    print(f"[前置条件] 登录状态已就绪，当前URL: {self.current_page.url}")
+                else:
+                    msg = f"前置登录步骤已执行，但页面仍停留在登录页: {self.current_page.url}"
+                    print(f"[前置条件] {msg}")
+                    return False, msg, [], [{'case_name': precondition_case.name}]
+
             print(f"[前置条件] 前置用例「{precondition_case.name}」执行通过")
 
             # 收集该前置条件的后置SQL（用于主用例执行完后逆序执行）
